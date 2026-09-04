@@ -28,7 +28,7 @@ const modules = [
   {
     icon: ShieldCheck,
     title: '安全编码基线',
-    desc: '42 条规则 · v3.9',
+    desc: '42 条规则 · v4.0',
     status: '已强制',
     tone: 'green',
   },
@@ -539,7 +539,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent 0.7.0</h2>
+                <h2>Sentinel Endpoint Agent 0.8.0</h2>
                 <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
@@ -655,7 +655,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>企业 AI Coding 安全基线 v3.9</h2>
+                <h2>企业 AI Coding 安全基线 v4.0</h2>
                 <p>42 条规则已强制应用于 18 个研发团队</p>
               </div>
               <strong>

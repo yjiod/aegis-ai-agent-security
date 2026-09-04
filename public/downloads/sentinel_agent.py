@@ -105,8 +105,34 @@ def scan_mcp_config(path,text,policy):
         if url.startswith("http://"): out.append(finding("insecure_mcp_transport","high",path,f"MCP {name} 使用未加密 HTTP"))
         if url and allowed_domains and not any(url.startswith("https://"+d+"/") or url=="https://"+d for d in allowed_domains): out.append(finding("unapproved_mcp_domain","medium",path,f"MCP {name} 连接未批准域名"))
     return out
+def scan_skill(skill_file,policy,max_files=500):
+    """Scan the complete Skill package without following links outside its root."""
+    root=skill_file.parent; out=[]; scanned=0; name=root.name
+    allowed=set(policy.get("allowed_skills",[]))
+    if "allowed_skills" in policy and name not in allowed:
+        action=policy.get("enforcement",{}).get("unknown_skill","audit"); severity="high" if action=="block" else "medium"
+        out.append(finding("unknown_skill",severity,skill_file,f"未批准的 Skill: {name}"))
+    readable={".md",".txt",".py",".js",".ts",".tsx",".jsx",".sh",".ps1",".json",".toml",".yaml",".yml"}
+    root_resolved=root.resolve()
+    for current,dirs,files in os.walk(root,followlinks=False):
+        current_path=Path(current); dirs[:]=[x for x in dirs if x not in [".git","node_modules","vendor","dist","build"]]
+        for entry in list(dirs)+files:
+            path=current_path/entry
+            if path.is_symlink():
+                try: path.resolve().relative_to(root_resolved)
+                except (OSError,ValueError): out.append(finding("skill_symlink_escape","high",path,"Skill 符号链接指向包目录之外"))
+        for filename in files:
+            if scanned>=max_files: break
+            path=current_path/filename
+            if path.is_symlink() or path.suffix.lower() not in readable: continue
+            try:
+                if path.stat().st_size<=1_000_000: out.extend(scan_text(path,path.read_text(errors="ignore"),policy)); scanned+=1
+            except OSError: out.append(finding("unreadable","low",path,"Skill 文件存在但无法读取"))
+        if scanned>=max_files: out.append(finding("skill_scan_truncated","medium",root,f"Skill 文件数超过扫描上限 {max_files}")); break
+    return out,scanned
 def scan(root,policy):
     findings=[]; homes=managed_homes(); inventory=discover_agent_tools(homes)
+    skill_seen=set()
     for home in homes:
         for rel in AGENT_CONFIGS:
             p=home/rel
@@ -120,9 +146,12 @@ def scan(root,policy):
             if d.exists():
                 for p in d.rglob("SKILL.md"):
                     if ".system" in p.parts: continue
-                    inventory.append({"type":"skill","path":safe_path(p)})
-                    try: findings.extend(scan_text(p,p.read_text(errors="ignore"),policy))
-                    except OSError: pass
+                    skill_root=p.parent.resolve()
+                    if skill_root in skill_seen: continue
+                    skill_seen.add(skill_root); approved=p.parent.name in set(policy.get("allowed_skills",[]))
+                    skill_findings,scanned=scan_skill(p,policy)
+                    inventory.append({"type":"skill","name":p.parent.name,"path":safe_path(p),"approved":approved,"scanned_files":scanned})
+                    findings.extend(skill_findings)
     suffixes={".py",".js",".ts",".tsx",".jsx",".go",".java",".rb",".php",".sh",".json",".toml",".yaml",".yml"}
     for p in root.rglob("*"):
         if p.is_file() and p.suffix.lower() in suffixes and ".git" not in p.parts and "node_modules" not in p.parts:
@@ -163,7 +192,7 @@ def auto_enroll(root):
     return changed
 def post_report(url,token,report):
     if not url: return "disabled"
-    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.7.0"}
+    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.8.0"}
     if token: headers["Authorization"]="Bearer "+token
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
     with urllib.request.urlopen(request,timeout=15) as response: return str(response.status)
@@ -177,7 +206,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.7.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.8.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
