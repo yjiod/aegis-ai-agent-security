@@ -55,12 +55,37 @@ def scan_text(path,text,policy):
     for kind,sev,pat in checks:
         hit=re.search(pat,low)
         if hit: out.append(finding(kind,sev,path,f"匹配规则 {pat}",hit.group(0)))
+    hidden=re.search(r"[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]",text)
+    if hidden: out.append(finding("hidden_instruction","high",path,"包含可隐藏或改变显示方向的 Unicode 控制字符",f"U+{ord(hidden.group(0)):04X}"))
+    weak=re.search(r"(?is)(?:token|secret|session|nonce).{0,120}(?:math\.random|random\.random)\s*\(|(?:math\.random|random\.random)\s*\(.{0,120}(?:token|secret|session|nonce)",text)
+    if weak: out.append(finding("weak_random_token","high",path,"安全敏感值使用非密码学随机数","weak random generator"))
+    for command in policy.get("blocked_commands",[]):
+        pattern=re.escape(command.lower()).replace(r"\*",r"[^\r\n]*")
+        hit=re.search(r"(?m)^\s*"+pattern+r"(?:\s|$)",low)
+        if hit: out.append(finding("blocked_command","high",path,f"命中禁止命令: {command}",hit.group(0).strip()[:80]))
     for pat in policy.get("secret_patterns",[]):
         hit=re.search(pat,text)
         if hit: out.append(finding("hardcoded_secret","critical",path,"疑似硬编码凭据",hit.group(0)[:8]+"…"))
     return out
 def scan_mcp_config(path,text,policy):
     out=[]
+    if path.suffix.lower()==".toml":
+        allowed=set(policy.get("allowed_mcp_servers",[])); allowed_commands=set(policy.get("allowed_mcp_commands",[])); allowed_domains=set(policy.get("allowed_mcp_domains",[]))
+        sections=list(re.finditer(r"(?ms)^\[mcp_servers\.([A-Za-z0-9_.-]+)\]\s*(.*?)(?=^\[|\Z)",text))
+        for section in sections:
+            name=section.group(1); body=section.group(2)
+            if name.endswith(".env"): continue
+            command_match=re.search(r'(?m)^\s*command\s*=\s*["\']([^"\']+)',body); command=command_match.group(1) if command_match else ""
+            url_match=re.search(r'(?m)^\s*url\s*=\s*["\']([^"\']+)',body); url=url_match.group(1) if url_match else ""
+            args_match=re.search(r"(?ms)^\s*args\s*=\s*\[(.*?)\]",body); args=re.findall(r'["\']([^"\']+)["\']',args_match.group(1)) if args_match else []
+            if allowed and name not in allowed: out.append(finding("unknown_mcp","medium",path,f"未在允许列表中的 MCP Server: {name}"))
+            if command and allowed_commands and Path(command).name not in allowed_commands: out.append(finding("unapproved_mcp_command","high",path,f"MCP 使用未批准命令: {Path(command).name}"))
+            if any(x in ["/","C:\\","$HOME","~"] or x.startswith(("/Users/","/home/")) for x in args): out.append(finding("broad_filesystem_scope","high",path,f"MCP {name} 请求宽泛文件范围"))
+            if url.startswith("http://"): out.append(finding("insecure_mcp_transport","high",path,f"MCP {name} 使用未加密 HTTP"))
+            if url and allowed_domains and not any(url.startswith("https://"+d+"/") or url=="https://"+d for d in allowed_domains): out.append(finding("unapproved_mcp_domain","medium",path,f"MCP {name} 连接未批准域名"))
+        for secret in re.finditer(r'(?im)^\s*([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*)\s*=\s*["\']([^"\']+)',text):
+            if not re.match(r"^\$\{?[A-Z0-9_]+\}?$",secret.group(2)): out.append(finding("literal_mcp_secret","critical",path,f"MCP TOML 包含明文敏感环境变量: {secret.group(1)}","[REDACTED]"))
+        return out
     if path.suffix.lower()!=".json": return out
     try: data=json.loads(text)
     except json.JSONDecodeError: return [finding("invalid_mcp_config","medium",path,"MCP JSON 配置无法解析")]
@@ -104,7 +129,7 @@ def scan(root,policy):
             try:
                 if p.stat().st_size<=1_000_000:
                     text=p.read_text(errors="ignore"); findings.extend(scan_text(p,text,policy))
-                    if p.name in ["mcp.json","mcp_config.json"]: findings.extend(scan_mcp_config(p,text,policy))
+                    if p.name in ["mcp.json","mcp_config.json","config.toml"]: findings.extend(scan_mcp_config(p,text,policy))
             except OSError: pass
     return inventory,findings
 def install_baseline(root):
@@ -138,7 +163,7 @@ def auto_enroll(root):
     return changed
 def post_report(url,token,report):
     if not url: return "disabled"
-    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.6.0"}
+    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.7.0"}
     if token: headers["Authorization"]="Bearer "+token
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
     with urllib.request.urlopen(request,timeout=15) as response: return str(response.status)
@@ -152,7 +177,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.6.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.7.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
