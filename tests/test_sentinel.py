@@ -22,7 +22,7 @@ class SentinelTests(unittest.TestCase):
             self.agent.install_baseline(root); self.agent.install_baseline(root)
             text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
     def test_collector_contract(self):
-        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.10.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
         stale={**report,'scanned_at':now-8*86400}; self.assertFalse(self.collector.valid_report(stale,now))
         inconsistent={**report,'findings':[{'kind':'x','severity':'high','path':'x','message':'x'}]}; self.assertFalse(self.collector.valid_report(inconsistent,now))
@@ -35,6 +35,14 @@ class SentinelTests(unittest.TestCase):
                 first=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
                 second=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
                 self.assertEqual(first.rowcount,1); self.assertEqual(second.rowcount,0)
+    def test_signed_report_request_contract(self):
+        body=b'{"device":"test"}'; headers=self.agent.report_headers(body,'bearer','signing-secret',now=1000)
+        self.assertTrue(self.collector.valid_signature(headers,body,now=1001,secret='signing-secret'))
+        self.assertFalse(self.collector.valid_signature(headers,body+b'x',now=1001,secret='signing-secret'))
+        self.assertFalse(self.collector.valid_signature(headers,body,now=1301,secret='signing-secret'))
+        self.assertEqual(headers['Authorization'],'Bearer bearer'); self.assertTrue(headers['X-Sentinel-Signature'].startswith('sha256='))
+    def test_signature_is_optional_until_enterprise_secret_is_configured(self):
+        self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))
     def test_mcp_least_privilege(self):
         config={'mcpServers':{'rogue':{'command':'bash','args':['/'],'env':{'API_KEY':'literal-secret'},'url':'http://outside.invalid'}}}
         findings=self.agent.scan_mcp_config(Path('/tmp/mcp.json'),json.dumps(config),self.policy)
@@ -102,7 +110,7 @@ class SentinelTests(unittest.TestCase):
     def test_offline_spool(self):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
-            self.assertTrue(path.exists()); self.assertEqual(json.loads(path.read_text()),report)
+            self.assertTrue(path.exists()); self.assertEqual(json.loads(path.read_text()),report); self.assertEqual(path.stat().st_mode & 0o777,0o600)
     def test_vendor_adapter_is_explicit_and_dry_run(self):
         report={'device_id':'dev-1','policy_version':'3.9.0','scanned_at':1,'summary':{'critical':1},'findings':[{}]}
         config={'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid'}}

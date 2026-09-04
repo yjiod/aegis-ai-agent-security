@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sentinel endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
-import argparse, hashlib, json, os, re, sys, time, urllib.request
+import argparse, hashlib, hmac, json, os, re, sys, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 DEFAULT_POLICY=Path(__file__).with_name("sentinel-policy.json")
@@ -227,14 +227,20 @@ def auto_enroll(root):
     changed=[]
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
+def report_headers(body,token="",secret="",now=None):
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.11.0"}
+    if token: headers["Authorization"]="Bearer "+token
+    if secret:
+        timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
+        headers["X-Sentinel-Timestamp"]=timestamp; headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),signed,hashlib.sha256).hexdigest()
+    return headers
 def post_report(url,token,report):
     if not url: return "disabled"
-    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.10.0"}
-    if token: headers["Authorization"]="Bearer "+token
+    body=json.dumps(report,ensure_ascii=False).encode(); headers=report_headers(body,token,os.getenv("SENTINEL_REPORT_SIGNING_SECRET",""))
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
     with urllib.request.urlopen(request,timeout=15) as response: return str(response.status)
 def queue_report(spool,report):
-    spool.mkdir(parents=True,exist_ok=True); path=spool/f"{report['scanned_at']}-{report['device_id']}.json"; path.write_text(json.dumps(report,ensure_ascii=False)); return path
+    spool.mkdir(mode=0o700,parents=True,exist_ok=True); os.chmod(spool,0o700); path=spool/f"{report['scanned_at']}-{report['device_id']}.json"; path.write_text(json.dumps(report,ensure_ascii=False)); os.chmod(path,0o600); return path
 def flush_spool(spool,url,token):
     if not spool.exists() or not url: return 0
     sent=0
@@ -243,7 +249,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.10.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.11.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()

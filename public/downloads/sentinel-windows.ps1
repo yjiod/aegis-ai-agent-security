@@ -1,4 +1,4 @@
-param([string]$Output = "$env:ProgramData\SentinelAgent\reports\latest.json")
+param([string]$Output = "$env:ProgramData\SentinelAgent\reports\latest.json",[string]$ReportUrl = $env:SENTINEL_REPORT_URL)
 $ErrorActionPreference = 'SilentlyContinue'
 $roots = @()
 $installDir = Join-Path $env:ProgramData 'SentinelAgent'
@@ -15,6 +15,16 @@ $patterns = @(
   @{ Kind='blocked_command'; Severity='high'; Regex='(?im)^\s*(curl\s+[^\r\n]*\|\s*(sh|bash)|wget\s+[^\r\n]*\|\s*(sh|bash)|chmod\s+777|rm\s+-rf)(\s|$)' }
 )
 $findings = @(); $inventory = @()
+function Send-SentinelReport([string]$json,[string]$url) {
+  $bytes=[Text.Encoding]::UTF8.GetBytes($json);$headers=@{}
+  if($env:SENTINEL_REPORT_TOKEN){$headers.Authorization='Bearer '+$env:SENTINEL_REPORT_TOKEN}
+  if($env:SENTINEL_REPORT_SIGNING_SECRET){
+    $timestamp=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString();$prefix=[Text.Encoding]::UTF8.GetBytes($timestamp+'.');$signed=New-Object byte[] ($prefix.Length+$bytes.Length);[Array]::Copy($prefix,0,$signed,0,$prefix.Length);[Array]::Copy($bytes,0,$signed,$prefix.Length,$bytes.Length)
+    $hmac=[System.Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($env:SENTINEL_REPORT_SIGNING_SECRET));$signature=([BitConverter]::ToString($hmac.ComputeHash($signed))).Replace('-','').ToLower();$hmac.Dispose()
+    $headers['X-Sentinel-Timestamp']=$timestamp;$headers['X-Sentinel-Signature']='sha256='+$signature
+  }
+  Invoke-RestMethod -Uri $url -Method Post -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 15|Out-Null
+}
 function Protect-SentinelPath([string]$path) {
   foreach ($home in $userHomes) { if ($path.StartsWith($home.FullName,[StringComparison]::OrdinalIgnoreCase)) { return '~' + $path.Substring($home.FullName.Length) } }
   return $path
@@ -129,6 +139,14 @@ $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $report = @{ schema='sentinel.report/v1'; agent_version='0.10.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
-$report | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $Output
+$reportJson=$report|ConvertTo-Json -Depth 8 -Compress
+$reportJson|Set-Content -Encoding UTF8 $Output
+if($ReportUrl){
+  $spool=Join-Path $installDir 'spool';New-Item -ItemType Directory -Force -Path $spool|Out-Null
+  try{
+    Get-ChildItem $spool -Filter '*.json' -File|Sort-Object Name|Select-Object -First 50|ForEach-Object{Send-SentinelReport (Get-Content $_.FullName -Raw) $ReportUrl;Remove-Item $_.FullName -Force}
+    Send-SentinelReport $reportJson $ReportUrl
+  }catch{$queue=Join-Path $spool ($report.scanned_at.ToString()+'-'+$report.device_id+'.json');$reportJson|Set-Content -Encoding UTF8 $queue;Write-Warning 'Report upload failed and was queued locally.'}
+}
 if ($report.summary.critical -gt 0 -or $report.summary.high -gt 0) { exit 2 }
 exit 0
