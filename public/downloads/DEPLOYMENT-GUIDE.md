@@ -1,0 +1,27 @@
+# Sentinel 企业部署指南
+
+## 推荐职责
+
+- Microsoft Intune：Windows/macOS 安装、周期检测、修复与合规状态。
+- 深信服 EDR：接收高危事件后执行主机隔离、查杀和取证；接口以客户实际版本的 OpenAPI 为准。
+- 联软 UniAccess/LeagView：资产映射、软件统一分发，以及未安装 Sentinel 终端的准入限制。
+
+## Intune Windows
+
+在“设备 > 脚本和修正”创建包，检测脚本使用 `intune-windows-detect.ps1`，修复脚本使用 `intune-windows-remediate.ps1`，使用 64 位 PowerShell 并以 SYSTEM 运行。先分配试点设备组，再逐步扩大范围。
+
+## Intune macOS
+
+将 `intune-macos-install.sh` 作为 macOS Shell Script 下发，以 root 运行。脚本需要终端已有 Python 3。正式部署前应将脚本、策略和扫描器放入企业可信软件源并进行代码签名。
+
+## 深信服 EDR
+
+Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high finding 转换为当前 EDR 版本支持的告警或联动请求。隔离、查杀等动作必须经 EDR 控制台策略授权。不要把管理口令写入终端脚本。
+
+## 联软桌管
+
+将 Windows 脚本或后续签名 MSI 作为软件分发包。使用软件资产规则检查 `%ProgramData%\SentinelAgent\sentinel-policy.json`，未安装或策略过期的设备进入修复组；若启用准入隔离，先以观察模式验证误报率。
+
+## 上线门槛
+
+1. 脚本签名与哈希固定；2. 100 台以内试点；3. 误报复核；4. 回滚与卸载包；5. EDR 动作双人审批；6. 数据保留和脱敏评审。
