@@ -8,8 +8,8 @@ mkdir -p "$INSTALL_DIR/reports"
 curl --fail --silent --show-error "$BASE_URL/sentinel_agent.py" -o "$INSTALL_DIR/sentinel_agent.py"
 curl --fail --silent --show-error "$BASE_URL/sentinel-policy.json" -o "$INSTALL_DIR/sentinel-policy.json"
 curl --fail --silent --show-error "$BASE_URL/sentinel-security-baseline.md" -o "$INSTALL_DIR/sentinel-security-baseline.md"
-echo "111c58a4066e783bf5dbe6227aa23b4fd94a77b9bdd61ad7f111685e8770e3c1  $INSTALL_DIR/sentinel_agent.py" | shasum -a 256 -c -
-echo "230357ac50b6ac41c967667a3cb29765e2c58ad58ed17088aa867940e40e5203  $INSTALL_DIR/sentinel-policy.json" | shasum -a 256 -c -
+echo "38cac853e6e1c523d52aac275d1631583981be306045d19b9c95118847dc87ae  $INSTALL_DIR/sentinel_agent.py" | shasum -a 256 -c -
+echo "6e78b5ec64b5fae0d03ce1251b37184422610c379c56c4b61ff3c31dec64fc11  $INSTALL_DIR/sentinel-policy.json" | shasum -a 256 -c -
 chmod 700 "$INSTALL_DIR/sentinel_agent.py"
 /bin/cat > "$PLIST" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
