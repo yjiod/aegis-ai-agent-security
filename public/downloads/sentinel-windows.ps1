@@ -44,7 +44,12 @@ foreach ($root in $roots) {
     }
   }
 }
-$report = @{ schema='sentinel.report/v1'; agent_version='0.2.0'; device_id=$env:COMPUTERNAME; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count } }
+$policyPath = Join-Path $installDir 'sentinel-policy.json'
+$policyVersion = if (Test-Path $policyPath) { (Get-Content $policyPath -Raw | ConvertFrom-Json).version } else { 'missing' }
+$deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
+$sha = [System.Security.Cryptography.SHA256]::Create()
+$deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
+$report = @{ schema='sentinel.report/v1'; agent_version='0.5.1'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $report | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $Output
 if ($report.summary.critical -gt 0 -or $report.summary.high -gt 0) { exit 2 }

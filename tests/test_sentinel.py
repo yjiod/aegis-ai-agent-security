@@ -1,4 +1,4 @@
-import importlib.util, json, os, tempfile, unittest
+import importlib.util, json, os, tempfile, time, unittest
 from pathlib import Path
 
 ROOT=Path(__file__).parents[1]; DOWNLOADS=ROOT/'public'/'downloads'
@@ -22,8 +22,19 @@ class SentinelTests(unittest.TestCase):
             self.agent.install_baseline(root); self.agent.install_baseline(root)
             text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
     def test_collector_contract(self):
-        report={'schema':'sentinel.report/v1','device_id':'device-123','summary':{},'findings':[]}
-        self.assertTrue(self.collector.valid_report(report)); self.assertFalse(self.collector.valid_report({'schema':'other'}))
+        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.5.1','policy_version':'3.9.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+        self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
+        stale={**report,'scanned_at':now-8*86400}; self.assertFalse(self.collector.valid_report(stale,now))
+        inconsistent={**report,'findings':[{'kind':'x','severity':'high','path':'x','message':'x'}]}; self.assertFalse(self.collector.valid_report(inconsistent,now))
+        extra={**report,'unexpected':True}; self.assertFalse(self.collector.valid_report(extra,now))
+        invalid_inventory={**report,'inventory':['not-an-object']}; self.assertFalse(self.collector.valid_report(invalid_inventory,now))
+    def test_collector_database_deduplication_support(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'
+            with self.collector.db_open(path) as db:
+                first=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
+                second=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
+                self.assertEqual(first.rowcount,1); self.assertEqual(second.rowcount,0)
     def test_mcp_least_privilege(self):
         config={'mcpServers':{'rogue':{'command':'bash','args':['/'],'env':{'API_KEY':'literal-secret'},'url':'http://outside.invalid'}}}
         findings=self.agent.scan_mcp_config(Path('/tmp/mcp.json'),json.dumps(config),self.policy)
