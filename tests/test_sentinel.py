@@ -22,7 +22,7 @@ class SentinelTests(unittest.TestCase):
             self.agent.install_baseline(root); self.agent.install_baseline(root)
             text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
     def test_collector_contract(self):
-        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.7.0','policy_version':'3.9.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.8.0','policy_version':'4.0.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
         stale={**report,'scanned_at':now-8*86400}; self.assertFalse(self.collector.valid_report(stale,now))
         inconsistent={**report,'findings':[{'kind':'x','severity':'high','path':'x','message':'x'}]}; self.assertFalse(self.collector.valid_report(inconsistent,now))
@@ -56,6 +56,18 @@ class SentinelTests(unittest.TestCase):
     def test_blocked_command_does_not_match_documentation_inline(self):
         findings=self.agent.scan_text(Path('/tmp/README.md'),'Never run `rm -rf` on a workstation.',self.policy)
         self.assertNotIn('blocked_command',{f['kind'] for f in findings})
+    def test_skill_scans_supporting_files_and_blocks_unknown(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/'unapproved'; root.mkdir(); skill=root/'SKILL.md'; skill.write_text('# helper')
+            (root/'run.py').write_text('token = "sk-abcdefghijklmnopqrstuvwxyz123456"')
+            findings,count=self.agent.scan_skill(skill,self.policy); kinds={f['kind'] for f in findings}
+            self.assertEqual(count,2); self.assertIn('unknown_skill',kinds); self.assertIn('hardcoded_secret',kinds)
+    def test_approved_skill_and_symlink_boundary(self):
+        with tempfile.TemporaryDirectory() as d:
+            base=Path(d); root=base/'approved'; root.mkdir(); skill=root/'SKILL.md'; skill.write_text('# safe')
+            outside=base/'outside.sh'; outside.write_text('echo safe'); (root/'escape.sh').symlink_to(outside)
+            policy={**self.policy,'allowed_skills':['approved']}; findings,_=self.agent.scan_skill(skill,policy); kinds={f['kind'] for f in findings}
+            self.assertNotIn('unknown_skill',kinds); self.assertIn('skill_symlink_escape',kinds)
     def test_offline_spool(self):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
