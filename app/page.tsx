@@ -539,7 +539,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent 0.10.0</h2>
+                <h2>Sentinel Endpoint Agent 0.11.0</h2>
                 <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>

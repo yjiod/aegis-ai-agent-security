@@ -44,8 +44,19 @@ def valid_report(d,now=None):
         if "evidence" in finding and not isinstance(finding["evidence"],str): return False
         counts[finding["severity"]]+=1
     return counts==summary
+def valid_signature(headers,body,now=None,secret=None,max_skew=300):
+    secret=os.getenv("SENTINEL_REPORT_SIGNING_SECRET","") if secret is None else secret
+    if not secret: return True
+    def header(name): return headers.get(name) or headers.get(name.lower())
+    timestamp=header("X-Sentinel-Timestamp"); supplied=header("X-Sentinel-Signature") or ""
+    try: request_time=int(timestamp)
+    except (TypeError,ValueError): return False
+    now=int(time.time()) if now is None else now
+    if abs(now-request_time)>max_skew: return False
+    expected="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected,supplied)
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.1"
+    server_version="SentinelCollector/0.2"
     def reply(self,status,data):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
     def authorized(self):
@@ -63,7 +74,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length=int(self.headers.get("Content-Length","0"));
             if length<2 or length>2_000_000: return self.reply(413,{"error":"invalid_size"})
-            body=self.rfile.read(length); report=json.loads(body)
+            body=self.rfile.read(length)
+            if not valid_signature(self.headers,body): return self.reply(401,{"error":"invalid_signature"})
+            report=json.loads(body)
             if not valid_report(report): return self.reply(400,{"error":"invalid_report"})
             severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"; digest=hashlib.sha256(body).hexdigest(); report_id=digest[:20]
             with db_open(self.server.db_path) as db:

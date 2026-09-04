@@ -12,9 +12,10 @@ def sangfor_event(report,config):
 def leagsoft_posture(report,config):
     level=severity(report); return {"source":"sentinel","device_id":report["device_id"],"compliant":level not in ["critical","high"],"risk_level":level,"policy_version":report.get("policy_version"),"last_scan":report.get("scanned_at"),"reason":"critical_or_high_finding" if level in ["critical","high"] else "policy_pass"}
 def send(url,payload,token="",secret=""):
-    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.1"}
+    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.2"}
     if token: headers["Authorization"]="Bearer "+token
-    if secret: headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=str(int(time.time()))
+    if secret:
+        timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
     with urllib.request.urlopen(urllib.request.Request(url,data=body,headers=headers,method="POST"),timeout=15) as response: return response.status
 def process(report,config,dry_run=False):
     outputs=[]
