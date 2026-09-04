@@ -32,6 +32,12 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 1. 脚本签名与哈希固定（安装器已校验核心文件 SHA-256）；2. 100 台以内试点；3. 误报复核；4. 回滚与卸载包；5. EDR 动作双人审批；6. 数据保留和脱敏评审。
 
+## 升级、回滚与卸载
+
+Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器、策略和基线三项 SHA-256 后才替换运行文件；已有完整版本会备份到 `previous`。需要回退时，通过 Intune 以 SYSTEM/root 下发 `rollback-sentinel-windows.ps1` 或 `rollback-sentinel-macos.sh`，脚本会先验证备份清单，再恢复并重启周期任务。回滚只保留最近一个完整版本。
+
+卸载使用 `uninstall-sentinel-windows.ps1` 或 `uninstall-sentinel-macos.sh`。卸载会移除运行时与计划任务，但保留已进入源码管理的仓库基线文件，避免绕过审计。
+
 ## 项目级基线加载
 
 对受管代码仓库执行 `sentinel_agent.py <项目目录> --install-baseline`。该命令为 Cursor 创建 Always Project Rule，为 Windsurf 创建项目规则，并以带标记的增量内容接入 `AGENTS.md` 和 `CLAUDE.md`；不会覆盖仓库已有规范。随后使用 `--watch --interval 300` 持续发现新增 Agent 配置、Skill、MCP 和代码风险。
