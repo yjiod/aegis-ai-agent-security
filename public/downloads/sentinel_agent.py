@@ -109,7 +109,7 @@ def auto_enroll(root):
     return changed
 def post_report(url,token,report):
     if not url: return "disabled"
-    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.3.0"}
+    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.5.1"}
     if token: headers["Authorization"]="Bearer "+token
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
     with urllib.request.urlopen(request,timeout=15) as response: return str(response.status)
@@ -123,7 +123,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.4.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.5.1","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
