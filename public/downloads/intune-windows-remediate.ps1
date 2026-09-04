@@ -2,12 +2,18 @@ $ErrorActionPreference = 'Stop'
 $baseUrl = 'https://sentinel-agent-security.yjiod2022.chatgpt.site/downloads'
 $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $reportDir = Join-Path $installDir 'reports'
-New-Item -ItemType Directory -Force -Path $installDir,$reportDir | Out-Null
-Invoke-WebRequest "$baseUrl/sentinel-policy.json" -OutFile (Join-Path $installDir 'sentinel-policy.json') -UseBasicParsing
-Invoke-WebRequest "$baseUrl/sentinel-windows.ps1" -OutFile (Join-Path $installDir 'sentinel-windows.ps1') -UseBasicParsing
-Invoke-WebRequest "$baseUrl/sentinel-security-baseline.md" -OutFile (Join-Path $installDir 'sentinel-security-baseline.md') -UseBasicParsing
-$expected = @{ 'sentinel-policy.json'='431a156f48208bcbc2c44dd92f8b2383be6a04df9294631f6386a9a6d48ac64d'; 'sentinel-windows.ps1'='3392a62111c4d2950de8980dedb8c8c7dc498aa78ee13d4cf21f247da030cdbb' }
-foreach ($name in $expected.Keys) { if ((Get-FileHash (Join-Path $installDir $name) -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]) { throw "Integrity verification failed: $name" } }
+$previousDir = Join-Path $installDir 'previous'
+$stageDir = Join-Path $installDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
+$expected = @{ 'sentinel-policy.json'='431a156f48208bcbc2c44dd92f8b2383be6a04df9294631f6386a9a6d48ac64d'; 'sentinel-windows.ps1'='3392a62111c4d2950de8980dedb8c8c7dc498aa78ee13d4cf21f247da030cdbb'; 'sentinel-security-baseline.md'='0c0b6ac7e4bee2859f0d0e70b80a3865fd5fb4c68cf531fe555188a1b9e6d19c' }
+New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null
+try {
+  foreach ($name in $expected.Keys) { Invoke-WebRequest "$baseUrl/$name" -OutFile (Join-Path $stageDir $name) -UseBasicParsing }
+  foreach ($name in $expected.Keys) { if ((Get-FileHash (Join-Path $stageDir $name) -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]) { throw "Integrity verification failed: $name" } }
+  $backupHashes=@{}
+  foreach ($name in $expected.Keys) { $current=Join-Path $installDir $name; if(Test-Path $current){Copy-Item $current (Join-Path $previousDir $name) -Force; $backupHashes[$name]=(Get-FileHash $current -Algorithm SHA256).Hash.ToLower()} }
+  if($backupHashes.Count -eq $expected.Count){$backupHashes|ConvertTo-Json|Set-Content (Join-Path $previousDir 'checksums.json') -Encoding UTF8}
+  foreach ($name in $expected.Keys) { Move-Item (Join-Path $stageDir $name) (Join-Path $installDir $name) -Force }
+} finally { Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue }
 $baseline = Get-Content (Join-Path $installDir 'sentinel-security-baseline.md') -Raw
 Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
   foreach ($target in @((Join-Path $_.FullName '.codex\AGENTS.md'),(Join-Path $_.FullName '.claude\CLAUDE.md'))) {

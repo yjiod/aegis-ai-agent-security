@@ -1,4 +1,4 @@
-import importlib.util, json, os, tempfile, time, unittest
+import hashlib, importlib.util, json, os, tempfile, time, unittest
 from pathlib import Path
 
 ROOT=Path(__file__).parents[1]; DOWNLOADS=ROOT/'public'/'downloads'
@@ -94,6 +94,11 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(self.agent.scan_dependency_manifest(path,path.read_text()),[])
             requirements=root/'requirements.txt'; requirements.write_text('requests==2.32.4\n')
             self.assertEqual(self.agent.scan_dependency_manifest(requirements,requirements.read_text()),[])
+    def test_endpoint_integrity_manifest_covers_all_runtime_inputs(self):
+        entries={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
+        for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
+            digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
+        self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
     def test_offline_spool(self):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
