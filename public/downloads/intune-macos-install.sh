@@ -8,13 +8,13 @@ mkdir -p "$INSTALL_DIR/reports"
 curl --fail --silent --show-error "$BASE_URL/sentinel_agent.py" -o "$INSTALL_DIR/sentinel_agent.py"
 curl --fail --silent --show-error "$BASE_URL/sentinel-policy.json" -o "$INSTALL_DIR/sentinel-policy.json"
 curl --fail --silent --show-error "$BASE_URL/sentinel-security-baseline.md" -o "$INSTALL_DIR/sentinel-security-baseline.md"
-echo "38cac853e6e1c523d52aac275d1631583981be306045d19b9c95118847dc87ae  $INSTALL_DIR/sentinel_agent.py" | shasum -a 256 -c -
+echo "e20cbc87c83e1d59f998c59b3e818df1bff089346f4c57cc2ddd438bd65cbf35  $INSTALL_DIR/sentinel_agent.py" | shasum -a 256 -c -
 echo "6e78b5ec64b5fae0d03ce1251b37184422610c379c56c4b61ff3c31dec64fc11  $INSTALL_DIR/sentinel-policy.json" | shasum -a 256 -c -
 chmod 700 "$INSTALL_DIR/sentinel_agent.py"
 /bin/cat > "$PLIST" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>Label</key><string>com.company.sentinel-agent</string><key>ProgramArguments</key><array><string>/usr/bin/python3</string><string>/Library/Application Support/SentinelAgent/sentinel_agent.py</string><string>/Users/Shared</string><string>--output</string><string>/Library/Application Support/SentinelAgent/reports/latest.json</string></array><key>StartInterval</key><integer>14400</integer><key>RunAtLoad</key><true/><key>StandardOutPath</key><string>/var/log/sentinel-agent.log</string><key>StandardErrorPath</key><string>/var/log/sentinel-agent.err</string></dict></plist>
+<plist version="1.0"><dict><key>Label</key><string>com.company.sentinel-agent</string><key>ProgramArguments</key><array><string>/usr/bin/python3</string><string>/Library/Application Support/SentinelAgent/sentinel_agent.py</string><string>/Users</string><string>--auto-enroll</string><string>--output</string><string>/Library/Application Support/SentinelAgent/reports/latest.json</string></array><key>StartInterval</key><integer>14400</integer><key>RunAtLoad</key><true/><key>StandardOutPath</key><string>/var/log/sentinel-agent.log</string><key>StandardErrorPath</key><string>/var/log/sentinel-agent.err</string></dict></plist>
 PLIST
 chown root:wheel "$PLIST"; chmod 644 "$PLIST"
 launchctl bootout system "$PLIST" >/dev/null 2>&1 || true

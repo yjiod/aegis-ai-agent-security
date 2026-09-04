@@ -40,5 +40,10 @@ class SentinelTests(unittest.TestCase):
         outputs=self.adapter.process(report,config,dry_run=True)
         self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
         self.assertFalse(outputs[1]['payload']['compliant'])
+    def test_auto_enroll_only_git_repositories(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); repo=root/'repo'; other=root/'ordinary'; (repo/'.git').mkdir(parents=True); other.mkdir()
+            changed=self.agent.auto_enroll(root)
+            self.assertTrue(changed); self.assertTrue((repo/'.cursor/rules/sentinel-security.mdc').exists()); self.assertFalse((other/'AGENTS.md').exists())
 
 if __name__=='__main__': unittest.main()
