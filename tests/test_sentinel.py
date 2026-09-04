@@ -22,7 +22,7 @@ class SentinelTests(unittest.TestCase):
             self.agent.install_baseline(root); self.agent.install_baseline(root)
             text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
     def test_collector_contract(self):
-        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.9.0','policy_version':'4.1.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.10.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
         stale={**report,'scanned_at':now-8*86400}; self.assertFalse(self.collector.valid_report(stale,now))
         inconsistent={**report,'findings':[{'kind':'x','severity':'high','path':'x','message':'x'}]}; self.assertFalse(self.collector.valid_report(inconsistent,now))
@@ -46,6 +46,21 @@ class SentinelTests(unittest.TestCase):
         findings=self.agent.scan_mcp_config(Path('/tmp/config.toml'),text,self.policy); kinds={f['kind'] for f in findings}
         self.assertTrue({'unknown_mcp','unapproved_mcp_command','broad_filesystem_scope','insecure_mcp_transport','literal_mcp_secret'}.issubset(kinds))
         self.assertEqual(next(f for f in findings if f['kind']=='literal_mcp_secret')['evidence'],'[REDACTED]')
+    def test_remote_mcp_is_default_deny_and_credentials_are_redacted(self):
+        cfg={'mcpServers':{'github':{'url':'https://user:pass@trusted.example/mcp?token=secret'}}}
+        findings=self.agent.scan_mcp_config(Path('/tmp/mcp.json'),json.dumps(cfg),self.policy); kinds={f['kind'] for f in findings}
+        self.assertIn('unapproved_mcp_domain',kinds); self.assertIn('mcp_url_credentials',kinds)
+        self.assertEqual(next(f for f in findings if f['kind']=='mcp_url_credentials')['evidence'],'[REDACTED]')
+    def test_remote_mcp_requires_exact_approved_hostname(self):
+        policy={**self.policy,'allowed_mcp_domains':['trusted.example']}
+        good=self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',{'url':'https://trusted.example/mcp'},policy)
+        spoof=self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',{'url':'https://trusted.example.evil/mcp'},policy)
+        self.assertNotIn('unapproved_mcp_domain',{f['kind'] for f in good})
+        self.assertIn('unapproved_mcp_domain',{f['kind'] for f in spoof})
+    def test_mcp_rejects_mixed_or_unapproved_transport(self):
+        cfg={'command':'node','url':'https://trusted.example/mcp','transport':'sse'}
+        kinds={f['kind'] for f in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,{**self.policy,'allowed_mcp_domains':['trusted.example']})}
+        self.assertTrue({'ambiguous_mcp_transport','unapproved_mcp_transport'}.issubset(kinds))
     def test_policy_declared_text_rules_are_enforced(self):
         hidden=self.agent.scan_text(Path('/tmp/SKILL.md'),'safe text\u202ehidden',self.policy)
         weak=self.agent.scan_text(Path('/tmp/app.js'),'const sessionToken = Math.random().toString()',self.policy)

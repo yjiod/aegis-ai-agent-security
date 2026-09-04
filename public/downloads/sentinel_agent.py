@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, hashlib, json, os, re, sys, time, urllib.request
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 DEFAULT_POLICY=Path(__file__).with_name("sentinel-policy.json")
 AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json"]
 SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills"]
@@ -68,22 +69,40 @@ def scan_text(path,text,policy):
         hit=re.search(pat,text)
         if hit: out.append(finding("hardcoded_secret","critical",path,"疑似硬编码凭据",hit.group(0)[:8]+"…"))
     return out
+def scan_mcp_server(path,name,cfg,policy):
+    out=[]; allowed=set(policy.get("allowed_mcp_servers",[])); allowed_commands=set(policy.get("allowed_mcp_commands",[])); allowed_domains={x.lower().rstrip(".") for x in policy.get("allowed_mcp_domains",[])}; allowed_transports=set(policy.get("allowed_mcp_transports",[]))
+    if "allowed_mcp_servers" in policy and name not in allowed: out.append(finding("unknown_mcp","medium",path,f"未在允许列表中的 MCP Server: {name}"))
+    command=str(cfg.get("command","")).strip(); base=re.split(r"[\\/]",command)[-1]
+    url=str(cfg.get("url",cfg.get("serverUrl",""))).strip(); explicit=str(cfg.get("transport","")).lower()
+    transport=explicit or ("https" if url.startswith("https://") else "http" if url.startswith("http://") else "stdio" if command else "unknown")
+    if command and url: out.append(finding("ambiguous_mcp_transport","high",path,f"MCP {name} 同时配置本地命令和远程 URL"))
+    if "allowed_mcp_transports" in policy and transport not in allowed_transports: out.append(finding("unapproved_mcp_transport","high",path,f"MCP {name} 使用未批准传输: {transport}"))
+    if command and "allowed_mcp_commands" in policy and base not in allowed_commands: out.append(finding("unapproved_mcp_command","high",path,f"MCP 使用未批准命令: {base}"))
+    args=[str(x) for x in cfg.get("args",[]) if isinstance(x,(str,int,float))]
+    if any(x in ["/","C:\\","$HOME","~"] or x.startswith(("/Users/","/home/")) for x in args): out.append(finding("broad_filesystem_scope","high",path,f"MCP {name} 请求宽泛文件范围"))
+    for key,value in (cfg.get("env",{}) or {}).items():
+        if re.search(r"TOKEN|SECRET|PASSWORD|API_KEY",str(key),re.I) and value and not re.match(r"^\$\{?[A-Z0-9_]+\}?$",str(value)): out.append(finding("literal_mcp_secret","critical",path,f"MCP {name} 包含明文敏感环境变量: {key}","[REDACTED]"))
+    if url:
+        try: parsed=urlsplit(url); host=(parsed.hostname or "").lower().rstrip(".")
+        except ValueError: return out+[finding("invalid_mcp_url","high",path,f"MCP {name} URL 无法解析")]
+        if parsed.scheme!="https": out.append(finding("insecure_mcp_transport","high",path,f"MCP {name} 未使用 HTTPS"))
+        if "allowed_mcp_domains" in policy and host not in allowed_domains: out.append(finding("unapproved_mcp_domain","medium",path,f"MCP {name} 连接未批准域名: {host or '[missing]'}"))
+        sensitive={"token","key","api_key","apikey","secret","password","access_token"}
+        if parsed.username or parsed.password or any(k.lower() in sensitive for k,_ in parse_qsl(parsed.query,keep_blank_values=True)): out.append(finding("mcp_url_credentials","critical",path,f"MCP {name} URL 包含凭据或敏感查询参数","[REDACTED]"))
+    if not command and not url: out.append(finding("incomplete_mcp_server","medium",path,f"MCP {name} 未配置命令或 URL"))
+    return out
 def scan_mcp_config(path,text,policy):
     out=[]
     if path.suffix.lower()==".toml":
-        allowed=set(policy.get("allowed_mcp_servers",[])); allowed_commands=set(policy.get("allowed_mcp_commands",[])); allowed_domains=set(policy.get("allowed_mcp_domains",[]))
         sections=list(re.finditer(r"(?ms)^\[mcp_servers\.([A-Za-z0-9_.-]+)\]\s*(.*?)(?=^\[|\Z)",text))
         for section in sections:
             name=section.group(1); body=section.group(2)
             if name.endswith(".env"): continue
             command_match=re.search(r'(?m)^\s*command\s*=\s*["\']([^"\']+)',body); command=command_match.group(1) if command_match else ""
             url_match=re.search(r'(?m)^\s*url\s*=\s*["\']([^"\']+)',body); url=url_match.group(1) if url_match else ""
+            transport_match=re.search(r'(?m)^\s*transport\s*=\s*["\']([^"\']+)',body); transport=transport_match.group(1) if transport_match else ""
             args_match=re.search(r"(?ms)^\s*args\s*=\s*\[(.*?)\]",body); args=re.findall(r'["\']([^"\']+)["\']',args_match.group(1)) if args_match else []
-            if allowed and name not in allowed: out.append(finding("unknown_mcp","medium",path,f"未在允许列表中的 MCP Server: {name}"))
-            if command and allowed_commands and Path(command).name not in allowed_commands: out.append(finding("unapproved_mcp_command","high",path,f"MCP 使用未批准命令: {Path(command).name}"))
-            if any(x in ["/","C:\\","$HOME","~"] or x.startswith(("/Users/","/home/")) for x in args): out.append(finding("broad_filesystem_scope","high",path,f"MCP {name} 请求宽泛文件范围"))
-            if url.startswith("http://"): out.append(finding("insecure_mcp_transport","high",path,f"MCP {name} 使用未加密 HTTP"))
-            if url and allowed_domains and not any(url.startswith("https://"+d+"/") or url=="https://"+d for d in allowed_domains): out.append(finding("unapproved_mcp_domain","medium",path,f"MCP {name} 连接未批准域名"))
+            out.extend(scan_mcp_server(path,name,{"command":command,"url":url,"transport":transport,"args":args},policy))
         for secret in re.finditer(r'(?im)^\s*([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*)\s*=\s*["\']([^"\']+)',text):
             if not re.match(r"^\$\{?[A-Z0-9_]+\}?$",secret.group(2)): out.append(finding("literal_mcp_secret","critical",path,f"MCP TOML 包含明文敏感环境变量: {secret.group(1)}","[REDACTED]"))
         return out
@@ -92,19 +111,9 @@ def scan_mcp_config(path,text,policy):
     except json.JSONDecodeError: return [finding("invalid_mcp_config","medium",path,"MCP JSON 配置无法解析")]
     servers=data.get("mcpServers",data.get("servers",{})) if isinstance(data,dict) else {}
     if not isinstance(servers,dict): return out
-    allowed=set(policy.get("allowed_mcp_servers",[])); allowed_commands=set(policy.get("allowed_mcp_commands",[])); allowed_domains=set(policy.get("allowed_mcp_domains",[]))
     for name,cfg in servers.items():
         if not isinstance(cfg,dict): continue
-        if allowed and name not in allowed: out.append(finding("unknown_mcp","medium",path,f"未在允许列表中的 MCP Server: {name}"))
-        command=str(cfg.get("command","")); base=Path(command).name
-        if command and allowed_commands and base not in allowed_commands: out.append(finding("unapproved_mcp_command","high",path,f"MCP 使用未批准命令: {base}"))
-        args=[str(x) for x in cfg.get("args",[]) if isinstance(x,(str,int,float))]
-        if any(x in ["/","C:\\","$HOME","~"] or x.startswith(("/Users/","/home/")) for x in args): out.append(finding("broad_filesystem_scope","high",path,f"MCP {name} 请求宽泛文件范围"))
-        for key,value in (cfg.get("env",{}) or {}).items():
-            if re.search(r"TOKEN|SECRET|PASSWORD|API_KEY",str(key),re.I) and value and not re.match(r"^\$\{?[A-Z0-9_]+\}?$",str(value)): out.append(finding("literal_mcp_secret","critical",path,f"MCP {name} 包含明文敏感环境变量: {key}","[REDACTED]"))
-        url=str(cfg.get("url",cfg.get("serverUrl","")))
-        if url.startswith("http://"): out.append(finding("insecure_mcp_transport","high",path,f"MCP {name} 使用未加密 HTTP"))
-        if url and allowed_domains and not any(url.startswith("https://"+d+"/") or url=="https://"+d for d in allowed_domains): out.append(finding("unapproved_mcp_domain","medium",path,f"MCP {name} 连接未批准域名"))
+        out.extend(scan_mcp_server(path,name,cfg,policy))
     return out
 def scan_dependency_manifest(path,text):
     out=[]
@@ -220,7 +229,7 @@ def auto_enroll(root):
     return changed
 def post_report(url,token,report):
     if not url: return "disabled"
-    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.9.0"}
+    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.10.0"}
     if token: headers["Authorization"]="Bearer "+token
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
     with urllib.request.urlopen(request,timeout=15) as response: return str(response.status)
@@ -234,7 +243,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.9.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.10.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
