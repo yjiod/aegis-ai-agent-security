@@ -1,1 +1,1 @@
-{"release":"0.3.1","channel":"pilot","published_at":"2026-09-05T00:00:00+08:00","features":["intune_custom_compliance","authenticated_report_collector","rollback_scripts","sha256_integrity_verification"]}
+{"release":"0.4.0","channel":"pilot","published_at":"2026-09-05T01:00:00+08:00","features":["mcp_least_privilege_analysis","privacy_path_redaction","offline_report_spool","sangfor_leagsoft_adapter_boundary","intune_custom_compliance","authenticated_report_collector","rollback_scripts","sha256_integrity_verification"]}

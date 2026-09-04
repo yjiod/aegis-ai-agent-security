@@ -6,7 +6,7 @@ New-Item -ItemType Directory -Force -Path $installDir,$reportDir | Out-Null
 Invoke-WebRequest "$baseUrl/sentinel-policy.json" -OutFile (Join-Path $installDir 'sentinel-policy.json') -UseBasicParsing
 Invoke-WebRequest "$baseUrl/sentinel-windows.ps1" -OutFile (Join-Path $installDir 'sentinel-windows.ps1') -UseBasicParsing
 Invoke-WebRequest "$baseUrl/sentinel-security-baseline.md" -OutFile (Join-Path $installDir 'sentinel-security-baseline.md') -UseBasicParsing
-$expected = @{ 'sentinel-policy.json'='230357ac50b6ac41c967667a3cb29765e2c58ad58ed17088aa867940e40e5203'; 'sentinel-windows.ps1'='6fc2e52f9071412cf3264d8c544cdea50a65aea13ed2c2e3186a7ab6d809374a' }
+$expected = @{ 'sentinel-policy.json'='6e78b5ec64b5fae0d03ce1251b37184422610c379c56c4b61ff3c31dec64fc11'; 'sentinel-windows.ps1'='6fc2e52f9071412cf3264d8c544cdea50a65aea13ed2c2e3186a7ab6d809374a' }
 foreach ($name in $expected.Keys) { if ((Get-FileHash (Join-Path $installDir $name) -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]) { throw "Integrity verification failed: $name" } }
 $baseline = Get-Content (Join-Path $installDir 'sentinel-security-baseline.md') -Raw
 Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {

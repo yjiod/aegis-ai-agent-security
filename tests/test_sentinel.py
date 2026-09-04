@@ -6,7 +6,7 @@ def load(name,file):
     spec=importlib.util.spec_from_file_location(name,DOWNLOADS/file); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -24,5 +24,21 @@ class SentinelTests(unittest.TestCase):
     def test_collector_contract(self):
         report={'schema':'sentinel.report/v1','device_id':'device-123','summary':{},'findings':[]}
         self.assertTrue(self.collector.valid_report(report)); self.assertFalse(self.collector.valid_report({'schema':'other'}))
+    def test_mcp_least_privilege(self):
+        config={'mcpServers':{'rogue':{'command':'bash','args':['/'],'env':{'API_KEY':'literal-secret'},'url':'http://outside.invalid'}}}
+        findings=self.agent.scan_mcp_config(Path('/tmp/mcp.json'),json.dumps(config),self.policy)
+        kinds={f['kind'] for f in findings}
+        self.assertTrue({'unknown_mcp','unapproved_mcp_command','broad_filesystem_scope','literal_mcp_secret','insecure_mcp_transport'}.issubset(kinds))
+        secret=next(f for f in findings if f['kind']=='literal_mcp_secret'); self.assertEqual(secret['evidence'],'[REDACTED]')
+    def test_offline_spool(self):
+        with tempfile.TemporaryDirectory() as d:
+            report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
+            self.assertTrue(path.exists()); self.assertEqual(json.loads(path.read_text()),report)
+    def test_vendor_adapter_is_explicit_and_dry_run(self):
+        report={'device_id':'dev-1','policy_version':'3.9.0','scanned_at':1,'summary':{'critical':1},'findings':[{}]}
+        config={'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid'}}
+        outputs=self.adapter.process(report,config,dry_run=True)
+        self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
+        self.assertFalse(outputs[1]['payload']['compliant'])
 
 if __name__=='__main__': unittest.main()
