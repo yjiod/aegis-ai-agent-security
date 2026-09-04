@@ -10,6 +10,8 @@
 
 在“设备 > 脚本和修正”创建包，检测脚本使用 `intune-windows-detect.ps1`，修复脚本使用 `intune-windows-remediate.ps1`，使用 64 位 PowerShell 并以 SYSTEM 运行。先分配试点设备组，再逐步扩大范围。
 
+如需把扫描结果纳入设备合规和条件访问，上传 `intune-compliance-discovery.ps1` 与 `intune-compliance-policy.json`，先仅评估 `SentinelInstalled`、`SentinelScanRecent` 和 `SentinelCriticalFindings`，确认误报后再绑定条件访问。
+
 ## Intune macOS
 
 将 `intune-macos-install.sh` 作为 macOS Shell Script 下发，以 root 运行。脚本需要终端已有 Python 3。正式部署前应将脚本、策略和扫描器放入企业可信软件源并进行代码签名。
@@ -17,6 +19,8 @@
 ## 深信服 EDR
 
 Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high finding 转换为当前 EDR 版本支持的告警或联动请求。隔离、查杀等动作必须经 EDR 控制台策略授权。不要把管理口令写入终端脚本。
+
+`sentinel_collector.py` 是最小参考接收器，支持令牌认证、报告大小限制、SQLite 留存和设备列表。生产环境应部署在企业反向代理之后，配置 TLS、密钥轮换、审计、限流和备份；终端不得直接访问 EDR 管理面。
 
 ## 联软桌管
 

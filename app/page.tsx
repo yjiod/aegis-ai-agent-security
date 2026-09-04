@@ -553,6 +553,7 @@ function DetailPanel({
               </div>
               <ol><li><b>自动发现</b><span>Intune 周期任务检测 Cursor、Claude Code、Codex 与 Windsurf 配置。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>联动处置</b><span>以 device_id 关联深信服 EDR 与联软资产，按风险等级分级响应。</span></li></ol>
               <div className="download-actions">
+                <a className="download-primary" href="/downloads/sentinel-enterprise-bundle.zip" download>下载完整部署包</a>
                 <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>
                 <a href="/downloads/intune-windows-detect.ps1" download>Windows 检测脚本</a>
                 <a href="/downloads/intune-windows-remediate.ps1" download>Windows 修复脚本</a>

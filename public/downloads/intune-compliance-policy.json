@@ -1,0 +1,7 @@
+{
+  "Rules": [
+    {"SettingName":"SentinelInstalled","Operator":"IsEquals","DataType":"Boolean","Operand":true,"MoreInfoUrl":"https://sentinel-agent-security.yjiod2022.chatgpt.site/","RemediationStrings":[{"Language":"zh_CN","Title":"必须安装 Sentinel Agent","Description":"打开公司门户同步设备，或联系桌面支持。"}]},
+    {"SettingName":"SentinelScanRecent","Operator":"IsEquals","DataType":"Boolean","Operand":true,"MoreInfoUrl":"https://sentinel-agent-security.yjiod2022.chatgpt.site/","RemediationStrings":[{"Language":"zh_CN","Title":"Sentinel 扫描结果已过期","Description":"保持设备联网并等待 Intune 修复任务运行。"}]},
+    {"SettingName":"SentinelCriticalFindings","Operator":"IsEquals","DataType":"Int64","Operand":0,"MoreInfoUrl":"https://sentinel-agent-security.yjiod2022.chatgpt.site/","RemediationStrings":[{"Language":"zh_CN","Title":"发现严重 AI Agent 风险","Description":"停止使用相关工具并联系安全团队。"}]}
+  ]
+}
