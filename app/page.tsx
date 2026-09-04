@@ -539,24 +539,27 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent 0.1.0</h2>
-                <p>只读扫描原型 · Python 3 标准库 · macOS / Linux</p>
+                <h2>Sentinel Endpoint Agent 0.2.0</h2>
+                <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
             </div>
             <div className="panel inset onboarding">
-              <h2>终端接入步骤</h2>
-              <ol>
-                <li><b>下载安装包</b><span>下载扫描器与企业策略，不自动注册系统服务。</span></li>
-                <li><b>执行首次扫描</b><code>python3 ~/.sentinel-agent/sentinel_agent.py &lt;项目目录&gt; --output sentinel-report.json</code></li>
-                <li><b>企业批量部署</b><span>通过 MDM / EDR 注册开机任务，并配置报告上报凭据。</span></li>
-              </ol>
-              <div className="download-actions">
-                <a className="download-primary" href="/downloads/install-sentinel.sh" download>下载安装脚本</a>
-                <a href="/downloads/sentinel-policy.json" download>下载策略基线</a>
-                <a href="/downloads/sentinel_agent.py" download>下载扫描器源码</a>
+              <h2>企业部署编排</h2>
+              <div className="control-planes">
+                <article><b>Microsoft Intune</b><span>主部署通道</span><p>Windows Remediations 与 macOS Shell Script，负责安装、版本检测和周期修复。</p></article>
+                <article><b>深信服 EDR</b><span>响应处置</span><p>接收高危事件，按现网版本能力执行隔离、查杀或 IOC 取证。</p></article>
+                <article><b>联软桌管</b><span>资产与兜底</span><p>软件分发、资产核验及未安装终端的准入修复。</p></article>
               </div>
-              <p className="safety-note"><LockKeyhole size={15}/>自动启动必须由企业设备管理系统授权；当前安装脚本不会创建守护进程或上传数据。</p>
+              <ol><li><b>试点部署</b><span>先向 Intune 测试设备组下发，验证检测与修复脚本。</span></li><li><b>联动映射</b><span>以设备名、用户和 Sentinel device_id 关联 EDR 与联软资产。</span></li><li><b>分级放量</b><span>观察模式 → 高危阻断 → 全员强制，保留回滚窗口。</span></li></ol>
+              <div className="download-actions">
+                <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>
+                <a href="/downloads/intune-windows-detect.ps1" download>Windows 检测脚本</a>
+                <a href="/downloads/intune-windows-remediate.ps1" download>Windows 修复脚本</a>
+                <a href="/downloads/intune-macos-install.sh" download>macOS Intune 脚本</a>
+                <a href="/downloads/sentinel-policy.json" download>策略基线</a>
+              </div>
+              <p className="safety-note"><LockKeyhole size={15}/>部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。</p>
             </div>
           </>
         )}
