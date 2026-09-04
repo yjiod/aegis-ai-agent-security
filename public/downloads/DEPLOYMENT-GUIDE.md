@@ -44,4 +44,6 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 0.9.0 起，代码质量扫描会解析 npm `package.json` 与 Python `requirements*.txt`，识别浮动版本、直接远程源码和缺失锁文件；依赖清单也会作为资产写入报告。该检查用于供应链基线，不替代企业 SCA/CVE 数据源。
 
+0.10.0 起，MCP 远程连接采用默认拒绝：`allowed_mcp_domains` 为空时不允许任何远程域名。域名按解析后的完整主机名精确匹配，并检查未批准传输、命令与 URL 混用、URL 用户信息及敏感查询参数。远程 MCP 上线前必须显式填写受信域名。
+
 配置 `SENTINEL_REPORT_URL` 和 `SENTINEL_REPORT_TOKEN` 后启用上报。网络中断时报告会进入本地 spool，后续成功连接时按时间顺序补传；上报路径会把用户主目录替换为 `~`，明文密钥证据仅保留脱敏标记。
