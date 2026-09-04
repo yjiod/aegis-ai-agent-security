@@ -25,3 +25,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 ## 上线门槛
 
 1. 脚本签名与哈希固定；2. 100 台以内试点；3. 误报复核；4. 回滚与卸载包；5. EDR 动作双人审批；6. 数据保留和脱敏评审。
+
+## 项目级基线加载
+
+对受管代码仓库执行 `sentinel_agent.py <项目目录> --install-baseline`。该命令为 Cursor 创建 Always Project Rule，为 Windsurf 创建项目规则，并以带标记的增量内容接入 `AGENTS.md` 和 `CLAUDE.md`；不会覆盖仓库已有规范。随后使用 `--watch --interval 300` 持续发现新增 Agent 配置、Skill、MCP 和代码风险。
