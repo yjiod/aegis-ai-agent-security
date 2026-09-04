@@ -42,4 +42,6 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 0.8.0 起，Skill 扫描覆盖 `SKILL.md` 及包内脚本、配置和说明文件，并检查越界符号链接。策略 `allowed_skills` 是企业允许名单；默认空名单配合 `unknown_skill: block`，表示未经审批的第三方 Skill 一律产生高危项。试点前应填入已完成安全评审的 Skill 目录名。
 
+0.9.0 起，代码质量扫描会解析 npm `package.json` 与 Python `requirements*.txt`，识别浮动版本、直接远程源码和缺失锁文件；依赖清单也会作为资产写入报告。该检查用于供应链基线，不替代企业 SCA/CVE 数据源。
+
 配置 `SENTINEL_REPORT_URL` 和 `SENTINEL_REPORT_TOKEN` 后启用上报。网络中断时报告会进入本地 spool，后续成功连接时按时间顺序补传；上报路径会把用户主目录替换为 `~`，明文密钥证据仅保留脱敏标记。

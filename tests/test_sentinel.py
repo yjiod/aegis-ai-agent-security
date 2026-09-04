@@ -22,7 +22,7 @@ class SentinelTests(unittest.TestCase):
             self.agent.install_baseline(root); self.agent.install_baseline(root)
             text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
     def test_collector_contract(self):
-        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.8.0','policy_version':'4.0.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.9.0','policy_version':'4.1.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
         stale={**report,'scanned_at':now-8*86400}; self.assertFalse(self.collector.valid_report(stale,now))
         inconsistent={**report,'findings':[{'kind':'x','severity':'high','path':'x','message':'x'}]}; self.assertFalse(self.collector.valid_report(inconsistent,now))
@@ -68,6 +68,17 @@ class SentinelTests(unittest.TestCase):
             outside=base/'outside.sh'; outside.write_text('echo safe'); (root/'escape.sh').symlink_to(outside)
             policy={**self.policy,'allowed_skills':['approved']}; findings,_=self.agent.scan_skill(skill,policy); kinds={f['kind'] for f in findings}
             self.assertNotIn('unknown_skill',kinds); self.assertIn('skill_symlink_escape',kinds)
+    def test_javascript_dependency_manifest_risks(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'package.json'; path.write_text(json.dumps({'dependencies':{'safe':'1.2.3','floating':'^2.0.0','remote':'git+https://example.invalid/repo.git'}}))
+            findings=self.agent.scan_dependency_manifest(path,path.read_text()); kinds={f['kind'] for f in findings}
+            self.assertTrue({'dependency_unpinned','dependency_untrusted_source','missing_lockfile'}.issubset(kinds))
+    def test_dependency_lock_and_exact_versions_pass(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); (root/'package-lock.json').write_text('{}'); path=root/'package.json'; path.write_text(json.dumps({'dependencies':{'safe':'1.2.3'}}))
+            self.assertEqual(self.agent.scan_dependency_manifest(path,path.read_text()),[])
+            requirements=root/'requirements.txt'; requirements.write_text('requests==2.32.4\n')
+            self.assertEqual(self.agent.scan_dependency_manifest(requirements,requirements.read_text()),[])
     def test_offline_spool(self):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
