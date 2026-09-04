@@ -10,7 +10,7 @@
 
 在“设备 > 脚本和修正”创建包，检测脚本使用 `intune-windows-detect.ps1`，修复脚本使用 `intune-windows-remediate.ps1`，使用 64 位 PowerShell 并以 SYSTEM 运行。先分配试点设备组，再逐步扩大范围。
 
-如需把扫描结果纳入设备合规和条件访问，上传 `intune-compliance-discovery.ps1` 与 `intune-compliance-policy.json`，评估 `SentinelInstalled`、`SentinelScanRecent`、`SentinelCriticalFindings` 和 `SentinelHighFindings`。高危项包括被阻断的未知 Skill；先在试点组完善 `allowed_skills` 并确认误报，再绑定条件访问。
+如需把扫描结果纳入设备合规和条件访问，上传 `intune-compliance-discovery.ps1` 与 `intune-compliance-policy.json`。策略同时验证安装状态、三个运行文件的固定哈希、计划任务状态、策略版本、报告时效及 critical/high 风险数；未来时间戳不会被当作新鲜报告。高危项包括被阻断的未知 Skill；先在试点组完善 `allowed_skills` 并确认误报，再绑定条件访问。
 
 ## Intune macOS
 
