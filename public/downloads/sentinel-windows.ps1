@@ -47,6 +47,24 @@ function Inspect-SentinelMcpJson([System.IO.FileInfo]$file,[string]$text) {
     if($url.StartsWith('http://')){$script:findings += @{kind='insecure_mcp_transport';severity='high';path=$safePath;message="MCP $name 使用未加密 HTTP"}}
   }
 }
+function Inspect-SentinelDependencies([System.IO.FileInfo]$file,[string]$text) {
+  $safePath=Protect-SentinelPath $file.FullName
+  if($file.Name -eq 'package.json') {
+    try{$manifest=$text|ConvertFrom-Json}catch{$script:findings += @{kind='invalid_dependency_manifest';severity='medium';path=$safePath;message='package.json 无法解析'};return}
+    $hasDependencies=$false
+    foreach($group in @('dependencies','devDependencies','optionalDependencies','peerDependencies')){
+      foreach($entry in @($manifest.$group.PSObject.Properties)){
+        $hasDependencies=$true;$version=[string]$entry.Value
+        if($version -match '^(?i)(https?://|git(\+|://)|github:)'){$script:findings += @{kind='dependency_untrusted_source';severity='high';path=$safePath;message="依赖 $($entry.Name) 直接使用远程源码"}}
+        elseif($version -match '^(\*|latest|next|[~^<>=])'){$script:findings += @{kind='dependency_unpinned';severity='medium';path=$safePath;message="依赖 $($entry.Name) 未固定到精确版本"}}
+      }
+    }
+    $hasLock=$false;foreach($name in @('package-lock.json','npm-shrinkwrap.json','pnpm-lock.yaml','yarn.lock','bun.lock','bun.lockb')){if(Test-Path (Join-Path $file.DirectoryName $name)){$hasLock=$true;break}}
+    if($hasDependencies -and -not $hasLock){$script:findings += @{kind='missing_lockfile';severity='medium';path=$safePath;message='JavaScript 依赖缺少受支持的锁文件'}}
+  } elseif($file.Name -like 'requirements*.txt') {
+    foreach($line in $text -split "`r?`n"){$value=$line.Trim();if(-not $value -or $value.StartsWith('#')){continue};if($value -match '^(?i)(-e\s+)?(https?://|git\+)'){$script:findings += @{kind='dependency_untrusted_source';severity='high';path=$safePath;message='Python 依赖直接使用远程源码'}}elseif($value -notmatch '=='){$script:findings += @{kind='dependency_unpinned';severity='medium';path=$safePath;message='Python 依赖未固定到精确版本'}}}
+  }
+}
 function Get-ManagedRepos {
   $repos=@()
   Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
@@ -92,6 +110,7 @@ foreach ($root in $roots) {
         Get-ChildItem $_.Directory.FullName -Recurse -Attributes ReparsePoint | ForEach-Object {$findings += @{kind='skill_symlink_escape';severity='high';path=(Protect-SentinelPath $_.FullName);message='Skill 包含重解析点，需人工确认目标边界'}}
       }
       if ($_.Name -in @('mcp.json','mcp_config.json')) { Inspect-SentinelMcpJson $_ $text }
+      if ($_.Name -eq 'package.json' -or $_.Name -like 'requirements*.txt') { $inventory += @{type='dependency_manifest';path=(Protect-SentinelPath $_.FullName)}; Inspect-SentinelDependencies $_ $text }
     }
   }
 }
@@ -99,7 +118,7 @@ $policyVersion = if (Test-Path $policyPath) { (Get-Content $policyPath -Raw | Co
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.8.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.9.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $report | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 $Output
 if ($report.summary.critical -gt 0 -or $report.summary.high -gt 0) { exit 2 }
