@@ -6,6 +6,18 @@ from pathlib import Path
 DEFAULT_POLICY=Path(__file__).with_name("sentinel-policy.json")
 AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json"]
 SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills"]
+AGENT_HOME_MARKERS={
+    "cursor":[".cursor/mcp.json","Library/Application Support/Cursor/User/settings.json",".config/Cursor/User/settings.json"],
+    "codex":[".codex/config.toml",".local/bin/codex"],
+    "claude_code":[".claude.json",".claude/settings.json",".local/bin/claude"],
+    "windsurf":[".codeium/windsurf/mcp_config.json","Library/Application Support/Windsurf/User/settings.json",".config/Windsurf/User/settings.json"],
+}
+AGENT_SYSTEM_MARKERS={
+    "cursor":["/Applications/Cursor.app","/usr/local/bin/cursor","/opt/homebrew/bin/cursor"],
+    "codex":["/usr/local/bin/codex","/opt/homebrew/bin/codex"],
+    "claude_code":["/usr/local/bin/claude","/opt/homebrew/bin/claude"],
+    "windsurf":["/Applications/Windsurf.app","/usr/local/bin/windsurf","/opt/homebrew/bin/windsurf"],
+}
 BASELINE=Path(__file__).with_name("sentinel-security-baseline.md")
 MANAGED_MARKER="<!-- sentinel-managed-baseline -->"
 def safe_path(path):
@@ -21,6 +33,23 @@ def managed_homes():
         for base in [Path("/Users"),Path("/home")]:
             if base.exists(): homes.extend(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("."))
     return list(dict.fromkeys(homes))
+def discover_agent_tools(homes=None,system_markers=None):
+    """Discover supported AI coding agents from files only; never execute them."""
+    homes=managed_homes() if homes is None else homes; markers=AGENT_SYSTEM_MARKERS if system_markers is None else system_markers
+    found=[]; seen=set()
+    def add(name,path,scope):
+        key=(name,str(path))
+        if key not in seen: found.append({"type":"ai_agent","name":name,"path":safe_path(path),"scope":scope,"detected_by":"filesystem_marker"}); seen.add(key)
+    for home in homes:
+        for name,relative_paths in AGENT_HOME_MARKERS.items():
+            for rel in relative_paths:
+                path=Path(home)/rel
+                if path.exists(): add(name,path,"user"); break
+    for name,paths in markers.items():
+        for raw in paths:
+            path=Path(raw)
+            if path.exists(): add(name,path,"system"); break
+    return found
 def scan_text(path,text,policy):
     out=[]; low=text.lower(); checks=[("prompt_override","high",r"ignore (all |any )?(previous|prior) instructions"),("credential_access","high",r"(?:~/|\$home/)(?:\.ssh|\.aws)|security\s+find-(?:generic|internet)-password"),("unbounded_shell","high",r"shell\s*=\s*true|subprocess\..*shell\s*=\s*true"),("dynamic_eval","medium",r"\beval\s*\(|\bexec\s*\(")]
     for kind,sev,pat in checks:
@@ -52,8 +81,8 @@ def scan_mcp_config(path,text,policy):
         if url and allowed_domains and not any(url.startswith("https://"+d+"/") or url=="https://"+d for d in allowed_domains): out.append(finding("unapproved_mcp_domain","medium",path,f"MCP {name} 连接未批准域名"))
     return out
 def scan(root,policy):
-    findings=[]; inventory=[]
-    for home in managed_homes():
+    findings=[]; homes=managed_homes(); inventory=discover_agent_tools(homes)
+    for home in homes:
         for rel in AGENT_CONFIGS:
             p=home/rel
             if p.exists():
@@ -109,7 +138,7 @@ def auto_enroll(root):
     return changed
 def post_report(url,token,report):
     if not url: return "disabled"
-    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.5.1"}
+    body=json.dumps(report,ensure_ascii=False).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.6.0"}
     if token: headers["Authorization"]="Bearer "+token
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
     with urllib.request.urlopen(request,timeout=15) as response: return str(response.status)
@@ -123,7 +152,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.5.1","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.6.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
