@@ -38,6 +38,8 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 1. 脚本签名与哈希固定（安装器已校验核心文件 SHA-256）；2. 100 台以内试点；3. 误报复核；4. 回滚与卸载包；5. EDR 动作双人审批；6. 数据保留和脱敏评审。
 
+每次导入 Intune 或桌管前，在解压目录运行 `python3 sentinel_release_verify.py .`。验收器离线检查核心文件 SHA-256、所有安装/检测脚本内嵌哈希、策略版本、Intune `en_US` 修复文案，以及企业 ZIP 中每个文件与发布目录逐字节一致；必须返回 `{"ok":true,"errors":[]}` 才能进入试点。
+
 ## 升级、回滚与卸载
 
 Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器、策略和基线三项 SHA-256 后才替换运行文件；已有完整版本会备份到 `previous`。需要回退时，通过 Intune 以 SYSTEM/root 下发 `rollback-sentinel-windows.ps1` 或 `rollback-sentinel-macos.sh`，脚本会先验证备份清单，再恢复并重启周期任务。回滚只保留最近一个完整版本。
