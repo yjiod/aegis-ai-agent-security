@@ -142,8 +142,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.11.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.11.0')
+        self.assertIn("agent_version='0.12.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.12.0')
     def test_intune_compliance_checks_integrity_task_and_policy(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'intune-windows-detect.ps1').read_text()
@@ -152,6 +152,11 @@ class SentinelTests(unittest.TestCase):
         rules=json.loads((DOWNLOADS/'intune-compliance-policy.json').read_text())['Rules']; names={x['SettingName'] for x in rules}
         self.assertTrue({'SentinelIntegrityValid','SentinelScheduledTaskHealthy','SentinelPolicyVersion','SentinelScanRecent'}.issubset(names))
         version=next(x['Operand'] for x in rules if x['SettingName']=='SentinelPolicyVersion'); self.assertEqual(version,self.policy['version'])
+    def test_windows_scanner_covers_codex_toml_mcp_contract(self):
+        script=(DOWNLOADS/'sentinel-windows.ps1').read_text()
+        self.assertIn('function Inspect-SentinelMcpToml',script); self.assertIn("$_.Name -eq 'config.toml'",script)
+        for finding in ('unknown_mcp','unapproved_mcp_command','broad_filesystem_scope','ambiguous_mcp_transport','unapproved_mcp_transport','unapproved_mcp_domain','mcp_url_credentials','literal_mcp_secret'):
+            self.assertIn("kind='"+finding+"'",script[script.index('function Inspect-SentinelMcpToml'):])
     def test_offline_spool(self):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
