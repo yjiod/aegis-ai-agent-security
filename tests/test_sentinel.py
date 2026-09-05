@@ -89,6 +89,15 @@ class SentinelTests(unittest.TestCase):
             result=self.collector.store_report(path,body,report,now=now,days=2); self.assertFalse(result['duplicate'])
             with self.collector.db_open(path) as db: self.assertEqual(db.execute("SELECT COUNT(*) FROM reports").fetchone()[0],1)
         self.assertEqual(self.collector.retention_days('invalid'),30); self.assertEqual(self.collector.retention_days(99999),3650)
+    def test_collector_summary_uses_latest_report_per_device(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=200000
+            with self.collector.db_open(path) as db:
+                rows=[('a1','device-a',now-90000,'critical','{}'),('a2','device-a',now-10,'normal','{}'),('b1','device-b',now-20,'high','{}'),('c1','device-c',now-90000,'critical','{}')]
+                db.executemany("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",rows); db.commit()
+            summary=self.collector.collector_summary(path,now=now)
+            self.assertEqual(summary['total_devices'],3); self.assertEqual(summary['active_devices'],2); self.assertEqual(summary['stale_devices'],1)
+            self.assertEqual(summary['latest_severity'],{'critical':1,'high':1,'normal':1})
     def test_collector_rate_limiter_is_bounded_and_recovers(self):
         now=[100.0]; limiter=self.collector.RateLimiter(limit=2,window=60,max_sources=2,clock=lambda:now[0])
         self.assertEqual(limiter.check('client-a'),(True,0)); self.assertEqual(limiter.check('client-a'),(True,0))
@@ -127,6 +136,9 @@ class SentinelTests(unittest.TestCase):
                 tampered=body+b' '; request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/reports',data=tampered,headers=headers,method='POST')
                 with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(request,timeout=3)
                 self.assertEqual(error.exception.code,401); error.exception.close()
+                summary_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/summary',headers={'Authorization':'Bearer bearer'})
+                with urllib.request.urlopen(summary_request,timeout=3) as response:
+                    summary=json.load(response); self.assertEqual(summary['total_devices'],1); self.assertEqual(summary['active_devices'],1)
             finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_mcp_least_privilege(self):
         config={'mcpServers':{'rogue':{'command':'bash','args':['/'],'env':{'API_KEY':'literal-secret'},'url':'http://outside.invalid'}}}
