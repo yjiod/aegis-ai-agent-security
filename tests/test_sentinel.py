@@ -1,4 +1,4 @@
-import hashlib, importlib.util, json, os, tempfile, threading, time, unittest, urllib.error, urllib.request
+import hashlib, importlib.util, json, os, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -161,6 +161,16 @@ class SentinelTests(unittest.TestCase):
         rules=json.loads((DOWNLOADS/'intune-compliance-policy.json').read_text())['Rules']; names={x['SettingName'] for x in rules}
         self.assertTrue({'SentinelIntegrityValid','SentinelScheduledTaskHealthy','SentinelPolicyVersion','SentinelScanRecent'}.issubset(names))
         version=next(x['Operand'] for x in rules if x['SettingName']=='SentinelPolicyVersion'); self.assertEqual(version,self.policy['version'])
+        self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
+    def test_intune_macos_compliance_contract(self):
+        manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
+        discovery=(DOWNLOADS/'intune-macos-compliance.sh').read_text(); rules=json.loads((DOWNLOADS/'intune-macos-compliance-policy.json').read_text())['Rules']
+        for name in ('sentinel_agent.py','sentinel-policy.json','sentinel-security-baseline.md'): self.assertIn(manifest[name],discovery)
+        names={rule['SettingName'] for rule in rules}; self.assertTrue({'SentinelInstalled','SentinelIntegrityValid','SentinelLaunchDaemonHealthy','SentinelPolicyVersion','SentinelScanRecent','SentinelCriticalFindings','SentinelHighFindings'}.issubset(names))
+        self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
+        version=next(rule['Operand'] for rule in rules if rule['SettingName']=='SentinelPolicyVersion'); self.assertEqual(version,self.policy['version'])
+        with zipfile.ZipFile(DOWNLOADS/'sentinel-enterprise-bundle.zip') as bundle:
+            self.assertTrue({'intune-macos-compliance.sh','intune-macos-compliance-policy.json'}.issubset(bundle.namelist()))
     def test_windows_scanner_covers_codex_toml_mcp_contract(self):
         script=(DOWNLOADS/'sentinel-windows.ps1').read_text()
         self.assertIn('function Inspect-SentinelMcpToml',script); self.assertIn("$_.Name -eq 'config.toml'",script)
