@@ -11,9 +11,9 @@ STAGE_DIR="$INSTALL_DIR/.stage.$$"
 mkdir -m 700 "$STAGE_DIR"
 trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 2>/dev/null || true' EXIT HUP INT TERM
 for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do curl --fail --silent --show-error "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
-echo "21766c8da570da4e0ca64660d3f16c171d8b0f62ac9782ac58bbcd2233ab7406  $STAGE_DIR/sentinel_agent.py" | shasum -a 256 -c -
-echo "8445ffbaf792cd4c92702d4359e1a853b9c35fb80c8862c81a7c46f184469cb1  $STAGE_DIR/sentinel-policy.json" | shasum -a 256 -c -
-echo "0c0b6ac7e4bee2859f0d0e70b80a3865fd5fb4c68cf531fe555188a1b9e6d19c  $STAGE_DIR/sentinel-security-baseline.md" | shasum -a 256 -c -
+echo "0ef3774a08ce830e8a317c6ee5cf19dff031752092493d6800b3f4bc6ce5f571  $STAGE_DIR/sentinel_agent.py" | shasum -a 256 -c -
+echo "f093a50aab82c99ac282d8608df505cf8ac9d22e257fb20d38f6c0e9f47eedab  $STAGE_DIR/sentinel-policy.json" | shasum -a 256 -c -
+echo "e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e  $STAGE_DIR/sentinel-security-baseline.md" | shasum -a 256 -c -
 for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do if [ -f "$INSTALL_DIR/$name" ]; then cp -p "$INSTALL_DIR/$name" "$INSTALL_DIR/previous/$name"; fi; done
 if [ -f "$INSTALL_DIR/previous/sentinel_agent.py" ] && [ -f "$INSTALL_DIR/previous/sentinel-policy.json" ] && [ -f "$INSTALL_DIR/previous/sentinel-security-baseline.md" ]; then (cd "$INSTALL_DIR/previous" && shasum -a 256 sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md > CHECKSUMS.sha256); fi
 for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do mv -f "$STAGE_DIR/$name" "$INSTALL_DIR/$name"; done
