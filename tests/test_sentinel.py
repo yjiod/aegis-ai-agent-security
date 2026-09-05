@@ -466,6 +466,15 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(self.adapter.process(report,spoof,dry_run=True)[0]['error'],'unapproved_adapter_host:sangfor')
         self.assertEqual(self.adapter.process(report,insecure,dry_run=True)[0]['error'],'invalid_https_url:sangfor')
         self.assertEqual(self.adapter.process(report,embedded,dry_run=True)[0]['error'],'credentials_in_adapter_url:sangfor')
+    def test_vendor_adapter_rejects_config_confusion_and_non_2xx_delivery(self):
+        report=vendor_report('high')
+        self.assertEqual(self.adapter.process(report,[],dry_run=True)[0]['error'],'invalid_adapter_config')
+        scalar={'allowed_hosts':['edr.invalid'],'sangfor':'not-an-object'}; self.assertEqual(self.adapter.process(report,scalar,dry_run=True)[0]['error'],'invalid_adapter_target:sangfor')
+        confused={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'PATH'}}; self.assertEqual(self.adapter.process(report,confused,dry_run=True)[0]['error'],'invalid_adapter_credential_env:sangfor')
+        config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'}}
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'token'}):
+            result=self.adapter.process(report,config,spool_dir=d,sender=lambda *args,**kwargs:500); self.assertEqual(result[0]['result'],'queued'); self.assertEqual(len(list(Path(d).glob('*.json'))),1)
+            replay=self.adapter.flush_spool(config,Path(d),sender=lambda *args,**kwargs:500); self.assertEqual(replay[0]['result'],'retained')
     def test_vendor_failure_isolation_and_offline_retry(self):
         report=vendor_report('high')
         config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}

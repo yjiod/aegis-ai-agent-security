@@ -1,11 +1,28 @@
 #!/usr/bin/env python3
 """Fail-safe vendor boundary for Sangfor EDR and Leagsoft. Disabled by default."""
-import argparse, hashlib, hmac, json, os, time, urllib.request
+import argparse, hashlib, hmac, json, os, re, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 SAFE_ACTIONS={"observe","alert","isolate_pending_approval","block_pending_approval"}
 ADAPTERS=("sangfor","leagsoft","security_webhook")
+TARGET_FIELDS={"sangfor":{"enabled","mode","url","token_env","actions"},"leagsoft":{"enabled","mode","url","token_env","compliance"},"security_webhook":{"enabled","mode","url","secret_env"}}
+CREDENTIAL_PREFIX={"sangfor":"SANGFOR_","leagsoft":"LEAGSOFT_","security_webhook":"SENTINEL_"}
+
+def validate_config(config):
+    if not isinstance(config,dict) or not set(config).issubset({"allowed_hosts",*ADAPTERS}): raise ValueError("invalid_adapter_config")
+    hosts=config.get("allowed_hosts",[])
+    if not isinstance(hosts,list) or len(hosts)>100 or any(not isinstance(host,str) or not 1<=len(host)<=253 for host in hosts): raise ValueError("invalid_allowed_hosts")
+    for name in ADAPTERS:
+        target=config.get(name,{})
+        if not isinstance(target,dict) or not set(target).issubset(TARGET_FIELDS[name]): raise ValueError(f"invalid_adapter_target:{name}")
+        if "enabled" in target and not isinstance(target["enabled"],bool): raise ValueError(f"invalid_adapter_enabled:{name}")
+        env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
+        if env_name and (not isinstance(env_name,str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,127}",env_name) or not env_name.startswith(CREDENTIAL_PREFIX[name])): raise ValueError(f"invalid_adapter_credential_env:{name}")
+        if name=="sangfor":
+            actions=target.get("actions",{})
+            if not isinstance(actions,dict) or not set(actions).issubset({"critical","high","medium","low","normal"}) or any(not isinstance(action,str) for action in actions.values()): raise ValueError("invalid_sangfor_actions")
+    return config
 
 def valid_report(report):
     if not isinstance(report,dict): return False
@@ -61,14 +78,16 @@ def validate_target(name,target,config,dry_run=False):
     env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
     if not dry_run and (not env_name or not os.getenv(env_name,"")): raise ValueError(f"missing_adapter_credential:{name}")
 def send(url,payload,token="",secret=""):
-    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.5"}
+    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.6"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
     with urllib.request.urlopen(urllib.request.Request(url,data=body,headers=headers,method="POST"),timeout=15) as response: return response.status
 def deliver(name,target,payload,sender=send):
     env_name=target.get("secret_env" if name=="security_webhook" else "token_env",""); credential=os.getenv(env_name,"")
-    return sender(target["url"],payload,secret=credential) if name=="security_webhook" else sender(target["url"],payload,token=credential)
+    status=sender(target["url"],payload,secret=credential) if name=="security_webhook" else sender(target["url"],payload,token=credential)
+    if not isinstance(status,int) or isinstance(status,bool) or not 200<=status<300: raise OSError("adapter_delivery_not_accepted")
+    return status
 def spool_limit(value=None):
     raw=os.getenv("SENTINEL_ADAPTER_SPOOL_MAX_EVENTS","500") if value is None else value
     try: return min(max(int(raw),10),10000)
@@ -86,6 +105,8 @@ def quarantine(path,spool,keep=20):
     for expired in files[:-keep]: expired.unlink()
     return invalid
 def flush_spool(config,spool,sender=send,limit=50):
+    try: validate_config(config)
+    except ValueError as exc: return [{"adapter":"boundary","result":"rejected","error":str(exc)}]
     if not spool.exists(): return []
     results=[]
     for path in sorted(spool.glob("*.json"))[:limit]:
@@ -100,6 +121,8 @@ def flush_spool(config,spool,sender=send,limit=50):
     return results
 def process(report,config,dry_run=False,spool_dir=None,sender=send):
     if not valid_report(report): return [{"adapter":"boundary","result":"rejected","error":"invalid_report_contract"}]
+    try: validate_config(config)
+    except ValueError as exc: return [{"adapter":"boundary","result":"rejected","error":str(exc)}]
     outputs=[]; spool=Path(spool_dir) if spool_dir else Path(os.getenv("SENTINEL_ADAPTER_SPOOL",Path.home()/".sentinel-adapter/spool"))
     builders={"sangfor":sangfor_event,"leagsoft":leagsoft_posture,"security_webhook":lambda value,_config:value}
     for name in ADAPTERS:
@@ -118,7 +141,9 @@ def process(report,config,dry_run=False,spool_dir=None,sender=send):
     return outputs
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("report",nargs="?"); ap.add_argument("--config",default=str(Path(__file__).with_name("sentinel-adapters.json"))); ap.add_argument("--dry-run",action="store_true"); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_ADAPTER_SPOOL","")); ap.add_argument("--flush-only",action="store_true"); args=ap.parse_args()
-    config=json.loads(Path(args.config).read_text()); spool=Path(args.spool_dir) if args.spool_dir else Path.home()/".sentinel-adapter/spool"
+    try: config=json.loads(Path(args.config).read_text()); validate_config(config)
+    except (OSError,ValueError,TypeError,RecursionError) as exc: raise SystemExit("invalid adapter configuration: "+type(exc).__name__)
+    spool=Path(args.spool_dir) if args.spool_dir else Path.home()/".sentinel-adapter/spool"
     if args.flush_only: print(json.dumps(flush_spool(config,spool),ensure_ascii=False,indent=2)); return
     if not args.report: ap.error("report is required unless --flush-only is used")
     report=json.loads(Path(args.report).read_text()); print(json.dumps(process(report,config,args.dry_run,spool),ensure_ascii=False,indent=2))
