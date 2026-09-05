@@ -3,7 +3,7 @@ set -u
 INSTALL_DIR="/Library/Application Support/SentinelAgent"
 REPORT="$INSTALL_DIR/reports/latest.json"
 PLIST="/Library/LaunchDaemons/com.company.sentinel-agent.plist"
-AGENT_SHA="e8e87e570d71279e1128c390de17bbde757e653e99b988e46a171e08adc5b317"
+AGENT_SHA="f98fe875cce7b758278ba4bce50f9e48692b88c92874e130ad3bcdbcdce48bb7"
 POLICY_SHA="431a156f48208bcbc2c44dd92f8b2383be6a04df9294631f6386a9a6d48ac64d"
 BASELINE_SHA="0c0b6ac7e4bee2859f0d0e70b80a3865fd5fb4c68cf531fe555188a1b9e6d19c"
 installed=false; integrity=false; runtime=false

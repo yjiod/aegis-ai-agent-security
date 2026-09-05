@@ -22,6 +22,14 @@ class SentinelTests(unittest.TestCase):
             root=Path(d); (root/'AGENTS.md').write_text('# Existing\nkeep me')
             self.agent.install_baseline(root); self.agent.install_baseline(root)
             text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
+    def test_baseline_write_rejects_symlink_escape(self):
+        with tempfile.TemporaryDirectory() as d:
+            base=Path(d); root=base/'repo'; outside=base/'outside'; root.mkdir(); outside.mkdir(); (root/'.sentinel').symlink_to(outside, target_is_directory=True)
+            victim=outside/'SECURITY_BASELINE.md'; victim.write_text('do not change')
+            self.agent.install_baseline(root)
+            self.assertEqual(victim.read_text(),'do not change')
+            user=base/'user'; user.mkdir(); (user/'.codex').symlink_to(outside,target_is_directory=True); agents=outside/'AGENTS.md'; agents.write_text('personal')
+            self.assertEqual(self.agent.install_user_baselines([user]),[]); self.assertEqual(agents.read_text(),'personal')
     def test_user_baseline_loads_only_for_installed_agents_and_updates_in_place(self):
         with tempfile.TemporaryDirectory() as d:
             base=Path(d); active=base/'active'; untouched=base/'untouched'; (active/'.codex').mkdir(parents=True); untouched.mkdir()
@@ -30,7 +38,7 @@ class SentinelTests(unittest.TestCase):
             text=target.read_text(); self.assertEqual(first,[str(target)]); self.assertEqual(second,[])
             self.assertIn('Personal rules',text); self.assertEqual(text.count(self.agent.USER_BASELINE_START),1); self.assertFalse((untouched/'.codex').exists())
         remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
-        self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn("if(Test-Path (Join-Path $_.FullName '.codex'))",remediation)
+        self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('ReparsePoint',remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
         mac=(DOWNLOADS/'uninstall-sentinel-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-sentinel-windows.ps1').read_text()
         for script in (mac,windows): self.assertIn('sentinel-managed-user-baseline:start',script); self.assertIn('sentinel-managed-user-baseline:end',script)
@@ -156,8 +164,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.13.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.13.0')
+        self.assertIn("agent_version='0.14.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.14.0')
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
     def test_release_verifier_rejects_runtime_drift(self):
@@ -188,6 +196,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('function Inspect-SentinelMcpToml',script); self.assertIn("$_.Name -eq 'config.toml'",script)
         for finding in ('unknown_mcp','unapproved_mcp_command','broad_filesystem_scope','ambiguous_mcp_transport','unapproved_mcp_transport','unapproved_mcp_domain','mcp_url_credentials','literal_mcp_secret'):
             self.assertIn("kind='"+finding+"'",script[script.index('function Inspect-SentinelMcpToml'):])
+        self.assertIn('function Test-SentinelSafeTarget',script); self.assertIn('ReparsePoint',script[script.index('function Test-SentinelSafeTarget'):script.index('function Inspect-SentinelMcpJson')])
     def test_offline_spool(self):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
