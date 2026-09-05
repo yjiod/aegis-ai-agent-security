@@ -14,10 +14,22 @@ def max_file_bytes(policy):
     raw=policy.get("limits",{}).get("max_file_bytes",1_000_000)
     try: return min(max(int(raw),65_536),10_000_000)
     except (TypeError,ValueError): return 1_000_000
+def validate_policy(data):
+    if not isinstance(data,dict) or data.get("schema")!="sentinel.policy/v1" or not isinstance(data.get("version"),str) or not data["version"]: raise ValueError("invalid_policy_contract")
+    if not isinstance(data.get("limits",{}),dict) or not isinstance(data.get("enforcement",{}),dict): raise ValueError("invalid_policy_objects")
+    string_lists=("allowed_skills","allowed_mcp_transports","allowed_mcp_servers","allowed_mcp_commands","allowed_mcp_command_paths","allowed_mcp_domains","blocked_commands","secret_patterns","skill_rules","mcp_rules","code_rules")
+    for key in string_lists:
+        values=data.get(key,[])
+        if not isinstance(values,list) or any(not isinstance(value,str) for value in values): raise ValueError("invalid_policy_list:"+key)
+    for pattern in data.get("secret_patterns",[]):
+        try: re.compile(pattern)
+        except re.error as exc: raise ValueError("invalid_policy_regex") from exc
+    invocations=data.get("allowed_mcp_invocations",[])
+    if not isinstance(invocations,list) or any(not isinstance(item,list) or len(item)<2 or any(not isinstance(value,str) or not value for value in item) for item in invocations): raise ValueError("invalid_mcp_invocations")
+    return data
 def load_policy(path):
     data=json.loads(Path(path).read_text())
-    if not isinstance(data,dict) or data.get("schema")!="sentinel.policy/v1" or not isinstance(data.get("version"),str) or not data["version"]: raise ValueError("invalid_policy_contract")
-    return data
+    return validate_policy(data)
 def reload_policy(path,current=None):
     try: return load_policy(path),False
     except (OSError,ValueError,RecursionError,UnicodeError): return current,True
@@ -114,7 +126,9 @@ def scan_mcp_server(path,name,cfg,policy):
     allowed_invocations={tuple(str(value) for value in item) for item in policy.get("allowed_mcp_invocations",[]) if isinstance(item,list)}
     if command and args and tuple([base]+args) not in allowed_invocations: out.append(finding("unapproved_mcp_invocation","high",path,f"MCP {name} 的命令参数组合未获批准"))
     if any(x in ["/","C:\\","$HOME","~"] or x.startswith(("/Users/","/home/")) for x in args): out.append(finding("broad_filesystem_scope","high",path,f"MCP {name} 请求宽泛文件范围"))
-    for key,value in (cfg.get("env",{}) or {}).items():
+    env=cfg.get("env",{}) or {}
+    if not isinstance(env,dict): out.append(finding("invalid_mcp_environment","high",path,f"MCP {name} 的 env 必须是对象")); env={}
+    for key,value in env.items():
         if re.search(r"TOKEN|SECRET|PASSWORD|API_KEY",str(key),re.I) and value and not re.match(r"^\$\{?[A-Z0-9_]+\}?$",str(value)): out.append(finding("literal_mcp_secret","critical",path,f"MCP {name} 包含明文敏感环境变量: {key}","[REDACTED]"))
     if url:
         try: parsed=urlsplit(url); host=(parsed.hostname or "").lower().rstrip(".")
@@ -147,7 +161,8 @@ def scan_mcp_config(path,text,policy):
     servers=data.get("mcpServers",data.get("servers",{}))
     if not isinstance(servers,dict): return [finding("invalid_mcp_config","medium",path,"MCP Server 集合必须是对象")]
     for name,cfg in servers.items():
-        if not isinstance(cfg,dict): continue
+        if not isinstance(cfg,dict):
+            out.append(finding("invalid_mcp_server","high",path,f"MCP Server {name} 配置必须是对象")); continue
         out.extend(scan_mcp_server(path,name,cfg,policy))
     return out
 def scan_dependency_manifest(path,text):
@@ -314,7 +329,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.22.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.23.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -363,7 +378,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.22.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.23.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

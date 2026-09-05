@@ -24,6 +24,12 @@ class SentinelTests(unittest.TestCase):
             self.assertTrue(failed); self.assertIs(retained,loaded)
             path.write_text(json.dumps({'schema':'wrong','version':'9'})); retained,failed=self.agent.reload_policy(path,loaded)
             self.assertTrue(failed); self.assertIs(retained,loaded)
+            path.write_text(json.dumps({**loaded,'limits':'untrusted'})); retained,failed=self.agent.reload_policy(path,loaded)
+            self.assertTrue(failed); self.assertIs(retained,loaded)
+            path.write_text(json.dumps({**loaded,'secret_patterns':['[invalid']})); retained,failed=self.agent.reload_policy(path,loaded)
+            self.assertTrue(failed); self.assertIs(retained,loaded)
+            path.write_text(json.dumps({**loaded,'allowed_mcp_invocations':[['npx','']]})); retained,failed=self.agent.reload_policy(path,loaded)
+            self.assertTrue(failed); self.assertIs(retained,loaded)
             report={'findings':[{'kind':'x','severity':'low'}]*self.agent.REPORT_FINDING_LIMIT,'summary':{}}
             self.agent.add_report_finding(report,{'kind':'policy_reload_failed','severity':'high'})
             self.assertEqual(len(report['findings']),self.agent.REPORT_FINDING_LIMIT); self.assertEqual(report['findings'][-1]['kind'],'policy_reload_failed'); self.assertEqual(report['summary']['high'],1)
@@ -285,6 +291,12 @@ class SentinelTests(unittest.TestCase):
         windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn('function Test-SentinelMcpInvocation',windows); self.assertGreaterEqual(windows.count("kind='unapproved_mcp_invocation'"),2)
         invalid=self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',{'command':'npx','args':'-y package'},self.policy)
         self.assertIn('invalid_mcp_arguments',{item['kind'] for item in invalid})
+    def test_mcp_malformed_server_and_environment_are_visible_without_crashing(self):
+        config={'mcpServers':{'scalar':'not-an-object','bad-env':{'command':'node','env':['TOKEN=secret']}}}
+        kinds={item['kind'] for item in self.agent.scan_mcp_config(Path('/tmp/mcp.json'),json.dumps(config),self.policy)}
+        self.assertTrue({'invalid_mcp_server','invalid_mcp_environment'}.issubset(kinds))
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn("kind='invalid_mcp_server'",windows); self.assertIn("kind='invalid_mcp_environment'",windows)
+        self.assertIn("kind='policy_load_failed'",windows); self.assertIn("invalid MCP invocation policy",windows)
     def test_policy_declared_text_rules_are_enforced(self):
         hidden=self.agent.scan_text(Path('/tmp/SKILL.md'),'safe text\u202ehidden',self.policy)
         weak=self.agent.scan_text(Path('/tmp/app.js'),'const sessionToken = Math.random().toString()',self.policy)
@@ -329,8 +341,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.22.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.22.0')
+        self.assertIn("agent_version='0.23.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.23.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
