@@ -9,7 +9,7 @@ mkdir -m 700 "$STAGE_DIR"
 trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 2>/dev/null || true' EXIT HUP INT TERM
 for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
 verify_sha256() { if command -v shasum >/dev/null 2>&1; then echo "$1  $2" | shasum -a 256 -c -; else echo "$1  $2" | sha256sum -c -; fi; }
-verify_sha256 "9615c90ae4b24b62d3ef88584c25df7ccb078aa71bcd7f99c3c6bf54371ff22f" "$STAGE_DIR/sentinel_agent.py"
+verify_sha256 "ffbc1f1a10a4a39a9e9e1b857b76de2aabf22006059cddbef9773b18099dbc39" "$STAGE_DIR/sentinel_agent.py"
 verify_sha256 "0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423" "$STAGE_DIR/sentinel-policy.json"
 verify_sha256 "e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e" "$STAGE_DIR/sentinel-security-baseline.md"
 CURRENT_COMPLETE=1

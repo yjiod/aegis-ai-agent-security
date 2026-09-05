@@ -320,6 +320,7 @@ class SentinelTests(unittest.TestCase):
             (root/'run.py').write_text('token = "sk-abcdefghijklmnopqrstuvwxyz123456"')
             findings,count=self.agent.scan_skill(skill,self.policy); kinds={f['kind'] for f in findings}
             self.assertEqual(count,2); self.assertIn('unknown_skill',kinds); self.assertIn('hardcoded_secret',kinds)
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertLess(windows.index("$skillManifests=@(Get-ChildItem"),windows.index('$oversized=@(')); self.assertIn("kind='skill_scan_truncated'",windows); self.assertIn("kind='project_scan_truncated'",windows); self.assertIn("kind='skill_link_findings_truncated'",windows)
     def test_approved_skill_and_symlink_boundary(self):
         with tempfile.TemporaryDirectory() as d:
             base=Path(d); root=base/'approved'; root.mkdir(); skill=root/'SKILL.md'; skill.write_text('# safe')
@@ -342,8 +343,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.24.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.24.0')
+        self.assertIn("agent_version='0.25.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.25.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -402,7 +403,7 @@ class SentinelTests(unittest.TestCase):
         script=(DOWNLOADS/'intune-macos-compliance.sh').read_text().split("<<'PY'\n",1)[1].split("\nPY",1)[0]
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; policy.write_text(json.dumps(self.policy))
-            value={'schema':'sentinel.report/v1','agent_version':'0.24.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':int(time.time()),'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.25.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':int(time.time()),'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertTrue(json.loads(result.stdout)['SentinelReportValid'])
             value['summary']['high']=0; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportValid'])
             value['summary']['high']=1; value['agent_version']='0.22.0'; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportValid'])
