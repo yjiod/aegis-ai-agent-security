@@ -228,7 +228,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.11.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.12.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -261,7 +261,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.11.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.12.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
