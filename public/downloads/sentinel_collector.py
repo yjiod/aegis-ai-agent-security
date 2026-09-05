@@ -15,6 +15,8 @@ def db_open(path):
         if "report_hash" not in columns: db.execute("ALTER TABLE reports ADD COLUMN report_hash TEXT")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_hash ON reports(report_hash) WHERE report_hash IS NOT NULL")
         db.execute("CREATE INDEX IF NOT EXISTS idx_reports_device_time ON reports(device_id, received_at DESC)"); db.commit()
+        db.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY,event TEXT NOT NULL,occurred_at INTEGER NOT NULL,device_id TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(occurred_at DESC)"); db.commit()
         yield db
     finally: db.close()
 def valid_report(d,now=None):
@@ -66,6 +68,14 @@ def requests_per_minute(value=None):
     raw=os.getenv("SENTINEL_REQUESTS_PER_MINUTE","120") if value is None else value
     try: return min(max(int(raw),1),10000)
     except (TypeError,ValueError): return 120
+def audit_retention_days(value=None):
+    raw=os.getenv("SENTINEL_AUDIT_RETENTION_DAYS","90") if value is None else value
+    try: return min(max(int(raw),1),3650)
+    except (TypeError,ValueError): return 90
+def audit_max_events(value=None):
+    raw=os.getenv("SENTINEL_AUDIT_MAX_EVENTS","100000") if value is None else value
+    try: return min(max(int(raw),1000),1000000)
+    except (TypeError,ValueError): return 100000
 class RateLimiter:
     """Bounded per-source sliding-window limiter for defense in depth."""
     def __init__(self,limit=None,window=60,max_sources=10000,clock=None):
@@ -89,8 +99,22 @@ def store_report(db_path,body,report,now=None,days=None):
     canonical=json.dumps(report,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); digest=hashlib.sha256(canonical).hexdigest()
     with db_open(db_path) as db:
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
-        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode())); db.commit(); duplicate=cursor.rowcount==0
+        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode())); duplicate=cursor.rowcount==0
+        db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity)); prune_audit(db,now); db.commit()
     return {"accepted":True,"duplicate":duplicate,"report_id":digest[:20],"severity":severity}
+def prune_audit(db,now=None,days=None,max_events=None):
+    now=int(time.time()) if now is None else int(now); days=audit_retention_days(days); max_events=audit_max_events(max_events)
+    db.execute("DELETE FROM audit_events WHERE occurred_at < ?",(now-days*86400,))
+    db.execute("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY id DESC LIMIT ?)",(max_events,))
+def audit_event(db_path,event,device_id="",detail="",now=None):
+    now=int(time.time()) if now is None else int(now)
+    if not event or len(event)>64 or len(device_id)>128 or len(detail)>256: raise ValueError("invalid_audit_event")
+    with db_open(db_path) as db:
+        db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",(event,now,device_id,detail)); prune_audit(db,now); db.commit()
+def recent_audit(db_path,limit=200):
+    limit=min(max(int(limit),1),500)
+    with db_open(db_path) as db: rows=db.execute("SELECT event,occurred_at,device_id,detail FROM audit_events ORDER BY id DESC LIMIT ?",(limit,)).fetchall()
+    return [{"event":event,"occurred_at":occurred,"device_id":device,"detail":detail} for event,occurred,device,detail in rows]
 def collector_summary(db_path,now=None,active_window=86400):
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
@@ -101,7 +125,7 @@ def collector_summary(db_path,now=None,active_window=86400):
     active=sum(received>=now-active_window for received,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.6"
+    server_version="SentinelCollector/0.7"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -126,9 +150,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 with db_open(self.server.db_path) as db: rows=db.execute("SELECT device_id, MAX(received_at), COUNT(*) FROM reports GROUP BY device_id ORDER BY MAX(received_at) DESC LIMIT 500").fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            audit_event(self.server.db_path,"devices_read",detail=str(len(rows)))
             return self.reply(200,{"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2]} for r in rows]})
         if self.path=="/v1/summary":
-            try: return self.reply(200,collector_summary(self.server.db_path))
+            try:
+                summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+        if self.path=="/v1/audit":
+            try:
+                audit_event(self.server.db_path,"audit_read"); return self.reply(200,{"events":recent_audit(self.server.db_path)})
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
