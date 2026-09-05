@@ -23,6 +23,17 @@ class SentinelTests(unittest.TestCase):
                 report=self.agent.build_report(root,self.policy)
             self.assertEqual(len(report['inventory']),5000); self.assertEqual(report['inventory'][-1]['type'],'inventory_truncated')
             self.assertEqual(len(report['findings']),10000); self.assertEqual(report['findings'][-1]['kind'],'findings_truncated')
+    def test_oversized_code_config_and_skill_files_are_visible_and_bounded(self):
+        policy={**self.policy,'limits':{**self.policy['limits'],'max_file_bytes':65536}}
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); large=root/'app.py'; large.write_bytes(b'x'*65537)
+            findings=self.agent.scan(root,policy)[1]; self.assertIn('oversized_file_skipped',{item['kind'] for item in findings})
+            skill=root/'demo'; skill.mkdir(); (skill/'SKILL.md').write_text('# demo'); (skill/'large.py').write_bytes(b'x'*65537)
+            skill_findings,count=self.agent.scan_skill(skill/'SKILL.md',policy,max_files=2)
+            self.assertEqual(count,2); self.assertIn('oversized_file_skipped',{item['kind'] for item in skill_findings})
+        self.assertEqual(self.agent.max_file_bytes({'limits':{'max_file_bytes':'bad'}}),1000000)
+        self.assertEqual(self.agent.max_file_bytes({'limits':{'max_file_bytes':1}}),65536)
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn("kind='oversized_file_skipped'",windows); self.assertIn('$maxFileBytes',windows)
     def test_secret_detection_is_redacted(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'app.py'; p.write_text('token="sk-abcdefghijklmnopqrstuvwxyz123456"')
@@ -275,8 +286,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.16.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.16.0')
+        self.assertIn("agent_version='0.17.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.17.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}

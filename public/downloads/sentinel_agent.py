@@ -10,6 +10,10 @@ SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills"]
 DEPENDENCY_MANIFESTS={"package.json","requirements.txt","requirements-dev.txt"}
 REPORT_INVENTORY_LIMIT=5000
 REPORT_FINDING_LIMIT=10000
+def max_file_bytes(policy):
+    raw=policy.get("limits",{}).get("max_file_bytes",1_000_000)
+    try: return min(max(int(raw),65_536),10_000_000)
+    except (TypeError,ValueError): return 1_000_000
 AGENT_HOME_MARKERS={
     "cursor":[".cursor/mcp.json","Library/Application Support/Cursor/User/settings.json",".config/Cursor/User/settings.json"],
     "codex":[".codex/config.toml",".local/bin/codex"],
@@ -173,11 +177,13 @@ def scan_skill(skill_file,policy,max_files=500):
             if scanned>=max_files: break
             path=current_path/filename
             if path.is_symlink() or path.suffix.lower() not in readable: continue
+            scanned+=1
             try:
-                if path.stat().st_size<=1_000_000:
+                size=path.stat().st_size
+                if size<=max_file_bytes(policy):
                     text=path.read_text(errors="ignore"); out.extend(scan_text(path,text,policy))
                     if path.name in DEPENDENCY_MANIFESTS: out.extend(scan_dependency_manifest(path,text))
-                    scanned+=1
+                else: out.append(finding("oversized_file_skipped","medium",path,f"Skill 文件超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
             except OSError: out.append(finding("unreadable","low",path,"Skill 文件存在但无法读取"))
         if scanned>=max_files: out.append(finding("skill_scan_truncated","medium",root,f"Skill 文件数超过扫描上限 {max_files}")); break
     return out,scanned
@@ -190,7 +196,10 @@ def scan(root,policy):
             if p.exists():
                 inventory.append({"type":"agent_config","path":safe_path(p)})
                 try:
-                    text=p.read_text(errors="ignore"); findings.extend(scan_text(p,text,policy)); findings.extend(scan_mcp_config(p,text,policy))
+                    size=p.stat().st_size
+                    if size>max_file_bytes(policy): findings.append(finding("oversized_file_skipped","medium",p,f"Agent 配置超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
+                    else:
+                        text=p.read_text(errors="ignore"); findings.extend(scan_text(p,text,policy)); findings.extend(scan_mcp_config(p,text,policy))
                 except OSError: findings.append(finding("unreadable","low",p,"配置存在但无法读取"))
         for rel in SKILL_ROOTS:
             d=home/rel
@@ -216,10 +225,12 @@ def scan(root,policy):
             if scanned>=file_limit: truncated=True; break
             scanned+=1
             try:
-                if p.stat().st_size<=1_000_000:
+                size=p.stat().st_size
+                if size<=max_file_bytes(policy):
                     text=p.read_text(errors="ignore"); findings.extend(scan_text(p,text,policy))
                     if p.name in ["mcp.json","mcp_config.json","config.toml"]: findings.extend(scan_mcp_config(p,text,policy))
                     if p.name in DEPENDENCY_MANIFESTS: inventory.append({"type":"dependency_manifest","path":safe_path(p)}); findings.extend(scan_dependency_manifest(p,text))
+                else: findings.append(finding("oversized_file_skipped","medium",p,f"代码或配置文件超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
             except OSError: pass
         if truncated: break
     if truncated: findings.append(finding("project_scan_truncated","medium",root,f"项目候选文件超过扫描上限 {file_limit}"))
@@ -286,7 +297,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.16.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.17.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -323,7 +334,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.16.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.17.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
