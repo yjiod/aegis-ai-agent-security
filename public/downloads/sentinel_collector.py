@@ -23,10 +23,10 @@ def valid_report(d,now=None):
     allowed=required|{"scan_root","inventory"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
     if d.get("schema")!="sentinel.report/v1": return False
-    if not all(isinstance(d.get(k),str) and d[k] for k in ("agent_version","policy_version")): return False
+    if not all(isinstance(d.get(k),str) and 1<=len(d[k])<=64 for k in ("agent_version","policy_version")): return False
     if not isinstance(d.get("device_id"),str) or not 8<=len(d["device_id"])<=128: return False
-    if "scan_root" in d and not isinstance(d["scan_root"],str): return False
-    if "inventory" in d and (not isinstance(d["inventory"],list) or any(not isinstance(x,dict) for x in d["inventory"])): return False
+    if "scan_root" in d and (not isinstance(d["scan_root"],str) or len(d["scan_root"])>1024): return False
+    if "inventory" in d and (not isinstance(d["inventory"],list) or len(d["inventory"])>5000 or any(not isinstance(x,dict) for x in d["inventory"])): return False
     if not isinstance(d.get("scanned_at"),int) or isinstance(d["scanned_at"],bool): return False
     now=int(time.time()) if now is None else now
     if abs(now-d["scanned_at"])>7*86400: return False
@@ -42,7 +42,8 @@ def valid_report(d,now=None):
         if not set(finding).issubset({"kind","severity","path","message","evidence"}): return False
         if finding.get("severity") not in counts: return False
         if any(not isinstance(finding.get(k),str) for k in ("kind","path","message")): return False
-        if "evidence" in finding and not isinstance(finding["evidence"],str): return False
+        if not 1<=len(finding["kind"])<=128 or len(finding["path"])>2048 or not 1<=len(finding["message"])<=2048: return False
+        if "evidence" in finding and (not isinstance(finding["evidence"],str) or len(finding["evidence"])>512): return False
         counts[finding["severity"]]+=1
     return counts==summary
 def valid_signature(headers,body,now=None,secret=None,max_skew=300):
@@ -62,13 +63,14 @@ def retention_days(value=None):
     except (TypeError,ValueError): return 30
 def store_report(db_path,body,report,now=None,days=None):
     now=int(time.time()) if now is None else now; days=retention_days(days)
-    severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"; digest=hashlib.sha256(body).hexdigest()
+    severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"
+    canonical=json.dumps(report,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); digest=hashlib.sha256(canonical).hexdigest()
     with db_open(db_path) as db:
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
-        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],now,severity,body.decode())); db.commit(); duplicate=cursor.rowcount==0
+        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode())); db.commit(); duplicate=cursor.rowcount==0
     return {"accepted":True,"duplicate":duplicate,"report_id":digest[:20],"severity":severity}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.3"
+    server_version="SentinelCollector/0.4"
     def reply(self,status,data):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body)
     def authorized(self):
@@ -95,7 +97,7 @@ class Handler(BaseHTTPRequestHandler):
         body=self.rfile.read(length)
         if not valid_signature(self.headers,body): return self.reply(401,{"error":"invalid_signature"})
         try: report=json.loads(body)
-        except (json.JSONDecodeError,UnicodeDecodeError): return self.reply(400,{"error":"invalid_json"})
+        except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError): return self.reply(400,{"error":"invalid_json"})
         if not valid_report(report): return self.reply(400,{"error":"invalid_report"})
         try: result=store_report(self.server.db_path,body,report)
         except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
