@@ -24,7 +24,9 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器默认保留 30 天报告，可通过 `SENTINEL_RETENTION_DAYS` 设置 1–3650 天。SQLite 启用 WAL 和五秒忙等待；写入时清理过期数据。`/health` 会实际检查数据库，数据库不可用或繁忙超时返回 503，而格式错误仍返回明确的 400，便于监控区分客户端与服务端故障。
 
-使用 `sentinel-adapters.example.json` 创建不含凭据的配置副本，并用 `sentinel_adapter.py <报告> --config <配置> --dry-run` 检查事件映射。适配器默认关闭；深信服隔离动作只生成 `isolate_pending_approval` 建议，不会直接调用隔离。确认现网 API 后再设置 URL、环境变量令牌并去掉 `--dry-run`。
+使用 `sentinel-adapters.example.json` 创建不含凭据的配置副本，并用 `sentinel_adapter.py <报告> --config <配置> --dry-run` 检查事件映射。适配器默认关闭；只允许 HTTPS 且目标主机名必须精确列入顶层 `allowed_hosts`，URL 中不得携带凭据。深信服动作仅允许 `observe`、`alert`、`isolate_pending_approval` 和 `block_pending_approval`；直接隔离、查杀或封禁会被拒绝，必须由现有审批与响应平台执行。确认现网 API 字段后再设置 URL、环境变量令牌并去掉 `--dry-run`。
+
+三个输出通道彼此隔离：某个厂商接口不可用时，其事件以 0600 权限写入 `SENTINEL_ADAPTER_SPOOL`，不阻塞其他通道；网络恢复后运行 `sentinel_adapter.py --config <配置> --spool-dir <目录> --flush-only` 重放。队列不保存令牌，凭据只从环境变量读取。当前包定义的是安全边界与通用 Webhook 契约，深信服和联软的最终路径、鉴权头与字段映射仍需按客户现网产品版本的正式 API 文档完成验收。
 
 ## 联软桌管
 

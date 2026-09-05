@@ -144,10 +144,32 @@ class SentinelTests(unittest.TestCase):
             self.assertTrue(path.exists()); self.assertEqual(json.loads(path.read_text()),report); self.assertEqual(path.stat().st_mode & 0o777,0o600)
     def test_vendor_adapter_is_explicit_and_dry_run(self):
         report={'device_id':'dev-1','policy_version':'3.9.0','scanned_at':1,'summary':{'critical':1},'findings':[{}]}
-        config={'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid'}}
+        config={'allowed_hosts':['invalid'],'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid'}}
         outputs=self.adapter.process(report,config,dry_run=True)
         self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
         self.assertFalse(outputs[1]['payload']['compliant'])
+    def test_vendor_adapter_rejects_unsafe_actions_and_targets(self):
+        report={'device_id':'dev-1','policy_version':'4.2.0','scanned_at':1,'summary':{'critical':1},'findings':[{}]}
+        unsafe={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid','actions':{'critical':'isolate'}}}
+        spoof={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid.evil','actions':{'critical':'alert'}}}
+        insecure={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'http://edr.invalid','actions':{'critical':'alert'}}}
+        embedded={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://user:pass@edr.invalid','actions':{'critical':'alert'}}}
+        self.assertEqual(self.adapter.process(report,unsafe,dry_run=True)[0]['error'],'unsafe_sangfor_action:isolate')
+        self.assertEqual(self.adapter.process(report,spoof,dry_run=True)[0]['error'],'unapproved_adapter_host:sangfor')
+        self.assertEqual(self.adapter.process(report,insecure,dry_run=True)[0]['error'],'invalid_https_url:sangfor')
+        self.assertEqual(self.adapter.process(report,embedded,dry_run=True)[0]['error'],'credentials_in_adapter_url:sangfor')
+    def test_vendor_failure_isolation_and_offline_retry(self):
+        report={'device_id':'dev-1','policy_version':'4.2.0','scanned_at':1,'summary':{'critical':0,'high':1},'findings':[{}]}
+        config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
+        def sender(url,payload,token='',secret=''):
+            if 'edr.invalid' in url: raise OSError('offline')
+            return 202
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l'}):
+            outputs=self.adapter.process(report,config,spool_dir=d,sender=sender)
+            self.assertEqual([x['result'] for x in outputs],['queued','sent'])
+            queued=list(Path(d).glob('*.json')); self.assertEqual(len(queued),1); self.assertEqual(queued[0].stat().st_mode & 0o777,0o600)
+            flushed=self.adapter.flush_spool(config,Path(d),sender=lambda url,payload,token='',secret='':204)
+            self.assertEqual(flushed[0]['result'],'sent_from_spool'); self.assertFalse(list(Path(d).glob('*.json')))
     def test_auto_enroll_only_git_repositories(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); repo=root/'repo'; other=root/'ordinary'; (repo/'.git').mkdir(parents=True); other.mkdir()
