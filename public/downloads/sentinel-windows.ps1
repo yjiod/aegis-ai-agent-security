@@ -176,10 +176,13 @@ foreach ($root in $roots) {
   }
 }
 $policyVersion = if (Test-Path $policyPath) { (Get-Content $policyPath -Raw | ConvertFrom-Json).version } else { 'missing' }
+$inventoryLimit=5000;$findingLimit=10000
+if(@($inventory).Count -gt $inventoryLimit){$omitted=@($inventory).Count-$inventoryLimit+1;$inventory=@($inventory|Select-Object -First ($inventoryLimit-1));$inventory += @{type='inventory_truncated';omitted=$omitted}}
+if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLimit+1;$findings=@($findings|Select-Object -First ($findingLimit-1));$findings += @{kind='findings_truncated';severity='medium';path='managed-windows-roots';message="报告发现项超限，省略 $omitted 项"}}
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.14.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.15.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $reportJson|Set-Content -Encoding UTF8 $Output

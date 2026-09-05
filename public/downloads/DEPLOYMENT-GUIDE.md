@@ -62,4 +62,6 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 0.12.0 起，Windows 原生扫描器也解析 Codex `.codex/config.toml` 中的 `[mcp_servers.*]` 配置，执行与 JSON MCP 相同的 Server、命令、传输、远程域名、宽泛文件范围和凭据检查；扫描仅读取配置，不启动 MCP Server。
 
+0.15.0 起，Python 端单次项目扫描默认最多检查 10000 个候选文件，并跳过符号链接目录；可通过策略 `limits.project_files` 设置 100–100000。跨平台报告统一限制为最多 5000 个 inventory 和 10000 个 findings，超限时保留明确的 `inventory_truncated` / `findings_truncated` 标记，确保报告仍符合接收契约而不是反复补传失败。
+
 配置 `SENTINEL_REPORT_URL` 和 `SENTINEL_REPORT_TOKEN` 后启用上报。生产环境同时在终端和接收器配置相同的 `SENTINEL_REPORT_SIGNING_SECRET`；每次请求使用当前时间戳和原始请求体计算 HMAC-SHA256，接收器只接受五分钟窗口内的有效签名。网络中断时报告会进入权限受限的本地 spool，补传时使用新的请求时间重新签名；同秒报告使用唯一文件名，损坏文件会被隔离，不再阻塞后续补传。Python 端默认最多保留 500 份待传报告（可用 `SENTINEL_SPOOL_MAX_REPORTS` 设置 10–10000），Windows 端固定保留最近 500 份及 20 份损坏样本，超限时优先淘汰最旧文件。上报路径会把用户主目录替换为 `~`，明文密钥证据仅保留脱敏标记。密钥应由 Intune 的受保护配置流程注入，不要写入脚本或仓库。

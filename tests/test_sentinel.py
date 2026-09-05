@@ -12,6 +12,17 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
             self.assertEqual(report['schema'],'sentinel.report/v1'); self.assertEqual(report['summary']['critical'],0)
+    def test_scan_and_report_limits_are_enforced(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            for index in range(101): (root/f'{index}.py').write_text('x=1')
+            _inventory,findings=self.agent.scan(root,{**self.policy,'limits':{'project_files':100}})
+            self.assertIn('project_scan_truncated',{item['kind'] for item in findings})
+            fake_inventory=[{'type':'x'}]*5002; fake_findings=[{'kind':'x','severity':'low','path':'p','message':'m'}]*10002
+            with patch.object(self.agent,'scan',return_value=(fake_inventory,fake_findings)):
+                report=self.agent.build_report(root,self.policy)
+            self.assertEqual(len(report['inventory']),5000); self.assertEqual(report['inventory'][-1]['type'],'inventory_truncated')
+            self.assertEqual(len(report['findings']),10000); self.assertEqual(report['findings'][-1]['kind'],'findings_truncated')
     def test_secret_detection_is_redacted(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'app.py'; p.write_text('token="sk-abcdefghijklmnopqrstuvwxyz123456"')
@@ -164,8 +175,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.14.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.14.0')
+        self.assertIn("agent_version='0.15.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.15.0')
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
     def test_release_verifier_rejects_runtime_drift(self):
