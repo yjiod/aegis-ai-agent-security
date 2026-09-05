@@ -2,7 +2,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $policyPath = Join-Path $installDir 'sentinel-policy.json'
 $reportPath = Join-Path $installDir 'reports\latest.json'
-$expected = @{ 'sentinel-policy.json'='fe6b8160916423c429521c582c94e00e2d3a91feec6644739b1ea4896cb751ca'; 'sentinel-windows.ps1'='afa93412820d3e4b6508d288370deac6b14bb7c3623d75093a868a4d6ba1f447'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
+$expected = @{ 'sentinel-policy.json'='0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423'; 'sentinel-windows.ps1'='2c7ce120a97a9df59be65ea4673bb04e38fcd6f6ed251ff274c38d1c83a35282'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
 $installed=$true;$integrityValid=$true
 foreach($name in $expected.Keys){$path=Join-Path $installDir $name;if(-not(Test-Path $path)){$installed=$false;$integrityValid=$false}elseif((Get-FileHash $path -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]){$integrityValid=$false}}
 $policyVersion = if (Test-Path $policyPath) { (Get-Content $policyPath -Raw | ConvertFrom-Json).version } else { 'missing' }
