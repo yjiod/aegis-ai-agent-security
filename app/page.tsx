@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -28,15 +28,15 @@ const modules = [
   {
     icon: ShieldCheck,
     title: '安全编码基线',
-    desc: '42 条规则 · v4.2',
-    status: '已强制',
+    desc: '企业规则基线 · v4.8',
+    status: '已打包',
     tone: 'green',
   },
   {
     icon: Sparkles,
     title: 'Skill 扫描器',
     desc: '权限、指令与依赖',
-    status: '运行中',
+    status: '已打包',
     tone: 'blue',
   },
   {
@@ -95,60 +95,11 @@ const viewNames = {
 type DetailKey = keyof typeof viewNames;
 
 export default function Home() {
-  const [scanning, setScanning] = useState(false);
   const [toast, setToast] = useState('');
   const [detail, setDetail] = useState<DetailKey | null>(null);
   function runScan() {
-    setScanning(true);
-    setToast('正在向 284 台在线设备下发全量扫描…');
-    window.setTimeout(() => {
-      setScanning(false);
-      setToast('扫描任务已下发，控制台将持续汇总结果。');
-    }, 1600);
+    setToast('当前为演示数据，尚未连接任务下发 API；未对任何终端执行操作。');
   }
-  useEffect(() => {
-    const controller = new AbortController();
-    const modelContext = (
-      document as Document & {
-        modelContext?: {
-          registerTool: (
-            tool: unknown,
-            options?: { signal?: AbortSignal },
-          ) => void | Promise<void>;
-        };
-      }
-    ).modelContext;
-    if (!modelContext?.registerTool) return;
-    void Promise.resolve(
-      modelContext.registerTool(
-        {
-          name: 'start_enterprise_security_scan',
-          title: '启动全量安全扫描',
-          description:
-            '向当前在线的企业终端下发 AI Agent、Skill、MCP 与代码质量全量扫描任务。',
-          inputSchema: {
-            type: 'object',
-            properties: { scope: { type: 'string', enum: ['online_devices'] } },
-            required: ['scope'],
-            additionalProperties: false,
-          },
-          annotations: { readOnlyHint: false, untrustedContentHint: false },
-          execute: (input: unknown) => {
-            if (
-              !input ||
-              typeof input !== 'object' ||
-              (input as { scope?: string }).scope !== 'online_devices'
-            )
-              throw new Error('scope 必须为 online_devices');
-            runScan();
-            return { status: 'dispatched', onlineDevices: 284 };
-          },
-        },
-        { signal: controller.signal },
-      ),
-    ).catch(() => undefined);
-    return () => controller.abort();
-  }, []);
   return (
     <main className="min-h-screen bg-[#07110f] text-[#eaf7f2]">
       <header className="topbar">
@@ -162,8 +113,8 @@ export default function Home() {
         </div>
         <div className="header-actions">
           <span className="system-ok">
-            <span className="live-dot" />
-            系统运行正常
+            <span className="demo-dot" />
+            演示数据 · 接收器未连接
           </span>
           <button className="icon-btn" aria-label="搜索">
             <Search size={18} />
@@ -250,15 +201,16 @@ export default function Home() {
             <LockKeyhole size={16} />
             <div>
               <strong>企业安全策略</strong>
-              <small>最后同步于 1 分钟前</small>
+              <small>尚未连接接收器</small>
             </div>
             <Check size={16} />
           </div>
         </aside>
         <section className="workspace" id="overview">
+          <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>演示模式</strong> 页面指标、设备和风险事件均为界面样例，不代表真实终端状态。请部署报告接收器并完成私有 API 接入后再用于运营判断。</span></div>
           <div className="page-head">
             <div>
-              <p className="eyebrow">安全态势 / 实时</p>
+              <p className="eyebrow">安全态势 / 演示数据</p>
               <h1>AI Agent 安全总览</h1>
               <p>统一发现、校验并约束员工终端上的 AI Agent 行为。</p>
             </div>
@@ -267,9 +219,9 @@ export default function Home() {
                 <ChevronDown />
                 过去 24 小时
               </Button>
-              <Button onClick={runScan} disabled={scanning}>
+              <Button onClick={runScan}>
                 <Play fill="currentColor" />
-                {scanning ? '扫描下发中…' : '启动全量扫描'}
+                扫描下发未接入
               </Button>
             </div>
           </div>
@@ -333,7 +285,7 @@ export default function Home() {
                 </div>
                 <Badge variant="outline">
                   <span className="live-dot" />
-                  策略已同步
+                  发行包可用
                 </Badge>
               </div>
               <div className="module-grid">
@@ -397,7 +349,7 @@ export default function Home() {
             <section className="panel risks" id="risks">
               <div className="panel-head">
                 <div>
-                  <h2>最新风险事件</h2>
+                  <h2>风险事件样例</h2>
                   <p>按风险等级与时间排序</p>
                 </div>
                 <button>进入风险中心 →</button>
@@ -535,6 +487,7 @@ function DetailPanel({
             ×
           </button>
         </div>
+        <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>演示模式</strong> 本面板中的终端、风险、合规率和处置结果均为样例；企业 API 接入前不会执行外部操作。</span></div>
         {view === 'onboarding' && (
           <>
             <div className="baseline-banner">
@@ -589,10 +542,10 @@ function DetailPanel({
               <div className="panel-head">
                 <div>
                   <h2>最近扫描结果</h2>
-                  <p>终端安全 Agent 实时上报</p>
+                  <p>终端安全 Agent 上报样例</p>
                 </div>
                 <Button
-                  onClick={() => notify('规则库已同步至 284 台在线终端。')}
+                  onClick={() => notify('演示模式：未连接规则同步 API，未修改任何终端。')}
                 >
                   同步规则库
                 </Button>
@@ -608,7 +561,7 @@ function DetailPanel({
                 <h2>受管终端</h2>
                 <p>312 台设备 · 284 台在线</p>
               </div>
-              <Button onClick={() => notify('部署包生成任务已创建。')}>
+              <Button onClick={() => notify('演示模式：请直接下载已验证发行包，未创建外部任务。')}>
                 生成部署包
               </Button>
             </div>
@@ -629,7 +582,7 @@ function DetailPanel({
                 <h2>待研判事件</h2>
                 <p>3 个高危事件需要人工确认</p>
               </div>
-              <Button onClick={() => notify('已批量隔离 3 个高危对象。')}>
+              <Button onClick={() => notify('演示模式：未连接 EDR 审批接口，未隔离任何对象。')}>
                 隔离全部高危
               </Button>
             </div>
@@ -644,7 +597,7 @@ function DetailPanel({
                 <span className="time">{r.time}</span>
                 <button
                   className="handle"
-                  onClick={() => notify(`已认领「${r.title}」。`)}
+                  onClick={() => notify(`演示模式：未连接工单接口，未认领「${r.title}」。`)}
                 >
                   认领处置
                 </button>
@@ -656,8 +609,8 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>企业 AI Coding 安全基线 v4.2</h2>
-                <p>42 条规则已强制应用于 18 个研发团队</p>
+                <h2>企业 AI Coding 安全基线 v4.8</h2>
+                <p>规则应用范围与合规率为界面样例</p>
               </div>
               <strong>
                 98.2%<span>合规率</span>
@@ -691,7 +644,7 @@ function DetailPanel({
                 <h2>默认终端策略</h2>
                 <p>变更将自动同步至在线安全 Agent</p>
               </div>
-              <Button onClick={() => notify('策略已发布至 284 台在线终端。')}>
+              <Button onClick={() => notify('演示模式：未连接策略发布 API，未修改任何终端。')}>
                 发布策略
               </Button>
             </div>
@@ -710,7 +663,7 @@ function DetailPanel({
                   className={`switch ${on ? 'on' : ''}`}
                   onClick={(e) => {
                     e.currentTarget.classList.toggle('on');
-                    notify(`${a} 已更新，等待发布。`);
+                    notify(`演示模式：${a} 未被修改，设置 API 尚未连接。`);
                   }}
                   aria-label={`切换${a}`}
                 >
@@ -725,7 +678,7 @@ function DetailPanel({
             <ShieldCheck size={44} />
             <h2>{viewNames[view]}已接入</h2>
             <p>下一阶段可连接企业身份、通知和审计系统。</p>
-            <Button onClick={() => notify('配置向导已启动。')}>
+            <Button onClick={() => notify('演示模式：配置向导尚未连接企业后端。')}>
               打开配置向导
             </Button>
           </div>
