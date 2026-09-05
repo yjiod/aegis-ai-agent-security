@@ -31,6 +31,11 @@ class SentinelTests(unittest.TestCase):
             self.assertIn('Personal rules',text); self.assertEqual(text.count(self.agent.USER_BASELINE_START),1); self.assertFalse((untouched/'.codex').exists())
         remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
         self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn("if(Test-Path (Join-Path $_.FullName '.codex'))",remediation)
+    def test_uninstall_removes_only_managed_user_blocks(self):
+        mac=(DOWNLOADS/'uninstall-sentinel-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-sentinel-windows.ps1').read_text()
+        for script in (mac,windows): self.assertIn('sentinel-managed-user-baseline:start',script); self.assertIn('sentinel-managed-user-baseline:end',script)
+        self.assertIn('[ ! -L "$file" ]',mac); self.assertIn('ReparsePoint',windows)
+        self.assertIn('Repository rule files',mac); self.assertIn('Repository rule files',windows)
     def test_collector_contract(self):
         now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
