@@ -1,5 +1,6 @@
-import hashlib, importlib.util, json, os, tempfile, time, unittest
+import hashlib, importlib.util, json, os, tempfile, threading, time, unittest, urllib.error, urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT=Path(__file__).parents[1]; DOWNLOADS=ROOT/'public'/'downloads'
 def load(name,file):
@@ -35,6 +36,14 @@ class SentinelTests(unittest.TestCase):
                 first=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
                 second=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
                 self.assertEqual(first.rowcount,1); self.assertEqual(second.rowcount,0)
+    def test_collector_retention_and_storage(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=10*86400
+            with self.collector.db_open(path) as db: db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('old','device-old',1,'normal','{}')); db.commit()
+            report={'device_id':'device-new','summary':{'critical':0,'high':0}}; body=b'{"new":true}'
+            result=self.collector.store_report(path,body,report,now=now,days=2); self.assertFalse(result['duplicate'])
+            with self.collector.db_open(path) as db: self.assertEqual(db.execute("SELECT COUNT(*) FROM reports").fetchone()[0],1)
+        self.assertEqual(self.collector.retention_days('invalid'),30); self.assertEqual(self.collector.retention_days(99999),3650)
     def test_signed_report_request_contract(self):
         body=b'{"device":"test"}'; headers=self.agent.report_headers(body,'bearer','signing-secret',now=1000)
         self.assertTrue(self.collector.valid_signature(headers,body,now=1001,secret='signing-secret'))
@@ -43,6 +52,20 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(headers['Authorization'],'Bearer bearer'); self.assertTrue(headers['X-Sentinel-Signature'].startswith('sha256='))
     def test_signature_is_optional_until_enterprise_secret_is_configured(self):
         self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))
+    def test_collector_http_accepts_signed_report_and_deduplicates(self):
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKEN':'bearer','SENTINEL_REPORT_SIGNING_SECRET':'signing-secret'}):
+            server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(Path(d)/'reports.db')
+            thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+            try:
+                now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-http','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode()
+                headers=self.agent.report_headers(body,'bearer','signing-secret',now=now); request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/reports',data=body,headers=headers,method='POST')
+                with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,202); self.assertFalse(json.load(response)['duplicate'])
+                request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/reports',data=body,headers=headers,method='POST')
+                with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,200); self.assertTrue(json.load(response)['duplicate'])
+                tampered=body+b' '; request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/reports',data=tampered,headers=headers,method='POST')
+                with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(request,timeout=3)
+                self.assertEqual(error.exception.code,401); error.exception.close()
+            finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_mcp_least_privilege(self):
         config={'mcpServers':{'rogue':{'command':'bash','args':['/'],'env':{'API_KEY':'literal-secret'},'url':'http://outside.invalid'}}}
         findings=self.agent.scan_mcp_config(Path('/tmp/mcp.json'),json.dumps(config),self.policy)

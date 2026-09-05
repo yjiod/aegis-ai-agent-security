@@ -22,6 +22,8 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 `sentinel_collector.py` 是最小参考接收器，支持令牌认证、可选 HMAC 请求签名、报告大小限制、SQLite 留存和设备列表。生产环境应部署在企业反向代理之后，配置 TLS、密钥轮换、审计、限流和备份；终端不得直接访问 EDR 管理面。
 
+接收器默认保留 30 天报告，可通过 `SENTINEL_RETENTION_DAYS` 设置 1–3650 天。SQLite 启用 WAL 和五秒忙等待；写入时清理过期数据。`/health` 会实际检查数据库，数据库不可用或繁忙超时返回 503，而格式错误仍返回明确的 400，便于监控区分客户端与服务端故障。
+
 使用 `sentinel-adapters.example.json` 创建不含凭据的配置副本，并用 `sentinel_adapter.py <报告> --config <配置> --dry-run` 检查事件映射。适配器默认关闭；深信服隔离动作只生成 `isolate_pending_approval` 建议，不会直接调用隔离。确认现网 API 后再设置 URL、环境变量令牌并去掉 `--dry-run`。
 
 ## 联软桌管
