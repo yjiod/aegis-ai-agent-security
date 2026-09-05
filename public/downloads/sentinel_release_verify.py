@@ -17,6 +17,7 @@ BUNDLE_FILES=(
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
     "uninstall-sentinel-windows.ps1","uninstall-sentinel-macos.sh","CHECKSUMS.sha256","release.json","sentinel_adapter.py",
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
+    "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -59,6 +60,19 @@ def verify(downloads):
             if "en_US" not in {item.get("Language") for item in rule.get("RemediationStrings",[])}: errors.append(f"missing_en_US:{name}:{rule.get('SettingName','unknown')}")
         versions=[rule.get("Operand") for rule in rules if rule.get("SettingName")=="SentinelPolicyVersion"]
         if versions!=[policy.get("version")]: errors.append(f"policy_version_drift:{name}")
+    try: service=(downloads/"sentinel-collector.service").read_text()
+    except OSError as exc: errors.append(f"invalid_collector_service:{type(exc).__name__}"); service=""
+    for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/collector.env","--listen 127.0.0.1","NoNewPrivileges=true","ProtectSystem=strict","ProtectHome=true","CapabilityBoundingSet="):
+        if directive not in service: errors.append(f"unsafe_collector_service:{directive}")
+    try: env_example=(downloads/"sentinel-collector.env.example").read_text()
+    except OSError as exc: errors.append(f"invalid_collector_env:{type(exc).__name__}"); env_example=""
+    for secret_name in ("SENTINEL_COLLECTOR_TOKEN","SENTINEL_REPORT_SIGNING_SECRET"):
+        if not re.search(rf"(?m)^{secret_name}=$",env_example): errors.append(f"collector_example_secret_not_empty:{secret_name}")
+    if "SENTINEL_ALLOW_UNSIGNED_REPORTS=false" not in env_example: errors.append("collector_unsigned_mode_not_disabled")
+    try: nginx=(downloads/"sentinel-collector.nginx.conf").read_text()
+    except OSError as exc: errors.append(f"invalid_collector_nginx:{type(exc).__name__}"); nginx=""
+    for directive in ("listen 443 ssl", "ssl_protocols TLSv1.2 TLSv1.3", "client_max_body_size 2m", "limit_req zone=sentinel_reports", "proxy_pass http://127.0.0.1:8788"):
+        if directive not in nginx: errors.append(f"unsafe_collector_nginx:{directive}")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:
