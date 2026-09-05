@@ -27,6 +27,13 @@ def verify(downloads):
     if not re.fullmatch(r"\d+\.\d+\.\d+",str(release.get("release",""))): errors.append("invalid_release_version")
     try: policy=json.loads((downloads/"sentinel-policy.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_policy_json:{type(exc).__name__}"); policy={}
+    patterns=policy.get("secret_patterns",[]) if isinstance(policy,dict) else []
+    if not isinstance(patterns,list): errors.append("invalid_secret_patterns_type")
+    else:
+        for index,pattern in enumerate(patterns):
+            if not isinstance(pattern,str): errors.append(f"invalid_secret_pattern_type:{index}"); continue
+            try: re.compile(pattern)
+            except re.error: errors.append(f"invalid_secret_pattern_regex:{index}")
     try: manifest={line.split()[1]:line.split()[0] for line in (downloads/"CHECKSUMS.sha256").read_text().splitlines() if len(line.split())==2}
     except OSError as exc: errors.append(f"invalid_checksum_manifest:{type(exc).__name__}"); manifest={}
     for name in RUNTIME_FILES:

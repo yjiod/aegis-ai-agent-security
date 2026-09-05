@@ -85,7 +85,9 @@ def scan_text(path,text,policy):
         hit=re.search(r"(?m)^\s*"+pattern+r"(?:\s|$)",low)
         if hit: out.append(finding("blocked_command","high",path,f"命中禁止命令: {command}",hit.group(0).strip()[:80]))
     for pat in policy.get("secret_patterns",[]):
-        hit=re.search(pat,text)
+        try: hit=re.search(pat,text)
+        except re.error:
+            out.append(finding("invalid_policy_regex","high",path,"策略包含无效的敏感信息正则",hashlib.sha256(str(pat).encode()).hexdigest()[:12])); continue
         if hit: out.append(finding("hardcoded_secret","critical",path,"疑似硬编码凭据",hit.group(0)[:8]+"…"))
     return out
 def scan_mcp_server(path,name,cfg,policy):
@@ -127,9 +129,10 @@ def scan_mcp_config(path,text,policy):
         return out
     if path.suffix.lower()!=".json": return out
     try: data=json.loads(text)
-    except json.JSONDecodeError: return [finding("invalid_mcp_config","medium",path,"MCP JSON 配置无法解析")]
-    servers=data.get("mcpServers",data.get("servers",{})) if isinstance(data,dict) else {}
-    if not isinstance(servers,dict): return out
+    except (json.JSONDecodeError,RecursionError,ValueError): return [finding("invalid_mcp_config","medium",path,"MCP JSON 配置无法安全解析")]
+    if not isinstance(data,dict): return [finding("invalid_mcp_config","medium",path,"MCP JSON 顶层必须是对象")]
+    servers=data.get("mcpServers",data.get("servers",{}))
+    if not isinstance(servers,dict): return [finding("invalid_mcp_config","medium",path,"MCP Server 集合必须是对象")]
     for name,cfg in servers.items():
         if not isinstance(cfg,dict): continue
         out.extend(scan_mcp_server(path,name,cfg,policy))
@@ -138,7 +141,8 @@ def scan_dependency_manifest(path,text):
     out=[]
     if path.name=="package.json":
         try: data=json.loads(text)
-        except json.JSONDecodeError: return [finding("invalid_dependency_manifest","medium",path,"package.json 无法解析")]
+        except (json.JSONDecodeError,RecursionError,ValueError): return [finding("invalid_dependency_manifest","medium",path,"package.json 无法安全解析")]
+        if not isinstance(data,dict): return [finding("invalid_dependency_manifest","medium",path,"package.json 顶层必须是对象")]
         dependencies={}
         for key in ("dependencies","devDependencies","optionalDependencies","peerDependencies"):
             values=data.get(key,{}) if isinstance(data,dict) else {}
@@ -297,7 +301,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.17.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.18.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -334,7 +338,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.17.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.18.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
