@@ -75,6 +75,19 @@ class SentinelTests(unittest.TestCase):
                 first=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
                 second=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
                 self.assertEqual(first.rowcount,1); self.assertEqual(second.rowcount,0)
+    def test_collector_audit_is_structured_bounded_and_contains_no_report_body(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; report={'device_id':'device-a','summary':{'critical':0,'high':1}}; secret_body=b'{"sensitive_path":"/Users/alice/private"}'
+            self.collector.store_report(path,secret_body,report,now=100)
+            self.collector.store_report(path,secret_body,report,now=101)
+            events=self.collector.recent_audit(path)
+            self.assertEqual([event['event'] for event in events],['report_duplicate','report_accepted'])
+            self.assertNotIn('sensitive_path',json.dumps(events)); self.assertNotIn('/Users/alice',json.dumps(events))
+            with self.collector.db_open(path) as db:
+                for index in range(1005): db.execute("INSERT INTO audit_events(event,occurred_at) VALUES(?,?)",('test',200+index))
+                self.collector.prune_audit(db,now=2000,days=90,max_events=1000); db.commit()
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0],1000)
+        self.assertEqual(self.collector.audit_retention_days('bad'),90); self.assertEqual(self.collector.audit_max_events(5),1000)
     def test_collector_semantic_deduplication_ignores_json_formatting(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':1,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
@@ -164,6 +177,9 @@ class SentinelTests(unittest.TestCase):
                 summary_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/summary',headers={'Authorization':'Bearer bearer'})
                 with urllib.request.urlopen(summary_request,timeout=3) as response:
                     summary=json.load(response); self.assertEqual(summary['total_devices'],1); self.assertEqual(summary['active_devices'],1)
+                audit_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/audit',headers={'Authorization':'Bearer bearer'})
+                with urllib.request.urlopen(audit_request,timeout=3) as response:
+                    events=json.load(response)['events']; self.assertIn('audit_read',{event['event'] for event in events}); self.assertIn('report_accepted',{event['event'] for event in events})
             finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_mcp_least_privilege(self):
         config={'mcpServers':{'rogue':{'command':'bash','args':['/'],'env':{'API_KEY':'literal-secret'},'url':'http://outside.invalid'}}}
