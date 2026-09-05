@@ -14,6 +14,9 @@ const postures = [
 function boundedCount(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
 }
+function boundedVersion(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= 1 && value.length <= 64;
+}
 
 function validSummary(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -23,8 +26,8 @@ function validSummary(value: unknown) {
     !boundedCount(data.active_devices) ||
     !boundedCount(data.stale_devices) ||
     data.active_devices + data.stale_devices !== data.total_devices ||
-    typeof data.required_agent_version !== 'string' ||
-    typeof data.required_policy_version !== 'string'
+    !boundedVersion(data.required_agent_version) ||
+    !boundedVersion(data.required_policy_version)
   )
     return false;
   const severity = data.latest_severity as Record<string, unknown> | undefined;
@@ -40,15 +43,61 @@ function validSummary(value: unknown) {
   );
 }
 
+async function readBoundedJson(response: Response, limit = 65_536) {
+  const declared = Number(response.headers.get('content-length') || 0);
+  if (declared > limit) throw new Error('collector response too large');
+  if (!response.body) throw new Error('collector response missing');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      throw new Error('collector response too large');
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
+}
+
+function sanitizedSummary(value: unknown) {
+  if (!validSummary(value)) return null;
+  const data = value as Record<string, unknown>;
+  const severity = data.latest_severity as Record<string, number>;
+  const posture = data.version_posture as Record<string, number>;
+  return {
+    total_devices: data.total_devices,
+    active_devices: data.active_devices,
+    stale_devices: data.stale_devices,
+    required_agent_version: data.required_agent_version,
+    required_policy_version: data.required_policy_version,
+    latest_severity: Object.fromEntries(levels.map((key) => [key, severity[key]])),
+    version_posture: Object.fromEntries(postures.map((key) => [key, posture[key]])),
+  };
+}
+
+function unavailable(error: string, status = 503) {
+  return NextResponse.json(
+    { connected: false, error },
+    { status, headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
 export async function GET() {
   const endpoint = process.env.SENTINEL_COLLECTOR_URL;
   const allowedHost = process.env.SENTINEL_COLLECTOR_ALLOWED_HOST;
   const token = process.env.SENTINEL_COLLECTOR_TOKEN;
   if (!endpoint || !allowedHost || !token)
-    return NextResponse.json(
-      { connected: false, error: 'collector_not_configured' },
-      { status: 503 },
-    );
+    return unavailable('collector_not_configured');
   let target: URL;
   try {
     const base = new URL(endpoint);
@@ -65,10 +114,7 @@ export async function GET() {
       throw new Error('invalid collector configuration');
     target = new URL('/v1/summary', base.origin);
   } catch {
-    return NextResponse.json(
-      { connected: false, error: 'collector_configuration_invalid' },
-      { status: 503 },
-    );
+    return unavailable('collector_configuration_invalid');
   }
   try {
     const response = await fetch(target, {
@@ -77,24 +123,14 @@ export async function GET() {
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok)
-      return NextResponse.json(
-        { connected: false, error: 'collector_unavailable' },
-        { status: 503 },
-      );
-    const summary: unknown = await response.json();
-    if (!validSummary(summary))
-      return NextResponse.json(
-        { connected: false, error: 'collector_contract_invalid' },
-        { status: 502 },
-      );
+      return unavailable('collector_unavailable');
+    const summary = sanitizedSummary(await readBoundedJson(response));
+    if (!summary) return unavailable('collector_contract_invalid', 502);
     return NextResponse.json(
       { connected: true, summary },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch {
-    return NextResponse.json(
-      { connected: false, error: 'collector_unavailable' },
-      { status: 503 },
-    );
+    return unavailable('collector_unavailable');
   }
 }

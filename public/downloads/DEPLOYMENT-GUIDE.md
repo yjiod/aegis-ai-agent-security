@@ -4,6 +4,8 @@
 
 0.48.0 起，站点提供只读同源 `/api/summary` 代理。服务端配置 `SENTINEL_COLLECTOR_URL`、精确主机名 `SENTINEL_COLLECTOR_ALLOWED_HOST` 和至少 32 字符的 `SENTINEL_COLLECTOR_TOKEN` 后，顶部四项指标读取接收器摘要；令牌不会进入浏览器。代理只允许 HTTPS、拒绝 URL 凭据/查询参数、五秒超时、禁用缓存并严格复核汇总计数。未配置、上游异常或契约不符时自动回到明确标识的演示模式。
 
+0.49.0 起，摘要代理以流式读取执行 64 KiB 硬上限，包括没有 `Content-Length` 的分块响应；超过限制会立即取消上游读取。响应必须是严格 UTF-8，只有控制台需要的计数和版本字段会被重新构造并返回，获准主机附加的未知字段不会透传。所有成功及错误响应均设置 `Cache-Control: no-store`。
+
 ## 推荐职责
 
 - Microsoft Intune：Windows/macOS 安装、周期检测、修复与合规状态。
