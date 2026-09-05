@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Minimal report collector reference. Put behind enterprise TLS/reverse proxy."""
-import argparse, hashlib, hmac, json, os, sqlite3, time
+import argparse, hashlib, hmac, json, os, sqlite3, threading, time
+from collections import deque
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -61,6 +62,27 @@ def retention_days(value=None):
     raw=os.getenv("SENTINEL_RETENTION_DAYS","30") if value is None else value
     try: return min(max(int(raw),1),3650)
     except (TypeError,ValueError): return 30
+def requests_per_minute(value=None):
+    raw=os.getenv("SENTINEL_REQUESTS_PER_MINUTE","120") if value is None else value
+    try: return min(max(int(raw),1),10000)
+    except (TypeError,ValueError): return 120
+class RateLimiter:
+    """Bounded per-source sliding-window limiter for defense in depth."""
+    def __init__(self,limit=None,window=60,max_sources=10000,clock=None):
+        self.limit=requests_per_minute(limit); self.window=max(float(window),1); self.max_sources=max(int(max_sources),1)
+        self.clock=time.monotonic if clock is None else clock; self.events={}; self.lock=threading.Lock()
+    def check(self,source):
+        now=self.clock(); source=str(source)[:128]
+        with self.lock:
+            queue=self.events.get(source)
+            if queue is None:
+                if len(self.events)>=self.max_sources:
+                    oldest=min(self.events,key=lambda key:self.events[key][-1] if self.events[key] else 0); self.events.pop(oldest,None)
+                queue=self.events[source]=deque()
+            cutoff=now-self.window
+            while queue and queue[0]<=cutoff: queue.popleft()
+            if len(queue)>=self.limit: return False,max(1,int(self.window-(now-queue[0])+0.999))
+            queue.append(now); return True,0
 def store_report(db_path,body,report,now=None,days=None):
     now=int(time.time()) if now is None else now; days=retention_days(days)
     severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"
@@ -70,9 +92,17 @@ def store_report(db_path,body,report,now=None,days=None):
         cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode())); db.commit(); duplicate=cursor.rowcount==0
     return {"accepted":True,"duplicate":duplicate,"report_id":digest[:20],"severity":severity}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.4"
-    def reply(self,status,data):
-        body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body)
+    server_version="SentinelCollector/0.5"
+    def reply(self,status,data,headers=None):
+        body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
+        for name,value in (headers or {}).items(): self.send_header(name,str(value))
+        self.end_headers(); self.wfile.write(body)
+    def rate_limited(self):
+        limiter=getattr(self.server,"rate_limiter",None)
+        if limiter is None: return False
+        allowed,retry=limiter.check(self.client_address[0])
+        if allowed: return False
+        self.reply(429,{"error":"rate_limited"},{"Retry-After":retry}); return True
     def authorized(self):
         expected=os.getenv("SENTINEL_COLLECTOR_TOKEN",""); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); return bool(expected) and hmac.compare_digest(expected,supplied)
     def do_GET(self):
@@ -81,6 +111,7 @@ class Handler(BaseHTTPRequestHandler):
                 with db_open(self.server.db_path) as db: db.execute("SELECT 1").fetchone()
                 return self.reply(200,{"status":"ok","database":"ok"})
             except sqlite3.Error: return self.reply(503,{"status":"degraded","database":"unavailable"})
+        if self.rate_limited(): return
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         if self.path=="/v1/devices":
             try:
@@ -90,6 +121,7 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
         if self.path!="/v1/reports": return self.reply(404,{"error":"not_found"})
+        if self.rate_limited(): return
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         try: length=int(self.headers.get("Content-Length","0"))
         except ValueError: return self.reply(400,{"error":"invalid_size"})
@@ -106,5 +138,5 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--listen",default="127.0.0.1"); ap.add_argument("--port",type=int,default=8788); ap.add_argument("--db",default="sentinel.db"); args=ap.parse_args()
     if not os.getenv("SENTINEL_COLLECTOR_TOKEN"): raise SystemExit("SENTINEL_COLLECTOR_TOKEN is required")
-    server=ThreadingHTTPServer((args.listen,args.port),Handler); server.db_path=args.db; server.serve_forever()
+    server=ThreadingHTTPServer((args.listen,args.port),Handler); server.db_path=args.db; server.rate_limiter=RateLimiter(); server.serve_forever()
 if __name__=="__main__": main()

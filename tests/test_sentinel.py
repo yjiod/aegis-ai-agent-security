@@ -89,6 +89,23 @@ class SentinelTests(unittest.TestCase):
             result=self.collector.store_report(path,body,report,now=now,days=2); self.assertFalse(result['duplicate'])
             with self.collector.db_open(path) as db: self.assertEqual(db.execute("SELECT COUNT(*) FROM reports").fetchone()[0],1)
         self.assertEqual(self.collector.retention_days('invalid'),30); self.assertEqual(self.collector.retention_days(99999),3650)
+    def test_collector_rate_limiter_is_bounded_and_recovers(self):
+        now=[100.0]; limiter=self.collector.RateLimiter(limit=2,window=60,max_sources=2,clock=lambda:now[0])
+        self.assertEqual(limiter.check('client-a'),(True,0)); self.assertEqual(limiter.check('client-a'),(True,0))
+        allowed,retry=limiter.check('client-a'); self.assertFalse(allowed); self.assertEqual(retry,60)
+        limiter.check('client-b'); limiter.check('client-c'); self.assertLessEqual(len(limiter.events),2)
+        now[0]=161; self.assertEqual(limiter.check('client-a'),(True,0))
+        self.assertEqual(self.collector.requests_per_minute('invalid'),120); self.assertEqual(self.collector.requests_per_minute(99999),10000)
+    def test_collector_http_rate_limit_contract(self):
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKEN':'bearer'}):
+            server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(Path(d)/'reports.db'); server.rate_limiter=self.collector.RateLimiter(limit=1)
+            thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+            try:
+                url=f'http://127.0.0.1:{server.server_port}/v1/devices'; request=urllib.request.Request(url,headers={'Authorization':'Bearer bearer'})
+                with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,200)
+                with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(request,timeout=3)
+                self.assertEqual(error.exception.code,429); self.assertTrue(error.exception.headers['Retry-After']); error.exception.close()
+            finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_signed_report_request_contract(self):
         body=b'{"device":"test"}'; headers=self.agent.report_headers(body,'bearer','signing-secret',now=1000)
         self.assertTrue(self.collector.valid_signature(headers,body,now=1001,secret='signing-secret'))
