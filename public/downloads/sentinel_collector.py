@@ -154,7 +154,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.25.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.26.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
     for _,severity,agent,policy in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1
         if not agent or not policy: versions["unknown"]+=1
