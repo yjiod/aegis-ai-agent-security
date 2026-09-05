@@ -22,6 +22,8 @@ AGENT_SYSTEM_MARKERS={
 }
 BASELINE=Path(__file__).with_name("sentinel-security-baseline.md")
 MANAGED_MARKER="<!-- sentinel-managed-baseline -->"
+USER_BASELINE_START="<!-- sentinel-managed-user-baseline:start -->"
+USER_BASELINE_END="<!-- sentinel-managed-user-baseline:end -->"
 def safe_path(path):
     value=str(path)
     for home in managed_homes():
@@ -214,6 +216,26 @@ def install_baseline(root):
         if MANAGED_MARKER not in current: path.write_text(current.rstrip()+block); changed.append(str(path))
     shared=root/".sentinel/SECURITY_BASELINE.md"; shared.parent.mkdir(parents=True,exist_ok=True); shared.write_text(MANAGED_MARKER+"\n"+content)
     return changed
+def install_user_baselines(homes=None):
+    """Load the baseline into already-present user Agent instruction files."""
+    homes=managed_homes() if homes is None else homes; content=BASELINE.read_text().rstrip()
+    block=f"{USER_BASELINE_START}\n{content}\n{USER_BASELINE_END}"
+    changed=[]
+    for home in homes:
+        home=Path(home); targets=[]
+        if (home/".codex").is_dir(): targets.append(home/".codex/AGENTS.md")
+        if (home/".claude").is_dir() or (home/".claude.json").is_file(): targets.append(home/".claude/CLAUDE.md")
+        for path in targets:
+            path.parent.mkdir(parents=True,exist_ok=True); current=path.read_text(errors="ignore") if path.exists() else ""
+            pattern=re.compile(re.escape(USER_BASELINE_START)+r".*?"+re.escape(USER_BASELINE_END),re.S)
+            updated=pattern.sub(block,current) if pattern.search(current) else current.rstrip()+("\n\n" if current.strip() else "")+block+"\n"
+            if updated!=current:
+                path.write_text(updated)
+                if hasattr(os,"geteuid") and os.geteuid()==0:
+                    try: owner=home.stat(); os.chown(path,owner.st_uid,owner.st_gid)
+                    except OSError: pass
+                changed.append(str(path))
+    return changed
 def discover_repositories(root,max_depth=4):
     root=root.resolve(); repos=[]
     if (root/".git").exists(): repos.append(root)
@@ -224,11 +246,11 @@ def discover_repositories(root,max_depth=4):
         if (path/".git").exists() and path not in repos: repos.append(path); dirs[:]=[]
     return repos
 def auto_enroll(root):
-    changed=[]
+    changed=install_user_baselines()
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.12.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.13.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -261,7 +283,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.12.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.13.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
