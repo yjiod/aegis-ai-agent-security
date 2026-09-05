@@ -22,6 +22,15 @@ class SentinelTests(unittest.TestCase):
             root=Path(d); (root/'AGENTS.md').write_text('# Existing\nkeep me')
             self.agent.install_baseline(root); self.agent.install_baseline(root)
             text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
+    def test_user_baseline_loads_only_for_installed_agents_and_updates_in_place(self):
+        with tempfile.TemporaryDirectory() as d:
+            base=Path(d); active=base/'active'; untouched=base/'untouched'; (active/'.codex').mkdir(parents=True); untouched.mkdir()
+            target=active/'.codex/AGENTS.md'; target.write_text('# Personal rules\n')
+            first=self.agent.install_user_baselines([active,untouched]); second=self.agent.install_user_baselines([active,untouched])
+            text=target.read_text(); self.assertEqual(first,[str(target)]); self.assertEqual(second,[])
+            self.assertIn('Personal rules',text); self.assertEqual(text.count(self.agent.USER_BASELINE_START),1); self.assertFalse((untouched/'.codex').exists())
+        remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
+        self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn("if(Test-Path (Join-Path $_.FullName '.codex'))",remediation)
     def test_collector_contract(self):
         now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
@@ -142,8 +151,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.12.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.12.0')
+        self.assertIn("agent_version='0.13.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.13.0')
     def test_intune_compliance_checks_integrity_task_and_policy(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'intune-windows-detect.ps1').read_text()
@@ -204,7 +213,7 @@ class SentinelTests(unittest.TestCase):
     def test_auto_enroll_only_git_repositories(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); repo=root/'repo'; other=root/'ordinary'; (repo/'.git').mkdir(parents=True); other.mkdir()
-            changed=self.agent.auto_enroll(root)
+            with patch.object(self.agent,'managed_homes',return_value=[]): changed=self.agent.auto_enroll(root)
             self.assertTrue(changed); self.assertTrue((repo/'.cursor/rules/sentinel-security.mdc').exists()); self.assertFalse((other/'AGENTS.md').exists())
     def test_agent_discovery_uses_markers_without_execution(self):
         with tempfile.TemporaryDirectory() as d:
