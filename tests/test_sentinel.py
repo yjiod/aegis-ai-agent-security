@@ -293,8 +293,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.18.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.18.0')
+        self.assertIn("agent_version='0.19.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.19.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -355,6 +355,15 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
             self.assertTrue(path.exists()); self.assertEqual(json.loads(path.read_text()),report); self.assertEqual(path.stat().st_mode & 0o777,0o600)
+    def test_atomic_private_report_write_preserves_previous_on_replace_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            output=Path(d)/'reports/latest.json'; output.parent.mkdir(); output.write_text('previous')
+            self.agent.write_private_atomic(output,'{"ok":true}')
+            self.assertEqual(output.read_text(),'{"ok":true}'); self.assertEqual(output.stat().st_mode & 0o777,0o600)
+            with patch.object(self.agent.os,'replace',side_effect=OSError('simulated')):
+                with self.assertRaises(OSError): self.agent.write_private_atomic(output,'broken')
+            self.assertEqual(output.read_text(),'{"ok":true}'); self.assertFalse(list(output.parent.glob('.latest.json.*.tmp')))
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn("$outputTemp=$Output+'.'",windows); self.assertLess(windows.index('Set-Content -Encoding UTF8 $outputTemp'),windows.index('Move-Item $outputTemp $Output -Force'))
     def test_offline_spool_is_bounded_unique_and_skips_corruption(self):
         with tempfile.TemporaryDirectory() as d:
             spool=Path(d); report={'scanned_at':1,'device_id':'device-123'}
