@@ -144,6 +144,17 @@ class SentinelTests(unittest.TestCase):
             summary=self.collector.collector_summary(path,now=now)
             self.assertEqual(summary['total_devices'],3); self.assertEqual(summary['active_devices'],2); self.assertEqual(summary['stale_devices'],1)
             self.assertEqual(summary['latest_severity'],{'critical':1,'high':1,'normal':1})
+            self.assertEqual(summary['version_posture'],{'current':0,'agent_mismatch':0,'policy_mismatch':0,'both_mismatch':0,'unknown':3})
+    def test_collector_summary_classifies_latest_version_drift(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=200000
+            versions=[('current','0.25.0','4.8.0'),('agent','0.24.0','4.8.0'),('policy','0.25.0','4.7.0'),('both','0.24.0','4.7.0')]
+            for device,agent,policy in versions:
+                report={'device_id':device,'agent_version':agent,'policy_version':policy,'summary':{'critical':0,'high':0}}; self.collector.store_report(path,b'{}',report,now=now)
+            summary=self.collector.collector_summary(path,now=now,required_agent='0.25.0',required_policy='4.8.0')
+            self.assertEqual(summary['version_posture'],{'current':1,'agent_mismatch':1,'policy_mismatch':1,'both_mismatch':1,'unknown':0})
+            self.assertEqual(summary['required_agent_version'],'0.25.0'); self.assertEqual(summary['required_policy_version'],'4.8.0')
+            with self.collector.db_open(path) as db: self.assertTrue({'agent_version','policy_version'}.issubset({row[1] for row in db.execute('PRAGMA table_info(reports)')}))
     def test_collector_online_backup_is_consistent_private_and_retained(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); source=root/'sentinel.db'; output=root/'backups'

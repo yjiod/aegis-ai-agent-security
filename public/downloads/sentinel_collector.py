@@ -13,6 +13,8 @@ def db_open(path):
         db.execute("CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY, report_hash TEXT, device_id TEXT NOT NULL, received_at INTEGER NOT NULL, severity TEXT NOT NULL, body TEXT NOT NULL)")
         columns={row[1] for row in db.execute("PRAGMA table_info(reports)")}
         if "report_hash" not in columns: db.execute("ALTER TABLE reports ADD COLUMN report_hash TEXT")
+        if "agent_version" not in columns: db.execute("ALTER TABLE reports ADD COLUMN agent_version TEXT")
+        if "policy_version" not in columns: db.execute("ALTER TABLE reports ADD COLUMN policy_version TEXT")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_hash ON reports(report_hash) WHERE report_hash IS NOT NULL")
         db.execute("CREATE INDEX IF NOT EXISTS idx_reports_device_time ON reports(device_id, received_at DESC)"); db.commit()
         db.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY,event TEXT NOT NULL,occurred_at INTEGER NOT NULL,device_id TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
@@ -104,6 +106,9 @@ def audit_max_events(value=None):
     raw=os.getenv("SENTINEL_AUDIT_MAX_EVENTS","100000") if value is None else value
     try: return min(max(int(raw),1000),1000000)
     except (TypeError,ValueError): return 100000
+def required_version(name,default,env=None):
+    env=os.environ if env is None else env; value=env.get(name,default)
+    return value if isinstance(value,str) and 1<=len(value)<=64 else default
 class RateLimiter:
     """Bounded per-source sliding-window limiter for defense in depth."""
     def __init__(self,limit=None,window=60,max_sources=10000,clock=None):
@@ -127,7 +132,7 @@ def store_report(db_path,body,report,now=None,days=None):
     canonical=json.dumps(report,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); digest=hashlib.sha256(canonical).hexdigest()
     with db_open(db_path) as db:
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
-        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode())); duplicate=cursor.rowcount==0
+        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode(),report.get("agent_version"),report.get("policy_version"))); duplicate=cursor.rowcount==0
         db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity)); prune_audit(db,now); db.commit()
     return {"accepted":True,"duplicate":duplicate,"report_id":digest[:20],"severity":severity}
 def prune_audit(db,now=None,days=None,max_events=None):
@@ -143,17 +148,24 @@ def recent_audit(db_path,limit=200):
     limit=min(max(int(limit),1),500)
     with db_open(db_path) as db: rows=db.execute("SELECT event,occurred_at,device_id,detail FROM audit_events ORDER BY id DESC LIMIT ?",(limit,)).fetchall()
     return [{"event":event,"occurred_at":occurred,"device_id":device,"detail":detail} for event,occurred,device,detail in rows]
-def collector_summary(db_path,now=None,active_window=86400):
+def collector_summary(db_path,now=None,active_window=86400,required_agent=None,required_policy=None):
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
     with db_open(db_path) as db:
-        rows=db.execute("SELECT r.received_at,r.severity FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id").fetchall()
+        rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    for received,severity in rows: by_severity[severity if severity in by_severity else "normal"]+=1
-    active=sum(received>=now-active_window for received,_ in rows)
-    return {"generated_at":now,"active_window_seconds":active_window,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity}
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.25.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
+    for _,severity,agent,policy in rows:
+        by_severity[severity if severity in by_severity else "normal"]+=1
+        if not agent or not policy: versions["unknown"]+=1
+        elif agent!=required_agent and policy!=required_policy: versions["both_mismatch"]+=1
+        elif agent!=required_agent: versions["agent_mismatch"]+=1
+        elif policy!=required_policy: versions["policy_mismatch"]+=1
+        else: versions["current"]+=1
+    active=sum(received>=now-active_window for received,_,_,_ in rows)
+    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.9"
+    server_version="SentinelCollector/0.10"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
