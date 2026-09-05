@@ -4,7 +4,18 @@ $roots = @()
 $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $baselinePath = Join-Path $installDir 'sentinel-security-baseline.md'
 $policyPath = Join-Path $installDir 'sentinel-policy.json'
-$policy = if (Test-Path $policyPath) { Get-Content $policyPath -Raw | ConvertFrom-Json } else { $null }
+$policy=$null;$policyInvalid=$false
+try {
+  if(-not (Test-Path $policyPath)){throw 'missing policy'}
+  $candidate=Get-Content $policyPath -Raw | ConvertFrom-Json
+  if($candidate.schema -ne 'sentinel.policy/v1' -or -not ([string]$candidate.version)){throw 'invalid policy contract'}
+  if($candidate.limits -isnot [PSCustomObject] -and $candidate.limits -isnot [hashtable]){throw 'invalid policy limits'}
+  foreach($key in @('allowed_skills','allowed_mcp_transports','allowed_mcp_servers','allowed_mcp_commands','allowed_mcp_command_paths','allowed_mcp_invocations','allowed_mcp_domains','blocked_commands','secret_patterns','skill_rules','mcp_rules','code_rules')){
+    if($null -ne $candidate.$key -and $candidate.$key -isnot [System.Array]){throw "invalid policy list: $key"}
+  }
+  foreach($invocation in @($candidate.allowed_mcp_invocations)){if($invocation -isnot [System.Array] -or @($invocation).Count -lt 2 -or @($invocation|Where-Object{-not ($_ -is [string]) -or -not $_}).Count){throw 'invalid MCP invocation policy'}}
+  $policy=$candidate
+} catch {$policyInvalid=$true}
 $maxFileBytes=1000000
 if($policy -and $policy.limits -and $policy.limits.max_file_bytes){$maxFileBytes=[Math]::Min([Math]::Max([int64]$policy.limits.max_file_bytes,65536),10000000)}
 $managedMarker = '<!-- sentinel-managed-baseline -->'
@@ -21,6 +32,7 @@ $patterns = @(
   @{ Kind='empty_exception_handler'; Severity='medium'; Regex='(?m)^\s*except(\s+[^:]+)?:\s*(#.*\r?\n\s*)?pass\s*$|\bcatch\s*\{\s*\}' }
 )
 $findings = @(); $inventory = @()
+if($policyInvalid){$findings += @{kind='policy_load_failed';severity='high';path=$policyPath;message='安全策略缺失或契约无效；MCP 策略检查采用失败关闭状态'}}
 function Send-SentinelReport([string]$json,[string]$url) {
   $bytes=[Text.Encoding]::UTF8.GetBytes($json);$headers=@{}
   if($env:SENTINEL_REPORT_TOKEN){$headers.Authorization='Bearer '+$env:SENTINEL_REPORT_TOKEN}
@@ -76,6 +88,7 @@ function Inspect-SentinelMcpJson([System.IO.FileInfo]$file,[string]$text) {
   if (-not $servers) { return }
   foreach($entry in $servers.PSObject.Properties) {
     $name=$entry.Name; $cfg=$entry.Value; $safePath=Protect-SentinelPath $file.FullName
+    if($cfg -isnot [PSCustomObject] -and $cfg -isnot [hashtable]){$script:findings += @{kind='invalid_mcp_server';severity='high';path=$safePath;message="MCP Server $name 配置必须是对象"};continue}
     if($policy.allowed_mcp_servers -and $name -notin $policy.allowed_mcp_servers){$script:findings += @{kind='unknown_mcp';severity='medium';path=$safePath;message="未在允许列表中的 MCP Server: $name"}}
     $rawCommand=[string]$cfg.command;$command=[IO.Path]::GetFileName($rawCommand)
     if($command -and $policy.allowed_mcp_commands -and $command -notin $policy.allowed_mcp_commands){$script:findings += @{kind='unapproved_mcp_command';severity='high';path=$safePath;message="MCP 使用未批准命令: $command"}}
@@ -83,7 +96,8 @@ function Inspect-SentinelMcpJson([System.IO.FileInfo]$file,[string]$text) {
     $invocationArgs=@($cfg.args)
     if($command -and -not (Test-SentinelMcpInvocation $command $invocationArgs)){$script:findings += @{kind='unapproved_mcp_invocation';severity='high';path=$safePath;message="MCP $name 的命令参数组合未获批准"}}
     foreach($arg in @($cfg.args)){if(([string]$arg) -in @('/','C:\','$HOME','~') -or ([string]$arg) -match '^[A-Za-z]:\\Users\\'){$script:findings += @{kind='broad_filesystem_scope';severity='high';path=$safePath;message="MCP $name 请求宽泛文件范围"};break}}
-    foreach($variable in @($cfg.env.PSObject.Properties)){if($variable.Name -match 'TOKEN|SECRET|PASSWORD|API_KEY' -and ([string]$variable.Value) -notmatch '^\$\{?[A-Z0-9_]+\}?$'){$script:findings += @{kind='literal_mcp_secret';severity='critical';path=$safePath;message="MCP $name 包含明文敏感环境变量: $($variable.Name)";evidence='[REDACTED]'}}}
+    if($null -ne $cfg.env -and $cfg.env -isnot [PSCustomObject] -and $cfg.env -isnot [hashtable]){$script:findings += @{kind='invalid_mcp_environment';severity='high';path=$safePath;message="MCP $name 的 env 必须是对象"}}
+    else{foreach($variable in @($cfg.env.PSObject.Properties)){if($variable.Name -match 'TOKEN|SECRET|PASSWORD|API_KEY' -and ([string]$variable.Value) -notmatch '^\$\{?[A-Z0-9_]+\}?$'){$script:findings += @{kind='literal_mcp_secret';severity='critical';path=$safePath;message="MCP $name 包含明文敏感环境变量: $($variable.Name)";evidence='[REDACTED]'}}}}
     $url=[string]$cfg.url; if(-not $url){$url=[string]$cfg.serverUrl}
     $transport=[string]$cfg.transport;if(-not $transport){if($url.StartsWith('https://')){$transport='https'}elseif($url.StartsWith('http://')){$transport='http'}elseif($command){$transport='stdio'}else{$transport='unknown'}}
     if($command -and $url){$script:findings += @{kind='ambiguous_mcp_transport';severity='high';path=$safePath;message="MCP $name 同时配置本地命令和远程 URL"}}
@@ -198,14 +212,14 @@ foreach ($root in $roots) {
     }
   }
 }
-$policyVersion = if (Test-Path $policyPath) { (Get-Content $policyPath -Raw | ConvertFrom-Json).version } else { 'missing' }
+$policyVersion = if ($policy) { [string]$policy.version } else { 'invalid' }
 $inventoryLimit=5000;$findingLimit=10000
 if(@($inventory).Count -gt $inventoryLimit){$omitted=@($inventory).Count-$inventoryLimit+1;$inventory=@($inventory|Select-Object -First ($inventoryLimit-1));$inventory += @{type='inventory_truncated';omitted=$omitted}}
 if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLimit+1;$findings=@($findings|Select-Object -First ($findingLimit-1));$findings += @{kind='findings_truncated';severity='medium';path='managed-windows-roots';message="报告发现项超限，省略 $omitted 项"}}
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.22.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.23.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
