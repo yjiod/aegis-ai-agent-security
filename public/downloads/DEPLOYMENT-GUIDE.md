@@ -46,6 +46,8 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 三个输出通道彼此隔离：某个厂商接口不可用时，其事件以 0600 权限写入 `SENTINEL_ADAPTER_SPOOL`，不阻塞其他通道；网络恢复后运行 `sentinel_adapter.py --config <配置> --spool-dir <目录> --flush-only` 重放。队列默认最多保留 500 个事件，可用 `SENTINEL_ADAPTER_SPOOL_MAX_EVENTS` 设置 10–10000；同秒事件不会覆盖，损坏记录会隔离并最多保留 20 份，不阻塞有效事件。队列不保存令牌，凭据只从环境变量读取。当前包定义的是安全边界与通用 Webhook 契约，深信服和联软的最终路径、鉴权头与字段映射仍需按客户现网产品版本的正式 API 文档完成验收。
 
+适配器 0.5 在任何通道处理前执行完整 `sentinel.report/v1` 白名单、类型、长度、数量和摘要一致性校验；额外字段不会透传到安全 Webhook。深信服与联软投影也使用精确字段集合验证，离线队列重放前再次验证；被篡改、`null` 或结构异常的载荷进入隔离区而不发网，报告或事件构建失败也不会排队空载荷。
+
 ## 联软桌管
 
 将 Windows 脚本或后续签名 MSI 作为软件分发包。使用软件资产规则检查 `%ProgramData%\SentinelAgent\sentinel-policy.json`，未安装或策略过期的设备进入修复组；若启用准入隔离，先以观察模式验证误报率。

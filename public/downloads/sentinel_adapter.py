@@ -7,6 +7,39 @@ from urllib.parse import parse_qsl, urlsplit
 SAFE_ACTIONS={"observe","alert","isolate_pending_approval","block_pending_approval"}
 ADAPTERS=("sangfor","leagsoft","security_webhook")
 
+def valid_report(report):
+    if not isinstance(report,dict): return False
+    required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}; allowed=required|{"scan_root","inventory"}
+    if not required.issubset(report) or not set(report).issubset(allowed) or report.get("schema")!="sentinel.report/v1": return False
+    if not all(isinstance(report.get(key),str) and 1<=len(report[key])<=64 for key in ("agent_version","policy_version")): return False
+    if not isinstance(report.get("device_id"),str) or not 8<=len(report["device_id"])<=128: return False
+    if not isinstance(report.get("scanned_at"),int) or isinstance(report["scanned_at"],bool): return False
+    if "scan_root" in report and (not isinstance(report["scan_root"],str) or len(report["scan_root"])>1024): return False
+    if "inventory" in report and (not isinstance(report["inventory"],list) or len(report["inventory"])>5000 or any(not isinstance(item,dict) for item in report["inventory"])): return False
+    levels=("critical","high","medium","low"); summary=report.get("summary")
+    if not isinstance(summary,dict) or set(summary)!=set(levels) or any(not isinstance(summary[level],int) or isinstance(summary[level],bool) or summary[level]<0 for level in levels): return False
+    findings=report.get("findings")
+    if not isinstance(findings,list) or len(findings)>10000: return False
+    counts={level:0 for level in levels}
+    for item in findings:
+        if not isinstance(item,dict) or not {"kind","severity","path","message"}.issubset(item) or not set(item).issubset({"kind","severity","path","message","evidence"}): return False
+        if item.get("severity") not in counts or any(not isinstance(item.get(key),str) for key in ("kind","path","message")): return False
+        if not 1<=len(item["kind"])<=128 or len(item["path"])>2048 or not 1<=len(item["message"])<=2048: return False
+        if "evidence" in item and (not isinstance(item["evidence"],str) or len(item["evidence"])>512): return False
+        counts[item["severity"]]+=1
+    return counts==summary
+def valid_payload(name,payload):
+    if name=="security_webhook": return valid_report(payload)
+    if not isinstance(payload,dict): return False
+    fields={"sangfor":{"event_type","source","device_id","severity","recommended_action","finding_count","policy_version","occurred_at"},"leagsoft":{"source","device_id","compliant","risk_level","policy_version","last_scan","reason"}}
+    if name not in fields or set(payload)!=fields[name]: return False
+    if payload.get("source")!="sentinel" or not isinstance(payload.get("device_id"),str) or not 8<=len(payload["device_id"])<=128: return False
+    if not isinstance(payload.get("policy_version"),str) or not 1<=len(payload["policy_version"])<=64: return False
+    if payload.get("severity",payload.get("risk_level")) not in {"critical","high","medium","low","normal"}: return False
+    if name=="sangfor": return payload.get("event_type")=="ai_agent_security_finding" and payload.get("recommended_action") in SAFE_ACTIONS and isinstance(payload.get("finding_count"),int) and not isinstance(payload["finding_count"],bool) and 0<=payload["finding_count"]<=10000 and isinstance(payload.get("occurred_at"),int) and not isinstance(payload["occurred_at"],bool)
+    expected=payload["risk_level"] not in {"critical","high"}; reason="policy_pass" if expected else "critical_or_high_finding"
+    return payload.get("compliant") is expected and payload.get("reason")==reason and isinstance(payload.get("last_scan"),int) and not isinstance(payload["last_scan"],bool)
+
 def severity(report):
     for level in ["critical","high","medium","low"]:
         if int(report.get("summary",{}).get(level,0))>0: return level
@@ -28,7 +61,7 @@ def validate_target(name,target,config,dry_run=False):
     env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
     if not dry_run and (not env_name or not os.getenv(env_name,"")): raise ValueError(f"missing_adapter_credential:{name}")
 def send(url,payload,token="",secret=""):
-    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.4"}
+    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.5"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
@@ -58,7 +91,7 @@ def flush_spool(config,spool,sender=send,limit=50):
     for path in sorted(spool.glob("*.json"))[:limit]:
         try:
             item=json.loads(path.read_text()); name=item["adapter"]
-            if name not in ADAPTERS or "payload" not in item: raise ValueError("invalid_queued_event")
+            if name not in ADAPTERS or set(item)!={"adapter","queued_at","payload"} or not valid_payload(name,item["payload"]): raise ValueError("invalid_queued_event")
         except (OSError,json.JSONDecodeError,UnicodeDecodeError,RecursionError,TypeError,KeyError,ValueError) as exc:
             invalid=quarantine(path,spool); results.append({"adapter":path.name,"result":"quarantined","queue_id":invalid.name,"error":type(exc).__name__}); continue
         try:
@@ -66,6 +99,7 @@ def flush_spool(config,spool,sender=send,limit=50):
         except Exception as exc: results.append({"adapter":name,"result":"retained","queue_id":path.name,"error":type(exc).__name__})
     return results
 def process(report,config,dry_run=False,spool_dir=None,sender=send):
+    if not valid_report(report): return [{"adapter":"boundary","result":"rejected","error":"invalid_report_contract"}]
     outputs=[]; spool=Path(spool_dir) if spool_dir else Path(os.getenv("SENTINEL_ADAPTER_SPOOL",Path.home()/".sentinel-adapter/spool"))
     builders={"sangfor":sangfor_event,"leagsoft":leagsoft_posture,"security_webhook":lambda value,_config:value}
     for name in ADAPTERS:
@@ -79,6 +113,7 @@ def process(report,config,dry_run=False,spool_dir=None,sender=send):
         except ValueError as exc:
             outputs.append({"adapter":name,"result":"rejected","error":str(exc)})
         except Exception as exc:
+            if payload is None: outputs.append({"adapter":name,"result":"rejected","error":"payload_build_failed"}); continue
             path=queue_delivery(spool,name,payload); outputs.append({"adapter":name,"result":"queued","queue_id":path.name,"error":type(exc).__name__})
     return outputs
 def main():

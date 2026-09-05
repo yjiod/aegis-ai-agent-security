@@ -5,6 +5,10 @@ from unittest.mock import patch
 ROOT=Path(__file__).parents[1]; DOWNLOADS=ROOT/'public'/'downloads'
 def load(name,file):
     spec=importlib.util.spec_from_file_location(name,DOWNLOADS/file); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
+def vendor_report(level='normal'):
+    summary={name:0 for name in ('critical','high','medium','low')}; findings=[]
+    if level!='normal': summary[level]=1; findings=[{'kind':'test','severity':level,'path':'x','message':'test'}]
+    return {'schema':'sentinel.report/v1','agent_version':'0.20.0','policy_version':'4.5.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 
 class SentinelTests(unittest.TestCase):
     def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
@@ -388,13 +392,13 @@ class SentinelTests(unittest.TestCase):
                 count=self.agent.flush_spool(spool,'https://collector.invalid','token')
             self.assertEqual(count,10); self.assertEqual(len(sent),10); self.assertTrue(list(spool.glob('*.invalid')))
     def test_vendor_adapter_is_explicit_and_dry_run(self):
-        report={'device_id':'dev-1','policy_version':'3.9.0','scanned_at':1,'summary':{'critical':1},'findings':[{}]}
+        report=vendor_report('critical')
         config={'allowed_hosts':['invalid'],'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid'}}
         outputs=self.adapter.process(report,config,dry_run=True)
         self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
         self.assertFalse(outputs[1]['payload']['compliant'])
     def test_vendor_adapter_rejects_unsafe_actions_and_targets(self):
-        report={'device_id':'dev-1','policy_version':'4.2.0','scanned_at':1,'summary':{'critical':1},'findings':[{}]}
+        report=vendor_report('critical')
         unsafe={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid','actions':{'critical':'isolate'}}}
         spoof={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid.evil','actions':{'critical':'alert'}}}
         insecure={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'http://edr.invalid','actions':{'critical':'alert'}}}
@@ -404,7 +408,7 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(self.adapter.process(report,insecure,dry_run=True)[0]['error'],'invalid_https_url:sangfor')
         self.assertEqual(self.adapter.process(report,embedded,dry_run=True)[0]['error'],'credentials_in_adapter_url:sangfor')
     def test_vendor_failure_isolation_and_offline_retry(self):
-        report={'device_id':'dev-1','policy_version':'4.2.0','scanned_at':1,'summary':{'critical':0,'high':1},'findings':[{}]}
+        report=vendor_report('high')
         config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
         def sender(url,payload,token='',secret=''):
             if 'edr.invalid' in url: raise OSError('offline')
@@ -419,12 +423,21 @@ class SentinelTests(unittest.TestCase):
         config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'}}
         with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SANGFOR_TOKEN':'s'}):
             spool=Path(d)
-            for index in range(12): self.adapter.queue_delivery(spool,'sangfor',{'index':index},limit=10)
+            payload=self.adapter.sangfor_event(vendor_report('high'),{})
+            for index in range(12): self.adapter.queue_delivery(spool,'sangfor',payload,limit=10)
             self.assertEqual(len(list(spool.glob('*.json'))),10)
             corrupt=spool/'000-corrupt.json'; corrupt.write_text('{broken')
             results=self.adapter.flush_spool(config,spool,sender=lambda url,payload,token='',secret='':202)
             self.assertEqual(results[0]['result'],'quarantined'); self.assertEqual(sum(x['result']=='sent_from_spool' for x in results),10)
             self.assertFalse(list(spool.glob('*.json'))); self.assertTrue(list(spool.glob('*.invalid')))
+    def test_vendor_boundary_rejects_invalid_reports_and_quarantines_tampered_payloads(self):
+        config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'}}
+        invalid={**vendor_report(),'unexpected':'secret-data'}
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'token'}):
+            spool=Path(d); self.assertEqual(self.adapter.process(invalid,config,spool_dir=spool)[0]['error'],'invalid_report_contract'); self.assertFalse(list(spool.iterdir()))
+            self.adapter.queue_delivery(spool,'sangfor',{'unexpected':'payload'})
+            sent=[]; results=self.adapter.flush_spool(config,spool,sender=lambda *args,**kwargs:sent.append(args))
+            self.assertEqual(results[0]['result'],'quarantined'); self.assertEqual(sent,[]); self.assertTrue(list(spool.glob('*.invalid')))
     def test_auto_enroll_only_git_repositories(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); repo=root/'repo'; other=root/'ordinary'; (repo/'.git').mkdir(parents=True); other.mkdir()
