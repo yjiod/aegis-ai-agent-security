@@ -170,8 +170,10 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(self.collector.secret_values('ONE','MANY',{'MANY':json.dumps(['x']*6)}),[])
         handler=object.__new__(self.collector.Handler); handler.headers={'Authorization':'Bearer old-token'}
         with patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKENS':'["new-token","old-token"]'},clear=True): self.assertTrue(handler.authorized())
-    def test_signature_is_optional_until_enterprise_secret_is_configured(self):
-        self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))
+    def test_unsigned_reports_are_denied_unless_explicitly_enabled(self):
+        with patch.dict(os.environ,{},clear=True): self.assertFalse(self.collector.valid_signature({},b'body',now=1,secret=''))
+        with patch.dict(os.environ,{'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'},clear=True): self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))
+        self.assertFalse(self.collector.allow_unsigned_reports('false')); self.assertTrue(self.collector.allow_unsigned_reports('yes'))
     def test_collector_http_accepts_signed_report_and_deduplicates(self):
         with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKEN':'bearer','SENTINEL_REPORT_SIGNING_SECRET':'signing-secret'}):
             server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(Path(d)/'reports.db')
