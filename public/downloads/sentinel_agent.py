@@ -106,8 +106,13 @@ def scan_mcp_server(path,name,cfg,policy):
     if command and url: out.append(finding("ambiguous_mcp_transport","high",path,f"MCP {name} 同时配置本地命令和远程 URL"))
     if "allowed_mcp_transports" in policy and transport not in allowed_transports: out.append(finding("unapproved_mcp_transport","high",path,f"MCP {name} 使用未批准传输: {transport}"))
     if command and "allowed_mcp_commands" in policy and base not in allowed_commands: out.append(finding("unapproved_mcp_command","high",path,f"MCP 使用未批准命令: {base}"))
+    raw_args=cfg.get("args",[])
+    if not isinstance(raw_args,list):
+        out.append(finding("invalid_mcp_arguments","high",path,f"MCP {name} 的 args 必须是数组")); raw_args=[]
+    args=[str(x) for x in raw_args if isinstance(x,(str,int,float))]
     if command and ("/" in command or "\\" in command) and os.path.normcase(os.path.normpath(command)) not in allowed_paths: out.append(finding("unapproved_mcp_command_path","high",path,f"MCP {name} 使用未批准的可执行路径"))
-    args=[str(x) for x in cfg.get("args",[]) if isinstance(x,(str,int,float))]
+    allowed_invocations={tuple(str(value) for value in item) for item in policy.get("allowed_mcp_invocations",[]) if isinstance(item,list)}
+    if command and args and tuple([base]+args) not in allowed_invocations: out.append(finding("unapproved_mcp_invocation","high",path,f"MCP {name} 的命令参数组合未获批准"))
     if any(x in ["/","C:\\","$HOME","~"] or x.startswith(("/Users/","/home/")) for x in args): out.append(finding("broad_filesystem_scope","high",path,f"MCP {name} 请求宽泛文件范围"))
     for key,value in (cfg.get("env",{}) or {}).items():
         if re.search(r"TOKEN|SECRET|PASSWORD|API_KEY",str(key),re.I) and value and not re.match(r"^\$\{?[A-Z0-9_]+\}?$",str(value)): out.append(finding("literal_mcp_secret","critical",path,f"MCP {name} 包含明文敏感环境变量: {key}","[REDACTED]"))
@@ -309,7 +314,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.21.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.22.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -358,7 +363,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.21.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.22.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

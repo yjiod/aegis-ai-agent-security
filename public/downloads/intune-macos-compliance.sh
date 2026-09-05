@@ -3,8 +3,8 @@ set -u
 INSTALL_DIR="/Library/Application Support/SentinelAgent"
 REPORT="$INSTALL_DIR/reports/latest.json"
 PLIST="/Library/LaunchDaemons/com.company.sentinel-agent.plist"
-AGENT_SHA="301e6da7af010b4c84c8b4f1a1cd38f29d931f31dbfe67450237aa5f656d1516"
-POLICY_SHA="8f6183f1796b8f70064e1023c801843158a03da5b12c30c92f420972c8b34317"
+AGENT_SHA="a9d6e23b94da1f3ab126a41df8dc5e1305c9f2989e33cd6e401b775db3852451"
+POLICY_SHA="fe6b8160916423c429521c582c94e00e2d3a91feec6644739b1ea4896cb751ca"
 BASELINE_SHA="e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e"
 installed=false; integrity=false; runtime=false
 if [[ -f "$INSTALL_DIR/sentinel_agent.py" && -f "$INSTALL_DIR/sentinel-policy.json" && -f "$INSTALL_DIR/sentinel-security-baseline.md" ]]; then installed=true; fi
