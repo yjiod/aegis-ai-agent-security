@@ -29,6 +29,12 @@ class SentinelTests(unittest.TestCase):
         inconsistent={**report,'findings':[{'kind':'x','severity':'high','path':'x','message':'x'}]}; self.assertFalse(self.collector.valid_report(inconsistent,now))
         extra={**report,'unexpected':True}; self.assertFalse(self.collector.valid_report(extra,now))
         invalid_inventory={**report,'inventory':['not-an-object']}; self.assertFalse(self.collector.valid_report(invalid_inventory,now))
+        oversized_inventory={**report,'inventory':[{}]*5001}; self.assertFalse(self.collector.valid_report(oversized_inventory,now))
+        oversized_version={**report,'agent_version':'x'*65}; self.assertFalse(self.collector.valid_report(oversized_version,now))
+        oversized_finding={**report,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'x','severity':'high','path':'p','message':'x'*2049}]}; self.assertFalse(self.collector.valid_report(oversized_finding,now))
+        schema=json.loads((DOWNLOADS/'sentinel-report.schema.json').read_text())
+        self.assertEqual(schema['properties']['inventory']['maxItems'],5000); self.assertEqual(schema['properties']['findings']['maxItems'],10000)
+        self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_database_deduplication_support(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'
@@ -36,6 +42,12 @@ class SentinelTests(unittest.TestCase):
                 first=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
                 second=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('abc','device-123',1,'normal','{}'))
                 self.assertEqual(first.rowcount,1); self.assertEqual(second.rowcount,0)
+    def test_collector_semantic_deduplication_ignores_json_formatting(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':1,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+            compact=json.dumps(report,separators=(',',':')).encode(); pretty=json.dumps(report,indent=2,sort_keys=True).encode()
+            self.assertFalse(self.collector.store_report(path,compact,report,now=1)['duplicate'])
+            self.assertTrue(self.collector.store_report(path,pretty,report,now=1)['duplicate'])
     def test_collector_retention_and_storage(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=10*86400
