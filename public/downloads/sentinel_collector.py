@@ -50,16 +50,27 @@ def valid_report(d,now=None):
         counts[finding["severity"]]+=1
     return counts==summary
 def valid_signature(headers,body,now=None,secret=None,max_skew=300):
-    secret=os.getenv("SENTINEL_REPORT_SIGNING_SECRET","") if secret is None else secret
-    if not secret: return True
+    secrets=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS") if secret is None else ([secret] if secret else [])
+    if not secrets: return True
     def header(name): return headers.get(name) or headers.get(name.lower())
     timestamp=header("X-Sentinel-Timestamp"); supplied=header("X-Sentinel-Signature") or ""
     try: request_time=int(timestamp)
     except (TypeError,ValueError): return False
     now=int(time.time()) if now is None else now
     if abs(now-request_time)>max_skew: return False
-    expected="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected,supplied)
+    matched=False
+    for candidate in secrets:
+        expected="sha256="+hmac.new(candidate.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); matched |= hmac.compare_digest(expected,supplied)
+    return matched
+def secret_values(single_name,multiple_name,env=None):
+    env=os.environ if env is None else env; raw=env.get(multiple_name,"")
+    if raw:
+        try: values=json.loads(raw)
+        except (TypeError,ValueError): return []
+        if not isinstance(values,list) or not 1<=len(values)<=5: return []
+        if any(not isinstance(value,str) or not value or len(value)>4096 for value in values): return []
+        return values
+    value=env.get(single_name,""); return [value] if value and len(value)<=4096 else []
 def retention_days(value=None):
     raw=os.getenv("SENTINEL_RETENTION_DAYS","30") if value is None else value
     try: return min(max(int(raw),1),3650)
@@ -137,7 +148,9 @@ class Handler(BaseHTTPRequestHandler):
         if allowed: return False
         self.reply(429,{"error":"rate_limited"},{"Retry-After":retry}); return True
     def authorized(self):
-        expected=os.getenv("SENTINEL_COLLECTOR_TOKEN",""); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); return bool(expected) and hmac.compare_digest(expected,supplied)
+        expected=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS"); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
+        for candidate in expected: matched |= hmac.compare_digest(candidate,supplied)
+        return bool(expected) and matched
     def do_GET(self):
         if self.path=="/health":
             try:
@@ -179,6 +192,6 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,fmt,*args): pass
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--listen",default="127.0.0.1"); ap.add_argument("--port",type=int,default=8788); ap.add_argument("--db",default="sentinel.db"); args=ap.parse_args()
-    if not os.getenv("SENTINEL_COLLECTOR_TOKEN"): raise SystemExit("SENTINEL_COLLECTOR_TOKEN is required")
+    if not secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS"): raise SystemExit("SENTINEL_COLLECTOR_TOKEN or valid SENTINEL_COLLECTOR_TOKENS is required")
     server=ThreadingHTTPServer((args.listen,args.port),Handler); server.db_path=args.db; server.rate_limiter=RateLimiter(); server.serve_forever()
 if __name__=="__main__": main()

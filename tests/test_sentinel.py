@@ -159,6 +159,17 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(self.collector.valid_signature(headers,body+b'x',now=1001,secret='signing-secret'))
         self.assertFalse(self.collector.valid_signature(headers,body,now=1301,secret='signing-secret'))
         self.assertEqual(headers['Authorization'],'Bearer bearer'); self.assertTrue(headers['X-Sentinel-Signature'].startswith('sha256='))
+    def test_collector_supports_bounded_token_and_signing_key_rotation(self):
+        body=b'{"device":"test"}'; old=self.agent.report_headers(body,'old-token','old-signing',now=1000); new=self.agent.report_headers(body,'new-token','new-signing',now=1000)
+        env={'SENTINEL_REPORT_SIGNING_SECRETS':'["new-signing","old-signing"]'}
+        with patch.dict(os.environ,env,clear=True):
+            self.assertTrue(self.collector.valid_signature(old,body,now=1000)); self.assertTrue(self.collector.valid_signature(new,body,now=1000))
+        self.assertEqual(self.collector.secret_values('ONE','MANY',{'ONE':'legacy'}),['legacy'])
+        self.assertEqual(self.collector.secret_values('ONE','MANY',{'MANY':'["new","old"]'}),['new','old'])
+        self.assertEqual(self.collector.secret_values('ONE','MANY',{'MANY':'not-json'}),[])
+        self.assertEqual(self.collector.secret_values('ONE','MANY',{'MANY':json.dumps(['x']*6)}),[])
+        handler=object.__new__(self.collector.Handler); handler.headers={'Authorization':'Bearer old-token'}
+        with patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKENS':'["new-token","old-token"]'},clear=True): self.assertTrue(handler.authorized())
     def test_signature_is_optional_until_enterprise_secret_is_configured(self):
         self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))
     def test_collector_http_accepts_signed_report_and_deduplicates(self):
