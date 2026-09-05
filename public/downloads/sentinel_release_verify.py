@@ -34,6 +34,12 @@ def verify(downloads):
             if not isinstance(pattern,str): errors.append(f"invalid_secret_pattern_type:{index}"); continue
             try: re.compile(pattern)
             except re.error: errors.append(f"invalid_secret_pattern_regex:{index}")
+    invocations=policy.get("allowed_mcp_invocations",[]) if isinstance(policy,dict) else []
+    if not isinstance(invocations,list): errors.append("invalid_allowed_mcp_invocations_type")
+    else:
+        for index,invocation in enumerate(invocations):
+            if not isinstance(invocation,list) or len(invocation)<2 or any(not isinstance(value,str) or not value for value in invocation):
+                errors.append(f"invalid_allowed_mcp_invocation:{index}")
     try: manifest={line.split()[1]:line.split()[0] for line in (downloads/"CHECKSUMS.sha256").read_text().splitlines() if len(line.split())==2}
     except OSError as exc: errors.append(f"invalid_checksum_manifest:{type(exc).__name__}"); manifest={}
     for name in RUNTIME_FILES:

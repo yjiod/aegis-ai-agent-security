@@ -272,6 +272,19 @@ class SentinelTests(unittest.TestCase):
         allowed={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,allowed_policy)}
         self.assertNotIn('unapproved_mcp_command_path',allowed)
         windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertGreaterEqual(windows.count("kind='unapproved_mcp_command_path'"),2); self.assertIn('$rawCommand',windows)
+    def test_mcp_launcher_arguments_require_exact_invocation_approval(self):
+        cfg={'command':'npx','args':['-y','untrusted-package','/workspace']}
+        blocked={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,self.policy)}
+        self.assertIn('unapproved_mcp_invocation',blocked)
+        approved={**self.policy,'allowed_mcp_invocations':[['npx','-y','untrusted-package','/workspace']]}
+        allowed={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,approved)}
+        self.assertNotIn('unapproved_mcp_invocation',allowed)
+        changed={**cfg,'args':['-y','other-package','/workspace']}
+        changed_kinds={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',changed,approved)}
+        self.assertIn('unapproved_mcp_invocation',changed_kinds)
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn('function Test-SentinelMcpInvocation',windows); self.assertGreaterEqual(windows.count("kind='unapproved_mcp_invocation'"),2)
+        invalid=self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',{'command':'npx','args':'-y package'},self.policy)
+        self.assertIn('invalid_mcp_arguments',{item['kind'] for item in invalid})
     def test_policy_declared_text_rules_are_enforced(self):
         hidden=self.agent.scan_text(Path('/tmp/SKILL.md'),'safe text\u202ehidden',self.policy)
         weak=self.agent.scan_text(Path('/tmp/app.js'),'const sessionToken = Math.random().toString()',self.policy)
@@ -316,8 +329,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.21.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.21.0')
+        self.assertIn("agent_version='0.22.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.22.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -350,6 +363,10 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'sentinel-policy.json').read_text()); policy['secret_patterns']=['[invalid']; (copy/'sentinel-policy.json').write_text(json.dumps(policy))
             self.assertIn('invalid_secret_pattern_regex:0',self.verifier.verify(copy))
+    def test_release_verifier_rejects_invalid_mcp_invocation_policy(self):
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'sentinel-policy.json').read_text()); policy['allowed_mcp_invocations']=[['npx','']]; (copy/'sentinel-policy.json').write_text(json.dumps(policy))
+            self.assertIn('invalid_allowed_mcp_invocation:0',self.verifier.verify(copy))
     def test_intune_compliance_checks_integrity_task_and_policy(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'intune-windows-detect.ps1').read_text()
