@@ -5,6 +5,8 @@ $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $baselinePath = Join-Path $installDir 'sentinel-security-baseline.md'
 $policyPath = Join-Path $installDir 'sentinel-policy.json'
 $policy = if (Test-Path $policyPath) { Get-Content $policyPath -Raw | ConvertFrom-Json } else { $null }
+$maxFileBytes=1000000
+if($policy -and $policy.limits -and $policy.limits.max_file_bytes){$maxFileBytes=[Math]::Min([Math]::Max([int64]$policy.limits.max_file_bytes,65536),10000000)}
 $managedMarker = '<!-- sentinel-managed-baseline -->'
 $patterns = @(
   @{ Kind='hardcoded_secret'; Severity='critical'; Regex='AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}' },
@@ -163,7 +165,10 @@ foreach($repo in Get-ManagedRepos) { Install-SentinelBaseline $repo; $roots += $
 foreach ($root in $roots) {
   if (Test-Path $root) {
     $inventory += @{ type='agent_root'; path=(Protect-SentinelPath $root) }
-    Get-ChildItem $root -File -Recurse | Where-Object { $_.Length -lt 1MB -and $_.FullName -notmatch '\\.git\\|\\node_modules\\|\\dist\\|\\build\\' } | Select-Object -First 5000 | ForEach-Object {
+    $oversized=@(Get-ChildItem $root -File -Recurse | Where-Object { $_.Length -gt $maxFileBytes -and $_.FullName -notmatch '\\.git\\|\\node_modules\\|\\dist\\|\\build\\' } | Select-Object -First 101)
+    foreach($file in @($oversized|Select-Object -First 100)){$findings += @{kind='oversized_file_skipped';severity='medium';path=(Protect-SentinelPath $file.FullName);message="文件超过扫描字节上限 $maxFileBytes"}}
+    if($oversized.Count -gt 100){$findings += @{kind='oversized_file_findings_truncated';severity='medium';path=(Protect-SentinelPath $root);message='超大文件发现项超过 100，仅保留前 100 项'}}
+    Get-ChildItem $root -File -Recurse | Where-Object { $_.Length -le $maxFileBytes -and $_.FullName -notmatch '\\.git\\|\\node_modules\\|\\dist\\|\\build\\' } | Select-Object -First 5000 | ForEach-Object {
       $text = Get-Content $_.FullName -Raw
       foreach ($rule in $patterns) {
         if ($text -match $rule.Regex) { $findings += @{ kind=$rule.Kind; severity=$rule.Severity; path=(Protect-SentinelPath $_.FullName); message='Policy match' } }
@@ -186,7 +191,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.16.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.17.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $reportJson|Set-Content -Encoding UTF8 $Output
