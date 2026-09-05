@@ -7,7 +7,7 @@ def load(name,file):
     spec=importlib.util.spec_from_file_location(name,DOWNLOADS/file); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -111,6 +111,18 @@ class SentinelTests(unittest.TestCase):
             try: self.assertEqual(db.execute("SELECT COUNT(*) FROM reports").fetchone()[0],1)
             finally: db.close()
         self.assertEqual(self.backup.keep_count('invalid'),14); self.assertEqual(self.backup.keep_count(999),365)
+    def test_collector_restore_candidate_is_verified_private_and_non_overwriting(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); source=root/'sentinel.db'; backups=root/'backups'; restored=root/'restore/candidate.db'
+            with self.collector.db_open(source) as db:
+                db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('one','device-a',1,'high','{}')); db.commit()
+            backup=self.backup.backup_database(source,backups)
+            candidate=self.restore.restore_candidate(backup,restored)
+            self.assertTrue(self.backup.quick_check(candidate)); self.assertEqual(candidate.stat().st_mode & 0o777,0o600)
+            db=sqlite3.connect(candidate)
+            try: self.assertEqual(db.execute("SELECT device_id,severity FROM reports").fetchone(),('device-a','high'))
+            finally: db.close()
+            with self.assertRaises(FileExistsError): self.restore.restore_candidate(backup,restored)
     def test_collector_rate_limiter_is_bounded_and_recovers(self):
         now=[100.0]; limiter=self.collector.RateLimiter(limit=2,window=60,max_sources=2,clock=lambda:now[0])
         self.assertEqual(limiter.check('client-a'),(True,0)); self.assertEqual(limiter.check('client-a'),(True,0))
