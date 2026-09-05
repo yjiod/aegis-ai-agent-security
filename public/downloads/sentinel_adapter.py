@@ -78,7 +78,7 @@ def validate_target(name,target,config,dry_run=False):
     env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
     if not dry_run and (not env_name or not os.getenv(env_name,"")): raise ValueError(f"missing_adapter_credential:{name}")
 def send(url,payload,token="",secret=""):
-    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.6"}
+    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.7","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp

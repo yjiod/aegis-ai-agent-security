@@ -7,7 +7,7 @@
 3. Agent 自动同步带托管标记的基线，扫描 Skill、MCP、代码和依赖清单。
 4. 报告原子写入受限目录；配置上报后，以 Bearer 与 HMAC 发送到 Collector，失败则进入有界离线队列。
 5. Collector 严格验证报告契约、签名、时钟窗口和大小，将规范化报告写入 SQLite WAL。
-6. Adapter 从已验证报告生成最小厂商事件；深信服、联软和安全 Webhook 相互隔离。
+6. Adapter Worker 从 Collector 的已验证报告生成最小厂商事件，以派发账本、稳定幂等键和有界失败队列连接深信服、联软及安全 Webhook；各目标相互隔离。
 7. 私有控制台通过同源服务端代理读取 Collector 聚合摘要，浏览器无法取得 Collector 令牌。
 
 ## 信任边界

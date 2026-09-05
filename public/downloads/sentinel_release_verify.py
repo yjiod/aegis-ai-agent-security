@@ -18,6 +18,7 @@ BUNDLE_FILES=(
     "uninstall-sentinel-windows.ps1","uninstall-sentinel-macos.sh","CHECKSUMS.sha256","release.json","sentinel_adapter.py",
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
+    "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -73,6 +74,15 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector_nginx:{type(exc).__name__}"); nginx=""
     for directive in ("listen 443 ssl", "ssl_protocols TLSv1.2 TLSv1.3", "client_max_body_size 2m", "limit_req zone=sentinel_reports", "proxy_pass http://127.0.0.1:8788"):
         if directive not in nginx: errors.append(f"unsafe_collector_nginx:{directive}")
+    try: worker=(downloads/"sentinel_adapter_worker.py").read_text(); worker_service=(downloads/"sentinel-adapter-worker.service").read_text()
+    except OSError as exc: errors.append(f"invalid_adapter_worker:{type(exc).__name__}"); worker=worker_service=""
+    for directive in ("adapter_dispatches","adapter.validate_target","result_summary(outputs)","INSERT OR IGNORE INTO adapter_dispatches"):
+        if directive not in worker: errors.append(f"unsafe_adapter_worker:{directive}")
+    for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/adapter.env","NoNewPrivileges=true","ProtectSystem=strict","CapabilityBoundingSet="):
+        if directive not in worker_service: errors.append(f"unsafe_adapter_worker_service:{directive}")
+    try: adapter_text=(downloads/"sentinel_adapter.py").read_text()
+    except OSError as exc: errors.append(f"invalid_adapter:{type(exc).__name__}"); adapter_text=""
+    if '"Idempotency-Key":hashlib.sha256(body).hexdigest()' not in adapter_text: errors.append("missing_adapter_idempotency_key")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:
