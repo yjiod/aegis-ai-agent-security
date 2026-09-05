@@ -1,9 +1,9 @@
 {
-  "release": "0.17.0",
+  "release": "0.18.0",
   "channel": "pilot",
-  "published_at": "2026-09-05T23:30:00+08:00",
+  "published_at": "2026-09-06T00:00:00+08:00",
   "features": [
-    "intune_macos_custom_compliance", "bilingual_intune_remediation", "resolved_macos_python_runtime", "conditional_user_baseline_loading", "managed_user_baseline_updates", "cross_platform_agent_0_13", "windows_codex_toml_mcp_analysis", "bounded_endpoint_report_spool", "corrupt_report_quarantine", "collision_safe_spool_names", "canonical_report_deduplication", "bounded_report_contract", "cross_platform_agent_version_parity", "vendor_adapter_host_allowlist", "vendor_adapter_failure_isolation", "vendor_adapter_offline_spool", "safe_edr_action_guard",
+    "managed_user_baseline_uninstall", "symlink_safe_uninstall", "intune_macos_custom_compliance", "bilingual_intune_remediation", "resolved_macos_python_runtime", "conditional_user_baseline_loading", "managed_user_baseline_updates", "cross_platform_agent_0_13", "windows_codex_toml_mcp_analysis", "bounded_endpoint_report_spool", "corrupt_report_quarantine", "collision_safe_spool_names", "canonical_report_deduplication", "bounded_report_contract", "cross_platform_agent_version_parity", "vendor_adapter_host_allowlist", "vendor_adapter_failure_isolation", "vendor_adapter_offline_spool", "safe_edr_action_guard",
     "collector_wal_concurrency", "configurable_report_retention", "database_health_probe", "collector_service_error_separation",
     "signed_http_contract_tests", "intune_runtime_integrity_compliance", "intune_scheduled_task_health", "intune_policy_version_gate",
     "future_report_timestamp_rejection", "hmac_signed_report_upload", "request_timestamp_replay_window", "windows_offline_report_spool",
