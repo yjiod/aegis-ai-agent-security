@@ -30,6 +30,10 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 `sentinel_collector.py` 是最小参考接收器，支持令牌认证、可选 HMAC 请求签名、报告大小限制、SQLite 留存和设备列表。生产环境应部署在企业反向代理之后，配置 TLS、密钥轮换、审计、限流和备份；终端不得直接访问 EDR 管理面。
 
+0.51.0 提供可审计的 Linux 生产部署基线：将 `sentinel_collector.py` 放入 `/opt/sentinel/`，创建无登录权限的 `sentinel` 系统用户，把 `sentinel-collector.service` 安装到 `/etc/systemd/system/`；从 `sentinel-collector.env.example` 创建 `/etc/sentinel/collector.env`，分别生成至少 32 字符的认证令牌和 HMAC 密钥，设置 `root:sentinel`、0640 后再启动服务。空密钥会使服务拒绝启动。接收器只监听 `127.0.0.1:8788`，由 `sentinel-collector.nginx.conf` 提供 TLS 1.2/1.3、2 MB 请求上限和外层限流。替换示例域名及证书路径后先执行 `nginx -t` 和 `systemd-analyze security sentinel-collector.service`，再进入试点流量。
+
+生产验收至少包含：`/health` 返回数据库可用；无 Bearer、错误 HMAC、过期时间戳分别返回 401；首份有效报告返回 202、同内容重放返回 200 且标记重复；`/v1/summary` 仅在认证后可读；超过代理或应用限额分别返回 413/429；重启服务后 SQLite 数据仍存在。认证令牌与签名密钥必须独立轮换，不得放入 Intune 脚本文本、Nginx 配置或 Git。
+
 接收器默认保留 30 天报告，可通过 `SENTINEL_RETENTION_DAYS` 设置 1–3650 天。SQLite 启用 WAL 和五秒忙等待；写入时清理过期数据。同一报告按规范化 JSON 内容去重，不会因空格或字段顺序不同而重复计数。服务端与公开 Schema 同时限制 2 MB 请求、5000 个资产项、10000 个发现项及各字符串字段长度。`/health` 会实际检查数据库，数据库不可用或繁忙超时返回 503，而格式错误仍返回明确的 400，便于监控区分客户端与服务端故障。
 
 接收器 0.5 增加线程安全的每来源滑动窗口限流，默认每分钟 120 次，可通过 `SENTINEL_REQUESTS_PER_MINUTE` 设置 1–10000；超限返回 429 和 `Retry-After`，健康检查不计入额度。内存中的来源表最多保留 10000 项，防止来源标识耗尽内存。该机制只使用直接连接地址，不信任可伪造的转发头；生产反向代理仍应执行公网限流，并按代理后的汇聚连接数调整应用层额度。

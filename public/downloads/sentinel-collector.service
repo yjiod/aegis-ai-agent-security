@@ -1,0 +1,38 @@
+[Unit]
+Description=Sentinel AI Agent security report collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sentinel
+Group=sentinel
+EnvironmentFile=/etc/sentinel/collector.env
+ExecStart=/usr/bin/python3 /opt/sentinel/sentinel_collector.py --listen 127.0.0.1 --port 8788 --db /var/lib/sentinel/sentinel.db
+Restart=on-failure
+RestartSec=5s
+StateDirectory=sentinel
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

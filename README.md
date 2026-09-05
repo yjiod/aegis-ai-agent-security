@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex 和 Windsurf，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `0.50.0`，Endpoint Agent `0.25.0`，策略 `4.8.0`，Collector `0.10`，Adapter `0.6`。
+当前发行：产品 `0.51.0`，Endpoint Agent `0.25.0`，策略 `4.8.0`，Collector `0.10`，Adapter `0.6`。
 
 ## 目录
 
