@@ -144,6 +144,12 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('hidden_instruction',{f['kind'] for f in hidden})
         self.assertIn('weak_random_token',{f['kind'] for f in weak})
         self.assertIn('blocked_command',{f['kind'] for f in blocked})
+    def test_security_code_quality_rules(self):
+        text='''import pickle\nvalue = requests.get(url, verify=False)\nobject = pickle.loads(payload)\napp.run(host="0.0.0.0", debug=True)\ntry:\n    work()\nexcept Exception:\n    pass\n'''
+        kinds={item['kind'] for item in self.agent.scan_text(Path('/tmp/app.py'),text,self.policy)}
+        self.assertTrue({'insecure_tls_verification','unsafe_deserialization','debug_mode_enabled','empty_exception_handler'}.issubset(kinds))
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text()
+        for kind in ('insecure_tls_verification','unsafe_deserialization','debug_mode_enabled','empty_exception_handler'): self.assertIn("Kind='"+kind+"'",windows)
     def test_blocked_command_does_not_match_documentation_inline(self):
         findings=self.agent.scan_text(Path('/tmp/README.md'),'Never run `rm -rf` on a workstation.',self.policy)
         self.assertNotIn('blocked_command',{f['kind'] for f in findings})
@@ -175,8 +181,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.15.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.15.0')
+        self.assertIn("agent_version='0.16.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.16.0')
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
     def test_release_verifier_rejects_runtime_drift(self):
