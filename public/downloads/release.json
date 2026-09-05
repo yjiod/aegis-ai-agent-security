@@ -1,8 +1,9 @@
 {
-  "release": "0.54.0",
+  "release": "0.55.0",
   "channel": "pilot",
-  "published_at": "2026-09-07T00:00:00+08:00",
+  "published_at": "2026-09-07T02:00:00+08:00",
   "features": [
+    "cross_platform_agent_0_27", "authenticated_upload_receipt", "collector_host_receipt_binding", "intune_reporting_health_compliance", "stale_upload_detection", "failed_upload_health_isolation",
     "intune_reporting_configuration_compliance", "windows_dpapi_compliance_probe", "macos_reporting_acl_compliance", "bilingual_reporting_remediation",
     "cross_platform_agent_0_26", "persistent_endpoint_reporting_config", "windows_dpapi_machine_secrets", "macos_root_only_reporting_config", "reporting_config_contract", "invalid_reporting_config_finding",
     "adapter_0_7", "automatic_collector_vendor_dispatch", "durable_adapter_dispatch_ledger", "stable_vendor_idempotency_key", "adapter_worker_preflight", "minimized_dispatch_audit", "hardened_adapter_worker_service", "ci_dependency_audit", "resource_warning_gate",

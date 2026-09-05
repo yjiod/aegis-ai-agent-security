@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；默认要求 Agent 0.26.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；默认要求 Agent 0.27.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -133,3 +133,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.53.0 / Agent 0.26.0 修复 Intune 周期任务无法继承安装进程环境变量的问题。Windows 使用 `sentinel-configure-windows.ps1` 将 URL、Bearer 和 HMAC 密钥通过 DPAPI LocalMachine 加密到 `%ProgramData%\SentinelAgent\reporting.dpapi`；任务以 SYSTEM 运行时自动解密，密钥不进入任务参数。macOS 使用 `sentinel-configure-macos.sh` 原子写入 root-only 0600 的 `reporting.json`，Agent 每次启动自动发现。两种配置均要求无凭据、无查询参数的 HTTPS URL、两项独立且至少 32 字符的密钥；权限、所有者、契约或解密异常会产生 `reporting_config_invalid` 高危项并拒绝上报。配置脚本应通过 Intune 的受保护变量或企业密钥代理获取临时输入，切勿把真实值写入 Intune 脚本文本。
 
 0.54.0 将 `SentinelReportingConfigured` 纳入 Windows 与 macOS 的 Intune 自定义合规。Windows 发现脚本以 SYSTEM 实际执行 DPAPI 解密并重新验证 URL、字段集合和密钥边界；macOS 发现脚本验证 root 所有权、普通文件、0600 权限及相同契约。仅存在文件不能证明合规，复制其他设备的 DPAPI 文件、宽权限文件、损坏 JSON 或不安全 URL 均返回 false。生产分配顺序应先下发受保护上报配置，再启用这条合规规则，避免部署竞态造成短暂误报。
+
+0.55.0 / Agent 0.27.0 在 Collector 返回成功后原子写入无密钥的 `sentinel.upload-status/v1` 回执，仅包含成功时间和 Collector 主机。网络失败或本地排队不会刷新回执。`SentinelReportingHealthy` 要求回执不超过 24 小时，且主机必须与当前受保护配置一致；旧 Collector 的成功记录不能掩盖配置切换后的故障。回执只证明最近一次 HTTP 接受，Collector 仍以签名验证、报告契约和服务端设备摘要作为最终事实源。
