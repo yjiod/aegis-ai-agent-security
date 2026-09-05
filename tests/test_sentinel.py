@@ -222,6 +222,13 @@ class SentinelTests(unittest.TestCase):
         kinds={f['kind'] for f in findings}
         self.assertTrue({'unknown_mcp','unapproved_mcp_command','broad_filesystem_scope','literal_mcp_secret','insecure_mcp_transport'}.issubset(kinds))
         secret=next(f for f in findings if f['kind']=='literal_mcp_secret'); self.assertEqual(secret['evidence'],'[REDACTED]')
+    def test_malformed_deep_json_and_policy_regex_do_not_crash_scan(self):
+        deep='['*2000+'0'+']'*2000
+        mcp=self.agent.scan_mcp_config(Path('/tmp/mcp.json'),deep,self.policy)
+        dependency=self.agent.scan_dependency_manifest(Path('/tmp/package.json'),deep)
+        regex=self.agent.scan_text(Path('/tmp/app.py'),'safe',{**self.policy,'secret_patterns':['[invalid']})
+        self.assertEqual(mcp[0]['kind'],'invalid_mcp_config'); self.assertEqual(dependency[0]['kind'],'invalid_dependency_manifest')
+        invalid=next(item for item in regex if item['kind']=='invalid_policy_regex'); self.assertRegex(invalid['evidence'],r'^[0-9a-f]{12}$')
     def test_codex_toml_mcp_least_privilege(self):
         text='''[mcp_servers.rogue]\ncommand = "bash"\nargs = ["/"]\nurl = "http://outside.invalid"\n[mcp_servers.rogue.env]\nAPI_TOKEN = "literal-value"\n'''
         findings=self.agent.scan_mcp_config(Path('/tmp/config.toml'),text,self.policy); kinds={f['kind'] for f in findings}
@@ -286,8 +293,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.17.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.17.0')
+        self.assertIn("agent_version='0.18.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.18.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -316,6 +323,10 @@ class SentinelTests(unittest.TestCase):
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel_agent.py').write_text('# drift')
             errors=self.verifier.verify(copy)
             self.assertIn('checksum_mismatch:sentinel_agent.py',errors); self.assertIn('bundle_content_mismatch:sentinel_agent.py',errors)
+    def test_release_verifier_rejects_invalid_policy_regex(self):
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'sentinel-policy.json').read_text()); policy['secret_patterns']=['[invalid']; (copy/'sentinel-policy.json').write_text(json.dumps(policy))
+            self.assertIn('invalid_secret_pattern_regex:0',self.verifier.verify(copy))
     def test_intune_compliance_checks_integrity_task_and_policy(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'intune-windows-detect.ps1').read_text()
