@@ -8,6 +8,15 @@ foreach($name in $expected.Keys){$path=Join-Path $installDir $name;if(-not(Test-
 $policyVersion = if (Test-Path $policyPath) { (Get-Content $policyPath -Raw | ConvertFrom-Json).version } else { 'missing' }
 $task=Get-ScheduledTask -TaskName 'Sentinel AI Agent Security Scan' -ErrorAction SilentlyContinue
 $taskHealthy=[bool]($task -and $task.State -ne 'Disabled')
+$reportingConfigured=$false;$reportingPath=Join-Path $installDir 'reporting.dpapi'
+if(Test-Path $reportingPath){
+  try{
+    $encrypted=[IO.File]::ReadAllBytes($reportingPath);$entropy=[Text.Encoding]::UTF8.GetBytes('SentinelAgent.Reporting.v1');$plain=[Security.Cryptography.ProtectedData]::Unprotect($encrypted,$entropy,[Security.Cryptography.DataProtectionScope]::LocalMachine)
+    try{$reporting=[Text.Encoding]::UTF8.GetString($plain)|ConvertFrom-Json}finally{[Array]::Clear($plain,0,$plain.Length);[Array]::Clear($encrypted,0,$encrypted.Length)}
+    $names=@($reporting.PSObject.Properties.Name|Sort-Object);$uri=$null;$urlValid=[Uri]::TryCreate([string]$reporting.report_url,[UriKind]::Absolute,[ref]$uri) -and $uri.Scheme -ceq 'https' -and $uri.Host -and -not $uri.UserInfo -and -not $uri.Query -and -not $uri.Fragment
+    $reportingConfigured=($names -join ',') -ceq 'report_token,report_url,schema,signing_secret' -and $reporting.schema -ceq 'sentinel.reporting/v1' -and $urlValid -and ([string]$reporting.report_token).Length -ge 32 -and ([string]$reporting.report_token).Length -le 4096 -and ([string]$reporting.signing_secret).Length -ge 32 -and ([string]$reporting.signing_secret).Length -le 4096 -and $reporting.report_token -cne $reporting.signing_secret
+  }catch{$reportingConfigured=$false}
+}
 $recent = $false; $reportValid = $false; $critical = 0; $high = 0
 if (Test-Path $reportPath) {
   $report = Get-Content $reportPath -Raw | ConvertFrom-Json
@@ -16,4 +25,4 @@ if (Test-Path $reportPath) {
   $reportValid=$report.schema -eq 'sentinel.report/v1' -and $report.agent_version -eq '0.26.0' -and $report.policy_version -eq $policyVersion -and $report.device_id -match '^[a-f0-9]{12}$' -and $report.findings -is [System.Array] -and $findings.Count -le 10000 -and $invalidFindings.Count -eq 0 -and $report.summary -and [int]$report.summary.critical -eq $actualCritical -and [int]$report.summary.high -eq $actualHigh -and [int]$report.summary.medium -eq $actualMedium -and [int]$report.summary.low -eq $actualLow
   if($reportValid){$recent=$age -ge 0 -and $age -lt 86400;$critical=$actualCritical;$high=$actualHigh}
 }
-@{ SentinelInstalled=$installed; SentinelIntegrityValid=$integrityValid; SentinelScheduledTaskHealthy=$taskHealthy; SentinelPolicyVersion=$policyVersion; SentinelReportValid=$reportValid; SentinelScanRecent=$recent; SentinelCriticalFindings=$critical; SentinelHighFindings=$high } | ConvertTo-Json -Compress
+@{ SentinelInstalled=$installed; SentinelIntegrityValid=$integrityValid; SentinelScheduledTaskHealthy=$taskHealthy; SentinelReportingConfigured=$reportingConfigured; SentinelPolicyVersion=$policyVersion; SentinelReportValid=$reportValid; SentinelScanRecent=$recent; SentinelCriticalFindings=$critical; SentinelHighFindings=$high } | ConvertTo-Json -Compress
