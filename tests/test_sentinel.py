@@ -1,4 +1,4 @@
-import hashlib, importlib.util, json, os, shutil, sqlite3, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
+import hashlib, importlib.util, json, os, shutil, sqlite3, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -277,6 +277,21 @@ class SentinelTests(unittest.TestCase):
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
         self.assertIn("agent_version='0.16.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
         self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.16.0')
+    def test_posix_installer_creates_only_complete_previous_snapshots(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
+            script=str(DOWNLOADS/'install-sentinel.sh')
+            subprocess.run(['/bin/sh',script],env=env,check=True,capture_output=True,text=True)
+            for name in ('sentinel_agent.py','sentinel-policy.json','sentinel-security-baseline.md'): (install/name).write_text('previous-'+name)
+            subprocess.run(['/bin/sh',script],env=env,check=True,capture_output=True,text=True)
+            previous=install/'previous'; self.assertTrue((previous/'CHECKSUMS.sha256').exists())
+            for name in ('sentinel_agent.py','sentinel-policy.json','sentinel-security-baseline.md'): self.assertEqual((previous/name).read_text(),'previous-'+name)
+            snapshot={name:(previous/name).read_bytes() for name in ('sentinel_agent.py','sentinel-policy.json','sentinel-security-baseline.md','CHECKSUMS.sha256')}
+            (install/'sentinel-policy.json').unlink()
+            subprocess.run(['/bin/sh',script],env=env,check=True,capture_output=True,text=True)
+            self.assertEqual(snapshot,{name:(previous/name).read_bytes() for name in snapshot})
+        windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text()
+        self.assertIn("'.previous-stage-'",windows); self.assertIn('$currentComplete',windows); self.assertIn('.previous-stage.$$',mac); self.assertIn('CURRENT_COMPLETE',mac)
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
     def test_release_verifier_rejects_runtime_drift(self):
