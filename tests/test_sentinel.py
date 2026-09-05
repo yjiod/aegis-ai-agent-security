@@ -8,7 +8,7 @@ def load(name,file):
 def vendor_report(level='normal'):
     summary={name:0 for name in ('critical','high','medium','low')}; findings=[]
     if level!='normal': summary[level]=1; findings=[{'kind':'test','severity':level,'path':'x','message':'test'}]
-    return {'schema':'sentinel.report/v1','agent_version':'0.20.0','policy_version':'4.5.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
+    return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 
 class SentinelTests(unittest.TestCase):
     def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
@@ -264,6 +264,14 @@ class SentinelTests(unittest.TestCase):
         cfg={'command':'node','url':'https://trusted.example/mcp','transport':'sse'}
         kinds={f['kind'] for f in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,{**self.policy,'allowed_mcp_domains':['trusted.example']})}
         self.assertTrue({'ambiguous_mcp_transport','unapproved_mcp_transport'}.issubset(kinds))
+    def test_mcp_command_basename_cannot_bypass_executable_path_policy(self):
+        cfg={'command':'/tmp/node','args':[]}
+        blocked={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,self.policy)}
+        self.assertIn('unapproved_mcp_command_path',blocked); self.assertNotIn('unapproved_mcp_command',blocked)
+        allowed_policy={**self.policy,'allowed_mcp_command_paths':['/tmp/node']}
+        allowed={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,allowed_policy)}
+        self.assertNotIn('unapproved_mcp_command_path',allowed)
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertGreaterEqual(windows.count("kind='unapproved_mcp_command_path'"),2); self.assertIn('$rawCommand',windows)
     def test_policy_declared_text_rules_are_enforced(self):
         hidden=self.agent.scan_text(Path('/tmp/SKILL.md'),'safe text\u202ehidden',self.policy)
         weak=self.agent.scan_text(Path('/tmp/app.js'),'const sessionToken = Math.random().toString()',self.policy)
@@ -308,8 +316,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.20.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.20.0')
+        self.assertIn("agent_version='0.21.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.21.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
