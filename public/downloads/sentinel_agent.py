@@ -8,6 +8,8 @@ DEFAULT_POLICY=Path(__file__).with_name("sentinel-policy.json")
 AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json"]
 SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills"]
 DEPENDENCY_MANIFESTS={"package.json","requirements.txt","requirements-dev.txt"}
+REPORT_INVENTORY_LIMIT=5000
+REPORT_FINDING_LIMIT=10000
 AGENT_HOME_MARKERS={
     "cursor":[".cursor/mcp.json","Library/Application Support/Cursor/User/settings.json",".config/Cursor/User/settings.json"],
     "codex":[".codex/config.toml",".local/bin/codex"],
@@ -191,14 +193,25 @@ def scan(root,policy):
                     inventory.append({"type":"skill","name":p.parent.name,"path":safe_path(p),"approved":approved,"scanned_files":scanned})
                     findings.extend(skill_findings)
     suffixes={".py",".js",".ts",".tsx",".jsx",".go",".java",".rb",".php",".sh",".json",".toml",".yaml",".yml"}
-    for p in root.rglob("*"):
-        if p.is_file() and (p.suffix.lower() in suffixes or p.name in DEPENDENCY_MANIFESTS) and ".git" not in p.parts and "node_modules" not in p.parts:
+    raw_limit=policy.get("limits",{}).get("project_files",10000)
+    try: file_limit=min(max(int(raw_limit),100),100000)
+    except (TypeError,ValueError): file_limit=10000
+    scanned=0; truncated=False
+    for current,dirs,files in os.walk(root,followlinks=False):
+        dirs[:]=[name for name in dirs if name not in [".git","node_modules","vendor","dist","build",".venv"] and not (Path(current)/name).is_symlink()]
+        for name in files:
+            p=Path(current)/name
+            if p.is_symlink() or not (p.suffix.lower() in suffixes or p.name in DEPENDENCY_MANIFESTS): continue
+            if scanned>=file_limit: truncated=True; break
+            scanned+=1
             try:
                 if p.stat().st_size<=1_000_000:
                     text=p.read_text(errors="ignore"); findings.extend(scan_text(p,text,policy))
                     if p.name in ["mcp.json","mcp_config.json","config.toml"]: findings.extend(scan_mcp_config(p,text,policy))
                     if p.name in DEPENDENCY_MANIFESTS: inventory.append({"type":"dependency_manifest","path":safe_path(p)}); findings.extend(scan_dependency_manifest(p,text))
             except OSError: pass
+        if truncated: break
+    if truncated: findings.append(finding("project_scan_truncated","medium",root,f"项目候选文件超过扫描上限 {file_limit}"))
     return inventory,findings
 def safe_managed_target(root,path):
     """Reject symlinks and parent paths that resolve outside the managed root."""
@@ -262,7 +275,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.14.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.15.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -295,7 +308,11 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.14.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    if len(inventory)>REPORT_INVENTORY_LIMIT:
+        inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
+    if len(findings)>REPORT_FINDING_LIMIT:
+        omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
+    return {"schema":"sentinel.report/v1","agent_version":"0.15.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
