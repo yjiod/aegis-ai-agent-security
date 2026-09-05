@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；默认要求 Agent 0.25.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；默认要求 Agent 0.26.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -129,3 +129,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.44.0 / Agent 0.25.0 起，Windows 在读取内容前独立发现 `SKILL.md`，因此超大清单不能绕过 `unknown_skill`。每个扫描根最多发现 500 个 Skill、每个 Skill 最多报告 100 个重解析点，项目候选文件遵循策略 `project_files`；任何截断都会生成可见发现项。
 
 配置 `SENTINEL_REPORT_URL` 和 `SENTINEL_REPORT_TOKEN` 后启用上报。生产环境同时在终端和接收器配置相同的 `SENTINEL_REPORT_SIGNING_SECRET`；每次请求使用当前时间戳和原始请求体计算 HMAC-SHA256，接收器只接受五分钟窗口内的有效签名。网络中断时报告会进入权限受限的本地 spool，补传时使用新的请求时间重新签名；同秒报告使用唯一文件名，损坏文件会被隔离，不再阻塞后续补传。Python 端默认最多保留 500 份待传报告（可用 `SENTINEL_SPOOL_MAX_REPORTS` 设置 10–10000），Windows 端固定保留最近 500 份及 20 份损坏样本，超限时优先淘汰最旧文件。上报路径会把用户主目录替换为 `~`，明文密钥证据仅保留脱敏标记。密钥应由 Intune 的受保护配置流程注入，不要写入脚本或仓库。
+
+0.53.0 / Agent 0.26.0 修复 Intune 周期任务无法继承安装进程环境变量的问题。Windows 使用 `sentinel-configure-windows.ps1` 将 URL、Bearer 和 HMAC 密钥通过 DPAPI LocalMachine 加密到 `%ProgramData%\SentinelAgent\reporting.dpapi`；任务以 SYSTEM 运行时自动解密，密钥不进入任务参数。macOS 使用 `sentinel-configure-macos.sh` 原子写入 root-only 0600 的 `reporting.json`，Agent 每次启动自动发现。两种配置均要求无凭据、无查询参数的 HTTPS URL、两项独立且至少 32 字符的密钥；权限、所有者、契约或解密异常会产生 `reporting_config_invalid` 高危项并拒绝上报。配置脚本应通过 Intune 的受保护变量或企业密钥代理获取临时输入，切勿把真实值写入 Intune 脚本文本。

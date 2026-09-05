@@ -19,6 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -83,6 +84,16 @@ def verify(downloads):
     try: adapter_text=(downloads/"sentinel_adapter.py").read_text()
     except OSError as exc: errors.append(f"invalid_adapter:{type(exc).__name__}"); adapter_text=""
     if '"Idempotency-Key":hashlib.sha256(body).hexdigest()' not in adapter_text: errors.append("missing_adapter_idempotency_key")
+    try: windows_config=(downloads/"sentinel-configure-windows.ps1").read_text(); windows_agent=(downloads/"sentinel-windows.ps1").read_text(); mac_config=(downloads/"sentinel-configure-macos.sh").read_text(); python_agent=(downloads/"sentinel_agent.py").read_text()
+    except OSError as exc: errors.append(f"invalid_endpoint_reporting_config:{type(exc).__name__}"); windows_config=windows_agent=mac_config=python_agent=""
+    for directive in ("DataProtectionScope]::LocalMachine","SENTINEL_REPORT_SIGNING_SECRET","Report token and signing secret must be independent","icacls.exe"):
+        if directive not in windows_config: errors.append(f"unsafe_windows_reporting_config:{directive}")
+    for directive in ("ProtectedData]::Unprotect","reporting_config_invalid","report_token,report_url,schema,signing_secret"):
+        if directive not in windows_agent: errors.append(f"missing_windows_reporting_loader:{directive}")
+    for directive in ("umask 077","os.replace(temp,path)","hmac.compare_digest(token,secret)"):
+        if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
+    for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid"):
+        if directive not in python_agent: errors.append(f"missing_python_reporting_loader:{directive}")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:

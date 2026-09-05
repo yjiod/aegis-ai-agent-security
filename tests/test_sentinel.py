@@ -210,6 +210,20 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(self.collector.valid_signature(headers,body+b'x',now=1001,secret='signing-secret'))
         self.assertFalse(self.collector.valid_signature(headers,body,now=1301,secret='signing-secret'))
         self.assertEqual(headers['Authorization'],'Bearer bearer'); self.assertTrue(headers['X-Sentinel-Signature'].startswith('sha256='))
+    def test_reporting_config_requires_private_file_and_strict_contract(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); path=root/'reporting.json'; value={'schema':'sentinel.reporting/v1','report_url':'https://collector.example.internal/v1/reports','report_token':'t'*32,'signing_secret':'s'*32}
+            path.write_text(json.dumps(value)); path.chmod(0o600); self.assertEqual(self.agent.load_reporting_config(path),value)
+            path.chmod(0o644)
+            with self.assertRaisesRegex(ValueError,'reporting_config_permissions'): self.agent.load_reporting_config(path)
+            path.chmod(0o600); link=root/'link.json'; link.symlink_to(path)
+            with self.assertRaisesRegex(ValueError,'reporting_config_symlink'): self.agent.load_reporting_config(link)
+            path.write_text(json.dumps({**value,'report_url':'https://collector.example.internal/v1/reports?token=bad'}))
+            with self.assertRaisesRegex(ValueError,'reporting_config_url'): self.agent.load_reporting_config(path)
+            path.write_text(json.dumps({**value,'signing_secret':'t'*32}))
+            with self.assertRaisesRegex(ValueError,'reporting_config_secrets'): self.agent.load_reporting_config(path)
+        windows=(DOWNLOADS/'sentinel-configure-windows.ps1').read_text(); scanner=(DOWNLOADS/'sentinel-windows.ps1').read_text(); mac=(DOWNLOADS/'sentinel-configure-macos.sh').read_text()
+        self.assertIn('DataProtectionScope]::LocalMachine',windows); self.assertIn('ProtectedData]::Unprotect',scanner); self.assertIn("kind='reporting_config_invalid'",scanner); self.assertIn('umask 077',mac)
     def test_collector_supports_bounded_token_and_signing_key_rotation(self):
         body=b'{"device":"test"}'; old=self.agent.report_headers(body,'old-token','old-signing',now=1000); new=self.agent.report_headers(body,'new-token','new-signing',now=1000)
         env={'SENTINEL_REPORT_SIGNING_SECRETS':'["new-signing","old-signing"]'}
@@ -361,8 +375,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.25.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.25.0')
+        self.assertIn("agent_version='0.26.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.26.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -432,7 +446,7 @@ class SentinelTests(unittest.TestCase):
         script=(DOWNLOADS/'intune-macos-compliance.sh').read_text().split("<<'PY'\n",1)[1].split("\nPY",1)[0]
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; policy.write_text(json.dumps(self.policy))
-            value={'schema':'sentinel.report/v1','agent_version':'0.25.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':int(time.time()),'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.26.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':int(time.time()),'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertTrue(json.loads(result.stdout)['SentinelReportValid'])
             value['summary']['high']=0; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportValid'])
             value['summary']['high']=1; value['agent_version']='0.22.0'; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportValid'])
@@ -465,7 +479,7 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(len(list(spool.glob('*.json'))),10)
             corrupt=spool/'000-corrupt.json'; corrupt.write_text('{broken')
             sent=[]
-            with patch.object(self.agent,'post_report',side_effect=lambda url,token,value:sent.append(value)):
+            with patch.object(self.agent,'post_report',side_effect=lambda url,token,value,signing_secret=None:sent.append(value)):
                 count=self.agent.flush_spool(spool,'https://collector.invalid','token')
             self.assertEqual(count,10); self.assertEqual(len(sent),10); self.assertTrue(list(spool.glob('*.invalid')))
     def test_vendor_adapter_is_explicit_and_dry_run(self):
