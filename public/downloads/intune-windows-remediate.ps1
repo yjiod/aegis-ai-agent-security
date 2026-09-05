@@ -10,9 +10,16 @@ New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$s
 try {
   foreach ($name in $expected.Keys) { Invoke-WebRequest "$baseUrl/$name" -OutFile (Join-Path $stageDir $name) -UseBasicParsing }
   foreach ($name in $expected.Keys) { if ((Get-FileHash (Join-Path $stageDir $name) -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]) { throw "Integrity verification failed: $name" } }
-  $backupHashes=@{}
-  foreach ($name in $expected.Keys) { $current=Join-Path $installDir $name; if(Test-Path $current){Copy-Item $current (Join-Path $previousDir $name) -Force; $backupHashes[$name]=(Get-FileHash $current -Algorithm SHA256).Hash.ToLower()} }
-  if($backupHashes.Count -eq $expected.Count){$backupHashes|ConvertTo-Json|Set-Content (Join-Path $previousDir 'checksums.json') -Encoding UTF8}
+  $currentComplete=@($expected.Keys|Where-Object {-not (Test-Path (Join-Path $installDir $_))}).Count -eq 0
+  if($currentComplete){
+    $previousStage=Join-Path $installDir ('.previous-stage-' + [Guid]::NewGuid().ToString('N'));$previousOld=Join-Path $installDir ('.previous-old-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $previousStage|Out-Null;$backupHashes=@{}
+    foreach($name in $expected.Keys){$current=Join-Path $installDir $name;Copy-Item $current (Join-Path $previousStage $name);$backupHashes[$name]=(Get-FileHash $current -Algorithm SHA256).Hash.ToLower()}
+    $backupHashes|ConvertTo-Json|Set-Content (Join-Path $previousStage 'checksums.json') -Encoding UTF8
+    Move-Item $previousDir $previousOld
+    try{Move-Item $previousStage $previousDir}catch{Move-Item $previousOld $previousDir;throw}
+    Remove-Item $previousOld -Recurse -Force
+  }
   foreach ($name in $expected.Keys) { Move-Item (Join-Path $stageDir $name) (Join-Path $installDir $name) -Force }
 } finally { Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue }
 $baseline = Get-Content (Join-Path $installDir 'sentinel-security-baseline.md') -Raw
