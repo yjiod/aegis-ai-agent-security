@@ -16,7 +16,7 @@ BUNDLE_FILES=(
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
     "uninstall-sentinel-windows.ps1","uninstall-sentinel-macos.sh","CHECKSUMS.sha256","release.json","sentinel_adapter.py",
-    "sentinel-adapters.example.json","sentinel_release_verify.py",
+    "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()

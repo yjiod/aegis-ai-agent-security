@@ -1,4 +1,4 @@
-import hashlib, importlib.util, json, os, shutil, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
+import hashlib, importlib.util, json, os, shutil, sqlite3, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,7 +7,7 @@ def load(name,file):
     spec=importlib.util.spec_from_file_location(name,DOWNLOADS/file); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -98,6 +98,19 @@ class SentinelTests(unittest.TestCase):
             summary=self.collector.collector_summary(path,now=now)
             self.assertEqual(summary['total_devices'],3); self.assertEqual(summary['active_devices'],2); self.assertEqual(summary['stale_devices'],1)
             self.assertEqual(summary['latest_severity'],{'critical':1,'high':1,'normal':1})
+    def test_collector_online_backup_is_consistent_private_and_retained(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); source=root/'sentinel.db'; output=root/'backups'
+            with self.collector.db_open(source) as db:
+                db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('one','device-a',1,'normal','{}')); db.commit()
+            first=self.backup.backup_database(source,output,keep=1,now=1)
+            self.assertTrue(self.backup.quick_check(first)); self.assertEqual(first.stat().st_mode & 0o777,0o600)
+            second=self.backup.backup_database(source,output,keep=1,now=2)
+            self.assertTrue(second.exists()); self.assertFalse(first.exists()); self.assertEqual(len(list(output.glob('sentinel-backup-*.sqlite'))),1)
+            db=sqlite3.connect(second)
+            try: self.assertEqual(db.execute("SELECT COUNT(*) FROM reports").fetchone()[0],1)
+            finally: db.close()
+        self.assertEqual(self.backup.keep_count('invalid'),14); self.assertEqual(self.backup.keep_count(999),365)
     def test_collector_rate_limiter_is_bounded_and_recovers(self):
         now=[100.0]; limiter=self.collector.RateLimiter(limit=2,window=60,max_sources=2,clock=lambda:now[0])
         self.assertEqual(limiter.check('client-a'),(True,0)); self.assertEqual(limiter.check('client-a'),(True,0))
