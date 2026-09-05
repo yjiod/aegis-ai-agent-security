@@ -1,4 +1,4 @@
-import hashlib, importlib.util, json, os, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
+import hashlib, importlib.util, json, os, shutil, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,7 +7,7 @@ def load(name,file):
     spec=importlib.util.spec_from_file_location(name,DOWNLOADS/file); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -158,6 +158,13 @@ class SentinelTests(unittest.TestCase):
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
         self.assertIn("agent_version='0.13.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
         self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.13.0')
+    def test_release_verifier_accepts_published_bundle(self):
+        self.assertEqual(self.verifier.verify(DOWNLOADS),[])
+    def test_release_verifier_rejects_runtime_drift(self):
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel_agent.py').write_text('# drift')
+            errors=self.verifier.verify(copy)
+            self.assertIn('checksum_mismatch:sentinel_agent.py',errors); self.assertIn('bundle_content_mismatch:sentinel_agent.py',errors)
     def test_intune_compliance_checks_integrity_task_and_policy(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'intune-windows-detect.ps1').read_text()
