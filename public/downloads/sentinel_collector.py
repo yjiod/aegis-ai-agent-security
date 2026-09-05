@@ -6,8 +6,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 @contextmanager
 def db_open(path):
-    db=sqlite3.connect(path)
+    db=sqlite3.connect(path,timeout=5)
     try:
+        db.execute("PRAGMA busy_timeout=5000"); db.execute("PRAGMA journal_mode=WAL")
         db.execute("CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY, report_hash TEXT, device_id TEXT NOT NULL, received_at INTEGER NOT NULL, severity TEXT NOT NULL, body TEXT NOT NULL)")
         columns={row[1] for row in db.execute("PRAGMA table_info(reports)")}
         if "report_hash" not in columns: db.execute("ALTER TABLE reports ADD COLUMN report_hash TEXT")
@@ -55,34 +56,50 @@ def valid_signature(headers,body,now=None,secret=None,max_skew=300):
     if abs(now-request_time)>max_skew: return False
     expected="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected,supplied)
+def retention_days(value=None):
+    raw=os.getenv("SENTINEL_RETENTION_DAYS","30") if value is None else value
+    try: return min(max(int(raw),1),3650)
+    except (TypeError,ValueError): return 30
+def store_report(db_path,body,report,now=None,days=None):
+    now=int(time.time()) if now is None else now; days=retention_days(days)
+    severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"; digest=hashlib.sha256(body).hexdigest()
+    with db_open(db_path) as db:
+        db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
+        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],now,severity,body.decode())); db.commit(); duplicate=cursor.rowcount==0
+    return {"accepted":True,"duplicate":duplicate,"report_id":digest[:20],"severity":severity}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.2"
+    server_version="SentinelCollector/0.3"
     def reply(self,status,data):
-        body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body)
+        body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body)
     def authorized(self):
         expected=os.getenv("SENTINEL_COLLECTOR_TOKEN",""); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); return bool(expected) and hmac.compare_digest(expected,supplied)
     def do_GET(self):
-        if self.path=="/health": return self.reply(200,{"status":"ok"})
+        if self.path=="/health":
+            try:
+                with db_open(self.server.db_path) as db: db.execute("SELECT 1").fetchone()
+                return self.reply(200,{"status":"ok","database":"ok"})
+            except sqlite3.Error: return self.reply(503,{"status":"degraded","database":"unavailable"})
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         if self.path=="/v1/devices":
-            with db_open(self.server.db_path) as db: rows=db.execute("SELECT device_id, MAX(received_at), COUNT(*) FROM reports GROUP BY device_id ORDER BY MAX(received_at) DESC LIMIT 500").fetchall()
+            try:
+                with db_open(self.server.db_path) as db: rows=db.execute("SELECT device_id, MAX(received_at), COUNT(*) FROM reports GROUP BY device_id ORDER BY MAX(received_at) DESC LIMIT 500").fetchall()
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             return self.reply(200,{"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2]} for r in rows]})
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
         if self.path!="/v1/reports": return self.reply(404,{"error":"not_found"})
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
-        try:
-            length=int(self.headers.get("Content-Length","0"));
-            if length<2 or length>2_000_000: return self.reply(413,{"error":"invalid_size"})
-            body=self.rfile.read(length)
-            if not valid_signature(self.headers,body): return self.reply(401,{"error":"invalid_signature"})
-            report=json.loads(body)
-            if not valid_report(report): return self.reply(400,{"error":"invalid_report"})
-            severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"; digest=hashlib.sha256(body).hexdigest(); report_id=digest[:20]
-            with db_open(self.server.db_path) as db:
-                cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],int(time.time()),severity,body.decode())); db.commit(); duplicate=cursor.rowcount==0
-            self.reply(200 if duplicate else 202,{"accepted":True,"duplicate":duplicate,"report_id":report_id,"severity":severity})
-        except Exception: self.reply(400,{"error":"invalid_json"})
+        try: length=int(self.headers.get("Content-Length","0"))
+        except ValueError: return self.reply(400,{"error":"invalid_size"})
+        if length<2 or length>2_000_000: return self.reply(413,{"error":"invalid_size"})
+        body=self.rfile.read(length)
+        if not valid_signature(self.headers,body): return self.reply(401,{"error":"invalid_signature"})
+        try: report=json.loads(body)
+        except (json.JSONDecodeError,UnicodeDecodeError): return self.reply(400,{"error":"invalid_json"})
+        if not valid_report(report): return self.reply(400,{"error":"invalid_report"})
+        try: result=store_report(self.server.db_path,body,report)
+        except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+        self.reply(200 if result["duplicate"] else 202,result)
     def log_message(self,fmt,*args): pass
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--listen",default="127.0.0.1"); ap.add_argument("--port",type=int,default=8788); ap.add_argument("--db",default="sentinel.db"); args=ap.parse_args()
