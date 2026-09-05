@@ -91,8 +91,17 @@ def store_report(db_path,body,report,now=None,days=None):
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
         cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode())); db.commit(); duplicate=cursor.rowcount==0
     return {"accepted":True,"duplicate":duplicate,"report_id":digest[:20],"severity":severity}
+def collector_summary(db_path,now=None,active_window=86400):
+    """Return fleet posture from only the newest accepted report per device."""
+    now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
+    with db_open(db_path) as db:
+        rows=db.execute("SELECT r.received_at,r.severity FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id").fetchall()
+    by_severity={"critical":0,"high":0,"normal":0}
+    for received,severity in rows: by_severity[severity if severity in by_severity else "normal"]+=1
+    active=sum(received>=now-active_window for received,_ in rows)
+    return {"generated_at":now,"active_window_seconds":active_window,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.5"
+    server_version="SentinelCollector/0.6"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -118,6 +127,9 @@ class Handler(BaseHTTPRequestHandler):
                 with db_open(self.server.db_path) as db: rows=db.execute("SELECT device_id, MAX(received_at), COUNT(*) FROM reports GROUP BY device_id ORDER BY MAX(received_at) DESC LIMIT 500").fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             return self.reply(200,{"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2]} for r in rows]})
+        if self.path=="/v1/summary":
+            try: return self.reply(200,collector_summary(self.server.db_path))
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
         if self.path!="/v1/reports": return self.reply(404,{"error":"not_found"})
