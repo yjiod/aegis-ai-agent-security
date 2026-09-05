@@ -170,6 +170,17 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(self.collector.secret_values('ONE','MANY',{'MANY':json.dumps(['x']*6)}),[])
         handler=object.__new__(self.collector.Handler); handler.headers={'Authorization':'Bearer old-token'}
         with patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKENS':'["new-token","old-token"]'},clear=True): self.assertTrue(handler.authorized())
+    def test_collector_runtime_secrets_require_strength_uniqueness_and_separation(self):
+        good={'SENTINEL_COLLECTOR_TOKENS':json.dumps(['t'*32,'u'*32]),'SENTINEL_REPORT_SIGNING_SECRETS':json.dumps(['s'*32,'v'*32])}
+        self.assertEqual(self.collector.runtime_secret_errors(good),[])
+        weak={'SENTINEL_COLLECTOR_TOKEN':'short','SENTINEL_REPORT_SIGNING_SECRET':'tiny'}
+        self.assertTrue({'collector_token_too_short','signing_secret_too_short'}.issubset(self.collector.runtime_secret_errors(weak)))
+        reused={'SENTINEL_COLLECTOR_TOKEN':'x'*32,'SENTINEL_REPORT_SIGNING_SECRET':'x'*32}
+        self.assertIn('authentication_and_signing_secret_reused',self.collector.runtime_secret_errors(reused))
+        duplicate={'SENTINEL_COLLECTOR_TOKENS':json.dumps(['a'*32,'a'*32]),'SENTINEL_REPORT_SIGNING_SECRET':'b'*32}
+        self.assertIn('collector_token_duplicate',self.collector.runtime_secret_errors(duplicate))
+        pilot={'SENTINEL_COLLECTOR_TOKEN':'a'*32,'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'}
+        self.assertEqual(self.collector.runtime_secret_errors(pilot),[])
     def test_unsigned_reports_are_denied_unless_explicitly_enabled(self):
         with patch.dict(os.environ,{},clear=True): self.assertFalse(self.collector.valid_signature({},b'body',now=1,secret=''))
         with patch.dict(os.environ,{'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'},clear=True): self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))

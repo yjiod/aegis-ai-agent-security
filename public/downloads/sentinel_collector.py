@@ -74,6 +74,20 @@ def secret_values(single_name,multiple_name,env=None):
 def allow_unsigned_reports(value=None):
     raw=os.getenv("SENTINEL_ALLOW_UNSIGNED_REPORTS","") if value is None else value
     return str(raw).strip().lower() in {"1","true","yes"}
+def runtime_secret_errors(env=None):
+    env=os.environ if env is None else env
+    tokens=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS",env)
+    signing=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS",env)
+    errors=[]
+    if not tokens: errors.append("collector_token_missing_or_invalid")
+    if any(len(value)<32 for value in tokens): errors.append("collector_token_too_short")
+    if len(tokens)!=len(set(tokens)): errors.append("collector_token_duplicate")
+    unsigned=str(env.get("SENTINEL_ALLOW_UNSIGNED_REPORTS","")).strip().lower() in {"1","true","yes"}
+    if not signing and not unsigned: errors.append("signing_secret_missing_or_invalid")
+    if any(len(value)<32 for value in signing): errors.append("signing_secret_too_short")
+    if len(signing)!=len(set(signing)): errors.append("signing_secret_duplicate")
+    if set(tokens)&set(signing): errors.append("authentication_and_signing_secret_reused")
+    return errors
 def retention_days(value=None):
     raw=os.getenv("SENTINEL_RETENTION_DAYS","30") if value is None else value
     try: return min(max(int(raw),1),3650)
@@ -139,7 +153,7 @@ def collector_summary(db_path,now=None,active_window=86400):
     active=sum(received>=now-active_window for received,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.8"
+    server_version="SentinelCollector/0.9"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -195,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,fmt,*args): pass
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--listen",default="127.0.0.1"); ap.add_argument("--port",type=int,default=8788); ap.add_argument("--db",default="sentinel.db"); args=ap.parse_args()
-    if not secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS"): raise SystemExit("SENTINEL_COLLECTOR_TOKEN or valid SENTINEL_COLLECTOR_TOKENS is required")
-    if not secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS") and not allow_unsigned_reports(): raise SystemExit("report signing secret is required unless SENTINEL_ALLOW_UNSIGNED_REPORTS=true")
+    errors=runtime_secret_errors()
+    if errors: raise SystemExit("invalid secret configuration: "+",".join(errors))
     server=ThreadingHTTPServer((args.listen,args.port),Handler); server.db_path=args.db; server.rate_limiter=RateLimiter(); server.serve_forever()
 if __name__=="__main__": main()
