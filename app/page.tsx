@@ -539,7 +539,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent 0.11.0</h2>
+                <h2>Sentinel Endpoint Agent 0.13.0</h2>
                 <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
@@ -547,7 +547,7 @@ function DetailPanel({
             <div className="panel inset onboarding">
               <h2>企业部署编排</h2>
               <div className="control-planes">
-                <article><b>Microsoft Intune</b><span>主部署通道</span><p>Windows Remediations 与 macOS Shell Script，负责安装、版本检测和周期修复。</p></article>
+                <article><b>Microsoft Intune</b><span>主部署通道</span><p>Windows Remediations 与 macOS Shell Script，负责安装、版本检测、周期修复和自定义合规。</p></article>
                 <article><b>深信服 EDR</b><span>响应处置</span><p>接收高危事件，按现网版本能力执行隔离、查杀或 IOC 取证。</p></article>
                 <article><b>联软桌管</b><span>资产与兜底</span><p>软件分发、资产核验及未安装终端的准入修复。</p></article>
               </div>
@@ -558,6 +558,7 @@ function DetailPanel({
                 <a href="/downloads/intune-windows-detect.ps1" download>Windows 检测脚本</a>
                 <a href="/downloads/intune-windows-remediate.ps1" download>Windows 修复脚本</a>
                 <a href="/downloads/intune-macos-install.sh" download>macOS Intune 脚本</a>
+                <a href="/downloads/intune-macos-compliance.sh" download>macOS 合规脚本</a>
                 <a href="/downloads/sentinel-policy.json" download>策略基线</a>
               </div>
               <p className="safety-note"><LockKeyhole size={15}/>部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。</p>
