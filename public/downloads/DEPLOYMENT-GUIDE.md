@@ -60,6 +60,10 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 适配器 0.6 对顶层配置、目标对象、字段集合、启用标志和动作表执行严格校验。深信服、联软和安全 Webhook 的凭据变量必须分别使用 `SANGFOR_`、`LEAGSOFT_`、`SENTINEL_` 前缀，避免错误配置把 `PATH` 等无关环境变量作为令牌外发。只有整数 2xx 响应会确认投递并删除队列事件；其他返回值与网络错误均保留事件等待重放。
 
+适配器 0.7 新增自动派发 Worker。将 `sentinel_adapter_worker.py` 与 `sentinel_adapter.py` 放入 `/opt/sentinel/`，从示例生成 `/etc/sentinel/adapters.json` 和 `/etc/sentinel/adapter.env`，仅启用已完成厂商验收的目标，再安装 `sentinel-adapter-worker.service`。Worker 启动时会验证精确 HTTPS 主机、凭据变量和安全动作；配置无启用目标或缺少凭据时拒绝启动。它从 Collector 数据库读取尚未派发的已验证报告，失败投递进入有界 spool，成功接受后写入不含 payload 或设备标识的最小派发账本。每个 HTTP 请求携带基于规范化请求体 SHA-256 的稳定 `Idempotency-Key`；深信服和联软接收端应按该键去重，以覆盖“远端已接收、Worker 在写账本前重启”的边界。
+
+厂商联调顺序为：先使用 `sentinel_adapter.py --dry-run` 让双方确认字段和动作只表示“待审批”，再在隔离测试地址启用 Worker；验证同一报告不会被账本重复发送、网络失败会排队且恢复后补发、非 2xx 不会确认、错误主机和明文 HTTP 会被拒绝。未经厂商确认不得把 `isolate_pending_approval` 映射为自动隔离指令。
+
 适配器 0.5 在任何通道处理前执行完整 `sentinel.report/v1` 白名单、类型、长度、数量和摘要一致性校验；额外字段不会透传到安全 Webhook。深信服与联软投影也使用精确字段集合验证，离线队列重放前再次验证；被篡改、`null` 或结构异常的载荷进入隔离区而不发网，报告或事件构建失败也不会排队空载荷。
 
 ## 联软桌管

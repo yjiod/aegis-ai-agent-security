@@ -1,0 +1,36 @@
+[Unit]
+Description=Sentinel validated report vendor adapter worker
+After=sentinel-collector.service
+Requires=sentinel-collector.service
+
+[Service]
+Type=simple
+User=sentinel
+Group=sentinel
+EnvironmentFile=/etc/sentinel/collector.env
+EnvironmentFile=/etc/sentinel/adapter.env
+ExecStart=/usr/bin/python3 /opt/sentinel/sentinel_adapter_worker.py --db /var/lib/sentinel/sentinel.db --config /etc/sentinel/adapters.json --spool /var/lib/sentinel/adapter-spool
+Restart=on-failure
+RestartSec=10s
+StateDirectory=sentinel
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
