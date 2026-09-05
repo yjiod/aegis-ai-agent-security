@@ -66,6 +66,34 @@ function Inspect-SentinelMcpJson([System.IO.FileInfo]$file,[string]$text) {
     if(-not $command -and -not $url){$script:findings += @{kind='incomplete_mcp_server';severity='medium';path=$safePath;message="MCP $name 未配置命令或 URL"}}
   }
 }
+function Inspect-SentinelMcpToml([System.IO.FileInfo]$file,[string]$text) {
+  if (-not $policy) { return }
+  $safePath=Protect-SentinelPath $file.FullName
+  $sections=[regex]::Matches($text,'(?ms)^\[mcp_servers\.([A-Za-z0-9_.-]+)\]\s*(.*?)(?=^\[|\z)')
+  foreach($section in $sections) {
+    $name=$section.Groups[1].Value;if($name.EndsWith('.env')){continue};$body=$section.Groups[2].Value
+    $match=[regex]::Match($body,'(?m)^\s*command\s*=\s*"([^"]+)"');$command=if($match.Success){[IO.Path]::GetFileName($match.Groups[1].Value)}else{''}
+    $match=[regex]::Match($body,'(?m)^\s*url\s*=\s*"([^"]+)"');$url=if($match.Success){$match.Groups[1].Value}else{''}
+    $match=[regex]::Match($body,'(?m)^\s*transport\s*=\s*"([^"]+)"');$transport=if($match.Success){$match.Groups[1].Value.ToLower()}else{''}
+    $args=@();$match=[regex]::Match($body,'(?ms)^\s*args\s*=\s*\[(.*?)\]');if($match.Success){foreach($arg in [regex]::Matches($match.Groups[1].Value,'"([^"]+)"')){$args += $arg.Groups[1].Value}}
+    if($policy.allowed_mcp_servers -and $name -notin $policy.allowed_mcp_servers){$script:findings += @{kind='unknown_mcp';severity='medium';path=$safePath;message="未在允许列表中的 MCP Server: $name"}}
+    if($command -and $policy.allowed_mcp_commands -and $command -notin $policy.allowed_mcp_commands){$script:findings += @{kind='unapproved_mcp_command';severity='high';path=$safePath;message="MCP 使用未批准命令: $command"}}
+    foreach($arg in $args){if($arg -in @('/','C:\','$HOME','~') -or $arg -match '^[A-Za-z]:\\Users\\'){$script:findings += @{kind='broad_filesystem_scope';severity='high';path=$safePath;message="MCP $name 请求宽泛文件范围"};break}}
+    if(-not $transport){if($url.StartsWith('https://')){$transport='https'}elseif($url.StartsWith('http://')){$transport='http'}elseif($command){$transport='stdio'}else{$transport='unknown'}}
+    if($command -and $url){$script:findings += @{kind='ambiguous_mcp_transport';severity='high';path=$safePath;message="MCP $name 同时配置本地命令和远程 URL"}}
+    if(($policy.PSObject.Properties.Name -contains 'allowed_mcp_transports') -and $transport -notin @($policy.allowed_mcp_transports)){$script:findings += @{kind='unapproved_mcp_transport';severity='high';path=$safePath;message="MCP $name 使用未批准传输: $transport"}}
+    if($url){
+      try{$uri=[Uri]$url;$host=$uri.DnsSafeHost.ToLower().TrimEnd('.')}catch{$script:findings += @{kind='invalid_mcp_url';severity='high';path=$safePath;message="MCP $name URL 无法解析"};continue}
+      if($uri.Scheme -ne 'https'){$script:findings += @{kind='insecure_mcp_transport';severity='high';path=$safePath;message="MCP $name 未使用 HTTPS"}}
+      if(($policy.PSObject.Properties.Name -contains 'allowed_mcp_domains') -and $host -notin @($policy.allowed_mcp_domains)){$script:findings += @{kind='unapproved_mcp_domain';severity='medium';path=$safePath;message="MCP $name 连接未批准域名: $host"}}
+      if($uri.UserInfo -or $uri.Query -match '(?i)(token|key|api_key|apikey|secret|password|access_token)='){$script:findings += @{kind='mcp_url_credentials';severity='critical';path=$safePath;message="MCP $name URL 包含凭据或敏感查询参数";evidence='[REDACTED]'}}
+    }
+    if(-not $command -and -not $url){$script:findings += @{kind='incomplete_mcp_server';severity='medium';path=$safePath;message="MCP $name 未配置命令或 URL"}}
+  }
+  foreach($secret in [regex]::Matches($text,'(?im)^\s*([A-Z0-9_]*(TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_]*)\s*=\s*"([^"]+)"')){
+    if($secret.Groups[3].Value -notmatch '^\$\{?[A-Z0-9_]+\}?$'){$script:findings += @{kind='literal_mcp_secret';severity='critical';path=$safePath;message="MCP TOML 包含明文敏感环境变量: $($secret.Groups[1].Value)";evidence='[REDACTED]'}}
+  }
+}
 function Inspect-SentinelDependencies([System.IO.FileInfo]$file,[string]$text) {
   $safePath=Protect-SentinelPath $file.FullName
   if($file.Name -eq 'package.json') {
@@ -129,6 +157,7 @@ foreach ($root in $roots) {
         Get-ChildItem $_.Directory.FullName -Recurse -Attributes ReparsePoint | ForEach-Object {$findings += @{kind='skill_symlink_escape';severity='high';path=(Protect-SentinelPath $_.FullName);message='Skill 包含重解析点，需人工确认目标边界'}}
       }
       if ($_.Name -in @('mcp.json','mcp_config.json')) { Inspect-SentinelMcpJson $_ $text }
+      if ($_.Name -eq 'config.toml' -and $_.FullName -match '\\\.codex\\') { Inspect-SentinelMcpToml $_ $text }
       if ($_.Name -eq 'package.json' -or $_.Name -like 'requirements*.txt') { $inventory += @{type='dependency_manifest';path=(Protect-SentinelPath $_.FullName)}; Inspect-SentinelDependencies $_ $text }
     }
   }
@@ -137,7 +166,7 @@ $policyVersion = if (Test-Path $policyPath) { (Get-Content $policyPath -Raw | Co
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.11.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.12.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $reportJson|Set-Content -Encoding UTF8 $Output
