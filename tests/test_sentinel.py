@@ -80,6 +80,7 @@ class SentinelTests(unittest.TestCase):
             first=self.agent.install_user_baselines([active,untouched]); second=self.agent.install_user_baselines([active,untouched])
             text=target.read_text(); self.assertEqual(first,[str(target)]); self.assertEqual(second,[])
             self.assertIn('Personal rules',text); self.assertEqual(text.count(self.agent.USER_BASELINE_START),1); self.assertFalse((untouched/'.codex').exists())
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); self.assertIn('function Sync-SentinelUserBaselines',windows); self.assertIn('Sync-SentinelUserBaselines $userHomes',windows); self.assertIn("kind='malformed_user_baseline_block'",windows); self.assertIn('baseline markers malformed',remediation)
         remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
         self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('ReparsePoint',remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
@@ -341,8 +342,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.23.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.23.0')
+        self.assertIn("agent_version='0.24.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.24.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -401,7 +402,7 @@ class SentinelTests(unittest.TestCase):
         script=(DOWNLOADS/'intune-macos-compliance.sh').read_text().split("<<'PY'\n",1)[1].split("\nPY",1)[0]
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; policy.write_text(json.dumps(self.policy))
-            value={'schema':'sentinel.report/v1','agent_version':'0.23.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':int(time.time()),'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.24.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':int(time.time()),'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertTrue(json.loads(result.stdout)['SentinelReportValid'])
             value['summary']['high']=0; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportValid'])
             value['summary']['high']=1; value['agent_version']='0.22.0'; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportValid'])

@@ -81,6 +81,22 @@ function Install-SentinelBaseline([string]$repo) {
   }
   $shared=Join-Path $repo '.sentinel\SECURITY_BASELINE.md';if(Test-SentinelSafeTarget $repo $shared){New-Item -ItemType Directory -Force -Path (Split-Path $shared) | Out-Null;Set-Content -Encoding UTF8 $shared $managed}
 }
+function Sync-SentinelUserBaselines([object[]]$homes) {
+  if(-not (Test-Path $baselinePath)){return}
+  $content=(Get-Content $baselinePath -Raw).TrimEnd();$start='<!-- sentinel-managed-user-baseline:start -->';$end='<!-- sentinel-managed-user-baseline:end -->';$block=$start+"`n"+$content+"`n"+$end
+  foreach($home in $homes){
+    $targets=@();$codex=Join-Path $home.FullName '.codex';$claude=Join-Path $home.FullName '.claude'
+    if((Test-Path $codex) -and -not ((Get-Item $codex -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $codex 'AGENTS.md'}
+    if(((Test-Path $claude) -and -not ((Get-Item $claude -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) -or (Test-Path (Join-Path $home.FullName '.claude.json'))){$targets+=Join-Path $claude 'CLAUDE.md'}
+    foreach($target in $targets){
+      if(-not (Test-SentinelSafeTarget $home.FullName $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target)|Out-Null;if(-not (Test-SentinelSafeTarget $home.FullName $target)){continue}
+      $existing=if(Test-Path $target){Get-Content $target -Raw}else{''};$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
+      if($existing.Contains($start) -xor $existing.Contains($end)){$script:findings+=@{kind='malformed_user_baseline_block';severity='high';path=(Protect-SentinelPath $target);message='用户级安全基线托管标记不完整，已停止自动修改'};continue}
+      if($existing.Contains($start)){$updated=[regex]::Replace($existing,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match)$block},[System.Text.RegularExpressions.RegexOptions]::Singleline)}else{$updated=$existing.TrimEnd()+$(if($existing.Trim()){"`n`n"}else{''})+$block+"`n"}
+      if($updated -ne $existing){Set-Content -Encoding UTF8 $target $updated}
+    }
+  }
+}
 function Inspect-SentinelMcpJson([System.IO.FileInfo]$file,[string]$text) {
   if (-not $policy) { return }
   try { $config=$text | ConvertFrom-Json } catch { $script:findings += @{kind='invalid_mcp_config';severity='medium';path=(Protect-SentinelPath $file.FullName);message='MCP JSON 配置无法解析'}; return }
@@ -170,6 +186,7 @@ function Get-ManagedRepos {
   return $repos | Select-Object -Unique
 }
 $userHomes = @(Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') })
+Sync-SentinelUserBaselines $userHomes
 $agentMarkers = @{
   cursor=@('.cursor\mcp.json','AppData\Roaming\Cursor\User\settings.json','AppData\Local\Programs\cursor\Cursor.exe')
   codex=@('.codex\config.toml','AppData\Roaming\npm\codex.cmd')
@@ -219,7 +236,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.23.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.24.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
