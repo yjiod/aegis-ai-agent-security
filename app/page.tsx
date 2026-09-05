@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -93,13 +93,47 @@ const viewNames = {
   settings: '系统设置',
 } as const;
 type DetailKey = keyof typeof viewNames;
+type FleetSummary = {
+  total_devices: number;
+  active_devices: number;
+  stale_devices: number;
+  required_agent_version: string;
+  required_policy_version: string;
+  latest_severity: { critical: number; high: number; normal: number };
+  version_posture: {
+    current: number;
+    agent_mismatch: number;
+    policy_mismatch: number;
+    both_mismatch: number;
+    unknown: number;
+  };
+};
 
 export default function Home() {
   const [toast, setToast] = useState('');
   const [detail, setDetail] = useState<DetailKey | null>(null);
+  const [fleet, setFleet] = useState<FleetSummary | null>(null);
+  const [collectorState, setCollectorState] = useState<'checking' | 'live' | 'demo'>('checking');
   function runScan() {
     setToast('当前为演示数据，尚未连接任务下发 API；未对任何终端执行操作。');
   }
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/summary', { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('collector unavailable');
+        const value = (await response.json()) as { connected?: boolean; summary?: FleetSummary };
+        if (!value.connected || !value.summary) throw new Error('collector disconnected');
+        setFleet(value.summary); setCollectorState('live');
+      })
+      .catch((error: unknown) => {
+        if ((error as { name?: string })?.name !== 'AbortError') setCollectorState('demo');
+      });
+    return () => controller.abort();
+  }, []);
+  const totalDevices=fleet?.total_devices ?? 312; const activeDevices=fleet?.active_devices ?? 284; const staleDevices=fleet?.stale_devices ?? 28;
+  const currentDevices=fleet?.version_posture.current ?? 302; const coverage=totalDevices ? (currentDevices/totalDevices)*100 : 0;
+  const highRiskDevices=fleet ? fleet.latest_severity.critical+fleet.latest_severity.high : 12; const driftDevices=fleet ? totalDevices-currentDevices : 10;
   return (
     <main className="min-h-screen bg-[#07110f] text-[#eaf7f2]">
       <header className="topbar">
@@ -113,8 +147,8 @@ export default function Home() {
         </div>
         <div className="header-actions">
           <span className="system-ok">
-            <span className="demo-dot" />
-            演示数据 · 接收器未连接
+            <span className={collectorState === 'live' ? 'live-dot' : 'demo-dot'} />
+            {collectorState === 'live' ? '只读摘要已连接' : collectorState === 'checking' ? '正在检查接收器' : '演示数据 · 接收器未连接'}
           </span>
           <button className="icon-btn" aria-label="搜索">
             <Search size={18} />
@@ -207,7 +241,7 @@ export default function Home() {
           </div>
         </aside>
         <section className="workspace" id="overview">
-          <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>演示模式</strong> 页面指标、设备和风险事件均为界面样例，不代表真实终端状态。请部署报告接收器并完成私有 API 接入后再用于运营判断。</span></div>
+          <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>{fleet ? '混合只读模式' : '演示模式'}</strong>{fleet ? ' 顶部四项指标来自已验证的接收器摘要；终端明细、覆盖分布和风险事件仍为界面样例。' : ' 页面指标、设备和风险事件均为界面样例，不代表真实终端状态。请部署报告接收器并完成私有 API 接入后再用于运营判断。'}</span></div>
           <div className="page-head">
             <div>
               <p className="eyebrow">安全态势 / 演示数据</p>
@@ -234,45 +268,45 @@ export default function Home() {
           <div className="metrics">
             <article className="metric">
               <div className="metric-top">
-                <span>已纳管设备</span>
+                <span>已纳管设备{fleet ? '' : '（样例）'}</span>
                 <Laptop size={18} />
               </div>
-              <strong>312</strong>
+              <strong>{totalDevices}</strong>
               <p>
-                <em>284</em> 在线 · 28 离线
+                <em>{activeDevices}</em> 活跃 · {staleDevices} 过期
               </p>
             </article>
             <article className="metric">
               <div className="metric-top">
-                <span>Agent 覆盖率</span>
+                <span>当前版本覆盖率{fleet ? '' : '（样例）'}</span>
                 <Bot size={18} />
               </div>
               <strong>
-                96.8<small>%</small>
+                {coverage.toFixed(1)}<small>%</small>
               </strong>
-              <Progress value={96.8} />
+              <Progress value={coverage} />
               <p>
-                较昨日 <em>+1.2%</em>
+                当前版本设备 <em>{currentDevices}</em> 台
               </p>
             </article>
             <article className="metric danger">
               <div className="metric-top">
-                <span>待处理风险</span>
+                <span>高风险设备{fleet ? '' : '（样例）'}</span>
                 <AlertTriangle size={18} />
               </div>
-              <strong>12</strong>
+              <strong>{highRiskDevices}</strong>
               <p>
-                <i>3 高危</i> · 7 中危 · 2 低危
+                <i>{fleet?.latest_severity.critical ?? 3} 严重</i> · {fleet?.latest_severity.high ?? 9} 高危
               </p>
             </article>
             <article className="metric">
               <div className="metric-top">
-                <span>今日拦截</span>
+                <span>版本漂移设备{fleet ? '' : '（样例）'}</span>
                 <ShieldCheck size={18} />
               </div>
-              <strong>47</strong>
+              <strong>{driftDevices}</strong>
               <p>
-                已自动处置 <em>43</em> 项
+                Agent 或策略版本不一致
               </p>
             </article>
           </div>
