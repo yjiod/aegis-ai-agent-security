@@ -241,6 +241,16 @@ class SentinelTests(unittest.TestCase):
             queued=list(Path(d).glob('*.json')); self.assertEqual(len(queued),1); self.assertEqual(queued[0].stat().st_mode & 0o777,0o600)
             flushed=self.adapter.flush_spool(config,Path(d),sender=lambda url,payload,token='',secret='':204)
             self.assertEqual(flushed[0]['result'],'sent_from_spool'); self.assertFalse(list(Path(d).glob('*.json')))
+    def test_vendor_spool_is_bounded_and_corruption_does_not_block(self):
+        config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'}}
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SANGFOR_TOKEN':'s'}):
+            spool=Path(d)
+            for index in range(12): self.adapter.queue_delivery(spool,'sangfor',{'index':index},limit=10)
+            self.assertEqual(len(list(spool.glob('*.json'))),10)
+            corrupt=spool/'000-corrupt.json'; corrupt.write_text('{broken')
+            results=self.adapter.flush_spool(config,spool,sender=lambda url,payload,token='',secret='':202)
+            self.assertEqual(results[0]['result'],'quarantined'); self.assertEqual(sum(x['result']=='sent_from_spool' for x in results),10)
+            self.assertFalse(list(spool.glob('*.json'))); self.assertTrue(list(spool.glob('*.invalid')))
     def test_auto_enroll_only_git_repositories(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); repo=root/'repo'; other=root/'ordinary'; (repo/'.git').mkdir(parents=True); other.mkdir()
