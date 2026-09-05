@@ -8,7 +8,7 @@ $expected = @{ 'sentinel-policy.json'='f093a50aab82c99ac282d8608df505cf8ac9d22e2
 New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null
 & icacls.exe $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
 try {
-  foreach ($name in $expected.Keys) { Invoke-WebRequest "$baseUrl/$name" -OutFile (Join-Path $stageDir $name) -UseBasicParsing }
+  foreach ($name in $expected.Keys) { Invoke-WebRequest "$baseUrl/$name" -OutFile (Join-Path $stageDir $name) -UseBasicParsing -TimeoutSec 120 }
   foreach ($name in $expected.Keys) { if ((Get-FileHash (Join-Path $stageDir $name) -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]) { throw "Integrity verification failed: $name" } }
   $currentComplete=@($expected.Keys|Where-Object {-not (Test-Path (Join-Path $installDir $_))}).Count -eq 0
   if($currentComplete){

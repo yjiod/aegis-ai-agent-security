@@ -292,6 +292,12 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(snapshot,{name:(previous/name).read_bytes() for name in snapshot})
         windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text()
         self.assertIn("'.previous-stage-'",windows); self.assertIn('$currentComplete',windows); self.assertIn('.previous-stage.$$',mac); self.assertIn('CURRENT_COMPLETE',mac)
+    def test_installers_bound_each_network_download(self):
+        generic=(DOWNLOADS/'install-sentinel.sh').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text(); windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
+        for script in (generic,mac):
+            self.assertIn('--connect-timeout 15',script); self.assertIn('--max-time 120',script); self.assertIn('shasum -a 256 -c -',script)
+        self.assertIn('-TimeoutSec 120',windows); self.assertIn('Get-FileHash',windows)
+        self.assertLess(windows.index('-TimeoutSec 120'),windows.index('Get-FileHash'))
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
     def test_release_verifier_rejects_runtime_drift(self):
