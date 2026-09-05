@@ -200,21 +200,32 @@ def scan(root,policy):
                     if p.name in DEPENDENCY_MANIFESTS: inventory.append({"type":"dependency_manifest","path":safe_path(p)}); findings.extend(scan_dependency_manifest(p,text))
             except OSError: pass
     return inventory,findings
+def safe_managed_target(root,path):
+    """Reject symlinks and parent paths that resolve outside the managed root."""
+    try:
+        root=Path(root).resolve(); path=Path(path)
+        path.parent.resolve().relative_to(root)
+        return not path.is_symlink()
+    except (OSError,ValueError): return False
 def install_baseline(root):
     """Install additive, clearly-marked rules without replacing repository guidance."""
+    root=Path(root).resolve()
     content=BASELINE.read_text()
     targets=[(root/".cursor/rules/sentinel-security.mdc","---\ndescription: 企业安全编码基线\nalwaysApply: true\n---\n"+content),(root/".windsurf/rules/sentinel-security.md",content)]
     changed=[]
     for path,data in targets:
+        if not safe_managed_target(root,path): continue
         path.parent.mkdir(parents=True,exist_ok=True)
         managed=MANAGED_MARKER+"\n"+data
         if not path.exists() or path.read_text(errors="ignore")!=managed:
             path.write_text(managed); changed.append(str(path))
     for name in ["AGENTS.md","CLAUDE.md"]:
         path=root/name; block=f"\n{MANAGED_MARKER}\n## 企业安全基线\n执行任何代码变更前，必须遵循 [.sentinel/SECURITY_BASELINE.md](.sentinel/SECURITY_BASELINE.md)。\n"
+        if not safe_managed_target(root,path): continue
         current=path.read_text(errors="ignore") if path.exists() else ""
         if MANAGED_MARKER not in current: path.write_text(current.rstrip()+block); changed.append(str(path))
-    shared=root/".sentinel/SECURITY_BASELINE.md"; shared.parent.mkdir(parents=True,exist_ok=True); shared.write_text(MANAGED_MARKER+"\n"+content)
+    shared=root/".sentinel/SECURITY_BASELINE.md"
+    if safe_managed_target(root,shared): shared.parent.mkdir(parents=True,exist_ok=True); shared.write_text(MANAGED_MARKER+"\n"+content)
     return changed
 def install_user_baselines(homes=None):
     """Load the baseline into already-present user Agent instruction files."""
@@ -226,6 +237,7 @@ def install_user_baselines(homes=None):
         if (home/".codex").is_dir(): targets.append(home/".codex/AGENTS.md")
         if (home/".claude").is_dir() or (home/".claude.json").is_file(): targets.append(home/".claude/CLAUDE.md")
         for path in targets:
+            if not safe_managed_target(home,path): continue
             path.parent.mkdir(parents=True,exist_ok=True); current=path.read_text(errors="ignore") if path.exists() else ""
             pattern=re.compile(re.escape(USER_BASELINE_START)+r".*?"+re.escape(USER_BASELINE_END),re.S)
             updated=pattern.sub(block,current) if pattern.search(current) else current.rstrip()+("\n\n" if current.strip() else "")+block+"\n"
@@ -250,7 +262,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.13.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.14.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -283,7 +295,7 @@ def flush_spool(spool,url,token):
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
-    return {"schema":"sentinel.report/v1","agent_version":"0.13.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.14.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
