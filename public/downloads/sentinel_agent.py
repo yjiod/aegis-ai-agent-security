@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Sentinel endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
-import argparse, hashlib, hmac, json, os, re, sys, time, urllib.request
+import argparse, hashlib, hmac, json, os, re, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 DEFAULT_POLICY=Path(__file__).with_name("sentinel-policy.json")
@@ -301,7 +301,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.18.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.19.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -316,10 +316,22 @@ def spool_limit(value=None):
     raw=os.getenv("SENTINEL_SPOOL_MAX_REPORTS","500") if value is None else value
     try: return min(max(int(raw),10),10000)
     except (TypeError,ValueError): return 500
+def write_private_atomic(path,data):
+    path=Path(path); path.parent.mkdir(parents=True,exist_ok=True)
+    fd,temp_name=tempfile.mkstemp(prefix="."+path.name+".",suffix=".tmp",dir=path.parent); temp=Path(temp_name)
+    try:
+        with os.fdopen(fd,"w",encoding="utf-8") as handle:
+            handle.write(data); handle.flush(); os.fsync(handle.fileno())
+        os.chmod(temp,0o600); os.replace(temp,path)
+    except Exception:
+        try: os.close(fd)
+        except OSError: pass
+        temp.unlink(missing_ok=True); raise
+    return path
 def queue_report(spool,report,limit=None):
     spool.mkdir(mode=0o700,parents=True,exist_ok=True); os.chmod(spool,0o700)
     data=json.dumps(report,ensure_ascii=False,separators=(",",":")); digest=hashlib.sha256(data.encode()).hexdigest()[:12]
-    path=spool/f"{report['scanned_at']}-{report['device_id']}-{time.time_ns()}-{digest}.json"; path.write_text(data); os.chmod(path,0o600)
+    path=spool/f"{report['scanned_at']}-{report['device_id']}-{time.time_ns()}-{digest}.json"; write_private_atomic(path,data)
     files=sorted(spool.glob("*.json"),key=lambda item:(item.stat().st_mtime_ns,item.name)); keep=spool_limit(limit)
     for expired in files[:-keep]: expired.unlink()
     return path
@@ -338,7 +350,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.18.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.19.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
     policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
@@ -346,7 +358,7 @@ def main():
     while True:
         if args.auto_enroll: auto_enroll(root)
         report=build_report(root,policy); data=json.dumps(report,ensure_ascii=False,indent=2)
-        if args.output: Path(args.output).parent.mkdir(parents=True,exist_ok=True); Path(args.output).write_text(data)
+        if args.output: write_private_atomic(args.output,data)
         if args.report_url:
             token=os.getenv("SENTINEL_REPORT_TOKEN",""); spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".sentinel-agent/spool")
             try: flush_spool(spool,args.report_url,token); post_report(args.report_url,token,report)
