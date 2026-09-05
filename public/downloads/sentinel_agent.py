@@ -14,6 +14,13 @@ def max_file_bytes(policy):
     raw=policy.get("limits",{}).get("max_file_bytes",1_000_000)
     try: return min(max(int(raw),65_536),10_000_000)
     except (TypeError,ValueError): return 1_000_000
+def load_policy(path):
+    data=json.loads(Path(path).read_text())
+    if not isinstance(data,dict) or data.get("schema")!="sentinel.policy/v1" or not isinstance(data.get("version"),str) or not data["version"]: raise ValueError("invalid_policy_contract")
+    return data
+def reload_policy(path,current=None):
+    try: return load_policy(path),False
+    except (OSError,ValueError,RecursionError,UnicodeError): return current,True
 AGENT_HOME_MARKERS={
     "cursor":[".cursor/mcp.json","Library/Application Support/Cursor/User/settings.json",".config/Cursor/User/settings.json"],
     "codex":[".codex/config.toml",".local/bin/codex"],
@@ -301,7 +308,7 @@ def auto_enroll(root):
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.19.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.20.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -350,14 +357,22 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.19.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.20.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+def add_report_finding(report,item):
+    if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
+    else: report["findings"][-1]=item
+    report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
 def main():
     ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
-    policy=json.loads(Path(args.policy).read_text()); root=Path(args.scan_path).resolve()
+    policy,policy_error=reload_policy(args.policy); root=Path(args.scan_path).resolve()
+    if policy_error or policy is None: raise SystemExit("valid Sentinel policy is required")
     if args.install_baseline: install_baseline(root)
     while True:
+        policy,reload_failed=reload_policy(args.policy,policy)
         if args.auto_enroll: auto_enroll(root)
         report=build_report(root,policy); data=json.dumps(report,ensure_ascii=False,indent=2)
+        if reload_failed:
+            add_report_finding(report,finding("policy_reload_failed","high",args.policy,"策略热加载失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if args.output: write_private_atomic(args.output,data)
         if args.report_url:
             token=os.getenv("SENTINEL_REPORT_TOKEN",""); spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".sentinel-agent/spool")

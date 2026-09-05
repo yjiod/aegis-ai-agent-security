@@ -12,6 +12,17 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
             self.assertEqual(report['schema'],'sentinel.report/v1'); self.assertEqual(report['summary']['critical'],0)
+    def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)
+            self.assertFalse(failed); self.assertEqual(loaded['version'],self.policy['version'])
+            path.write_text('{broken'); retained,failed=self.agent.reload_policy(path,loaded)
+            self.assertTrue(failed); self.assertIs(retained,loaded)
+            path.write_text(json.dumps({'schema':'wrong','version':'9'})); retained,failed=self.agent.reload_policy(path,loaded)
+            self.assertTrue(failed); self.assertIs(retained,loaded)
+            report={'findings':[{'kind':'x','severity':'low'}]*self.agent.REPORT_FINDING_LIMIT,'summary':{}}
+            self.agent.add_report_finding(report,{'kind':'policy_reload_failed','severity':'high'})
+            self.assertEqual(len(report['findings']),self.agent.REPORT_FINDING_LIMIT); self.assertEqual(report['findings'][-1]['kind'],'policy_reload_failed'); self.assertEqual(report['summary']['high'],1)
     def test_scan_and_report_limits_are_enforced(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
@@ -293,8 +304,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.19.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.19.0')
+        self.assertIn("agent_version='0.20.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.20.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
