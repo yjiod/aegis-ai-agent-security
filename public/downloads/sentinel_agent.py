@@ -342,7 +342,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.26.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.27.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -385,13 +385,18 @@ def flush_spool(spool,url,token,signing_secret=None):
             invalid=path.with_name(path.name+f".{time.time_ns()}.invalid"); path.rename(invalid); os.chmod(invalid,0o600); continue
         post_report(url,token,report,signing_secret); path.unlink(); sent+=1
     return sent
+def write_upload_status(path,url,now=None):
+    host=urlsplit(url).hostname
+    if not host: raise ValueError("invalid_upload_status_host")
+    value={"schema":"sentinel.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
+    return write_private_atomic(path,json.dumps(value,separators=(",",":")))
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
     if len(inventory)>REPORT_INVENTORY_LIMIT:
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.26.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.27.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -419,7 +424,8 @@ def main():
         if args.output: write_private_atomic(args.output,data)
         if args.report_url:
             token=reporting["report_token"] if reporting else os.getenv("SENTINEL_REPORT_TOKEN",""); signing=reporting["signing_secret"] if reporting else None; spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".sentinel-agent/spool")
-            try: flush_spool(spool,args.report_url,token,signing); post_report(args.report_url,token,report,signing)
+            status_path=(Path(args.output).parent if args.output else spool.parent)/"upload-status.json"
+            try: flush_spool(spool,args.report_url,token,signing); post_report(args.report_url,token,report,signing); write_upload_status(status_path,args.report_url)
             except Exception as exc: queue_report(spool,report); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)
         print(data)
         if not args.watch: return 2 if report["summary"]["critical"] or report["summary"]["high"] else 0
