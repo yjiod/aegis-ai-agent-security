@@ -15,21 +15,24 @@ if [[ "$installed" == true ]] && \
 if [[ -f "$PLIST" ]] && /bin/launchctl print system/com.company.sentinel-agent >/dev/null 2>&1; then runtime=true; fi
 python_bin="$(command -v python3 2>/dev/null || true)"
 if [[ -z "$python_bin" ]]; then
-  /usr/bin/printf '%s\n' "{\"SentinelInstalled\":$installed,\"SentinelIntegrityValid\":$integrity,\"SentinelLaunchDaemonHealthy\":$runtime,\"SentinelPolicyVersion\":\"missing\",\"SentinelScanRecent\":false,\"SentinelCriticalFindings\":0,\"SentinelHighFindings\":0}"
+  /usr/bin/printf '%s\n' "{\"SentinelInstalled\":$installed,\"SentinelIntegrityValid\":$integrity,\"SentinelLaunchDaemonHealthy\":$runtime,\"SentinelPolicyVersion\":\"missing\",\"SentinelReportValid\":false,\"SentinelScanRecent\":false,\"SentinelCriticalFindings\":0,\"SentinelHighFindings\":0}"
   exit 0
 fi
 "$python_bin" - "$INSTALL_DIR/sentinel-policy.json" "$REPORT" "$installed" "$integrity" "$runtime" <<'PY'
 import json, pathlib, sys, time
 policy_path,report_path=map(pathlib.Path,sys.argv[1:3])
 installed,integrity,runtime=(value=="true" for value in sys.argv[3:6])
-policy="missing"; recent=False; critical=0; high=0
+policy="missing"; recent=False; report_valid=False; critical=0; high=0
 try:
     value=json.loads(policy_path.read_text()); policy=str(value.get("version","missing"))
 except (OSError,ValueError,TypeError): pass
 try:
     report=json.loads(report_path.read_text()); scanned=int(report.get("scanned_at",0)); age=int(time.time())-scanned
-    if report.get("schema")=="sentinel.report/v1":
-        recent=0<=age<86400; summary=report.get("summary",{}); critical=max(int(summary.get("critical",0)),0); high=max(int(summary.get("high",0)),0)
+    findings=report.get("findings",[]); summary=report.get("summary",{}); severities=("critical","high","medium","low")
+    actual={severity:sum(isinstance(item,dict) and item.get("severity")==severity for item in findings) for severity in severities} if isinstance(findings,list) else {}
+    valid_findings=isinstance(findings,list) and len(findings)<=10000 and all(isinstance(item,dict) and item.get("severity") in severities and all(isinstance(item.get(key),str) for key in ("kind","path","message")) for item in findings)
+    report_valid=report.get("schema")=="sentinel.report/v1" and report.get("agent_version")=="0.23.0" and report.get("policy_version")==policy and isinstance(report.get("device_id"),str) and len(report["device_id"])==12 and all(char in "0123456789abcdef" for char in report["device_id"]) and type(report.get("scanned_at")) is int and valid_findings and isinstance(summary,dict) and all(type(summary.get(severity)) is int and summary[severity]==actual.get(severity) for severity in severities)
+    if report_valid: recent=0<=age<86400; critical=actual["critical"]; high=actual["high"]
 except (OSError,ValueError,TypeError): pass
-print(json.dumps({"SentinelInstalled":installed,"SentinelIntegrityValid":integrity,"SentinelLaunchDaemonHealthy":runtime,"SentinelPolicyVersion":policy,"SentinelScanRecent":recent,"SentinelCriticalFindings":critical,"SentinelHighFindings":high},separators=(",",":")))
+print(json.dumps({"SentinelInstalled":installed,"SentinelIntegrityValid":integrity,"SentinelLaunchDaemonHealthy":runtime,"SentinelPolicyVersion":policy,"SentinelReportValid":report_valid,"SentinelScanRecent":recent,"SentinelCriticalFindings":critical,"SentinelHighFindings":high},separators=(",",":")))
 PY
