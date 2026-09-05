@@ -1,0 +1,33 @@
+.demo-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e8b449;
+  box-shadow: 0 0 9px #e8b449;
+}
+
+.demo-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid #6a5427;
+  border-radius: 9px;
+  background: #2b2313;
+  color: #d9c28d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.demo-notice svg {
+  flex: none;
+  margin-top: 1px;
+  color: #f0bd55;
+}
+
+.demo-notice strong {
+  margin-right: 8px;
+  color: #ffd77f;
+}
