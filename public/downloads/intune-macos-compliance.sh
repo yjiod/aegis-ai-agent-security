@@ -3,7 +3,7 @@ set -u
 INSTALL_DIR="/Library/Application Support/SentinelAgent"
 REPORT="$INSTALL_DIR/reports/latest.json"
 PLIST="/Library/LaunchDaemons/com.company.sentinel-agent.plist"
-AGENT_SHA="f081335863d1afafc6a994c240dbe0f886eaf119aa62d27c961803931b054098"
+AGENT_SHA="9615c90ae4b24b62d3ef88584c25df7ccb078aa71bcd7f99c3c6bf54371ff22f"
 POLICY_SHA="0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423"
 BASELINE_SHA="e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e"
 installed=false; integrity=false; runtime=false
@@ -31,7 +31,7 @@ try:
     findings=report.get("findings",[]); summary=report.get("summary",{}); severities=("critical","high","medium","low")
     actual={severity:sum(isinstance(item,dict) and item.get("severity")==severity for item in findings) for severity in severities} if isinstance(findings,list) else {}
     valid_findings=isinstance(findings,list) and len(findings)<=10000 and all(isinstance(item,dict) and item.get("severity") in severities and all(isinstance(item.get(key),str) for key in ("kind","path","message")) for item in findings)
-    report_valid=report.get("schema")=="sentinel.report/v1" and report.get("agent_version")=="0.23.0" and report.get("policy_version")==policy and isinstance(report.get("device_id"),str) and len(report["device_id"])==12 and all(char in "0123456789abcdef" for char in report["device_id"]) and type(report.get("scanned_at")) is int and valid_findings and isinstance(summary,dict) and all(type(summary.get(severity)) is int and summary[severity]==actual.get(severity) for severity in severities)
+    report_valid=report.get("schema")=="sentinel.report/v1" and report.get("agent_version")=="0.24.0" and report.get("policy_version")==policy and isinstance(report.get("device_id"),str) and len(report["device_id"])==12 and all(char in "0123456789abcdef" for char in report["device_id"]) and type(report.get("scanned_at")) is int and valid_findings and isinstance(summary,dict) and all(type(summary.get(severity)) is int and summary[severity]==actual.get(severity) for severity in severities)
     if report_valid: recent=0<=age<86400; critical=actual["critical"]; high=actual["high"]
 except (OSError,ValueError,TypeError): pass
 print(json.dumps({"SentinelInstalled":installed,"SentinelIntegrityValid":integrity,"SentinelLaunchDaemonHealthy":runtime,"SentinelPolicyVersion":policy,"SentinelReportValid":report_valid,"SentinelScanRecent":recent,"SentinelCriticalFindings":critical,"SentinelHighFindings":high},separators=(",",":")))
