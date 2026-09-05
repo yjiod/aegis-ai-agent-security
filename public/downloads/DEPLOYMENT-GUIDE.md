@@ -96,4 +96,6 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 0.20.0 起，Python `--watch` 模式每轮重新读取并验证 `sentinel.policy/v1` 策略，使 MDM 更新无需重启长驻进程即可生效。若新文件缺失、损坏、编码异常或契约错误，本轮继续使用内存中的上一份有效策略并增加 `policy_reload_failed` 高危项；首次启动没有有效策略时直接拒绝运行，避免空策略降级。
 
+0.21.0 起，MCP 命令同时校验 basename 与可执行路径。`node`、`npx` 等裸命令仍按 `allowed_mcp_commands` 审批；任何包含 `/` 或 `\` 的绝对/相对路径默认产生 `unapproved_mcp_command_path` 高危项，只有与策略 4.6.0 `allowed_mcp_command_paths` 精确匹配才放行，防止 `/tmp/node` 等同名伪造二进制绕过。
+
 配置 `SENTINEL_REPORT_URL` 和 `SENTINEL_REPORT_TOKEN` 后启用上报。生产环境同时在终端和接收器配置相同的 `SENTINEL_REPORT_SIGNING_SECRET`；每次请求使用当前时间戳和原始请求体计算 HMAC-SHA256，接收器只接受五分钟窗口内的有效签名。网络中断时报告会进入权限受限的本地 spool，补传时使用新的请求时间重新签名；同秒报告使用唯一文件名，损坏文件会被隔离，不再阻塞后续补传。Python 端默认最多保留 500 份待传报告（可用 `SENTINEL_SPOOL_MAX_REPORTS` 设置 10–10000），Windows 端固定保留最近 500 份及 20 份损坏样本，超限时优先淘汰最旧文件。上报路径会把用户主目录替换为 `~`，明文密钥证据仅保留脱敏标记。密钥应由 Intune 的受保护配置流程注入，不要写入脚本或仓库。
