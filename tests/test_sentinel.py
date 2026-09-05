@@ -16,6 +16,10 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
             self.assertEqual(report['schema'],'sentinel.report/v1'); self.assertEqual(report['summary']['critical'],0)
+    def test_console_does_not_claim_live_data_or_fake_task_dispatch(self):
+        page=(ROOT/'app/page.tsx').read_text()
+        self.assertIn('演示模式',page); self.assertIn('接收器未连接',page); self.assertIn('未对任何终端执行操作',page)
+        self.assertNotIn('start_enterprise_security_scan',page); self.assertNotIn('status: \'dispatched\'',page); self.assertNotIn('系统运行正常',page); self.assertNotIn('实时上报',page); self.assertNotIn('已强制应用',page)
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)
