@@ -402,6 +402,14 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'sentinel-policy.json').read_text()); policy['allowed_mcp_invocations']=[['npx','']]; (copy/'sentinel-policy.json').write_text(json.dumps(policy))
             self.assertIn('invalid_allowed_mcp_invocation:0',self.verifier.verify(copy))
+    def test_collector_deployment_assets_are_fail_closed_and_verified(self):
+        service=(DOWNLOADS/'sentinel-collector.service').read_text(); env=(DOWNLOADS/'sentinel-collector.env.example').read_text(); nginx=(DOWNLOADS/'sentinel-collector.nginx.conf').read_text()
+        self.assertIn('--listen 127.0.0.1',service); self.assertIn('NoNewPrivileges=true',service); self.assertIn('ProtectSystem=strict',service); self.assertIn('CapabilityBoundingSet=\n',service)
+        self.assertIn('SENTINEL_COLLECTOR_TOKEN=\n',env); self.assertIn('SENTINEL_REPORT_SIGNING_SECRET=\n',env); self.assertIn('SENTINEL_ALLOW_UNSIGNED_REPORTS=false',env)
+        self.assertIn('listen 443 ssl',nginx); self.assertIn('client_max_body_size 2m',nginx); self.assertIn('limit_req zone=sentinel_reports',nginx)
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel-collector.service').write_text(service.replace('ProtectSystem=strict','ProtectSystem=false'))
+            self.assertIn('unsafe_collector_service:ProtectSystem=strict',self.verifier.verify(copy))
     def test_intune_compliance_checks_integrity_task_and_policy(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'intune-windows-detect.ps1').read_text()
