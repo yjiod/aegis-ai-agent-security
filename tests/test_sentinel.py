@@ -156,6 +156,18 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
             self.assertTrue(path.exists()); self.assertEqual(json.loads(path.read_text()),report); self.assertEqual(path.stat().st_mode & 0o777,0o600)
+    def test_offline_spool_is_bounded_unique_and_skips_corruption(self):
+        with tempfile.TemporaryDirectory() as d:
+            spool=Path(d); report={'scanned_at':1,'device_id':'device-123'}
+            first=self.agent.queue_report(spool,report,limit=10); second=self.agent.queue_report(spool,report,limit=10)
+            self.assertNotEqual(first.name,second.name)
+            for index in range(12): self.agent.queue_report(spool,{**report,'scanned_at':index+2},limit=10)
+            self.assertEqual(len(list(spool.glob('*.json'))),10)
+            corrupt=spool/'000-corrupt.json'; corrupt.write_text('{broken')
+            sent=[]
+            with patch.object(self.agent,'post_report',side_effect=lambda url,token,value:sent.append(value)):
+                count=self.agent.flush_spool(spool,'https://collector.invalid','token')
+            self.assertEqual(count,10); self.assertEqual(len(sent),10); self.assertTrue(list(spool.glob('*.invalid')))
     def test_vendor_adapter_is_explicit_and_dry_run(self):
         report={'device_id':'dev-1','policy_version':'3.9.0','scanned_at':1,'summary':{'critical':1},'findings':[{}]}
         config={'allowed_hosts':['invalid'],'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid'}}

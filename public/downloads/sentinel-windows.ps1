@@ -144,9 +144,17 @@ $reportJson|Set-Content -Encoding UTF8 $Output
 if($ReportUrl){
   $spool=Join-Path $installDir 'spool';New-Item -ItemType Directory -Force -Path $spool|Out-Null
   try{
-    Get-ChildItem $spool -Filter '*.json' -File|Sort-Object Name|Select-Object -First 50|ForEach-Object{Send-SentinelReport (Get-Content $_.FullName -Raw) $ReportUrl;Remove-Item $_.FullName -Force}
+    foreach($queued in @(Get-ChildItem $spool -Filter '*.json' -File|Sort-Object Name|Select-Object -First 50)){
+      try{$queuedJson=Get-Content $queued.FullName -Raw;$null=$queuedJson|ConvertFrom-Json}catch{Move-Item $queued.FullName ($queued.FullName+'.'+[Guid]::NewGuid().ToString('N')+'.invalid') -Force;continue}
+      try{Send-SentinelReport $queuedJson $ReportUrl;Remove-Item $queued.FullName -Force}catch{break}
+    }
     Send-SentinelReport $reportJson $ReportUrl
-  }catch{$queue=Join-Path $spool ($report.scanned_at.ToString()+'-'+$report.device_id+'.json');$reportJson|Set-Content -Encoding UTF8 $queue;Write-Warning 'Report upload failed and was queued locally.'}
+  }catch{
+    $queue=Join-Path $spool ($report.scanned_at.ToString()+'-'+$report.device_id+'-'+[Guid]::NewGuid().ToString('N')+'.json');$reportJson|Set-Content -Encoding UTF8 $queue
+    Get-ChildItem $spool -Filter '*.json' -File|Sort-Object LastWriteTimeUtc -Descending|Select-Object -Skip 500|Remove-Item -Force
+    Get-ChildItem $spool -Filter '*.invalid' -File|Sort-Object LastWriteTimeUtc -Descending|Select-Object -Skip 20|Remove-Item -Force
+    Write-Warning 'Report upload failed and was queued locally.'
+  }
 }
 if ($report.summary.critical -gt 0 -or $report.summary.high -gt 0) { exit 2 }
 exit 0

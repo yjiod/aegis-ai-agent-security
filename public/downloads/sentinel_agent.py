@@ -239,13 +239,25 @@ def post_report(url,token,report):
     body=json.dumps(report,ensure_ascii=False).encode(); headers=report_headers(body,token,os.getenv("SENTINEL_REPORT_SIGNING_SECRET",""))
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
     with urllib.request.urlopen(request,timeout=15) as response: return str(response.status)
-def queue_report(spool,report):
-    spool.mkdir(mode=0o700,parents=True,exist_ok=True); os.chmod(spool,0o700); path=spool/f"{report['scanned_at']}-{report['device_id']}.json"; path.write_text(json.dumps(report,ensure_ascii=False)); os.chmod(path,0o600); return path
+def spool_limit(value=None):
+    raw=os.getenv("SENTINEL_SPOOL_MAX_REPORTS","500") if value is None else value
+    try: return min(max(int(raw),10),10000)
+    except (TypeError,ValueError): return 500
+def queue_report(spool,report,limit=None):
+    spool.mkdir(mode=0o700,parents=True,exist_ok=True); os.chmod(spool,0o700)
+    data=json.dumps(report,ensure_ascii=False,separators=(",",":")); digest=hashlib.sha256(data.encode()).hexdigest()[:12]
+    path=spool/f"{report['scanned_at']}-{report['device_id']}-{time.time_ns()}-{digest}.json"; path.write_text(data); os.chmod(path,0o600)
+    files=sorted(spool.glob("*.json"),key=lambda item:(item.stat().st_mtime_ns,item.name)); keep=spool_limit(limit)
+    for expired in files[:-keep]: expired.unlink()
+    return path
 def flush_spool(spool,url,token):
     if not spool.exists() or not url: return 0
     sent=0
     for path in sorted(spool.glob("*.json"))[:50]:
-        post_report(url,token,json.loads(path.read_text())); path.unlink(); sent+=1
+        try: report=json.loads(path.read_text())
+        except (OSError,json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError):
+            invalid=path.with_name(path.name+f".{time.time_ns()}.invalid"); path.rename(invalid); os.chmod(invalid,0o600); continue
+        post_report(url,token,report); path.unlink(); sent+=1
     return sent
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
