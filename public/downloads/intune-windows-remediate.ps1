@@ -4,7 +4,7 @@ $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $reportDir = Join-Path $installDir 'reports'
 $previousDir = Join-Path $installDir 'previous'
 $stageDir = Join-Path $installDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
-$expected = @{ 'sentinel-policy.json'='679306ad2fbdaf119bfd3cf278b35687c26d9f1c3b7879ec72ba7d1304632769'; 'sentinel-windows.ps1'='013a2e42c824b6e9d46202ac7e4ef23840afa64332757cea33b0a535c5723de7'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
+$expected = @{ 'sentinel-policy.json'='8f6183f1796b8f70064e1023c801843158a03da5b12c30c92f420972c8b34317'; 'sentinel-windows.ps1'='39d7ac59546b4ac4f39912fbc84554dfd3198c696b9733f6992de23d58867fca'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
 New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null
 & icacls.exe $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
 try {
