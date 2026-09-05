@@ -3,8 +3,9 @@ set -u
 INSTALL_DIR="/Library/Application Support/SentinelAgent"
 REPORT="$INSTALL_DIR/reports/latest.json"
 REPORTING="$INSTALL_DIR/reporting.json"
+UPLOAD_STATUS="$INSTALL_DIR/reports/upload-status.json"
 PLIST="/Library/LaunchDaemons/com.company.sentinel-agent.plist"
-AGENT_SHA="8d20d2293dba5c1e833281e00224baf66ac6c39e8bf62388602f00631e4c0bc7"
+AGENT_SHA="a078314b6fc89e72e0393fdda6d38f71757eb10d7a018a52d2220a6a971ec67c"
 POLICY_SHA="0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423"
 BASELINE_SHA="e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e"
 installed=false; integrity=false; runtime=false
@@ -16,18 +17,23 @@ if [[ "$installed" == true ]] && \
 if [[ -f "$PLIST" ]] && /bin/launchctl print system/com.company.sentinel-agent >/dev/null 2>&1; then runtime=true; fi
 python_bin="$(command -v python3 2>/dev/null || true)"
 if [[ -z "$python_bin" ]]; then
-  /usr/bin/printf '%s\n' "{\"SentinelInstalled\":$installed,\"SentinelIntegrityValid\":$integrity,\"SentinelLaunchDaemonHealthy\":$runtime,\"SentinelReportingConfigured\":false,\"SentinelPolicyVersion\":\"missing\",\"SentinelReportValid\":false,\"SentinelScanRecent\":false,\"SentinelCriticalFindings\":0,\"SentinelHighFindings\":0}"
+  /usr/bin/printf '%s\n' "{\"SentinelInstalled\":$installed,\"SentinelIntegrityValid\":$integrity,\"SentinelLaunchDaemonHealthy\":$runtime,\"SentinelReportingConfigured\":false,\"SentinelReportingHealthy\":false,\"SentinelPolicyVersion\":\"missing\",\"SentinelReportValid\":false,\"SentinelScanRecent\":false,\"SentinelCriticalFindings\":0,\"SentinelHighFindings\":0}"
   exit 0
 fi
-"$python_bin" - "$INSTALL_DIR/sentinel-policy.json" "$REPORT" "$REPORTING" "$installed" "$integrity" "$runtime" <<'PY'
+"$python_bin" - "$INSTALL_DIR/sentinel-policy.json" "$REPORT" "$REPORTING" "$UPLOAD_STATUS" "$installed" "$integrity" "$runtime" <<'PY'
 import hmac, json, pathlib, stat, sys, time
 from urllib.parse import urlsplit
-policy_path,report_path,reporting_path=map(pathlib.Path,sys.argv[1:4])
-installed,integrity,runtime=(value=="true" for value in sys.argv[4:7])
-policy="missing"; recent=False; report_valid=False; reporting_configured=False; critical=0; high=0
+policy_path,report_path,reporting_path,upload_status_path=map(pathlib.Path,sys.argv[1:5])
+installed,integrity,runtime=(value=="true" for value in sys.argv[5:8])
+policy="missing"; recent=False; report_valid=False; reporting_configured=False; reporting_healthy=False; configured_host=""; critical=0; high=0
 try:
     info=reporting_path.stat(); value=json.loads(reporting_path.read_text()); parsed=urlsplit(value.get("report_url","")); token=value.get("report_token",""); secret=value.get("signing_secret","")
     reporting_configured=not reporting_path.is_symlink() and stat.S_ISREG(info.st_mode) and not info.st_mode&0o077 and info.st_uid==0 and set(value)=={"schema","report_url","report_token","signing_secret"} and value.get("schema")=="sentinel.reporting/v1" and parsed.scheme=="https" and bool(parsed.hostname) and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment and 32<=len(token)<=4096 and 32<=len(secret)<=4096 and not hmac.compare_digest(token,secret)
+    if reporting_configured: configured_host=parsed.hostname.lower().rstrip(".")
+except (OSError,ValueError,TypeError): pass
+try:
+    status=json.loads(upload_status_path.read_text()); age=int(time.time())-status.get("last_success",0)
+    reporting_healthy=reporting_configured and set(status)=={"schema","status","last_success","collector_host"} and status.get("schema")=="sentinel.upload-status/v1" and status.get("status")=="accepted" and status.get("collector_host")==configured_host and type(status.get("last_success")) is int and 0<=age<86400
 except (OSError,ValueError,TypeError): pass
 try:
     value=json.loads(policy_path.read_text()); policy=str(value.get("version","missing"))
@@ -37,8 +43,8 @@ try:
     findings=report.get("findings",[]); summary=report.get("summary",{}); severities=("critical","high","medium","low")
     actual={severity:sum(isinstance(item,dict) and item.get("severity")==severity for item in findings) for severity in severities} if isinstance(findings,list) else {}
     valid_findings=isinstance(findings,list) and len(findings)<=10000 and all(isinstance(item,dict) and item.get("severity") in severities and all(isinstance(item.get(key),str) for key in ("kind","path","message")) for item in findings)
-    report_valid=report.get("schema")=="sentinel.report/v1" and report.get("agent_version")=="0.26.0" and report.get("policy_version")==policy and isinstance(report.get("device_id"),str) and len(report["device_id"])==12 and all(char in "0123456789abcdef" for char in report["device_id"]) and type(report.get("scanned_at")) is int and valid_findings and isinstance(summary,dict) and all(type(summary.get(severity)) is int and summary[severity]==actual.get(severity) for severity in severities)
+    report_valid=report.get("schema")=="sentinel.report/v1" and report.get("agent_version")=="0.27.0" and report.get("policy_version")==policy and isinstance(report.get("device_id"),str) and len(report["device_id"])==12 and all(char in "0123456789abcdef" for char in report["device_id"]) and type(report.get("scanned_at")) is int and valid_findings and isinstance(summary,dict) and all(type(summary.get(severity)) is int and summary[severity]==actual.get(severity) for severity in severities)
     if report_valid: recent=0<=age<86400; critical=actual["critical"]; high=actual["high"]
 except (OSError,ValueError,TypeError): pass
-print(json.dumps({"SentinelInstalled":installed,"SentinelIntegrityValid":integrity,"SentinelLaunchDaemonHealthy":runtime,"SentinelReportingConfigured":reporting_configured,"SentinelPolicyVersion":policy,"SentinelReportValid":report_valid,"SentinelScanRecent":recent,"SentinelCriticalFindings":critical,"SentinelHighFindings":high},separators=(",",":")))
+print(json.dumps({"SentinelInstalled":installed,"SentinelIntegrityValid":integrity,"SentinelLaunchDaemonHealthy":runtime,"SentinelReportingConfigured":reporting_configured,"SentinelReportingHealthy":reporting_healthy,"SentinelPolicyVersion":policy,"SentinelReportValid":report_valid,"SentinelScanRecent":recent,"SentinelCriticalFindings":critical,"SentinelHighFindings":high},separators=(",",":")))
 PY

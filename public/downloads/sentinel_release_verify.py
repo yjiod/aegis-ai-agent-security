@@ -94,6 +94,10 @@ def verify(downloads):
         if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
     for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid"):
         if directive not in python_agent: errors.append(f"missing_python_reporting_loader:{directive}")
+    for directive in ("def write_upload_status(path,url,now=None):","sentinel.upload-status/v1","write_private_atomic(path"):
+        if directive not in python_agent: errors.append(f"missing_python_upload_receipt:{directive}")
+    for directive in ("function Write-SentinelUploadStatus","sentinel.upload-status/v1","Write-SentinelUploadStatus $ReportUrl"):
+        if directive not in windows_agent: errors.append(f"missing_windows_upload_receipt:{directive}")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:

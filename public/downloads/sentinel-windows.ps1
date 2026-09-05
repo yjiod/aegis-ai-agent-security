@@ -57,6 +57,11 @@ function Send-SentinelReport([string]$json,[string]$url) {
   }
   Invoke-RestMethod -Uri $url -Method Post -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 15|Out-Null
 }
+function Write-SentinelUploadStatus([string]$url){
+  $uri=[Uri]$url;$status=@{schema='sentinel.upload-status/v1';status='accepted';last_success=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();collector_host=$uri.DnsSafeHost.ToLower()}|ConvertTo-Json -Compress
+  $path=Join-Path (Split-Path $Output) 'upload-status.json';$temp=$path+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
+  try{$status|Set-Content -Encoding UTF8 $temp;Move-Item $temp $path -Force}finally{Remove-Item $temp -Force -ErrorAction SilentlyContinue}
+}
 function Protect-SentinelPath([string]$path) {
   foreach ($home in $userHomes) { if ($path.StartsWith($home.FullName,[StringComparison]::OrdinalIgnoreCase)) { return '~' + $path.Substring($home.FullName.Length) } }
   return $path
@@ -256,7 +261,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.26.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.27.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
@@ -268,7 +273,7 @@ if($ReportUrl){
       try{$queuedJson=Get-Content $queued.FullName -Raw;$null=$queuedJson|ConvertFrom-Json}catch{Move-Item $queued.FullName ($queued.FullName+'.'+[Guid]::NewGuid().ToString('N')+'.invalid') -Force;continue}
       try{Send-SentinelReport $queuedJson $ReportUrl;Remove-Item $queued.FullName -Force}catch{break}
     }
-    Send-SentinelReport $reportJson $ReportUrl
+    Send-SentinelReport $reportJson $ReportUrl;Write-SentinelUploadStatus $ReportUrl
   }catch{
     $queue=Join-Path $spool ($report.scanned_at.ToString()+'-'+$report.device_id+'-'+[Guid]::NewGuid().ToString('N')+'.json');$reportJson|Set-Content -Encoding UTF8 $queue
     Get-ChildItem $spool -Filter '*.json' -File|Sort-Object LastWriteTimeUtc -Descending|Select-Object -Skip 500|Remove-Item -Force
