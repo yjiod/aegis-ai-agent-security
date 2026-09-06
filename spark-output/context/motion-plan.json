@@ -1,0 +1,192 @@
+{
+  "project_name": "Aegis AI Agent Security Console",
+  "personality": {
+    "archetype": "Corporate",
+    "confirmed_by_user": true,
+    "keywords": ["clean", "professional", "restrained", "security", "dashboard"],
+    "emotional_target": "Calm + Confidence",
+    "rationale": "企业安全治理控制台，用户为安全管理员/运维，需要沉稳克制、专业可信赖的感受，不要花哨"
+  },
+  "brand_motion_identity": {
+    "signature_easing": "cubic-bezier(0.2, 0, 0, 1)",
+    "duration_palette": {
+      "quick": "150ms",
+      "standard": "280ms",
+      "slow": "420ms"
+    },
+    "entrance_pattern": "fade-up-8px",
+    "overshoot": "0-3%",
+    "notes": "Material Design 3 standard easing, 入口减速出口加速, 空间位移永远不用 linear"
+  },
+  "scope": {
+    "target_pages": [
+      "总览仪表板 (/)",
+      "设备与 Agent (/devices)",
+      "风险中心 (/risks)",
+      "Skill 扫描器 (/skills)",
+      "MCP 扫描器 (/mcp)",
+      "代码质量 (/quality)",
+      "安全编码基线 (/baseline)",
+      "策略配置 (/policies)",
+      "团队与权限 (/team)",
+      "系统设置 (/settings)",
+      "接入中心 (/onboarding)"
+    ],
+    "target_elements": [
+      "sidebar-nav-item",
+      "metric-card",
+      "metric-card-sparkline",
+      "data-table-row",
+      "detail-panel-slide-in",
+      "switch-toggle",
+      "skeleton-loading",
+      "toast-notification",
+      "activity-timeline-entry",
+      "score-radial-chart",
+      "page-transition"
+    ]
+  },
+  "element_specs": [
+    {
+      "element": "sidebar-nav-item",
+      "visual_description": "侧边栏导航项 hover 时背景从透明渐显为深绿，左侧 accent 条从 0 宽度滑出到 3px，文字颜色从 muted 提亮到 foreground。点击时有一个极短的 scale(0.98) 按压反馈。",
+      "primary": { "property": "background-color + box-shadow(inset left)", "duration_ms": 200, "easing": "cubic-bezier(0.2, 0, 0, 1)" },
+      "secondary": { "property": "color", "duration_ms": 150, "easing": "ease-out", "delay_ms": 0 },
+      "ambient": { "property": "none", "notes": "侧边栏不需要持续动效，DASHBOARD 场景禁止无限循环" },
+      "disney_principles": ["slow-in-out"],
+      "stagger": null
+    },
+    {
+      "element": "metric-card",
+      "visual_description": "页面加载时，4 张指标卡从 opacity:0 + translateY(8px) 依次入场，每张间隔 60ms，总编舞预算 240ms。卡片 hover 时 translateY(-2px) + 阴影增强，给人'可交互'的暗示。",
+      "primary": { "property": "opacity + transform(translateY)", "duration_ms": 280, "easing": "cubic-bezier(0.2, 0, 0, 1)", "from": "opacity:0, translateY(8px)", "to": "opacity:1, translateY(0)" },
+      "secondary": { "property": "box-shadow", "duration_ms": 280, "easing": "cubic-bezier(0.2, 0, 0, 1)", "delay_ms": 50, "notes": "阴影比主体晚 50ms 到达，制造深度感" },
+      "ambient": { "property": "none", "notes": "DASHBOARD 场景禁止持续背景动效" },
+      "disney_principles": ["follow-through", "staging"],
+      "stagger": { "delay_ms": 60, "total_budget_ms": 240, "pattern": "micro-cascade" }
+    },
+    {
+      "element": "metric-card-sparkline",
+      "visual_description": "迷你趋势图在卡片入场后 100ms 开始从左到右绘制，像笔尖划过纸面。使用 recharts 的 isAnimationActive + animationDuration 控制。",
+      "primary": { "property": "stroke-dashoffset (path draw)", "duration_ms": 420, "easing": "cubic-bezier(0.2, 0, 0, 1)", "delay_ms": 340, "notes": "在卡片入场完成后才开始" },
+      "secondary": { "property": "fill-opacity (area gradient)", "duration_ms": 280, "easing": "ease-out", "delay_ms": 480 },
+      "ambient": { "property": "none" },
+      "disney_principles": ["anticipation", "slow-in-out"],
+      "stagger": null
+    },
+    {
+      "element": "data-table-row",
+      "visual_description": "表格行 hover 时背景从透明渐显为极淡绿色，左侧出现 3px accent 边线（与 sidebar active 同语言）。行入场时从 opacity:0 淡入，每行间隔 30ms。",
+      "primary": { "property": "background-color", "duration_ms": 150, "easing": "ease-out" },
+      "secondary": { "property": "box-shadow(inset left accent)", "duration_ms": 200, "easing": "cubic-bezier(0.2, 0, 0, 1)", "delay_ms": 30 },
+      "ambient": { "property": "none" },
+      "disney_principles": ["slow-in-out"],
+      "stagger": { "delay_ms": 30, "total_budget_ms": 210, "pattern": "micro-cascade", "notes": "最多 7 行可见" }
+    },
+    {
+      "element": "detail-panel-slide-in",
+      "visual_description": "详情面板从右侧滑入，带极微的 scale(0.98→1) 制造'推近'感。背景遮罩同时从 opacity:0 淡入到 0.78。面板内容比容器晚 80ms 开始淡入，制造层次感。",
+      "primary": { "property": "transform(translateX + scale)", "duration_ms": 350, "easing": "cubic-bezier(0.16, 1, 0.3, 1)", "from": "translateX(30px) scale(0.98)", "to": "translateX(0) scale(1)" },
+      "secondary": { "property": "opacity (backdrop)", "duration_ms": 250, "easing": "ease-out" },
+      "ambient": { "property": "content fade-in", "duration_ms": 200, "delay_ms": 80, "easing": "ease-out" },
+      "disney_principles": ["anticipation", "follow-through", "staging"],
+      "stagger": null
+    },
+    {
+      "element": "switch-toggle",
+      "visual_description": "开关切换时滑块用弹性缓动滑到对面，轨道颜色同步渐变。ON 状态外发光(box-shadow)在切换完成后 100ms 渐显，像'通电'的感觉。",
+      "primary": { "property": "transform(translateX)", "duration_ms": 280, "easing": "cubic-bezier(0.16, 1, 0.3, 1)" },
+      "secondary": { "property": "background-color", "duration_ms": 200, "easing": "ease-out" },
+      "ambient": { "property": "box-shadow glow", "duration_ms": 200, "delay_ms": 100, "easing": "ease-out", "notes": "仅 ON 状态" },
+      "disney_principles": ["squash-stretch(微)", "follow-through"],
+      "stagger": null
+    },
+    {
+      "element": "skeleton-loading",
+      "visual_description": "骨架屏使用从左到右的光泽扫过效果(shimmer)，周期 1.5s，给人'正在加载'的平静暗示。不用脉冲(pulse)因为太焦虑。",
+      "primary": { "property": "background-position (shimmer sweep)", "duration_ms": 1500, "easing": "ease-in-out", "loop": true },
+      "secondary": { "property": "none" },
+      "ambient": { "property": "none" },
+      "disney_principles": ["slow-in-out"],
+      "stagger": { "delay_ms": 150, "notes": "多行骨架屏每行错开 150ms" },
+      "scene_compliance": "LOADING 场景允许循环，但必须是低对比度、无位移的 shimmer"
+    },
+    {
+      "element": "toast-notification",
+      "visual_description": "Toast 从右上角滑入(translateX(20px)→0 + opacity 0→1)，停留 3s 后反向滑出。入场比出场快(280ms vs 200ms)，出场用 ease-in 加速离开。",
+      "primary": { "property": "transform(translateX) + opacity", "duration_ms": 280, "easing": "cubic-bezier(0.2, 0, 0, 1)", "exit_duration_ms": 200, "exit_easing": "ease-in" },
+      "secondary": { "property": "box-shadow", "duration_ms": 280, "delay_ms": 50 },
+      "ambient": { "property": "none" },
+      "disney_principles": ["anticipation(exit前微缩)", "slow-in-out"],
+      "stagger": null
+    },
+    {
+      "element": "activity-timeline-entry",
+      "visual_description": "时间线条目从 opacity:0 + translateY(6px) 依次入场，每条间隔 80ms。左侧圆点在条目入场时有一个极短的 scale(0→1) 弹出(120ms)，连线从上到下渐显。",
+      "primary": { "property": "opacity + transform(translateY)", "duration_ms": 280, "easing": "cubic-bezier(0.2, 0, 0, 1)" },
+      "secondary": { "property": "transform(scale) on dot", "duration_ms": 120, "easing": "ease-out", "delay_ms": 80 },
+      "ambient": { "property": "line height grow", "duration_ms": 420, "easing": "ease-out", "delay_ms": 0 },
+      "disney_principles": ["follow-through", "staging"],
+      "stagger": { "delay_ms": 80, "total_budget_ms": 400, "pattern": "standard" }
+    },
+    {
+      "element": "score-radial-chart",
+      "visual_description": "径向评分图从 0% 弧线绘制到目标值(92%)，像仪表盘指针启动。使用 recharts animationDuration=800 + animationEasing=ease-out。子分环依次延迟 150ms 绘制。",
+      "primary": { "property": "stroke-dashoffset (arc draw)", "duration_ms": 800, "easing": "ease-out" },
+      "secondary": { "property": "opacity (center text)", "duration_ms": 280, "delay_ms": 600, "easing": "ease-out" },
+      "ambient": { "property": "subtle glow pulse on completion", "duration_ms": 600, "delay_ms": 800, "notes": "仅一次，不循环" },
+      "disney_principles": ["anticipation", "slow-in-out", "staging"],
+      "stagger": { "delay_ms": 150, "notes": "4 环依次绘制" }
+    },
+    {
+      "element": "page-transition",
+      "visual_description": "路由切换时旧页面 opacity 1→0 (150ms ease-in)，新页面 opacity 0→1 + translateY(4px)→0 (280ms, delay 100ms)。整体感受是'轻轻翻页'而非'剧烈切换'。",
+      "primary": { "property": "opacity + transform(translateY)", "duration_ms": 280, "easing": "cubic-bezier(0.2, 0, 0, 1)", "exit_duration_ms": 150, "exit_easing": "ease-in" },
+      "secondary": { "property": "none" },
+      "ambient": { "property": "none" },
+      "disney_principles": ["slow-in-out"],
+      "stagger": null
+    }
+  ],
+  "choreography": {
+    "dashboard_load_sequence": [
+      { "beat": 1, "element": "skeleton-loading", "delay_ms": 0, "notes": "骨架屏立即显示" },
+      { "beat": 2, "element": "metric-card", "delay_ms": 100, "notes": "指标卡 stagger 入场" },
+      { "beat": 3, "element": "metric-card-sparkline", "delay_ms": 340, "notes": "趋势线绘制" },
+      { "beat": 4, "element": "score-radial-chart", "delay_ms": 400, "notes": "评分环绘制" },
+      { "beat": 5, "element": "activity-timeline-entry", "delay_ms": 500, "notes": "时间线条目入场" }
+    ],
+    "stagger_budget_ms": 500,
+    "one_third_rule": "任何时刻最多 1/3 元素在运动中；指标卡 4 张 stagger 60ms = 同时最多 2 张在动"
+  },
+  "reduced_motion_fallback": {
+    "strategy": "remove-spatial-keep-opacity",
+    "details": [
+      "移除所有 translateY/translateX 位移，保留 opacity 淡入",
+      "移除 scale 变换",
+      "时长减少 50%（280ms → 140ms）",
+      "skeleton shimmer 替换为静态背景色（无动画）",
+      "score radial chart 直接显示最终值（无绘制动画）",
+      "page transition 替换为即时切换（无淡入淡出）",
+      "switch toggle 保留颜色变化，移除滑块位移"
+    ],
+    "css_media_query": "@media (prefers-reduced-motion: reduce)"
+  },
+  "scene_compliance": {
+    "DASHBOARD": {
+      "forbidden": ["infinite-loop(除 skeleton shimmer)", "continuous-background-animation", "oversized-transform(>1/3 screen)"],
+      "allowed": ["stagger-entrance", "hover-micro-feedback", "one-shot-glow", "shimmer-loading"]
+    }
+  },
+  "implementation_notes": {
+    "tech_stack": "CSS transitions/keyframes (已在 globals.css + detail.css) + recharts animationDuration/animationEasing props",
+    "no_framer_motion_needed": "当前所有动效均可用纯 CSS 实现，framer-motion 仅在需要 layout animation 或 gesture 时引入",
+    "css_custom_properties": {
+      "--motion-quick": "150ms",
+      "--motion-standard": "280ms",
+      "--motion-slow": "420ms",
+      "--motion-easing": "cubic-bezier(0.2, 0, 0, 1)",
+      "--motion-easing-emphasized": "cubic-bezier(0.16, 1, 0.3, 1)"
+    }
+  }
+}
