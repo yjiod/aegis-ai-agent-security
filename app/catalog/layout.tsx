@@ -1,16 +1,36 @@
-import type { Metadata } from 'next';
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 
-export const metadata: Metadata = {
-  title: '组件目录 · Aegis Console',
-  description: '开发参考：UI 组件与自定义模式实时预览',
-};
-
-export default function CatalogLayout({ children }: { children: React.ReactNode }) {
+/**
+ * 组件目录（/catalog）专用布局。
+ *
+ * 这里刻意不引入 ConsoleShell，也不订阅 CollectorProvider 的舰队数据：
+ * 目录页只是组件走查工具，不需要真实业务上下文。
+ *
+ * 需要注意的实现约束：Next.js / vinext 的嵌套布局无法脱离根布局，
+ * `app/layout.tsx` 仍然会用 ConsoleShell（顶栏 + 主侧边栏）包裹本路由，
+ * 所以目录页最终渲染在 `.workspace` 主区域内。若后续希望 /catalog 完全独立，
+ * 需要把 ConsoleShell 从根布局下沉到路由分组 `app/(console)/layout.tsx`，
+ * 让 /catalog 留在分组之外（本次改动不涉及任何既有文件）。
+ */
+export default function CatalogLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <div style={{ minHeight: '100vh', background: '#07110f', color: '#eaf7f2' }}>
-      <div style={{ padding: '16px 24px', borderBottom: '1px solid #1b332c', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <a href="/" style={{ color: '#49e8a5', fontSize: 13, textDecoration: 'none' }}>← 返回控制台</a>
-        <span style={{ fontSize: 12, color: '#5e7c73' }}>组件目录 · 开发参考 · 非生产页面</span>
+    <div className="catalog-layout w-full pb-6">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Link
+          href="/"
+          className="handle inline-flex items-center gap-1.5 no-underline"
+        >
+          <ArrowLeft size={13} />
+          返回控制台
+        </Link>
+        <span className="text-[11px] text-[#5e7c73]">
+          /catalog · 仅开发环境使用
+        </span>
       </div>
       {children}
     </div>
