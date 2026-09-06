@@ -111,7 +111,7 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
     for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
-    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query","1<=limit<=10000",'"complete":complete',"WITH fleet AS"):
+    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query","1<=limit<=10000",'"complete":complete',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"'):
         if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
     try: device_example=json.loads((downloads/"sentinel-device-credentials.example.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_device_credentials_example:{type(exc).__name__}"); device_example={}

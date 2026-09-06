@@ -1,8 +1,9 @@
 {
-  "release": "0.66.0",
+  "release": "0.67.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T00:00:00+08:00",
+  "published_at": "2026-09-08T02:00:00+08:00",
   "features": [
+    "collector_0_16", "privacy_minimized_agent_coverage", "latest_report_agent_aggregation", "active_agent_coverage", "live_console_agent_coverage", "strict_agent_coverage_proxy",
     "six_agent_console_coverage", "current_capability_documentation", "collector_probe_download_entry", "operator_visibility_alignment",
     "cross_platform_agent_0_31", "gemini_cli_discovery", "github_copilot_cli_discovery", "gemini_and_copilot_user_baselines", "gemini_and_copilot_mcp_scanning", "cross_tool_baseline_uninstall",
     "collector_acceptance_probe", "read_only_default_probe", "signed_write_probe", "ack_and_deduplication_probe", "credential_redacted_probe_output",

@@ -11,6 +11,7 @@ const postures = [
   'unknown',
 ] as const;
 const credentialPostures = ['current', 'previous', 'legacy'] as const;
+const agentNames = ['cursor', 'claude_code', 'codex', 'windsurf', 'gemini_cli', 'github_copilot_cli'] as const;
 
 function boundedCount(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
@@ -34,10 +35,15 @@ function validSummary(value: unknown) {
   const severity = data.latest_severity as Record<string, unknown> | undefined;
   const posture = data.version_posture as Record<string, unknown> | undefined;
   const credentials = data.credential_posture as Record<string, unknown> | undefined;
-  if (!severity || !posture) return false;
+  const agents = data.agent_coverage as Record<string, unknown> | undefined;
+  if (!severity || !posture || !agents) return false;
   if (!levels.every((key) => boundedCount(severity[key]))) return false;
   if (!postures.every((key) => boundedCount(posture[key]))) return false;
   if (credentials && !credentialPostures.every((key) => boundedCount(credentials[key]))) return false;
+  if (Object.keys(agents).length!==agentNames.length || !agentNames.every((key) => {
+    const item=agents[key] as Record<string,unknown> | undefined;
+    return item && Object.keys(item).length===2 && boundedCount(item.total) && boundedCount(item.active) && Number(item.active)<=Number(item.total) && Number(item.total)<=Number(data.total_devices);
+  })) return false;
   return (
     levels.reduce((sum, key) => sum + Number(severity[key]), 0) ===
       data.total_devices &&
@@ -81,6 +87,7 @@ function sanitizedSummary(value: unknown) {
   const severity = data.latest_severity as Record<string, number>;
   const posture = data.version_posture as Record<string, number>;
   const credentials = data.credential_posture as Record<string, number> | undefined;
+  const agents = data.agent_coverage as Record<string, Record<string, number>>;
   return {
     total_devices: data.total_devices,
     active_devices: data.active_devices,
@@ -89,6 +96,7 @@ function sanitizedSummary(value: unknown) {
     required_policy_version: data.required_policy_version,
     latest_severity: Object.fromEntries(levels.map((key) => [key, severity[key]])),
     version_posture: Object.fromEntries(postures.map((key) => [key, posture[key]])),
+    agent_coverage: Object.fromEntries(agentNames.map((key) => [key, {total: agents[key].total, active: agents[key].active}])),
     ...(credentials
       ? { credential_posture: Object.fromEntries(credentialPostures.map((key) => [key, credentials[key]])) }
       : {}),

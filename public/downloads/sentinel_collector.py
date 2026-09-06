@@ -183,11 +183,13 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
     with db_open(db_path) as db:
-        rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
+        rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
     versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.31.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
-    for _,severity,agent,policy,generation in rows:
+    supported_agents=("cursor","claude_code","codex","windsurf","gemini_cli","github_copilot_cli")
+    agent_coverage={name:{"total":0,"active":0} for name in supported_agents}
+    for received,severity,agent,policy,generation,body in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1
         if not agent or not policy: versions["unknown"]+=1
         elif agent!=required_agent and policy!=required_policy: versions["both_mismatch"]+=1
@@ -195,10 +197,16 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
         elif policy!=required_policy: versions["policy_mismatch"]+=1
         else: versions["current"]+=1
         credential_posture["legacy" if generation is None else "current" if generation==0 else "previous"]+=1
-    active=sum(received>=now-active_window for received,_,_,_,_ in rows)
-    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture}
+        try: inventory=json.loads(body).get("inventory",[])
+        except (AttributeError,TypeError,ValueError,json.JSONDecodeError): inventory=[]
+        present={item.get("name") for item in inventory if isinstance(item,dict) and item.get("type")=="ai_agent" and isinstance(item.get("name"),str) and item.get("name") in agent_coverage}
+        for name in present:
+            agent_coverage[name]["total"]+=1
+            if received>=now-active_window: agent_coverage[name]["active"]+=1
+    active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
+    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.15"
+    server_version="SentinelCollector/0.16"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))

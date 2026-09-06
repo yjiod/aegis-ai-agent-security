@@ -22,6 +22,7 @@ class SentinelTests(unittest.TestCase):
         self.assertNotIn('start_enterprise_security_scan',page); self.assertNotIn('status: \'dispatched\'',page); self.assertNotIn('系统运行正常',page); self.assertNotIn('实时上报',page); self.assertNotIn('已强制应用',page)
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
+        self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
         for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
@@ -147,13 +148,15 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
             with self.collector.db_open(path) as db:
-                rows=[('a1','device-a',now-90000,'critical','{}'),('a2','device-a',now-10,'normal','{}'),('b1','device-b',now-20,'high','{}'),('c1','device-c',now-90000,'critical','{}')]
+                old=json.dumps({'inventory':[{'type':'ai_agent','name':'github_copilot_cli'}]}); current_a=json.dumps({'inventory':[{'type':'ai_agent','name':'cursor'},{'type':'ai_agent','name':'cursor'},{'type':'ai_agent','name':'gemini_cli'}]}); current_b=json.dumps({'inventory':[{'type':'ai_agent','name':'cursor'}]}); stale=json.dumps({'inventory':[{'type':'ai_agent','name':'github_copilot_cli'},{'type':'ai_agent','name':['invalid']}]})
+                rows=[('a1','device-a',now-90000,'critical',old),('a2','device-a',now-10,'normal',current_a),('b1','device-b',now-20,'high',current_b),('c1','device-c',now-90000,'critical',stale)]
                 db.executemany("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",rows); db.commit()
             summary=self.collector.collector_summary(path,now=now)
             self.assertEqual(summary['total_devices'],3); self.assertEqual(summary['active_devices'],2); self.assertEqual(summary['stale_devices'],1)
             self.assertEqual(summary['latest_severity'],{'critical':1,'high':1,'normal':1})
             self.assertEqual(summary['version_posture'],{'current':0,'agent_mismatch':0,'policy_mismatch':0,'both_mismatch':0,'unknown':3})
             self.assertEqual(summary['credential_posture'],{'current':0,'previous':0,'legacy':3})
+            self.assertEqual(summary['agent_coverage']['cursor'],{'total':2,'active':2}); self.assertEqual(summary['agent_coverage']['gemini_cli'],{'total':1,'active':1}); self.assertEqual(summary['agent_coverage']['github_copilot_cli'],{'total':1,'active':0})
     def test_collector_summary_classifies_latest_version_drift(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

@@ -108,6 +108,7 @@ type FleetSummary = {
     unknown: number;
   };
   credential_posture?: { current: number; previous: number; legacy: number };
+  agent_coverage: Record<'cursor'|'claude_code'|'codex'|'windsurf'|'gemini_cli'|'github_copilot_cli',{total:number;active:number}>;
 };
 
 export default function Home() {
@@ -135,6 +136,9 @@ export default function Home() {
   const totalDevices=fleet?.total_devices ?? 312; const activeDevices=fleet?.active_devices ?? 284; const staleDevices=fleet?.stale_devices ?? 28;
   const currentDevices=fleet?.version_posture.current ?? 302; const coverage=totalDevices ? (currentDevices/totalDevices)*100 : 0;
   const highRiskDevices=fleet ? fleet.latest_severity.critical+fleet.latest_severity.high : 12; const driftDevices=fleet ? totalDevices-currentDevices : 10;
+  const agentCoverage: [string,number,number][] = fleet ? [
+    ['Cursor',fleet.agent_coverage.cursor.total,fleet.agent_coverage.cursor.active],['Claude Code',fleet.agent_coverage.claude_code.total,fleet.agent_coverage.claude_code.active],['Codex CLI',fleet.agent_coverage.codex.total,fleet.agent_coverage.codex.active],['Windsurf',fleet.agent_coverage.windsurf.total,fleet.agent_coverage.windsurf.active],['Gemini CLI',fleet.agent_coverage.gemini_cli.total,fleet.agent_coverage.gemini_cli.active],['GitHub Copilot CLI',fleet.agent_coverage.github_copilot_cli.total,fleet.agent_coverage.github_copilot_cli.active],
+  ] : [['Cursor',124,100],['Claude Code',86,78],['Codex CLI',64,58],['Windsurf',38,34],['Gemini CLI',42,37],['GitHub Copilot CLI',51,45]];
   return (
     <main className="min-h-screen bg-[#07110f] text-[#eaf7f2]">
       <header className="topbar">
@@ -361,14 +365,7 @@ export default function Home() {
                 </div>
                 <button>查看全部</button>
               </div>
-              {[
-                ['Cursor', 124, 100],
-                ['Claude Code', 86, 78],
-                ['Codex CLI', 64, 58],
-                ['Windsurf', 38, 34],
-                ['Gemini CLI', 42, 37],
-                ['GitHub Copilot CLI', 51, 45],
-              ].map(([name, total, online]) => (
+              {agentCoverage.map(([name, total, online]) => (
                 <div className="coverage-row" key={String(name)}>
                   <div className="tool-logo">{String(name).slice(0, 1)}</div>
                   <div className="coverage-data">
@@ -378,7 +375,7 @@ export default function Home() {
                         {online}/{total} 在线
                       </span>
                     </div>
-                    <Progress value={(Number(online) / Number(total)) * 100} />
+                    <Progress value={total ? (online / total) * 100 : 0} />
                   </div>
                 </div>
               ))}

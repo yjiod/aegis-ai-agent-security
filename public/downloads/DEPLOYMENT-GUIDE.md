@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.15 默认要求 Agent 0.31.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.16 默认要求 Agent 0.31.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -157,3 +157,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.65.0 / Agent 0.31.0 将自动治理范围扩展到 Gemini CLI 与 GitHub Copilot CLI。终端仅通过配置、指令文件或可执行文件的文件系统标记发现工具，不启动第三方 Agent；发现后分别把带托管边界的用户基线同步到 `~/.gemini/GEMINI.md` 与 `~/.copilot/copilot-instructions.md`，并扫描 Gemini `settings.json`、Copilot `mcp-config.json`、仓库 `.mcp.json` / `.github/mcp.json` 及两者 Skill 目录。仓库继续使用 `AGENTS.md` 作为 Copilot 的跨工具入口，并新增 `GEMINI.md`。路径依据 [Gemini CLI context](https://google-gemini.github.io/gemini-cli/docs/cli/gemini-md.html)、[Gemini MCP](https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html) 与 [GitHub Copilot CLI instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions) 官方规范；卸载只删除 Sentinel 托管块，保留用户原有内容。
 
 0.66.0 将运营界面和当前部署说明与六类 Agent 的实际终端能力对齐，并把 Collector 验收探针加入控制台下载入口。控制台覆盖数字仍明确标记为演示样例；连接企业 Collector 后应只使用经过服务端白名单清洗的实时摘要，不得把样例数据解释为真实部署状态。
+
+0.67.0 / Collector 0.16 在认证摘要中增加 `agent_coverage`：仅从每台设备最新的已接受报告中按六个固定 Agent 名称去重计数，并分别返回总设备数与 24 小时活跃设备数。未知名称、路径、用户名和原始 inventory 均不会进入摘要，旧报告也不会重复放大覆盖率。控制台摘要代理要求固定键集合、非负安全整数、`active <= total <= total_devices`，清洗后才交给页面；未连接时仍使用明确标识的演示数据。
