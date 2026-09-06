@@ -1,8 +1,9 @@
 {
-  "release": "0.80.0",
+  "release": "0.81.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T14:00:00+08:00",
+  "published_at": "2026-09-08T15:00:00+08:00",
   "features": [
+    "native_windows_agent_execution_ci", "isolated_windows_managed_user_root", "clean_report_runtime_contract", "invalid_policy_runtime_fail_closed_gate",
     "cross_platform_agent_0_34", "windows_policy_string_type_validation", "windows_policy_regex_preflight", "bounded_windows_regex_execution", "regex_timeout_fail_closed_finding",
     "cross_platform_agent_0_33", "policy_4_9", "policy_driven_windows_secret_patterns", "google_api_key_detection", "slack_token_detection", "gitlab_token_detection", "npm_token_detection", "private_key_marker_detection", "windows_credential_access_parity", "windows_dynamic_eval_parity", "bidirectional_weak_random_detection",
     "native_windows_powershell_ci", "windows_powershell_5_1_ast_gate", "utf8_bom_windows_agent", "native_macos_shell_ci", "bash_and_posix_shell_gate", "three_platform_release_evidence",

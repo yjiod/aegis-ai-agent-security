@@ -185,3 +185,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.79.0 / Agent 0.33.0 / Policy 4.9.0 消除 Windows 与 Python 的密钥扫描漂移。Windows 不再维护独立硬编码列表，而是在策略通过契约及正则预检后逐条加载 `secret_patterns`；策略新增 Google API Key、Slack、GitLab、npm Token 与私钥头检测，命中只生成通用发现项而不回传密钥正文。Windows 同时补齐凭据目录/系统钥匙串访问、动态 eval/exec 以及弱随机数出现在敏感变量前后的对等检测。Collector 默认版本姿态、探针、Intune 合规和控制台版本提示同步升级。
 
 0.80.0 / Agent 0.34.0 / Policy 4.9.0 加固 Windows 动态策略执行。所有策略列表元素必须是字符串，密钥正则在策略启用前使用 250ms 超时完成编译预检；扫描阶段复用有超时的已编译规则。恶意或退化输入导致规则超时时生成高危 `scan_rule_timeout` 发现项，而不会终止整次终端扫描。Intune 合规、Collector 版本姿态、探针和控制台版本提示同步升级。
+
+0.81.0 / Agent 0.34.0 / Policy 4.9.0 将 Windows 发布门禁从语法检查扩展到真实运行。GitHub Windows runner 在隔离的 ProgramData 和用户目录中使用 Windows PowerShell 5.1 执行 Agent，验证干净策略报告契约，并注入损坏正则确认 Agent 返回阻断状态、策略版本标记为 `invalid` 且仅生成预期失败关闭发现项。`ManagedUsersRoot` 仅作为可选隔离参数，生产默认仍为 `C:\Users`。

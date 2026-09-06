@@ -1,4 +1,4 @@
-﻿param([string]$Output = "$env:ProgramData\SentinelAgent\reports\latest.json",[string]$ReportUrl = $env:SENTINEL_REPORT_URL,[string]$ProtectedConfig = "$env:ProgramData\SentinelAgent\reporting.dpapi")
+﻿param([string]$Output = "$env:ProgramData\SentinelAgent\reports\latest.json",[string]$ReportUrl = $env:SENTINEL_REPORT_URL,[string]$ProtectedConfig = "$env:ProgramData\SentinelAgent\reporting.dpapi",[string]$ManagedUsersRoot = 'C:\Users')
 $ErrorActionPreference = 'SilentlyContinue'
 $reportConfigInvalid=$false
 if(Test-Path $ProtectedConfig){
@@ -225,7 +225,7 @@ function Inspect-SentinelDependencies([System.IO.FileInfo]$file,[string]$text) {
 }
 function Get-ManagedRepos {
   $repos=@()
-  Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
+  Get-ChildItem $ManagedUsersRoot -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
     foreach($relative in @('source\repos','Documents\GitHub','Projects','Code')) {
       $base=Join-Path $_.FullName $relative
       if(Test-Path $base) { Get-ChildItem $base -Directory -Recurse -Depth 4 | Where-Object { Test-Path (Join-Path $_.FullName '.git') } | ForEach-Object { $repos += $_.FullName } }
@@ -233,7 +233,7 @@ function Get-ManagedRepos {
   }
   return $repos | Select-Object -Unique
 }
-$userHomes = @(Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') })
+$userHomes = @(Get-ChildItem $ManagedUsersRoot -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') })
 Sync-SentinelUserBaselines $userHomes
 $agentMarkers = @{
   cursor=@('.cursor\mcp.json','AppData\Roaming\Cursor\User\settings.json','AppData\Local\Programs\cursor\Cursor.exe')
