@@ -63,7 +63,7 @@ export default function DevicesPage() {
         </span>
       </div>
 
-      <div className="page-head">
+      <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">终端资产 / Agent 版本</p>
           <h1>设备与 Agent</h1>
@@ -96,15 +96,15 @@ export default function DevicesPage() {
       )}
 
       <div className="detail-kpis">
-        <article>
+        <article className="animate-entrance animate-entrance-1">
           <strong>{totalDevices}</strong>
           <span>受管终端总数{fleet ? '' : '（样例）'}</span>
         </article>
-        <article>
+        <article className="animate-entrance animate-entrance-2">
           <strong>{onlineRate}</strong>
           <span>在线率{fleet ? '' : '（样例）'}</span>
         </article>
-        <article>
+        <article className="animate-entrance animate-entrance-3">
           <strong>{versionCoverage}</strong>
           <span>版本覆盖率{fleet ? '' : '（样例）'}</span>
         </article>
@@ -143,8 +143,12 @@ export default function DevicesPage() {
             <span>Agent 版本</span>
             <span>状态</span>
           </div>
-          {deviceRows.map((row) => (
-            <div className="data-row" key={row[0]}>
+          {deviceRows.map((row, i) => (
+            <div
+              className="data-row animate-row-entrance"
+              key={row[0]}
+              style={{ animationDelay: `${i * 30 + 200}ms` }}
+            >
               <strong>{row[0]}</strong>
               <span>{row[1]}</span>
               <span>{row[2]}</span>

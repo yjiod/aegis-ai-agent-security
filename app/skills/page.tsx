@@ -55,7 +55,7 @@ export default function SkillsPage() {
         </span>
       </div>
 
-      <div className="page-head">
+      <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">安全能力 / Skill 扫描器</p>
           <h1>Skill 扫描器</h1>
@@ -88,21 +88,21 @@ export default function SkillsPage() {
       )}
 
       <div className="detail-kpis">
-        <article>
+        <article className="animate-entrance animate-entrance-1">
           <strong>68</strong>
           <span>已扫描对象（样例）</span>
         </article>
-        <article>
+        <article className="animate-entrance animate-entrance-2">
           <strong>3</strong>
           <span>待处理发现（样例）</span>
         </article>
-        <article>
+        <article className="animate-entrance animate-entrance-3">
           <strong>100%</strong>
           <span>在线终端覆盖（样例）</span>
         </article>
       </div>
 
-      <div className="panel scan-trend">
+      <div className="panel scan-trend animate-entrance animate-entrance-4">
         <div className="panel-head">
           <div>
             <h2>过去 7 天扫描趋势</h2>
@@ -181,8 +181,12 @@ export default function SkillsPage() {
             <span>检测结果</span>
             <span>状态</span>
           </div>
-          {scanRows.map((row) => (
-            <div className="data-row" key={row[0]}>
+          {scanRows.map((row, i) => (
+            <div
+              className="data-row animate-row-entrance"
+              key={row[0]}
+              style={{ animationDelay: `${i * 30 + 200}ms` }}
+            >
               <strong>{row[0]}</strong>
               <span>{row[1]}</span>
               <span>{row[2]}</span>
