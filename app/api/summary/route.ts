@@ -10,6 +10,7 @@ const postures = [
   'both_mismatch',
   'unknown',
 ] as const;
+const credentialPostures = ['current', 'previous', 'legacy'] as const;
 
 function boundedCount(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
@@ -32,14 +33,19 @@ function validSummary(value: unknown) {
     return false;
   const severity = data.latest_severity as Record<string, unknown> | undefined;
   const posture = data.version_posture as Record<string, unknown> | undefined;
+  const credentials = data.credential_posture as Record<string, unknown> | undefined;
   if (!severity || !posture) return false;
   if (!levels.every((key) => boundedCount(severity[key]))) return false;
   if (!postures.every((key) => boundedCount(posture[key]))) return false;
+  if (credentials && !credentialPostures.every((key) => boundedCount(credentials[key]))) return false;
   return (
     levels.reduce((sum, key) => sum + Number(severity[key]), 0) ===
       data.total_devices &&
     postures.reduce((sum, key) => sum + Number(posture[key]), 0) ===
-      data.total_devices
+      data.total_devices &&
+    (!credentials ||
+      credentialPostures.reduce((sum, key) => sum + Number(credentials[key]), 0) ===
+        data.total_devices)
   );
 }
 
@@ -74,6 +80,7 @@ function sanitizedSummary(value: unknown) {
   const data = value as Record<string, unknown>;
   const severity = data.latest_severity as Record<string, number>;
   const posture = data.version_posture as Record<string, number>;
+  const credentials = data.credential_posture as Record<string, number> | undefined;
   return {
     total_devices: data.total_devices,
     active_devices: data.active_devices,
@@ -82,6 +89,9 @@ function sanitizedSummary(value: unknown) {
     required_policy_version: data.required_policy_version,
     latest_severity: Object.fromEntries(levels.map((key) => [key, severity[key]])),
     version_posture: Object.fromEntries(postures.map((key) => [key, posture[key]])),
+    ...(credentials
+      ? { credential_posture: Object.fromEntries(credentialPostures.map((key) => [key, credentials[key]])) }
+      : {}),
   };
 }
 

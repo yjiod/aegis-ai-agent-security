@@ -1,8 +1,9 @@
 {
-  "release": "0.60.0",
+  "release": "0.61.0",
   "channel": "pilot",
-  "published_at": "2026-09-07T12:00:00+08:00",
+  "published_at": "2026-09-07T14:00:00+08:00",
   "features": [
+    "collector_0_13", "credential_generation_consistency", "credential_activation_posture", "evidence_gated_old_credential_pruning", "console_credential_posture",
     "credential_manifest_metadata_preservation", "atomic_owner_group_mode_retention", "live_rotation_service_readability", "strict_0600_0640_manifest_modes",
     "offline_device_credential_provisioner", "private_atomic_enrollment_artifacts", "two_generation_credential_rotation", "safe_old_credential_pruning", "no_secret_stdout",
     "cross_platform_agent_0_30", "collector_0_12", "device_bound_hmac", "per_device_credential_allowlist", "device_identity_mismatch_rejection", "phased_identity_rollout",
