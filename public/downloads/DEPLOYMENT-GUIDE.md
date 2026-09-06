@@ -160,10 +160,12 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 0.67.0 / Collector 0.16 在认证摘要中增加 `agent_coverage`：仅从每台设备最新的已接受报告中按六个固定 Agent 名称去重计数，并分别返回总设备数与 24 小时活跃设备数。未知名称、路径、用户名和原始 inventory 均不会进入摘要，旧报告也不会重复放大覆盖率。控制台摘要代理要求固定键集合、非负安全整数、`active <= total <= total_devices`，清洗后才交给页面；未连接时仍使用明确标识的演示数据。
 
-0.68.0 提供 `intune-deployment-manifest.json`，固定九项 Intune 上传文件的 SHA-256、SYSTEM/root 执行上下文、64 位 Windows 模式、隐藏 macOS 通知、部署依赖顺序和四级扩圈观察窗口。每次上传前先运行离线发行验证器，任何脚本字节变化都会使清单校验失败。当前仓库发行物明确标记为试点未签名；进入生产环前必须使用企业代码签名证书签署 PowerShell 脚本、重新生成摘要和清单并通过验证，不得把“MDM 已认证上传”替代脚本签名。凭据仍必须通过 Intune 受保护变量或企业密钥代理在清单之外传递。
+0.68.0 提供 `intune-deployment-manifest.json`，固定 Intune 上传文件的 SHA-256、SYSTEM/root 执行上下文、64 位 Windows 模式、隐藏 macOS 通知、部署依赖顺序和四级扩圈观察窗口。每次上传前先运行离线发行验证器，任何脚本字节变化都会使清单校验失败。当前仓库发行物明确标记为试点未签名；进入生产环前必须使用企业代码签名证书签署 PowerShell 脚本、重新生成摘要和清单并通过验证，不得把“MDM 已认证上传”替代脚本签名。凭据仍必须通过 Intune 受保护变量或企业密钥代理在清单之外传递。
 
 0.69.0 提供不含凭据的 Intune 晋级证据模板与 `sentinel_intune_preflight.py`。将模板复制到受控工作目录，填写当前时间、当前环及入环时间、只读 Collector 探针、发行验证、凭据带外投递、回滚演练、critical 数量、上报健康起始时间和企业签名核验结果，再运行 `python3 sentinel_intune_preflight.py --evidence <文件> --target-ring <pilot|broad|production>`。证据超过 24 小时、未满足当前环最短观察时间、跳环、脚本哈希漂移、critical 非零、宽范围前未完成回滚或 24 小时健康观察都会返回非零；当前试点未签名发行物无论证据如何均不能通过 production 预检。模板本身所有门禁默认为 false，不能被误作通过凭证。
 
 0.70.0 提供 OpenAPI 3.1 格式的 `sentinel-collector.openapi.json`，覆盖健康检查、报告提交、fleet 摘要、设备证据和最小审计五个实际端点，以及 Bearer、三项签名头、2 MB 请求上限、五分钟时间窗、原始请求体 HMAC 输入、接收/去重回执和错误响应。该文件可交给企业 API 网关和后端联调团队作为导入基线；示例服务器地址必须替换为企业内网域名。发行验证器会同时固定端点/方法集合、Collector 版本、认证方式、报告 Schema 引用、签名输入与报告响应码，防止实现与接口文档静默漂移。
 
 0.71.0 / Adapter 0.8 提供 `sentinel-vendor-contracts.json`，以机器可读方式固定深信服事件、联软合规姿态和安全 Webhook 的字段、HTTPS、15 秒超时、Bearer/HMAC 凭据边界及请求体 SHA-256 幂等键。深信服只允许观察、告警和待审批隔离/封禁，不允许适配器直接执行破坏性动作；非法动作现在在配置加载阶段即拒绝。联软配置必须明确提供 1–168 小时的策略有效期且 `critical_allowed` 必须为 0，缺字段、布尔值冒充整数或放宽 critical 门禁都会拒绝启动。该契约是与现网厂商 API 团队做字段映射和验收的安全上限，不能替代对应产品版本的正式接口文档。
+
+0.72.0 将 Windows 回滚与卸载脚本纳入 Intune 清单摘要，并提供 `sentinel-sign-intune.ps1`。在隔离的 Windows 签名工作站上，以未修改的企业 ZIP、全新输出目录、40 位证书指纹和 HTTPS 时间戳服务运行该工具；它只接受当前有效、含私钥及 Code Signing EKU 的唯一证书，对检测、修复、合规、上报配置、回滚和卸载六个 PowerShell 文件执行 SHA-256 Authenticode 签名并逐一复核签名状态与证书指纹。成功后更新十一项 Intune 文件摘要、标记 `production_signed`、记录不含秘密的签名元数据并重建独立 ZIP；任何错误都会删除不完整输出。随后在同一 Windows 工作站再次执行 `Get-AuthenticodeSignature`，并运行发行验证器及 Intune 晋级预检。原始试点 ZIP 保持不变，证书私钥和 PIN 不得进入命令参数、输出目录、Git 或 Intune 脚本文本。

@@ -23,12 +23,18 @@ class SentinelTests(unittest.TestCase):
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','Intune 部署清单','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
         manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
         self.assertEqual(manifest['deployment_order'][-2:],['custom_compliance','conditional_access']); self.assertEqual([ring['maximum_percent'] for ring in manifest['rollout_rings']],[1,5,25,100])
         for item in manifest['artifacts'].values(): self.assertEqual(item['sha256'],hashlib.sha256((DOWNLOADS/item['file']).read_bytes()).hexdigest())
+        self.assertTrue({'rollback-sentinel-windows.ps1','uninstall-sentinel-windows.ps1'}.issubset({item['file'] for item in manifest['artifacts'].values()}))
+    def test_intune_signing_workflow_is_isolated_and_fail_closed(self):
+        script=(DOWNLOADS/'sentinel-sign-intune.ps1').read_text()
+        for directive in ("OutputDirectory must not already exist","1.3.6.1.5.5.7.3.3","Set-AuthenticodeSignature","-HashAlgorithm SHA256","Get-AuthenticodeSignature","Status -ne 'Valid'","production_signed","[Text.UTF8Encoding]::new($false)","secrets_embedded=$false"):
+            self.assertIn(directive,script)
+        self.assertIn("'rollback-sentinel-windows.ps1'",script); self.assertIn("'uninstall-sentinel-windows.ps1'",script)
     def test_intune_preflight_enforces_cumulative_promotion_gates(self):
         now=2_000_000_000
         evidence={'schema':'sentinel.intune-evidence/v1','generated_at':now,'current_ring':'lab','current_ring_entered_at':now-86400,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':False,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
@@ -545,6 +551,10 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'intune-windows-detect.ps1').write_text('# drift')
             self.assertIn('intune_artifact_mismatch:intune-windows-detect.ps1',self.verifier.verify(copy))
+    def test_release_verifier_rejects_forged_production_signature_state(self):
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); manifest=json.loads((copy/'intune-deployment-manifest.json').read_text()); manifest['execution']['script_signature_state']='production_signed'; manifest['signing']={'certificate_thumbprint':'a'*40,'timestamp_server':'https://timestamp.invalid','signed_at':1,'verified_files':['intune-windows-detect.ps1','intune-windows-remediate.ps1','intune-compliance-discovery.ps1','sentinel-configure-windows.ps1','rollback-sentinel-windows.ps1','uninstall-sentinel-windows.ps1']}; (copy/'intune-deployment-manifest.json').write_text(json.dumps(manifest))
+            errors=self.verifier.verify(copy); self.assertIn('missing_authenticode_signature:intune-windows-detect.ps1',errors)
     def test_release_verifier_rejects_invalid_policy_regex(self):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'sentinel-policy.json').read_text()); policy['secret_patterns']=['[invalid']; (copy/'sentinel-policy.json').write_text(json.dumps(policy))

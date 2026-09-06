@@ -14,6 +14,8 @@
     "windows_compliance_discovery": {"file": "intune-compliance-discovery.ps1", "sha256": "c4828d07ff887690b3f992a223edf682808a113f639814d7fcb6088d01ce4e99"},
     "windows_compliance_rules": {"file": "intune-compliance-policy.json", "sha256": "f6855edcf38f903bab574dec37fe0b94efec055e70f48249e4f00d74ac7f4447"},
     "windows_reporting_configuration": {"file": "sentinel-configure-windows.ps1", "sha256": "256a35ffb5ff9e54938d089685437905892f60aa513544848d1b4da88694432f"},
+    "windows_rollback": {"file": "rollback-sentinel-windows.ps1", "sha256": "c6c84404fa15c4a476a251f3f0bb79dc1ee533217f5e96ceb8b74a52e4f604e0"},
+    "windows_uninstall": {"file": "uninstall-sentinel-windows.ps1", "sha256": "e6a5855457a48291e0ebb8ac6e3e44b21063886eaf230943ba63bd8a77834110"},
     "macos_install": {"file": "intune-macos-install.sh", "sha256": "2bf7be1fb2417a7fd6b9655dd2e75a23b4eef5f193fa7f0fac76665f8d2b3cad"},
     "macos_compliance_discovery": {"file": "intune-macos-compliance.sh", "sha256": "52b7da5d1c9158b78cac337d1fb505183b9fe57d45a47d484fceeefa99f4550f"},
     "macos_compliance_rules": {"file": "intune-macos-compliance-policy.json", "sha256": "7d321c6dce9654203aaab19efe689f3ba75d8f6193661e67ed3e2d26534b330f"},

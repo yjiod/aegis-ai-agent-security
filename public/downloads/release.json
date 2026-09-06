@@ -1,8 +1,9 @@
 {
-  "release": "0.71.0",
+  "release": "0.72.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T05:30:00+08:00",
+  "published_at": "2026-09-08T06:00:00+08:00",
   "features": [
+    "intune_authenticode_signing_workflow", "rollback_and_uninstall_digest_pinning", "code_signing_eku_gate", "timestamped_sha256_signatures", "isolated_signed_release_output", "forged_signature_state_rejection",
     "adapter_0_8", "machine_readable_vendor_contract", "strict_leagsoft_compliance_config", "early_sangfor_action_rejection", "vendor_transport_contract", "vendor_credential_boundary_contract",
     "collector_openapi_3_1", "machine_readable_report_receiver_contract", "hmac_signature_input_contract", "collector_route_drift_gate", "collector_response_contract", "gateway_import_artifact",
     "intune_rollout_preflight", "secret_free_promotion_evidence", "cumulative_ring_gates", "stale_evidence_rejection", "unsigned_production_fail_closed", "rollout_contract_verification",
