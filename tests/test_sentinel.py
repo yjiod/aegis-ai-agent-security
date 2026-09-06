@@ -33,7 +33,7 @@ class SentinelTests(unittest.TestCase):
         self.assertGreaterEqual(workflow.count('actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'),3)
         self.assertIn('tests/windows-agent-smoke.ps1',workflow)
         smoke=(ROOT/'tests/windows-agent-smoke.ps1').read_text()
-        for directive in ('powershell.exe -NoProfile','-ManagedUsersRoot $users',"agent_version -cne '0.34.0'","policy_version -cne 'invalid'","policy_load_failed"):
+        for directive in ('Start-Process -FilePath',"'-NoProfile'","'-ManagedUsersRoot'",'RedirectStandardError',"agent_version -cne '0.34.0'","policy_version -cne 'invalid'","policy_load_failed"):
             self.assertIn(directive,smoke)
         self.assertTrue((DOWNLOADS/'sentinel-windows.ps1').read_bytes().startswith(b'\xef\xbb\xbf'))
     def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
