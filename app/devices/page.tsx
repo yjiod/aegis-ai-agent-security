@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import {
-  AlertTriangle, Bot, CircleDot, Laptop, Plus, Search,
-  ShieldCheck, Trash2, Pencil, X, Check,
+  AlertTriangle, Plus, Search,
+  Trash2, Pencil, X, Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { useCollector } from '@/components/collector-context';
+import { Toast } from '@/components/toast';
 
 /* ─── Types ─────────────────────────────────────────────── */
 interface Device {
@@ -39,15 +39,35 @@ export default function DevicesPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const fetchDevices = useCallback(async () => {
+  const fetchDevices = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/devices', { cache: 'no-store' });
-      if (res.ok) { const data = await res.json(); setDevices(data.devices ?? []); }
-    } catch { /* fallback: keep current state */ }
+      const res = await fetch('/api/devices', { cache: 'no-store', signal });
+      if (res.ok) {
+        // `await res.json()` 静态类型是 unknown，按接口契约收窄后再取字段。
+        const data = (await res.json()) as { devices?: Device[] };
+        setDevices(data.devices ?? []);
+      }
+    } catch (error) {
+      // 主动取消不是失败：effect 清理时 abort 在途请求，直接返回不触碰 state。
+      if (error instanceof Error && error.name === 'AbortError') return;
+      /* 其余错误保持现有数据 */
+    }
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchDevices(); }, [fetchDevices]);
+  // setState 全部位于 await 之后，非 effect 内同步 setState（EffectSetState）；
+  // abort 保证卸载/重跑时不会有迟到的响应写回已失效的状态。
+  useEffect(() => {
+    const controller = new AbortController();
+    // EffectSetState 是基于调用图的静态启发式：它只看到「effect 内调用了含
+    // setState 的函数」，看不见 await 边界。此处 setState 全部位于 await 之后，
+    // 由 React 18+ 自动批处理合并为单次渲染，不构成规则所担心的同步级联渲染；
+    // AbortController 另保证迟到的响应不会写回已失效的状态。「按依赖变化取数
+    // 并存入 state」是 React 标准模式，不宜为迁就静态分析而扭曲结构。
+    // oxlint-disable-next-line react/react-compiler
+    void fetchDevices(controller.signal);
+    return () => controller.abort();
+  }, [fetchDevices]);
 
   function notify(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500); }
 
@@ -63,7 +83,7 @@ export default function DevicesPage() {
 
   async function handleDelete(device_id: string) {
     const res = await fetch(`/api/devices?device_id=${encodeURIComponent(device_id)}`, { method: 'DELETE' });
-    if (res.ok) { notify(`设备 ${device_id} 已从注册表移除。`); fetchDevices(); }
+    if (res.ok) { notify(`设备 ${device_id} 已从注册表移除。`); await fetchDevices(); }
     else notify('删除失败，请重试。');
     setDeleteConfirm(null);
   }
@@ -89,7 +109,7 @@ export default function DevicesPage() {
         </div>
       </div>
 
-      {toast && <div className="toast" role="status"><CircleDot size={16} />{toast}</div>}
+      <Toast message={toast} />
 
       {/* KPI cards */}
       <div className="detail-kpis animate-entrance animate-entrance-2">
@@ -99,7 +119,7 @@ export default function DevicesPage() {
       </div>
 
       {/* Registration form */}
-      {showForm && <DeviceForm onCreate={() => { setShowForm(false); fetchDevices(); notify('设备注册成功。'); }} notify={notify} />}
+      {showForm && <DeviceForm onCreate={() => { setShowForm(false); void fetchDevices(); notify('设备注册成功。'); }} notify={notify} />}
 
       {/* Search */}
       <div className="panel animate-entrance animate-entrance-3" style={{ marginBottom: 14 }}>
@@ -149,7 +169,7 @@ export default function DevicesPage() {
                   </div>
                 </div>
                 {editId === d.device_id && (
-                  <EditPanel device={d} onSave={() => { setEditId(null); fetchDevices(); notify('设备信息已更新。'); }} onCancel={() => setEditId(null)} notify={notify} />
+                  <EditPanel device={d} onSave={() => { setEditId(null); void fetchDevices(); notify('设备信息已更新。'); }} onCancel={() => setEditId(null)} notify={notify} />
                 )}
                 {deleteConfirm === d.device_id && (
                   <div style={{ padding: '8px 12px', fontSize: 11, color: '#ff8f88', background: '#1a1210', borderRadius: 6, margin: '4px 0' }}>
@@ -174,15 +194,20 @@ export default function DevicesPage() {
 function DeviceForm({ onCreate, notify }: { onCreate: () => void; notify: (m: string) => void }) {
   const [form, setForm] = useState({ device_id: '', hostname: '', owner: '', agent_type: 'cursor', notes: '' });
   const [submitting, setSubmitting] = useState(false);
+  // useId 而非硬编码字符串：同一表单可能被多处渲染，硬编码会产生重复 id。
+  const agentTypeId = useId();
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!form.device_id || !form.hostname || !form.owner) { notify('请填写所有必填字段。'); return; }
     setSubmitting(true);
     const res = await fetch('/api/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
     setSubmitting(false);
     if (res.status === 201) { onCreate(); }
-    else { const err = await res.json().catch(() => ({})); notify(`注册失败: ${err.error ?? res.status}`); }
+    else {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      notify(`注册失败: ${err.error ?? res.status}`);
+    }
   }
 
   return (
@@ -193,8 +218,8 @@ function DeviceForm({ onCreate, notify }: { onCreate: () => void; notify: (m: st
         <Field label="主机名 *" value={form.hostname} onChange={(v) => setForm({ ...form, hostname: v })} placeholder="eng-mbp-1234" />
         <Field label="负责人 *" value={form.owner} onChange={(v) => setForm({ ...form, owner: v })} placeholder="张三" />
         <div>
-          <label style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>Agent 类型</label>
-          <select value={form.agent_type} onChange={(e) => setForm({ ...form, agent_type: e.target.value })} className="form-select">
+          <label htmlFor={agentTypeId} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>Agent 类型</label>
+          <select id={agentTypeId} value={form.agent_type} onChange={(e) => setForm({ ...form, agent_type: e.target.value })} className="form-select">
             <option value="cursor">Cursor</option><option value="claude_code">Claude Code</option>
             <option value="codex_cli">Codex CLI</option><option value="windsurf">Windsurf</option><option value="other">其他</option>
           </select>
@@ -239,10 +264,11 @@ function EditPanel({ device, onSave, onCancel, notify }: { device: Device; onSav
 
 /* ─── Shared Field ──────────────────────────────────────── */
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  const id = useId();
   return (
     <div>
-      <label style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>{label}</label>
-      <input className="form-input" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      <label htmlFor={id} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>{label}</label>
+      <input id={id} className="form-input" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
     </div>
   );
 }

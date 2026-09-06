@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
-import { AlertTriangle, CircleDot, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Toast } from '@/components/toast';
 
 const policies = [
   { name: '自动发现 AI Agent', desc: '检测主流 AI Coding 工具（Cursor、Claude Code、Codex、Windsurf）', on: true },
@@ -54,12 +55,7 @@ export default function PoliciesPage() {
         </div>
       </div>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      )}
+      <Toast message={toast} />
 
       <div className="panel">
         <div className="panel-head">
