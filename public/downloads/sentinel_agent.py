@@ -324,6 +324,26 @@ def install_user_baselines(homes=None):
                     except OSError: pass
                 changed.append(str(path))
     return changed
+def verify_user_baselines(homes=None):
+    """Return privacy-minimized evidence that detected user Agents loaded the managed block."""
+    homes=managed_homes() if homes is None else homes; expected=BASELINE.read_text().rstrip(); inventory=[]; findings=[]
+    targets={"codex":(".codex",".codex/AGENTS.md"),"claude_code":((".claude",".claude.json"),".claude/CLAUDE.md"),"gemini_cli":(".gemini",".gemini/GEMINI.md"),"github_copilot_cli":(".copilot",".copilot/copilot-instructions.md")}
+    for home in homes:
+        home=Path(home)
+        for agent,(markers,relative) in targets.items():
+            markers=(markers,) if isinstance(markers,str) else markers
+            if not any((home/marker).exists() for marker in markers): continue
+            path=home/relative; status="missing"
+            if not safe_managed_target(home,path): status="unsafe"
+            elif path.is_file():
+                try:
+                    text=path.read_text(errors="ignore"); starts=text.count(USER_BASELINE_START); ends=text.count(USER_BASELINE_END)
+                    match=re.search(re.escape(USER_BASELINE_START)+r"\n(.*?)\n"+re.escape(USER_BASELINE_END),text,re.S)
+                    status="managed" if starts==1 and ends==1 and match and match.group(1).rstrip()==expected else "malformed"
+                except OSError: status="unreadable"
+            inventory.append({"type":"agent_baseline","name":agent,"status":status,"scope":"user"})
+            if status!="managed": findings.append(finding("agent_baseline_not_loaded","high",path,f"{agent} 已发现但企业安全基线未处于受管状态",status))
+    return inventory,findings
 def discover_repositories(root,max_depth=4):
     root=root.resolve(); repos=[]
     if (root/".git").exists(): repos.append(root)
@@ -351,7 +371,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.31.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.32.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -410,13 +430,15 @@ def write_upload_status(path,url,now=None):
     if not host: raise ValueError("invalid_upload_status_host")
     value={"schema":"sentinel.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
-def build_report(root,policy):
+def build_report(root,policy,verify_baselines=False):
     inventory,findings=scan(root,policy)
+    if verify_baselines:
+        baseline_inventory,baseline_findings=verify_user_baselines(); inventory.extend(baseline_inventory); findings.extend(baseline_findings)
     if len(inventory)>REPORT_INVENTORY_LIMIT:
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.31.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.32.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -436,7 +458,7 @@ def main():
     while True:
         policy,reload_failed=reload_policy(args.policy,policy)
         if args.auto_enroll: auto_enroll(root)
-        report=build_report(root,policy); data=json.dumps(report,ensure_ascii=False,indent=2)
+        report=build_report(root,policy,verify_baselines=args.auto_enroll); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reload_failed:
             add_report_finding(report,finding("policy_reload_failed","high",args.policy,"策略热加载失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reporting_error:

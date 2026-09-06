@@ -23,6 +23,7 @@ class SentinelTests(unittest.TestCase):
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
+        self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
         for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
@@ -116,6 +117,7 @@ class SentinelTests(unittest.TestCase):
             text=target.read_text(); self.assertEqual(set(first),{str(target),str(active/'.gemini/GEMINI.md'),str(active/'.copilot/copilot-instructions.md')}); self.assertEqual(second,[])
             self.assertIn('Personal rules',text); self.assertEqual(text.count(self.agent.USER_BASELINE_START),1); self.assertFalse((untouched/'.codex').exists())
         windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); self.assertIn('function Sync-SentinelUserBaselines',windows); self.assertIn('Sync-SentinelUserBaselines $userHomes',windows); self.assertIn("kind='malformed_user_baseline_block'",windows); self.assertIn('baseline markers malformed',remediation)
+        self.assertIn('function Get-SentinelUserBaselineStatus',windows); self.assertIn("type='agent_baseline'",windows); self.assertIn("kind='agent_baseline_not_loaded'",windows)
         remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
         self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('Test-Path $geminiDir',remediation); self.assertIn('Test-Path $copilotDir',remediation); self.assertIn('ReparsePoint',remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
@@ -123,6 +125,12 @@ class SentinelTests(unittest.TestCase):
         for script in (mac,windows): self.assertIn('sentinel-managed-user-baseline:start',script); self.assertIn('sentinel-managed-user-baseline:end',script); self.assertIn('GEMINI.md',script); self.assertIn('copilot-instructions.md',script)
         self.assertIn('[ ! -L "$file" ]',mac); self.assertIn('ReparsePoint',windows)
         self.assertIn('Repository rule files',mac); self.assertIn('Repository rule files',windows)
+    def test_user_baseline_attestation_reports_managed_and_failed_states(self):
+        with tempfile.TemporaryDirectory() as d:
+            home=Path(d); (home/'.codex').mkdir(); (home/'.gemini').mkdir(); self.agent.install_user_baselines([home])
+            inventory,findings=self.agent.verify_user_baselines([home]); self.assertEqual({item['status'] for item in inventory},{'managed'}); self.assertEqual(findings,[])
+            (home/'.gemini/GEMINI.md').write_text('user content only')
+            inventory,findings=self.agent.verify_user_baselines([home]); states={item['name']:item['status'] for item in inventory}; self.assertEqual(states['codex'],'managed'); self.assertEqual(states['gemini_cli'],'malformed'); self.assertEqual(findings[0]['kind'],'agent_baseline_not_loaded'); self.assertNotIn('user content',json.dumps(findings))
     def test_collector_contract(self):
         now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
@@ -138,10 +146,11 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
         spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
-        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.16.0')
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.17.0')
         self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
         post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
+        self.assertIn('baseline_coverage',spec['components']['schemas']['FleetSummary']['required'])
         self.assertEqual(spec['components']['securitySchemes']['bearerAuth'],{'type':'http','scheme':'bearer'}); self.assertEqual(paths['/health']['get']['security'],[])
         parameters=spec['components']['parameters']; self.assertEqual([parameters[name]['name'] for name in ('Timestamp','Signature','DeviceId')],['X-Sentinel-Timestamp','X-Sentinel-Signature','X-Sentinel-Device-ID'])
     def test_collector_database_deduplication_support(self):
@@ -191,6 +200,14 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(summary['version_posture'],{'current':0,'agent_mismatch':0,'policy_mismatch':0,'both_mismatch':0,'unknown':3})
             self.assertEqual(summary['credential_posture'],{'current':0,'previous':0,'legacy':3})
             self.assertEqual(summary['agent_coverage']['cursor'],{'total':2,'active':2}); self.assertEqual(summary['agent_coverage']['gemini_cli'],{'total':1,'active':1}); self.assertEqual(summary['agent_coverage']['github_copilot_cli'],{'total':1,'active':0})
+            self.assertEqual(summary['baseline_coverage'],{name:{'total':0,'managed':0} for name in ('claude_code','codex','gemini_cli','github_copilot_cli')})
+    def test_collector_aggregates_only_minimized_baseline_attestation(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=200000
+            first={'device_id':'device-a','agent_version':'0.32.0','policy_version':'4.8.0','summary':{'critical':0,'high':0},'inventory':[{'type':'agent_baseline','name':'codex','status':'managed','path':'must-not-aggregate'},{'type':'agent_baseline','name':'gemini_cli','status':'malformed'}]}
+            second={'device_id':'device-b','agent_version':'0.32.0','policy_version':'4.8.0','summary':{'critical':0,'high':0},'inventory':[{'type':'agent_baseline','name':'codex','status':'missing'},{'type':'agent_baseline','name':'unknown','status':'managed'}]}
+            self.collector.store_report(path,b'a',first,now=now); self.collector.store_report(path,b'b',second,now=now)
+            coverage=self.collector.collector_summary(path,now=now)['baseline_coverage']; self.assertEqual(coverage['codex'],{'total':2,'managed':1}); self.assertEqual(coverage['gemini_cli'],{'total':1,'managed':0}); self.assertNotIn('unknown',coverage); self.assertNotIn('path',json.dumps(coverage))
     def test_collector_summary_classifies_latest_version_drift(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
@@ -277,7 +294,7 @@ class SentinelTests(unittest.TestCase):
             with patch.dict(os.environ,env,clear=True):
                 server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
                 try:
-                    now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.31.0','policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
+                    now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.32.0','policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
                     headers=self.agent.report_headers(body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=headers,method='POST')
                     with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,202)
                     mixed=self.agent.report_headers(body,token,old_secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=mixed,method='POST')
@@ -293,7 +310,7 @@ class SentinelTests(unittest.TestCase):
                     devices_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(devices_request,timeout=3) as response:
                         devices=json.load(response); self.assertTrue(devices['complete']); self.assertEqual(devices['devices'][0]['credential_generation'],'current'); self.assertGreaterEqual(devices['generated_at'],now)
-                    self.collector.store_report(server.db_path,b'other',{'device_id':'000000000000','agent_version':'0.31.0','policy_version':'4.8.0','summary':{'critical':0,'high':0}},now=now)
+                    self.collector.store_report(server.db_path,b'other',{'device_id':'000000000000','agent_version':'0.32.0','policy_version':'4.8.0','summary':{'critical':0,'high':0}},now=now)
                     limited_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?limit=1',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(limited_request,timeout=3) as response:
                         limited=json.load(response); self.assertFalse(limited['complete']); self.assertEqual(len(limited['devices']),1)
@@ -510,8 +527,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.31.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.31.0')
+        self.assertIn("agent_version='0.32.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.32.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -595,7 +612,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'sentinel.report/v1','agent_version':'0.31.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.32.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['SentinelReportValid']); self.assertTrue(parsed['SentinelReportingConfigured']); self.assertTrue(parsed['SentinelReportingHealthy'])
             upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingHealthy']); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
             reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingConfigured']); reporting.chmod(0o600)

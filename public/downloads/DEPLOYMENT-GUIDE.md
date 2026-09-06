@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.16 默认要求 Agent 0.31.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.17 默认要求 Agent 0.32.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -169,3 +169,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.71.0 / Adapter 0.8 提供 `sentinel-vendor-contracts.json`，以机器可读方式固定深信服事件、联软合规姿态和安全 Webhook 的字段、HTTPS、15 秒超时、Bearer/HMAC 凭据边界及请求体 SHA-256 幂等键。深信服只允许观察、告警和待审批隔离/封禁，不允许适配器直接执行破坏性动作；非法动作现在在配置加载阶段即拒绝。联软配置必须明确提供 1–168 小时的策略有效期且 `critical_allowed` 必须为 0，缺字段、布尔值冒充整数或放宽 critical 门禁都会拒绝启动。该契约是与现网厂商 API 团队做字段映射和验收的安全上限，不能替代对应产品版本的正式接口文档。
 
 0.72.0 将 Windows 回滚与卸载脚本纳入 Intune 清单摘要，并提供 `sentinel-sign-intune.ps1`。在隔离的 Windows 签名工作站上，以未修改的企业 ZIP、全新输出目录、40 位证书指纹和 HTTPS 时间戳服务运行该工具；它只接受当前有效、含私钥及 Code Signing EKU 的唯一证书，对检测、修复、合规、上报配置、回滚和卸载六个 PowerShell 文件执行 SHA-256 Authenticode 签名并逐一复核签名状态与证书指纹。成功后更新十一项 Intune 文件摘要、标记 `production_signed`、记录不含秘密的签名元数据并重建独立 ZIP；任何错误都会删除不完整输出。随后在同一 Windows 工作站再次执行 `Get-AuthenticodeSignature`，并运行发行验证器及 Intune 晋级预检。原始试点 ZIP 保持不变，证书私钥和 PIN 不得进入命令参数、输出目录、Git 或 Intune 脚本文本。
+
+0.73.0 / Agent 0.32.0 / Collector 0.17 将“自动加载基线”变成可验证结果。每次四小时周期扫描会先重新发现 Codex、Claude Code、Gemini CLI 与 GitHub Copilot CLI 并增量同步用户级托管块，随后逐项验证目标没有越界/重解析、托管标记唯一完整且内容与当前基线一致；失败产生 `agent_baseline_not_loaded` 高危项，报告 inventory 仅记录 Agent 名、`managed|missing|malformed|unsafe|unreadable` 状态和用户级范围，不包含用户名或指令正文。Collector 只从每台设备最新报告聚合四类 `baseline_coverage.total/managed`，忽略未知名称和路径；私有控制台代理再次执行固定键、非负整数及 `managed <= total <= total_devices` 校验后才显示实时受管数量。Cursor 与 Windsurf 继续通过受管代码仓库规则加载基线，不伪装成用户级全局指令能力。

@@ -37,7 +37,7 @@ def check_read_only(base,token):
     if status!=401: raise ValueError("unauthorized_summary_not_rejected")
     headers=auth_headers(token)
     _,summary=request_json(endpoint(base,"/v1/summary"),headers)
-    required={"generated_at","active_window_seconds","required_agent_version","required_policy_version","total_devices","active_devices","stale_devices","latest_severity","version_posture","credential_posture","agent_coverage"}
+    required={"generated_at","active_window_seconds","required_agent_version","required_policy_version","total_devices","active_devices","stale_devices","latest_severity","version_posture","credential_posture","agent_coverage","baseline_coverage"}
     if not isinstance(summary,dict) or set(summary)!=required or type(summary["generated_at"]) is not int or type(summary["total_devices"]) is not int: raise ValueError("summary_contract_invalid")
     _,devices=request_json(endpoint(base,"/v1/devices?limit=10000"),headers)
     if not isinstance(devices,dict) or set(devices)!={"generated_at","complete","devices"} or type(devices["generated_at"]) is not int or type(devices["complete"]) is not bool or not isinstance(devices["devices"],list) or len(devices["devices"])>10000: raise ValueError("devices_contract_invalid")
@@ -46,7 +46,7 @@ def check_read_only(base,token):
 def check_write(base,token,secret,device_id):
     if not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("invalid_probe_credentials")
     if not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_device_id")
-    now=int(time.time()); report={"schema":"sentinel.report/v1","agent_version":"0.31.0","policy_version":"4.8.0","device_id":device_id,"scanned_at":now,"summary":{"critical":0,"high":0,"medium":0,"low":0},"findings":[]}
+    now=int(time.time()); report={"schema":"sentinel.report/v1","agent_version":"0.32.0","policy_version":"4.8.0","device_id":device_id,"scanned_at":now,"summary":{"critical":0,"high":0,"medium":0,"low":0},"findings":[]}
     body=json.dumps(report,separators=(",",":"),ensure_ascii=False).encode(); digest=hashlib.sha256(body).hexdigest(); signature=hmac.new(secret.encode(),str(now).encode()+b"."+device_id.encode()+b"."+body,hashlib.sha256).hexdigest()
     headers={**auth_headers(token),"Content-Type":"application/json","X-Sentinel-Timestamp":str(now),"X-Sentinel-Signature":"sha256="+signature,"X-Sentinel-Device-ID":device_id}
     results=[]

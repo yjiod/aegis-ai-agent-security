@@ -128,6 +128,18 @@ function Sync-SentinelUserBaselines([object[]]$homes) {
     }
   }
 }
+function Get-SentinelUserBaselineStatus([string]$home,[string]$agent) {
+  $relative=switch($agent){'codex'{'.codex\AGENTS.md'}'claude_code'{'.claude\CLAUDE.md'}'gemini_cli'{'.gemini\GEMINI.md'}'github_copilot_cli'{'.copilot\copilot-instructions.md'}default{return $null}}
+  $target=Join-Path $home $relative
+  if(-not (Test-SentinelSafeTarget $home $target)){return @{path=$target;status='unsafe'}}
+  if(-not (Test-Path $target -PathType Leaf)){return @{path=$target;status='missing'}}
+  try{
+    $text=Get-Content $target -Raw;$start='<!-- sentinel-managed-user-baseline:start -->';$end='<!-- sentinel-managed-user-baseline:end -->';$expected=(Get-Content $baselinePath -Raw).TrimEnd()
+    $matches=[regex]::Matches($text,[regex]::Escape($start)+"`n(.*?)`n"+[regex]::Escape($end),[Text.RegularExpressions.RegexOptions]::Singleline)
+    if($matches.Count -eq 1 -and $matches[0].Groups[1].Value.TrimEnd() -ceq $expected){return @{path=$target;status='managed'}}
+    return @{path=$target;status='malformed'}
+  }catch{return @{path=$target;status='unreadable'}}
+}
 function Inspect-SentinelMcpJson([System.IO.FileInfo]$file,[string]$text) {
   if (-not $policy) { return }
   try { $config=$text | ConvertFrom-Json } catch { $script:findings += @{kind='invalid_mcp_config';severity='medium';path=(Protect-SentinelPath $file.FullName);message='MCP JSON 配置无法解析'}; return }
@@ -229,7 +241,7 @@ $agentMarkers = @{
 foreach ($home in $userHomes) {
   foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf','.gemini','.copilot')) { $candidate=Join-Path $home.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
   foreach ($agent in $agentMarkers.Keys) {
-    foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $home.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-SentinelPath $marker);scope='user';detected_by='filesystem_marker'};break} }
+    foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $home.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-SentinelPath $marker);scope='user';detected_by='filesystem_marker'};$baseline=Get-SentinelUserBaselineStatus $home.FullName $agent;if($baseline){$inventory += @{type='agent_baseline';name=$agent;status=$baseline.status;scope='user'};if($baseline.status -ne 'managed'){$findings += @{kind='agent_baseline_not_loaded';severity='high';path=(Protect-SentinelPath $baseline.path);message="$agent 已发现但企业安全基线未处于受管状态";evidence=$baseline.status}}};break} }
   }
 }
 $systemMarkers = @{
@@ -277,7 +289,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.31.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.32.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

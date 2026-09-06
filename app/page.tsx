@@ -109,6 +109,7 @@ type FleetSummary = {
   };
   credential_posture?: { current: number; previous: number; legacy: number };
   agent_coverage: Record<'cursor'|'claude_code'|'codex'|'windsurf'|'gemini_cli'|'github_copilot_cli',{total:number;active:number}>;
+  baseline_coverage: Record<'claude_code'|'codex'|'gemini_cli'|'github_copilot_cli',{total:number;managed:number}>;
 };
 
 export default function Home() {
@@ -136,9 +137,9 @@ export default function Home() {
   const totalDevices=fleet?.total_devices ?? 312; const activeDevices=fleet?.active_devices ?? 284; const staleDevices=fleet?.stale_devices ?? 28;
   const currentDevices=fleet?.version_posture.current ?? 302; const coverage=totalDevices ? (currentDevices/totalDevices)*100 : 0;
   const highRiskDevices=fleet ? fleet.latest_severity.critical+fleet.latest_severity.high : 12; const driftDevices=fleet ? totalDevices-currentDevices : 10;
-  const agentCoverage: [string,number,number][] = fleet ? [
-    ['Cursor',fleet.agent_coverage.cursor.total,fleet.agent_coverage.cursor.active],['Claude Code',fleet.agent_coverage.claude_code.total,fleet.agent_coverage.claude_code.active],['Codex CLI',fleet.agent_coverage.codex.total,fleet.agent_coverage.codex.active],['Windsurf',fleet.agent_coverage.windsurf.total,fleet.agent_coverage.windsurf.active],['Gemini CLI',fleet.agent_coverage.gemini_cli.total,fleet.agent_coverage.gemini_cli.active],['GitHub Copilot CLI',fleet.agent_coverage.github_copilot_cli.total,fleet.agent_coverage.github_copilot_cli.active],
-  ] : [['Cursor',124,100],['Claude Code',86,78],['Codex CLI',64,58],['Windsurf',38,34],['Gemini CLI',42,37],['GitHub Copilot CLI',51,45]];
+  const agentCoverage: [string,number,number,number|null,number|null][] = fleet ? [
+    ['Cursor',fleet.agent_coverage.cursor.total,fleet.agent_coverage.cursor.active,null,null],['Claude Code',fleet.agent_coverage.claude_code.total,fleet.agent_coverage.claude_code.active,fleet.baseline_coverage.claude_code.managed,fleet.baseline_coverage.claude_code.total],['Codex CLI',fleet.agent_coverage.codex.total,fleet.agent_coverage.codex.active,fleet.baseline_coverage.codex.managed,fleet.baseline_coverage.codex.total],['Windsurf',fleet.agent_coverage.windsurf.total,fleet.agent_coverage.windsurf.active,null,null],['Gemini CLI',fleet.agent_coverage.gemini_cli.total,fleet.agent_coverage.gemini_cli.active,fleet.baseline_coverage.gemini_cli.managed,fleet.baseline_coverage.gemini_cli.total],['GitHub Copilot CLI',fleet.agent_coverage.github_copilot_cli.total,fleet.agent_coverage.github_copilot_cli.active,fleet.baseline_coverage.github_copilot_cli.managed,fleet.baseline_coverage.github_copilot_cli.total],
+  ] : [['Cursor',124,100,null,null],['Claude Code',86,78,83,86],['Codex CLI',64,58,62,64],['Windsurf',38,34,null,null],['Gemini CLI',42,37,40,42],['GitHub Copilot CLI',51,45,48,51]];
   return (
     <main className="min-h-screen bg-[#07110f] text-[#eaf7f2]">
       <header className="topbar">
@@ -365,14 +366,14 @@ export default function Home() {
                 </div>
                 <button>查看全部</button>
               </div>
-              {agentCoverage.map(([name, total, online]) => (
+              {agentCoverage.map(([name, total, online, managed, baselineTotal]) => (
                 <div className="coverage-row" key={String(name)}>
                   <div className="tool-logo">{String(name).slice(0, 1)}</div>
                   <div className="coverage-data">
                     <div>
                       <strong>{name}</strong>
                       <span>
-                        {online}/{total} 在线
+                        {online}/{total} 在线{managed===null?'':` · ${managed}/${baselineTotal} 基线受管`}
                       </span>
                     </div>
                     <Progress value={total ? (online / total) * 100 : 0} />
@@ -529,7 +530,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent 0.31.0</h2>
+                <h2>Sentinel Endpoint Agent 0.32.0</h2>
                 <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
