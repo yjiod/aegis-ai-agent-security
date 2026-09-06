@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.14 默认要求 Agent 0.30.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.15 默认要求 Agent 0.30.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -149,3 +149,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.61.0 / Collector 0.13 强制 Token 与 HMAC 必须来自同一凭据代次；“新 Token + 旧 HMAC”等交叉组合返回 401。每次成功接收（包括语义重复报告）都会更新设备认证代次，`/v1/summary` 返回 `credential_posture.current/previous/legacy`，`/v1/devices` 返回每台设备的 `credential_generation`，均不暴露凭据。裁剪旧代前，将认证后的 `/v1/devices` 响应保存为本地 JSON，并以 `--activation-evidence` 传给 `sentinel_device_credentials.py --prune-old`；只有本次目标设备全部明确为 `current` 时才允许裁剪，缺失、重复、过大、结构异常或仍使用 previous/legacy 的证据均失败关闭。私有控制台的只读摘要代理会验证并展示该代次姿态。
 
 0.62.0 / Collector 0.14 为 `/v1/devices` 增加 `generated_at`，逐设备 `last_seen` 在启用身份绑定后使用最近一次成功认证时间，因此相同报告重放也可证明新凭据已生效。裁剪工具只接受生成时间不超过 15 分钟、未来偏差不超过 60 秒的证据，并要求每台目标设备在证据生成前 24 小时内以 current 凭据成功认证。过期导出、长期离线终端或时间不一致均不能作为删除旧代的依据。
+
+0.63.0 / Collector 0.15 为 `/v1/devices` 增加 `limit` 查询参数（1–10000，默认 500）及 `complete` 标志，并用单次聚合查询替代逐设备计数。全 fleet 裁剪前应请求 `/v1/devices?limit=10000`；只有结果未被截断时 `complete` 才为 true。凭据工具要求证据包含精确的 `complete:true`，因此默认 500 条导出、超出 10000 台的 fleet 或任何截断结果都不能被误当成全量激活证明。

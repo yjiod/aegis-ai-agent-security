@@ -53,9 +53,9 @@ def load_manifest(path):
 def verify_activation_evidence(path,device_ids,now=None,max_age=900,active_window=86400):
     if not path: raise ValueError("activation_evidence_required")
     source=Path(path)
-    if source.is_symlink() or not source.is_file() or source.stat().st_size>1_000_000: raise ValueError("activation_evidence_invalid")
+    if source.is_symlink() or not source.is_file() or source.stat().st_size>2_000_000: raise ValueError("activation_evidence_invalid")
     value=json.loads(source.read_text(encoding="utf-8")); rows=value.get("devices") if isinstance(value,dict) else None
-    if not isinstance(value,dict) or set(value)!={"generated_at","devices"} or type(value.get("generated_at")) is not int or not isinstance(rows,list) or len(rows)>10000: raise ValueError("activation_evidence_invalid")
+    if not isinstance(value,dict) or set(value)!={"generated_at","complete","devices"} or value.get("complete") is not True or type(value.get("generated_at")) is not int or not isinstance(rows,list) or len(rows)>10000: raise ValueError("activation_evidence_invalid")
     now=int(time.time()) if now is None else int(now); generated_at=value["generated_at"]
     if not -60<=now-generated_at<=max_age: raise ValueError("activation_evidence_stale")
     generations={}
