@@ -107,6 +107,7 @@ type FleetSummary = {
     both_mismatch: number;
     unknown: number;
   };
+  credential_posture?: { current: number; previous: number; legacy: number };
 };
 
 export default function Home() {
@@ -444,6 +445,7 @@ export default function Home() {
           view={detail}
           close={() => setDetail(null)}
           notify={setToast}
+          fleet={fleet}
         />
       )}
     </main>
@@ -479,10 +481,12 @@ function DetailPanel({
   view,
   close,
   notify,
+  fleet,
 }: {
   view: DetailKey;
   close: () => void;
   notify: (s: string) => void;
+  fleet: FleetSummary | null;
 }) {
   const scanRows =
     view === 'skills'
@@ -526,7 +530,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent 0.25.0</h2>
+                <h2>Sentinel Endpoint Agent 0.30.0</h2>
                 <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
@@ -547,6 +551,7 @@ function DetailPanel({
                 <a href="/downloads/intune-macos-install.sh" download>macOS Intune 脚本</a>
                 <a href="/downloads/intune-macos-compliance.sh" download>macOS 合规脚本</a>
                 <a href="/downloads/sentinel-policy.json" download>策略基线</a>
+                <a href="/downloads/sentinel_device_credentials.py" download>逐设备凭据工具</a>
               </div>
               <p className="safety-note"><LockKeyhole size={15}/>部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。</p>
             </div>
@@ -593,7 +598,8 @@ function DetailPanel({
             <div className="panel-head">
               <div>
                 <h2>受管终端</h2>
-                <p>312 台设备 · 284 台在线</p>
+                <p>{fleet ? `${fleet.total_devices} 台设备 · ${fleet.active_devices} 台在线` : '312 台设备 · 284 台在线（样例）'}</p>
+                {fleet?.credential_posture && <p>凭据代次：当前 {fleet.credential_posture.current} · 上一代 {fleet.credential_posture.previous} · Legacy {fleet.credential_posture.legacy}</p>}
               </div>
               <Button onClick={() => notify('演示模式：请直接下载已验证发行包，未创建外部任务。')}>
                 生成部署包
