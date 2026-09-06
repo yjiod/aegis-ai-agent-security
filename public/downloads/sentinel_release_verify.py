@@ -68,7 +68,7 @@ def verify(downloads):
     if intune.get("schema")!="sentinel.intune-deployment/v1" or intune.get("secrets_embedded") is not False: errors.append("unsafe_intune_manifest_contract")
     state=execution.get("script_signature_state"); expected_execution={"windows_run_as":"system","windows_run_as_32_bit":False,"macos_run_as":"root","macos_hide_notifications":True,"script_signature_state":state,"production_signature_required":True}
     if state not in {"pilot_unsigned","production_signed"} or execution!=expected_execution: errors.append("unsafe_intune_execution_context")
-    expected_intune_files={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","sentinel-configure-windows.ps1","rollback-sentinel-windows.ps1","uninstall-sentinel-windows.ps1","intune-macos-install.sh","intune-macos-compliance.sh","intune-macos-compliance-policy.json","sentinel-configure-macos.sh","rollback-sentinel-macos.sh"}
+    expected_intune_files={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","sentinel-configure-windows.ps1","rollback-sentinel-windows.ps1","uninstall-sentinel-windows.ps1","intune-macos-install.sh","intune-macos-compliance.sh","intune-macos-compliance-policy.json","sentinel-configure-macos.sh","rollback-sentinel-macos.sh","uninstall-sentinel-macos.sh"}
     listed=[]
     for item in artifacts.values() if isinstance(artifacts,dict) else []:
         if not isinstance(item,dict) or set(item)!={"file","sha256"}: errors.append("invalid_intune_artifact"); continue
@@ -116,6 +116,12 @@ def verify(downloads):
         if directive not in macos_install: errors.append(f"missing_macos_daemon_snapshot:{directive}")
     for directive in ('launch-daemon.plist','Previous LaunchDaemon snapshot is missing or oversized','failed the safety contract'):
         if directive not in macos_rollback: errors.append(f"unsafe_macos_daemon_rollback:{directive}")
+    try: windows_uninstall=(downloads/"uninstall-sentinel-windows.ps1").read_text(); macos_uninstall=(downloads/"uninstall-sentinel-macos.sh").read_text()
+    except OSError as exc: errors.append(f"invalid_uninstall_boundary:{type(exc).__name__}"); windows_uninstall=macos_uninstall=""
+    for directive in ('ReparsePoint','$starts.Count -ne 1','$ends.Count -ne 1','$starts[0].Index -ge $ends[0].Index','refusing recursive removal'):
+        if directive not in windows_uninstall: errors.append(f"unsafe_windows_uninstall:{directive}")
+    for directive in ('[ ! -L "$home" ]','[ ! -L "$(/usr/bin/dirname "$file")" ]','start_count','end_count','refusing recursive removal','not owned by root'):
+        if directive not in macos_uninstall: errors.append(f"unsafe_macos_uninstall:{directive}")
     try: service=(downloads/"sentinel-collector.service").read_text()
     except OSError as exc: errors.append(f"invalid_collector_service:{type(exc).__name__}"); service=""
     for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/collector.env","--listen 127.0.0.1","NoNewPrivileges=true","ProtectSystem=strict","ProtectHome=true","CapabilityBoundingSet="):

@@ -30,7 +30,7 @@ class SentinelTests(unittest.TestCase):
         manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
         self.assertEqual(manifest['deployment_order'][-2:],['custom_compliance','conditional_access']); self.assertEqual([ring['maximum_percent'] for ring in manifest['rollout_rings']],[1,5,25,100])
         for item in manifest['artifacts'].values(): self.assertEqual(item['sha256'],hashlib.sha256((DOWNLOADS/item['file']).read_bytes()).hexdigest())
-        self.assertTrue({'rollback-sentinel-windows.ps1','rollback-sentinel-macos.sh','uninstall-sentinel-windows.ps1'}.issubset({item['file'] for item in manifest['artifacts'].values()}))
+        self.assertTrue({'rollback-sentinel-windows.ps1','rollback-sentinel-macos.sh','uninstall-sentinel-windows.ps1','uninstall-sentinel-macos.sh'}.issubset({item['file'] for item in manifest['artifacts'].values()}))
     def test_intune_signing_workflow_is_isolated_and_fail_closed(self):
         script=(DOWNLOADS/'sentinel-sign-intune.ps1').read_text()
         for directive in ("OutputDirectory must not already exist","1.3.6.1.5.5.7.3.3","Set-AuthenticodeSignature","-HashAlgorithm SHA256","Get-AuthenticodeSignature","Status -ne 'Valid'","production_signed","[Text.UTF8Encoding]::new($false)","secrets_embedded=$false"):
@@ -124,6 +124,10 @@ class SentinelTests(unittest.TestCase):
         mac=(DOWNLOADS/'uninstall-sentinel-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-sentinel-windows.ps1').read_text()
         for script in (mac,windows): self.assertIn('sentinel-managed-user-baseline:start',script); self.assertIn('sentinel-managed-user-baseline:end',script); self.assertIn('GEMINI.md',script); self.assertIn('copilot-instructions.md',script)
         self.assertIn('[ ! -L "$file" ]',mac); self.assertIn('ReparsePoint',windows)
+        for directive in ('start_count','end_count','[ ! -L "$home" ]','[ ! -L "$(/usr/bin/dirname "$file")" ]','not owned by root'):
+            self.assertIn(directive,mac)
+        for directive in ('$starts.Count -ne 1','$ends.Count -ne 1','$starts[0].Index -ge $ends[0].Index','refusing recursive removal'):
+            self.assertIn(directive,windows)
         self.assertIn('Repository rule files',mac); self.assertIn('Repository rule files',windows)
     def test_user_baseline_attestation_reports_managed_and_failed_states(self):
         with tempfile.TemporaryDirectory() as d:
