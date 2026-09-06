@@ -23,7 +23,7 @@ class SentinelTests(unittest.TestCase):
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Intune 部署清单','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','Intune 部署清单','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
         manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
@@ -130,6 +130,14 @@ class SentinelTests(unittest.TestCase):
         schema=json.loads((DOWNLOADS/'sentinel-report.schema.json').read_text())
         self.assertEqual(schema['properties']['inventory']['maxItems'],5000); self.assertEqual(schema['properties']['findings']['maxItems'],10000)
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
+    def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
+        spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.16.0')
+        self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
+        post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
+        self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
+        self.assertEqual(spec['components']['securitySchemes']['bearerAuth'],{'type':'http','scheme':'bearer'}); self.assertEqual(paths['/health']['get']['security'],[])
+        parameters=spec['components']['parameters']; self.assertEqual([parameters[name]['name'] for name in ('Timestamp','Signature','DeviceId')],['X-Sentinel-Timestamp','X-Sentinel-Signature','X-Sentinel-Device-ID'])
     def test_collector_database_deduplication_support(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'
@@ -529,6 +537,10 @@ class SentinelTests(unittest.TestCase):
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel_agent.py').write_text('# drift')
             errors=self.verifier.verify(copy)
             self.assertIn('checksum_mismatch:sentinel_agent.py',errors); self.assertIn('bundle_content_mismatch:sentinel_agent.py',errors)
+    def test_release_verifier_rejects_collector_openapi_route_drift(self):
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); spec=json.loads((copy/'sentinel-collector.openapi.json').read_text()); spec['paths'].pop('/v1/audit'); (copy/'sentinel-collector.openapi.json').write_text(json.dumps(spec))
+            self.assertIn('collector_openapi_route_drift',self.verifier.verify(copy))
     def test_release_verifier_rejects_intune_artifact_drift(self):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'intune-windows-detect.ps1').write_text('# drift')

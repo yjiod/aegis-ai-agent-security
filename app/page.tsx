@@ -552,6 +552,7 @@ function DetailPanel({
                 <a href="/downloads/sentinel-policy.json" download>策略基线</a>
                 <a href="/downloads/sentinel_device_credentials.py" download>逐设备凭据工具</a>
                 <a href="/downloads/sentinel_collector_probe.py" download>Collector 验收探针</a>
+                <a href="/downloads/sentinel-collector.openapi.json" download>Collector API 规范</a>
                 <a href="/downloads/intune-deployment-manifest.json" download>Intune 部署清单</a>
                 <a href="/downloads/intune-rollout-evidence.example.json" download>Intune 晋级证据模板</a>
                 <a href="/downloads/sentinel_intune_preflight.py" download>Intune 晋级预检</a>

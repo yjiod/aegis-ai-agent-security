@@ -1,0 +1,107 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sentinel Report Collector API",
+    "version": "0.16.0",
+    "description": "Machine-readable contract for the private Sentinel Collector. Production deployments terminate TLS at the enterprise reverse proxy."
+  },
+  "servers": [{"url": "https://sentinel-collector.example.internal"}],
+  "security": [{"bearerAuth": []}],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "collectorHealth",
+        "security": [],
+        "responses": {
+          "200": {"description": "Collector and database are healthy", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Health"}}}},
+          "503": {"description": "Database is unavailable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Health"}}}}
+        }
+      }
+    },
+    "/v1/reports": {
+      "post": {
+        "operationId": "submitReport",
+        "description": "The signature input is timestamp + '.' + device_id + '.' + the exact request body when X-Sentinel-Device-ID is present; otherwise timestamp + '.' + the exact request body. The signature is lowercase HMAC-SHA256 prefixed with sha256=. Timestamps outside five minutes are rejected. A device credential generation must use the token and signing secret at the same array index.",
+        "x-sentinel-max-body-bytes": 2000000,
+        "x-sentinel-signature-input": "<timestamp>.<device_id>.<raw-body>",
+        "parameters": [
+          {"$ref": "#/components/parameters/Timestamp"},
+          {"$ref": "#/components/parameters/Signature"},
+          {"$ref": "#/components/parameters/DeviceId"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "sentinel-report.schema.json"}}}},
+        "responses": {
+          "200": {"description": "Valid report was already stored", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportAcknowledgement"}}}},
+          "202": {"description": "Valid report was accepted", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportAcknowledgement"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "413": {"$ref": "#/components/responses/TooLarge"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/v1/summary": {
+      "get": {
+        "operationId": "fleetSummary",
+        "responses": {
+          "200": {"description": "Latest accepted posture for each device", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FleetSummary"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/v1/devices": {
+      "get": {
+        "operationId": "listDevices",
+        "parameters": [{"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 500}}],
+        "responses": {
+          "200": {"description": "Bounded device activation evidence", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceList"}}}},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/v1/audit": {
+      "get": {
+        "operationId": "recentAuditEvents",
+        "responses": {
+          "200": {"description": "Up to 200 recent minimized audit events", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AuditEvents"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    "parameters": {
+      "Timestamp": {"name": "X-Sentinel-Timestamp", "in": "header", "required": true, "schema": {"type": "integer"}},
+      "Signature": {"name": "X-Sentinel-Signature", "in": "header", "required": true, "schema": {"type": "string", "pattern": "^sha256=[0-9a-f]{64}$"}},
+      "DeviceId": {"name": "X-Sentinel-Device-ID", "in": "header", "required": false, "schema": {"type": "string", "pattern": "^[0-9a-f]{12}$"}}
+    },
+    "responses": {
+      "BadRequest": {"description": "Invalid query, size, JSON, or report", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Unauthorized": {"description": "Missing or invalid credentials, signature, generation, or device binding", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "TooLarge": {"description": "Body is empty or exceeds 2,000,000 bytes", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "RateLimited": {"description": "Per-source application limit exceeded", "headers": {"Retry-After": {"schema": {"type": "integer", "minimum": 1}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Unavailable": {"description": "Collector database unavailable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    },
+    "schemas": {
+      "Error": {"type": "object", "additionalProperties": false, "required": ["error"], "properties": {"error": {"type": "string"}}},
+      "Health": {"type": "object", "additionalProperties": false, "required": ["status", "database"], "properties": {"status": {"enum": ["ok", "degraded"]}, "database": {"enum": ["ok", "unavailable"]}}},
+      "ReportAcknowledgement": {"type": "object", "additionalProperties": false, "required": ["accepted", "duplicate", "report_id", "severity"], "properties": {"accepted": {"const": true}, "duplicate": {"type": "boolean"}, "report_id": {"type": "string", "pattern": "^[0-9a-f]{20}$"}, "severity": {"enum": ["normal", "high", "critical"]}}},
+      "Device": {"type": "object", "additionalProperties": false, "required": ["device_id", "last_seen", "report_count", "credential_generation"], "properties": {"device_id": {"type": "string"}, "last_seen": {"type": "integer"}, "report_count": {"type": "integer", "minimum": 1}, "credential_generation": {"enum": ["current", "previous", "legacy"]}}},
+      "DeviceList": {"type": "object", "additionalProperties": false, "required": ["generated_at", "complete", "devices"], "properties": {"generated_at": {"type": "integer"}, "complete": {"type": "boolean"}, "devices": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/components/schemas/Device"}}}},
+      "CountMap": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+      "AgentCoverage": {"type": "object", "additionalProperties": false, "required": ["total", "active"], "properties": {"total": {"type": "integer", "minimum": 0}, "active": {"type": "integer", "minimum": 0}}},
+      "FleetSummary": {"type": "object", "additionalProperties": false, "required": ["generated_at", "active_window_seconds", "required_agent_version", "required_policy_version", "total_devices", "active_devices", "stale_devices", "latest_severity", "version_posture", "credential_posture", "agent_coverage"], "properties": {"generated_at": {"type": "integer"}, "active_window_seconds": {"type": "integer", "minimum": 60, "maximum": 2592000}, "required_agent_version": {"type": "string"}, "required_policy_version": {"type": "string"}, "total_devices": {"type": "integer", "minimum": 0}, "active_devices": {"type": "integer", "minimum": 0}, "stale_devices": {"type": "integer", "minimum": 0}, "latest_severity": {"$ref": "#/components/schemas/CountMap"}, "version_posture": {"$ref": "#/components/schemas/CountMap"}, "credential_posture": {"$ref": "#/components/schemas/CountMap"}, "agent_coverage": {"type": "object", "additionalProperties": {"$ref": "#/components/schemas/AgentCoverage"}}}},
+      "AuditEvent": {"type": "object", "additionalProperties": false, "required": ["event", "occurred_at", "device_id", "detail"], "properties": {"event": {"type": "string", "maxLength": 64}, "occurred_at": {"type": "integer"}, "device_id": {"type": "string", "maxLength": 128}, "detail": {"type": "string", "maxLength": 256}}},
+      "AuditEvents": {"type": "object", "additionalProperties": false, "required": ["events"], "properties": {"events": {"type": "array", "maxItems": 200, "items": {"$ref": "#/components/schemas/AuditEvent"}}}}
+    }
+  }
+}

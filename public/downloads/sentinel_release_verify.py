@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","intune-rollout-evidence.example.json",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","intune-rollout-evidence.example.json","sentinel-collector.openapi.json",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -136,6 +136,19 @@ def verify(downloads):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
     for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query","1<=limit<=10000",'"complete":complete',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"'):
         if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
+    try: openapi=json.loads((downloads/"sentinel-collector.openapi.json").read_text())
+    except (OSError,ValueError) as exc: errors.append(f"invalid_collector_openapi:{type(exc).__name__}"); openapi={}
+    paths=openapi.get("paths",{}) if isinstance(openapi,dict) else {}; components=openapi.get("components",{}) if isinstance(openapi,dict) else {}
+    expected_methods={"/health":{"get"},"/v1/reports":{"post"},"/v1/summary":{"get"},"/v1/devices":{"get"},"/v1/audit":{"get"}}
+    if openapi.get("openapi")!="3.1.0" or openapi.get("info",{}).get("version")!="0.16.0": errors.append("collector_openapi_version_drift")
+    if set(paths)!=set(expected_methods) or any(set(paths.get(path,{}))!=methods for path,methods in expected_methods.items()): errors.append("collector_openapi_route_drift")
+    report_post=paths.get("/v1/reports",{}).get("post",{}); report_responses=report_post.get("responses",{})
+    if report_post.get("x-sentinel-max-body-bytes")!=2_000_000 or report_post.get("x-sentinel-signature-input")!="<timestamp>.<device_id>.<raw-body>": errors.append("collector_openapi_signature_drift")
+    if report_post.get("requestBody",{}).get("content",{}).get("application/json",{}).get("schema")!={"$ref":"sentinel-report.schema.json"}: errors.append("collector_openapi_report_schema_drift")
+    if set(report_responses)!={"200","202","400","401","413","429","503"}: errors.append("collector_openapi_report_response_drift")
+    if components.get("securitySchemes",{}).get("bearerAuth")!={"type":"http","scheme":"bearer"}: errors.append("collector_openapi_auth_drift")
+    parameters=components.get("parameters",{}); expected_headers={"Timestamp":"X-Sentinel-Timestamp","Signature":"X-Sentinel-Signature","DeviceId":"X-Sentinel-Device-ID"}
+    if any(parameters.get(key,{}).get("name")!=value or parameters.get(key,{}).get("in")!="header" for key,value in expected_headers.items()): errors.append("collector_openapi_header_drift")
     try: device_example=json.loads((downloads/"sentinel-device-credentials.example.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_device_credentials_example:{type(exc).__name__}"); device_example={}
     if device_example!={"schema":"sentinel.device-credentials/v1","devices":{"0123456789ab":{"tokens":[""],"signing_secrets":[""]}}}: errors.append("unsafe_device_credentials_example")
