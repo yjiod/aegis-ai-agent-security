@@ -44,7 +44,10 @@ Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','
   }
 }
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$installDir\sentinel-windows.ps1`" -Output `"$reportDir\latest.json`""
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Hours 4)
+$periodicTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Hours 1)
+$startupTrigger = New-ScheduledTaskTrigger -AtStartup
+$startupTrigger.Delay = 'PT2M'
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-Register-ScheduledTask -TaskName 'Sentinel AI Agent Security Scan' -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5)
+Register-ScheduledTask -TaskName 'Sentinel AI Agent Security Scan' -Action $action -Trigger @($startupTrigger,$periodicTrigger) -Principal $principal -Settings $settings -Force | Out-Null
 Write-Output 'Sentinel Agent installed and scheduled.'

@@ -596,6 +596,11 @@ class SentinelTests(unittest.TestCase):
         rules=json.loads((DOWNLOADS/'intune-compliance-policy.json').read_text())['Rules']; names={x['SettingName'] for x in rules}
         self.assertTrue({'SentinelIntegrityValid','SentinelScheduledTaskHealthy','SentinelReportingConfigured','SentinelReportingHealthy','SentinelPolicyVersion','SentinelReportValid','SentinelScanRecent'}.issubset(names))
         self.assertIn('ProtectedData]::Unprotect',discovery); self.assertIn('SentinelReportingConfigured=$reportingConfigured',discovery); self.assertIn('SentinelReportingHealthy=$reportingHealthy',discovery)
+        for directive in ("Repetition.Interval -eq 'PT1H'","MSFT_TaskBootTrigger","StartWhenAvailable","MultipleInstances -eq 'IgnoreNew'","ExecutionTimeLimit -eq 'PT30M'","RestartCount -eq 3"):
+            self.assertIn(directive,discovery); self.assertIn(directive,detection)
+        remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
+        for directive in ('New-ScheduledTaskTrigger -AtStartup',"Delay = 'PT2M'",'New-TimeSpan -Hours 1','-StartWhenAvailable','-MultipleInstances IgnoreNew','-ExecutionTimeLimit (New-TimeSpan -Minutes 30)','-RestartCount 3'):
+            self.assertIn(directive,remediation)
         version=next(x['Operand'] for x in rules if x['SettingName']=='SentinelPolicyVersion'); self.assertEqual(version,self.policy['version'])
         self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
     def test_intune_macos_compliance_contract(self):
@@ -605,6 +610,9 @@ class SentinelTests(unittest.TestCase):
         names={rule['SettingName'] for rule in rules}; self.assertTrue({'SentinelInstalled','SentinelIntegrityValid','SentinelLaunchDaemonHealthy','SentinelReportingConfigured','SentinelReportingHealthy','SentinelPolicyVersion','SentinelReportValid','SentinelScanRecent','SentinelCriticalFindings','SentinelHighFindings'}.issubset(names))
         self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
         version=next(rule['Operand'] for rule in rules if rule['SettingName']=='SentinelPolicyVersion'); self.assertEqual(version,self.policy['version'])
+        install=(DOWNLOADS/'intune-macos-install.sh').read_text()
+        for directive in ('<key>StartInterval</key><integer>3600</integer>','<key>RunAtLoad</key><true/>','<key>ProcessType</key><string>Background</string>'): self.assertIn(directive,install)
+        for directive in ("Print :StartInterval",'[[ "$interval" == 3600 ]]',"Print :RunAtLoad",'[[ "$process_type" == Background ]]'): self.assertIn(directive,discovery)
         with zipfile.ZipFile(DOWNLOADS/'sentinel-enterprise-bundle.zip') as bundle:
             self.assertTrue({'intune-macos-compliance.sh','intune-macos-compliance-policy.json'}.issubset(bundle.namelist()))
     def test_macos_compliance_recomputes_report_summary(self):

@@ -95,6 +95,17 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_intune_preflight:{type(exc).__name__}"); preflight=""
     for directive in ('script_signature_state")!="production_signed"','evidence.get("production_signature_verified") is not True','artifact_digest_mismatch','now-generated>86400','now-healthy<86400','RINGS.index(target_ring)!=RINGS.index(current)+1','now-entered<minimum*3600'):
         if directive not in preflight: errors.append(f"unsafe_intune_preflight:{directive}")
+    try: windows_remediation=(downloads/"intune-windows-remediate.ps1").read_text(); windows_detection=(downloads/"intune-windows-detect.ps1").read_text(); windows_compliance=(downloads/"intune-compliance-discovery.ps1").read_text(); macos_install=(downloads/"intune-macos-install.sh").read_text(); macos_compliance=(downloads/"intune-macos-compliance.sh").read_text()
+    except OSError as exc: errors.append(f"invalid_endpoint_schedule:{type(exc).__name__}"); windows_remediation=windows_detection=windows_compliance=macos_install=macos_compliance=""
+    for directive in ('New-ScheduledTaskTrigger -AtStartup',"Delay = 'PT2M'",'New-TimeSpan -Hours 1','-StartWhenAvailable','-MultipleInstances IgnoreNew','-ExecutionTimeLimit (New-TimeSpan -Minutes 30)','-RestartCount 3'):
+        if directive not in windows_remediation: errors.append(f"unsafe_windows_schedule:{directive}")
+    for source in (windows_detection,windows_compliance):
+        for directive in ("Repetition.Interval -eq 'PT1H'","MSFT_TaskBootTrigger","StartWhenAvailable","MultipleInstances -eq 'IgnoreNew'","ExecutionTimeLimit -eq 'PT30M'","RestartCount -eq 3"):
+            if directive not in source: errors.append(f"missing_windows_schedule_compliance:{directive}")
+    for directive in ('<key>StartInterval</key><integer>3600</integer>','<key>RunAtLoad</key><true/>','<key>ProcessType</key><string>Background</string>'):
+        if directive not in macos_install: errors.append(f"unsafe_macos_schedule:{directive}")
+    for directive in ("Print :StartInterval",'[[ "$interval" == 3600 ]]',"Print :RunAtLoad",'[[ "$process_type" == Background ]]'):
+        if directive not in macos_compliance: errors.append(f"missing_macos_schedule_compliance:{directive}")
     try: service=(downloads/"sentinel-collector.service").read_text()
     except OSError as exc: errors.append(f"invalid_collector_service:{type(exc).__name__}"); service=""
     for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/collector.env","--listen 127.0.0.1","NoNewPrivileges=true","ProtectSystem=strict","ProtectHome=true","CapabilityBoundingSet="):

@@ -1,8 +1,9 @@
 {
-  "release": "0.74.0",
+  "release": "0.75.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T08:00:00+08:00",
+  "published_at": "2026-09-08T09:00:00+08:00",
   "features": [
+    "one_hour_agent_discovery_sla", "windows_boot_trigger", "windows_missed_run_recovery", "windows_scan_overlap_guard", "windows_bounded_scan_runtime", "windows_task_retry_policy", "macos_launchd_schedule_attestation", "task_configuration_compliance",
     "adapter_0_9", "vendor_acceptance_evidence_gate", "exact_accepted_endpoint_binding", "seven_day_vendor_evidence_freshness", "vendor_api_version_and_document_attestation", "vendor_idempotency_and_retry_attestation", "secret_free_vendor_acceptance",
     "cross_platform_agent_0_32", "collector_0_17", "user_baseline_attestation", "baseline_load_failure_finding", "privacy_minimized_baseline_coverage", "live_console_baseline_coverage",
     "intune_authenticode_signing_workflow", "rollback_and_uninstall_digest_pinning", "code_signing_eku_gate", "timestamped_sha256_signatures", "isolated_signed_release_output", "forged_signature_state_rejection",

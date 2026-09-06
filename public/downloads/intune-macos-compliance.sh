@@ -14,7 +14,10 @@ if [[ "$installed" == true ]] && \
   [[ "$(/usr/bin/shasum -a 256 "$INSTALL_DIR/sentinel_agent.py" | /usr/bin/awk '{print $1}')" == "$AGENT_SHA" ]] && \
   [[ "$(/usr/bin/shasum -a 256 "$INSTALL_DIR/sentinel-policy.json" | /usr/bin/awk '{print $1}')" == "$POLICY_SHA" ]] && \
   [[ "$(/usr/bin/shasum -a 256 "$INSTALL_DIR/sentinel-security-baseline.md" | /usr/bin/awk '{print $1}')" == "$BASELINE_SHA" ]]; then integrity=true; fi
-if [[ -f "$PLIST" ]] && /bin/launchctl print system/com.company.sentinel-agent >/dev/null 2>&1; then runtime=true; fi
+interval="$(/usr/libexec/PlistBuddy -c 'Print :StartInterval' "$PLIST" 2>/dev/null || true)"
+run_at_load="$(/usr/libexec/PlistBuddy -c 'Print :RunAtLoad' "$PLIST" 2>/dev/null || true)"
+process_type="$(/usr/libexec/PlistBuddy -c 'Print :ProcessType' "$PLIST" 2>/dev/null || true)"
+if [[ -f "$PLIST" ]] && /bin/launchctl print system/com.company.sentinel-agent >/dev/null 2>&1 && [[ "$interval" == 3600 ]] && [[ "$run_at_load" == true ]] && [[ "$process_type" == Background ]]; then runtime=true; fi
 python_bin="$(command -v python3 2>/dev/null || true)"
 if [[ -z "$python_bin" ]]; then
   /usr/bin/printf '%s\n' "{\"SentinelInstalled\":$installed,\"SentinelIntegrityValid\":$integrity,\"SentinelLaunchDaemonHealthy\":$runtime,\"SentinelReportingConfigured\":false,\"SentinelReportingHealthy\":false,\"SentinelPolicyVersion\":\"missing\",\"SentinelReportValid\":false,\"SentinelScanRecent\":false,\"SentinelCriticalFindings\":0,\"SentinelHighFindings\":0}"
