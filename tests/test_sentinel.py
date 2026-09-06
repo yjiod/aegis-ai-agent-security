@@ -26,6 +26,11 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
         for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
+    def test_github_release_gate_uses_native_windows_and_macos_runners(self):
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text()
+        for directive in ('runs-on: ubuntu-latest','windows-powershell:','runs-on: windows-latest','shell: powershell','System.Management.Automation.Language.Parser','macos-shell:','runs-on: macos-latest','/bin/bash -n','/bin/sh -n','permissions:\n  contents: read'):
+            self.assertIn(directive,workflow)
+        self.assertGreaterEqual(workflow.count('actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'),3)
     def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
         manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
         self.assertEqual(manifest['deployment_order'][-2:],['custom_compliance','conditional_access']); self.assertEqual([ring['maximum_percent'] for ring in manifest['rollout_rings']],[1,5,25,100])

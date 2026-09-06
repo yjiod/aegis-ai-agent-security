@@ -1,8 +1,9 @@
 {
-  "release": "0.77.0",
+  "release": "0.78.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T11:00:00+08:00",
+  "published_at": "2026-09-08T12:00:00+08:00",
   "features": [
+    "native_windows_powershell_ci", "windows_powershell_5_1_ast_gate", "native_macos_shell_ci", "bash_and_posix_shell_gate", "three_platform_release_evidence",
     "symlink_safe_uninstall_runtime", "reparse_safe_user_baseline_cleanup", "single_well_ordered_managed_block_removal", "malformed_marker_preservation", "root_owned_macos_removal_gate", "macos_uninstall_intune_manifest",
     "complete_runtime_rollback_snapshot", "windows_scheduled_task_snapshot", "windows_task_snapshot_safety_contract", "macos_launchdaemon_snapshot", "macos_plist_snapshot_safety_contract", "schedule_and_runtime_atomic_rollback",
     "one_hour_agent_discovery_sla", "windows_boot_trigger", "windows_missed_run_recovery", "windows_scan_overlap_guard", "windows_bounded_scan_runtime", "windows_task_retry_policy", "macos_launchd_schedule_attestation", "task_configuration_compliance",

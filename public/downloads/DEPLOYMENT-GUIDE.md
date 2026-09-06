@@ -179,3 +179,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.76.0 将运行调度定义纳入完整回滚点。Windows 升级仅在当前任务以 SYSTEM 身份、唯一 PowerShell 动作和精确 Sentinel 参数运行时导出 `scheduled-task.xml`，并与 Agent、策略、基线一起写入哈希清单；回滚在注册 XML 前再次验证大小、哈希、命令、参数和身份。macOS 升级仅快照 root 所有、非符号链接且 Label/Agent 路径正确的 plist，回滚同样在恢复前验证清单、大小与安全字段。缺少调度快照或出现字段漂移时回滚失败关闭，不再产生“文件版本已回退但调度仍是新版”的混合状态。旧格式回滚点必须先由 0.76.0 的一次成功升级刷新后才能使用。
 
 0.77.0 收紧卸载边界。Windows 与 macOS 仅在每个用户指令文件恰好存在一组、顺序正确的 Sentinel 起止标记时删除受管块；标记缺失、重复或倒置时完整保留文件供人工审计。用户主目录、工具配置父目录、文件本身或 Sentinel 运行目录出现符号链接/重解析点时拒绝越界访问；macOS 运行目录还必须由 root 所有。macOS 卸载脚本现已加入 Intune 部署清单并固定 SHA-256，Windows 卸载仍纳入 Authenticode 生产签名流程。
+
+0.78.0 将跨平台语法验证提升为 GitHub 必过门禁：原有 Ubuntu 作业继续执行完整行为测试、依赖审计、构建、Shell 语法和离线发行验证；新增 Windows runner 使用 Windows PowerShell 5.1 AST 解析全部 PowerShell 脚本，新增 macOS runner 同时用系统 Bash 与 POSIX sh 解析全部终端 Shell 脚本。三个作业都使用固定提交哈希的 checkout action、只读仓库权限和明确超时。真实 Intune 试点机仍需完成安装、升级、回滚和卸载演练，CI 不会冒充现网验收。
