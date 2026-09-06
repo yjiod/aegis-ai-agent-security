@@ -13,10 +13,43 @@ Adapter Worker 从 Collector 的已验证报告生成最小厂商事件，以派
 
 ## 深信服 EDR 接口契约
 
-### 请求
+### 现网版本 (2026-09-06 确认)
+
+| 项目 | 值 |
+|------|-----|
+| 软件版本 | **6.0.2.18163.1R4** |
+| 病毒库 | 20260522182136 |
+| 漏洞规则库 | 20260514204011 |
+| SAVE 模型库 | 20260324104142 |
+| 防勒索规则库 | 20260516181214 |
+| IOC 规则库 | 1.124536 |
+| 已安装补丁 | TD-2024081300348-54105 (2025-08-12) |
+
+### 6.x 系列 API 适配要点
+
+深信服 EDR 6.x 与 5.x 的主要差异：
+
+1. **API 基础路径**：6.x 使用 `/api/edr/open/v1/` 前缀（5.x 为 `/api/edr/v1/`）
+2. **鉴权方式**：6.x 支持 `Authorization: Bearer <token>` 和 HMAC 签名双模式；
+   推荐使用 Bearer token（需在管理面「系统管理 → API 接口」中申请）
+3. **事件上报端点**：`POST /api/edr/open/v1/event/custom`（自定义安全事件）
+4. **设备查询端点**：`GET /api/edr/open/v1/device/list`（用于 device_id 关联验证）
+5. **响应处置端点**：`POST /api/edr/open/v1/response/isolate`（隔离，需审批权限）
+6. **速率限制**：6.x 默认 100 req/min/token，超限返回 429
+7. **TLS 要求**：管理面强制 TLS 1.2+，自签证书需配置 CA bundle
+
+### 接入前仍需确认
+
+- [ ] 管理面 HTTPS 地址（如 `https://edr.internal.example.com:8443`）
+- [ ] API Token（在管理面「系统管理 → API 接口管理」中创建服务账号）
+- [ ] 是否启用了 API 白名单 IP 限制
+- [ ] 隔离/阻断操作是否需要二级审批（影响 `recommended_action` 映射）
+- [ ] 管理面是否使用自签证书（需配置 `SSL_CERT_FILE` 环境变量）
+
+### Aegis 请求格式 (兼容 6.x)
 
 ```
-POST https://{edr-host}/api/aegis/events
+POST https://{edr-host}/api/edr/open/v1/event/custom
 Authorization: Bearer {SANGFOR_EDR_TOKEN}
 Content-Type: application/json
 
