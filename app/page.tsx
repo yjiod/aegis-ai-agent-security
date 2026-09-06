@@ -366,6 +366,8 @@ export default function Home() {
                 ['Claude Code', 86, 78],
                 ['Codex CLI', 64, 58],
                 ['Windsurf', 38, 34],
+                ['Gemini CLI', 42, 37],
+                ['GitHub Copilot CLI', 51, 45],
               ].map(([name, total, online]) => (
                 <div className="coverage-row" key={String(name)}>
                   <div className="tool-logo">{String(name).slice(0, 1)}</div>
@@ -542,7 +544,7 @@ function DetailPanel({
                 <article><b>深信服 EDR</b><span>响应处置</span><p>接收高危事件，按现网版本能力执行隔离、查杀或 IOC 取证。</p></article>
                 <article><b>联软桌管</b><span>资产与兜底</span><p>软件分发、资产核验及未安装终端的准入修复。</p></article>
               </div>
-              <ol><li><b>自动发现</b><span>Intune 周期任务检测 Cursor、Claude Code、Codex 与 Windsurf 配置。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>联动处置</b><span>以 device_id 关联深信服 EDR 与联软资产，按风险等级分级响应。</span></li></ol>
+              <ol><li><b>自动发现</b><span>Intune 周期任务检测 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 与 GitHub Copilot CLI。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>联动处置</b><span>以 device_id 关联深信服 EDR 与联软资产，按风险等级分级响应。</span></li></ol>
               <div className="download-actions">
                 <a className="download-primary" href="/downloads/sentinel-enterprise-bundle.zip" download>下载完整部署包</a>
                 <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>
@@ -552,6 +554,7 @@ function DetailPanel({
                 <a href="/downloads/intune-macos-compliance.sh" download>macOS 合规脚本</a>
                 <a href="/downloads/sentinel-policy.json" download>策略基线</a>
                 <a href="/downloads/sentinel_device_credentials.py" download>逐设备凭据工具</a>
+                <a href="/downloads/sentinel_collector_probe.py" download>Collector 验收探针</a>
               </div>
               <p className="safety-note"><LockKeyhole size={15}/>部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。</p>
             </div>

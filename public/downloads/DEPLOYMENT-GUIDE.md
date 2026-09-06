@@ -86,13 +86,13 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 所有安装与修复下载均设置 15 秒连接超时和每文件 120 秒总时限；Windows 使用对应的 120 秒请求超时。三个文件最坏网络等待受控在 Intune 脚本执行窗口内，失败后保留当前运行版本并由下一次 MDM 修复周期重试。超时设置不替代 SHA-256 固定：只有三项下载全部完成且哈希匹配才会备份与替换。
 
-卸载使用 `uninstall-sentinel-windows.ps1` 或 `uninstall-sentinel-macos.sh`。卸载会移除运行时、周期任务以及 Codex/Claude 用户指令文件中带 Sentinel 起止标记的受管区块，保留用户自定义内容；符号链接或重解析点不会被修改。已进入源码管理的仓库基线文件仍会保留，必须通过正常代码评审移除，避免绕过审计。
+卸载使用 `uninstall-sentinel-windows.ps1` 或 `uninstall-sentinel-macos.sh`。卸载会移除运行时、周期任务以及 Codex、Claude、Gemini 与 Copilot 用户指令文件中带 Sentinel 起止标记的受管区块，保留用户自定义内容；符号链接或重解析点不会被修改。已进入源码管理的仓库基线文件仍会保留，必须通过正常代码评审移除，避免绕过审计。
 
 ## 项目级基线加载
 
-对受管代码仓库执行 `sentinel_agent.py <项目目录> --install-baseline`。该命令为 Cursor 创建 Always Project Rule，为 Windsurf 创建项目规则，并以带标记的增量内容接入 `AGENTS.md` 和 `CLAUDE.md`；不会覆盖仓库已有规范。`--auto-enroll` 还会仅针对已存在 `.codex` 或 `.claude` 安装标记的用户，将受管区块增量写入用户级 `AGENTS.md`/`CLAUDE.md`；区块可随基线升级原位更新，不会为未安装工具创建目录。所有写入在执行前都会解析父目录真实路径，并拒绝越出仓库/用户根目录的符号链接或 Windows 重解析点。随后使用 `--watch --interval 300` 持续发现新增 Agent 配置、Skill、MCP 和代码风险。
+对受管代码仓库执行 `sentinel_agent.py <项目目录> --install-baseline`。该命令为 Cursor 创建 Always Project Rule，为 Windsurf 创建项目规则，并以带标记的增量内容接入 `AGENTS.md`、`CLAUDE.md` 和 `GEMINI.md`；不会覆盖仓库已有规范。`--auto-enroll` 还会仅针对已存在 `.codex`、`.claude`、`.gemini` 或 `.copilot` 安装标记的用户，将受管区块增量写入对应用户级指令文件；区块可随基线升级原位更新，不会为未安装工具创建目录。所有写入在执行前都会解析父目录真实路径，并拒绝越出仓库/用户根目录的符号链接或 Windows 重解析点。随后使用 `--watch --interval 300` 持续发现新增 Agent 配置、Skill、MCP 和代码风险。
 
-0.6.0 起，扫描器通过只读文件标记识别 Cursor、Codex、Claude Code 与 Windsurf，不启动或执行被发现的 Agent。以管理员或 SYSTEM/root 身份运行时会覆盖受管用户目录；仅存在 Sentinel 写入的项目规则目录不会被误判为已安装 Agent。Windows 报告中的用户目录会替换为 `~`，控制台可根据 `inventory` 中的 `ai_agent` 项统计覆盖率。
+扫描器通过只读文件标记识别 Cursor、Codex、Claude Code、Windsurf、Gemini CLI 与 GitHub Copilot CLI，不启动或执行被发现的 Agent。以管理员或 SYSTEM/root 身份运行时会覆盖受管用户目录；仅存在 Sentinel 写入的项目规则目录不会被误判为已安装 Agent。Windows 报告中的用户目录会替换为 `~`，控制台可根据 `inventory` 中的 `ai_agent` 项统计覆盖率。
 
 0.7.0 起，MCP 最小权限检查同时覆盖 Cursor/Claude/Windsurf 的 JSON 配置和 Codex 的 `config.toml`，并执行策略中已声明的隐藏 Unicode、弱随机令牌与阻断命令规则。敏感环境变量只上报变量名和 `[REDACTED]`，不上传原值。
 
@@ -155,3 +155,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.64.0 提供 `sentinel_collector_probe.py` 将生产验收转为机器可执行检查。默认只读模式验证健康状态、未认证访问被拒绝、摘要及最多 10000 台设备的管理契约；令牌仅从指定环境变量读取且不会输出。维护窗口可增加 `--write-test --device-id <已配置的探针设备>`，并通过 `SENTINEL_PROBE_SIGNING_SECRET` 验证 HMAC 上传、响应与原始请求体绑定以及相同报告重放去重。启用每设备凭据时，Token/HMAC 必须属于该探针设备；写模式会留下可识别的正常测试报告，不应对未获授权的生产环境运行。
 
 0.65.0 / Agent 0.31.0 将自动治理范围扩展到 Gemini CLI 与 GitHub Copilot CLI。终端仅通过配置、指令文件或可执行文件的文件系统标记发现工具，不启动第三方 Agent；发现后分别把带托管边界的用户基线同步到 `~/.gemini/GEMINI.md` 与 `~/.copilot/copilot-instructions.md`，并扫描 Gemini `settings.json`、Copilot `mcp-config.json`、仓库 `.mcp.json` / `.github/mcp.json` 及两者 Skill 目录。仓库继续使用 `AGENTS.md` 作为 Copilot 的跨工具入口，并新增 `GEMINI.md`。路径依据 [Gemini CLI context](https://google-gemini.github.io/gemini-cli/docs/cli/gemini-md.html)、[Gemini MCP](https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html) 与 [GitHub Copilot CLI instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions) 官方规范；卸载只删除 Sentinel 托管块，保留用户原有内容。
+
+0.66.0 将运营界面和当前部署说明与六类 Agent 的实际终端能力对齐，并把 Collector 验收探针加入控制台下载入口。控制台覆盖数字仍明确标记为演示样例；连接企业 Collector 后应只使用经过服务端白名单清洗的实时摘要，不得把样例数据解释为真实部署状态。
