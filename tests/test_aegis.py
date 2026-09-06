@@ -18,11 +18,13 @@ class AegisTests(unittest.TestCase):
             self.assertEqual(report['schema'],'aegis.report/v1'); self.assertEqual(report['summary']['critical'],0)
     def test_console_does_not_claim_live_data_or_fake_task_dispatch(self):
         page=(ROOT/'app/page.tsx').read_text()
-        self.assertIn('演示模式',page); self.assertIn('接收器未连接',page); self.assertIn('未对任何终端执行操作',page)
-        self.assertNotIn('start_enterprise_security_scan',page); self.assertNotIn('status: \'dispatched\'',page); self.assertNotIn('系统运行正常',page); self.assertNotIn('实时上报',page); self.assertNotIn('已强制应用',page)
+        shell=(ROOT/'components/console-shell.tsx').read_text()
+        console=page+shell
+        self.assertIn('演示模式',page); self.assertIn('接收器未连接',shell); self.assertIn('未对任何终端执行操作',page)
+        self.assertNotIn('start_enterprise_security_scan',console); self.assertNotIn('status: \'dispatched\'',console); self.assertNotIn('系统运行正常',console); self.assertNotIn('实时上报',console); self.assertNotIn('已强制应用',console)
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
-        self.assertNotIn('AEGIS_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
+        self.assertNotIn('AEGIS_COLLECTOR_TOKEN',console); self.assertIn("fetch('/api/summary'",shell)
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)

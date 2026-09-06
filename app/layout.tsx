@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
+import ConsoleShell from '@/components/console-shell';
 import './globals.css';
 import './detail.css';
 import './onboarding.css';
@@ -31,7 +32,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <ConsoleShell>{children}</ConsoleShell>
       </body>
     </html>
   );
