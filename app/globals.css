@@ -87,6 +87,79 @@
   --dur-slow: 0.35s;
 }
 
+/* ---------- 1a. Light theme override ---------------------- */
+[data-theme="light"] {
+  --background: #f8faf9;
+  --foreground: #0d1f1a;
+  --card: #ffffff;
+  --card-foreground: #0d1f1a;
+  --popover: #ffffff;
+  --popover-foreground: #0d1f1a;
+  --primary: #1a9d6e;
+  --primary-foreground: #ffffff;
+  --secondary: #e8f5f0;
+  --secondary-foreground: #1a3d30;
+  --muted: #f0f5f3;
+  --muted-foreground: #5a7d72;
+  --accent: #e0f2ec;
+  --accent-foreground: #0d1f1a;
+  --destructive: #dc3545;
+  --border: #d4e5df;
+  --input: #c8ddd6;
+  --ring: #1a9d6e;
+  --surface-0: #f8faf9;
+  --surface-1: #ffffff;
+  --surface-2: #f0f5f3;
+  --surface-glass: rgba(255, 255, 255, 0.82);
+  --surface-glass-strong: rgba(255, 255, 255, 0.92);
+  --line-soft: rgba(26, 157, 110, 0.08);
+  --line-base: #d4e5df;
+  --line-strong: #b8d4ca;
+  --glow-primary: rgba(26, 157, 110, 0.2);
+  --glow-primary-soft: rgba(26, 157, 110, 0.08);
+  --glow-danger: rgba(220, 53, 69, 0.2);
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.08), 0 0 0 1px rgba(26,157,110,0.12), 0 8px 24px rgba(0,0,0,0.06);
+  --shadow-overlay: 0 16px 48px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06);
+}
+[data-theme="light"] body { background: radial-gradient(circle at 72% -15%, #e0f2ec 0, transparent 28%), #f8faf9; color: #0d1f1a; }
+[data-theme="light"] .topbar { background: rgba(248,250,249,0.92); border-bottom-color: #d4e5df; }
+[data-theme="light"] .brandmark { background: #1a9d6e; color: #fff; box-shadow: 0 0 16px rgba(26,157,110,0.25); }
+[data-theme="light"] .sidebar { background: rgba(240,245,243,0.6); border-right-color: #d4e5df; }
+[data-theme="light"] .nav-item { color: #4a6d62; }
+[data-theme="light"] .nav-item:hover { background: #e8f5f0; color: #1a3d30; }
+[data-theme="light"] .nav-item.active { background: linear-gradient(90deg, #e0f2ec, #f0f8f5); color: #1a9d6e; box-shadow: inset 3px 0 #1a9d6e; }
+[data-theme="light"] .metric, [data-theme="light"] .panel { background: linear-gradient(145deg, #ffffff, #f8faf9); border-color: #d4e5df; box-shadow: var(--shadow-card); backdrop-filter: none; }
+[data-theme="light"] .metric strong { color: #0d1f1a; text-shadow: none; }
+[data-theme="light"] .metric.danger { border-color: #f5c6cb; background: linear-gradient(145deg, #fff8f8, #ffffff); }
+[data-theme="light"] .demo-notice { background: #fff8e6; border-color: #f0d080; color: #7a6020; }
+[data-theme="light"] .demo-notice strong { color: #9a7020; }
+[data-theme="light"] .toast { background: #ffffff; border-color: #b8d4ca; color: #1a3d30; box-shadow: var(--shadow-overlay); }
+[data-theme="light"] .severity.red { background: #fde8e8; color: #c0392b; }
+[data-theme="light"] .severity.orange { background: #fef3e2; color: #d68910; }
+[data-theme="light"] .data-row { border-bottom-color: #e8f0ed; }
+[data-theme="light"] .data-row:hover { background: linear-gradient(90deg, #f0f8f5, #e8f5f0, #f0f8f5); box-shadow: inset 3px 0 0 rgba(26,157,110,0.3); }
+[data-theme="light"] .icon-btn, [data-theme="light"] .avatar { border-color: #d4e5df; background: #ffffff; color: #4a6d62; }
+[data-theme="light"] .side-foot { border-color: #d4e5df; background: #ffffff; color: #5a7d72; }
+[data-theme="light"] .module { border-color: #e0ece8; background: #f8faf9; }
+[data-theme="light"] .module-icon.green { background: #e0f2ec; color: #1a9d6e; }
+[data-theme="light"] .module-icon.blue { background: #e0ecf5; color: #2980b9; }
+[data-theme="light"] .handle { border-color: #b8d4ca; background: #e8f5f0; color: #1a9d6e; }
+[data-theme="light"] .switch { background: #d4e5df; }
+[data-theme="light"] .switch.on { background: #1a9d6e; box-shadow: 0 0 10px rgba(26,157,110,0.3); }
+[data-theme="light"] .live-dot { background: #1a9d6e; box-shadow: 0 0 6px rgba(26,157,110,0.5); }
+[data-theme="light"] .demo-dot { background: #d68910; box-shadow: 0 0 6px rgba(214,137,16,0.4); }
+[data-theme="light"] .score-ring-chart { filter: none; }
+[data-theme="light"] .coverage-row .tool-logo { background: #f0f5f3; border-color: #d4e5df; color: #4a6d62; }
+[data-theme="light"] .flow { background: #f0f5f3; border-color: #d4e5df; color: #5a7d72; }
+[data-theme="light"] .flow .safe { color: #1a9d6e; }
+[data-theme="light"] .eyebrow { color: #1a9d6e !important; }
+[data-theme="light"] .page-head p, [data-theme="light"] .panel-head p { color: #5a7d72; }
+[data-theme="light"] .metric-top { color: #5a7d72; }
+[data-theme="light"] .metric p { color: #5a7d72; }
+[data-theme="light"] .metric em { color: #1a9d6e; }
+[data-theme="light"] .metric i { color: #c0392b; }
+
 /* ---------- 1b. Motion entrance utilities ----------------- */
 @keyframes entrance-fade-up {
   from { opacity: 0; transform: translateY(8px); }

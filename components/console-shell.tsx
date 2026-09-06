@@ -19,6 +19,7 @@ import {
   Users,
   Wrench,
 } from 'lucide-react';
+import ThemeToggle from '@/components/theme-toggle';
 import {
   CollectorProvider,
   type CollectorState,
@@ -130,6 +131,7 @@ export default function ConsoleShell({
             <button className="icon-btn" aria-label="搜索">
               <Search size={18} />
             </button>
+            <ThemeToggle />
             <button className="avatar" aria-label="账户菜单">
               SL
             </button>

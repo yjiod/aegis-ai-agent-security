@@ -198,7 +198,7 @@ export default function Home() {
   return (
     <>
       <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>{fleet ? '混合只读模式' : '演示模式'}</strong>{fleet ? ' 顶部四项指标来自已验证的接收器摘要；终端明细、覆盖分布和风险事件仍为界面样例。' : ' 页面指标、设备和风险事件均为界面样例，不代表真实终端状态。请部署报告接收器并完成私有 API 接入后再用于运营判断。'}</span></div>
-      <div className="page-head">
+      <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">安全态势 / 演示数据</p>
           <h1>AI Agent 安全总览</h1>
@@ -224,7 +224,7 @@ export default function Home() {
 
       {/* ─── Metric Cards with Sparklines ──────────────────────────── */}
       <div className="metrics">
-        <article className="metric">
+        <article className="metric animate-entrance animate-entrance-1">
           <div className="metric-top">
             <span>已纳管设备{fleet ? '' : '（样例）'}</span>
             <Laptop size={18} />
@@ -235,7 +235,7 @@ export default function Home() {
           </p>
           <Sparkline data={sparkDevices} />
         </article>
-        <article className="metric">
+        <article className="metric animate-entrance animate-entrance-2">
           <div className="metric-top">
             <span>当前版本覆盖率{fleet ? '' : '（样例）'}</span>
             <Bot size={18} />
@@ -249,7 +249,7 @@ export default function Home() {
           </p>
           <Sparkline data={sparkCoverage} />
         </article>
-        <article className="metric danger">
+        <article className="metric danger animate-entrance animate-entrance-3">
           <div className="metric-top">
             <span>高风险设备{fleet ? '' : '（样例）'}</span>
             <AlertTriangle size={18} />
@@ -260,7 +260,7 @@ export default function Home() {
           </p>
           <Sparkline data={sparkRisk} color="#ff685f" />
         </article>
-        <article className="metric">
+        <article className="metric animate-entrance animate-entrance-4">
           <div className="metric-top">
             <span>版本漂移设备{fleet ? '' : '（样例）'}</span>
             <ShieldCheck size={18} />
@@ -275,7 +275,7 @@ export default function Home() {
 
       {/* ─── Content Grid ─────────────────────────────────────────── */}
       <div className="content-grid">
-        <section className="panel capabilities">
+        <section className="panel capabilities animate-entrance animate-entrance-5">
           <div className="panel-head">
             <div>
               <h2>防护能力</h2>
@@ -318,7 +318,7 @@ export default function Home() {
         </section>
 
         {/* ─── Coverage Panel with Trend Indicators ─────────────────── */}
-        <section className="panel coverage">
+        <section className="panel coverage animate-entrance animate-entrance-6">
           <div className="panel-head">
             <div>
               <h2>终端覆盖</h2>
@@ -346,7 +346,7 @@ export default function Home() {
           ))}
         </section>
 
-        <section className="panel risks" id="risks">
+        <section className="panel risks animate-entrance animate-entrance-7" id="risks">
           <div className="panel-head">
             <div>
               <h2>风险事件样例</h2>
@@ -376,7 +376,7 @@ export default function Home() {
         </section>
 
         {/* ─── Score Panel with RadialBarChart ────────────────────── */}
-        <section className="panel score">
+        <section className="panel score animate-entrance animate-entrance-7">
           <div className="panel-head">
             <div>
               <h2>安全评分</h2>
@@ -430,7 +430,7 @@ export default function Home() {
       </div>
 
       {/* ─── Recent Activity Timeline ──────────────────────────────── */}
-      <section className="panel activity-timeline">
+      <section className="panel activity-timeline animate-entrance animate-entrance-7">
         <div className="panel-head">
           <div>
             <h2>近期动态</h2>
@@ -445,7 +445,11 @@ export default function Home() {
           {activityTimeline.map((event, idx) => {
             const Icon = event.icon;
             return (
-              <div className="timeline-item" key={idx}>
+              <div
+                className="timeline-item animate-entrance"
+                key={idx}
+                style={{ animationDelay: `${idx * 80 + 500}ms` }}
+              >
                 <div className="timeline-marker">
                   <span className="timeline-dot">
                     <Icon size={12} />
