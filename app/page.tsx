@@ -552,6 +552,7 @@ function DetailPanel({
                 <a href="/downloads/sentinel-policy.json" download>策略基线</a>
                 <a href="/downloads/sentinel_device_credentials.py" download>逐设备凭据工具</a>
                 <a href="/downloads/sentinel_collector_probe.py" download>Collector 验收探针</a>
+                <a href="/downloads/intune-deployment-manifest.json" download>Intune 部署清单</a>
               </div>
               <p className="safety-note"><LockKeyhole size={15}/>部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。</p>
             </div>

@@ -23,8 +23,12 @@ class SentinelTests(unittest.TestCase):
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Intune 部署清单'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
+    def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
+        manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
+        self.assertEqual(manifest['deployment_order'][-2:],['custom_compliance','conditional_access']); self.assertEqual([ring['maximum_percent'] for ring in manifest['rollout_rings']],[1,5,25,100])
+        for item in manifest['artifacts'].values(): self.assertEqual(item['sha256'],hashlib.sha256((DOWNLOADS/item['file']).read_bytes()).hexdigest())
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)
@@ -509,6 +513,10 @@ class SentinelTests(unittest.TestCase):
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel_agent.py').write_text('# drift')
             errors=self.verifier.verify(copy)
             self.assertIn('checksum_mismatch:sentinel_agent.py',errors); self.assertIn('bundle_content_mismatch:sentinel_agent.py',errors)
+    def test_release_verifier_rejects_intune_artifact_drift(self):
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'intune-windows-detect.ps1').write_text('# drift')
+            self.assertIn('intune_artifact_mismatch:intune-windows-detect.ps1',self.verifier.verify(copy))
     def test_release_verifier_rejects_invalid_policy_regex(self):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'sentinel-policy.json').read_text()); policy['secret_patterns']=['[invalid']; (copy/'sentinel-policy.json').write_text(json.dumps(policy))

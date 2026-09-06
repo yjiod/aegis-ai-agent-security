@@ -1,8 +1,9 @@
 {
-  "release": "0.67.0",
+  "release": "0.68.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T02:00:00+08:00",
+  "published_at": "2026-09-08T04:00:00+08:00",
   "features": [
+    "intune_deployment_manifest", "intune_artifact_digest_pinning", "system_root_execution_contract", "staged_rollout_rings", "ordered_compliance_activation", "production_signature_gate",
     "collector_0_16", "privacy_minimized_agent_coverage", "latest_report_agent_aggregation", "active_agent_coverage", "live_console_agent_coverage", "strict_agent_coverage_proxy",
     "six_agent_console_coverage", "current_capability_documentation", "collector_probe_download_entry", "operator_visibility_alignment",
     "cross_platform_agent_0_31", "gemini_cli_discovery", "github_copilot_cli_discovery", "gemini_and_copilot_user_baselines", "gemini_and_copilot_mcp_scanning", "cross_tool_baseline_uninstall",

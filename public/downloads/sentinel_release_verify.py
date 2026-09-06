@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -62,6 +62,19 @@ def verify(downloads):
             if "en_US" not in {item.get("Language") for item in rule.get("RemediationStrings",[])}: errors.append(f"missing_en_US:{name}:{rule.get('SettingName','unknown')}")
         versions=[rule.get("Operand") for rule in rules if rule.get("SettingName")=="SentinelPolicyVersion"]
         if versions!=[policy.get("version")]: errors.append(f"policy_version_drift:{name}")
+    try: intune=json.loads((downloads/"intune-deployment-manifest.json").read_text())
+    except (OSError,ValueError) as exc: errors.append(f"invalid_intune_manifest:{type(exc).__name__}"); intune={}
+    execution=intune.get("execution",{}) if isinstance(intune,dict) else {}; artifacts=intune.get("artifacts",{}) if isinstance(intune,dict) else {}
+    if intune.get("schema")!="sentinel.intune-deployment/v1" or intune.get("secrets_embedded") is not False: errors.append("unsafe_intune_manifest_contract")
+    if execution!={"windows_run_as":"system","windows_run_as_32_bit":False,"macos_run_as":"root","macos_hide_notifications":True,"script_signature_state":"pilot_unsigned","production_signature_required":True}: errors.append("unsafe_intune_execution_context")
+    expected_intune_files={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","sentinel-configure-windows.ps1","intune-macos-install.sh","intune-macos-compliance.sh","intune-macos-compliance-policy.json","sentinel-configure-macos.sh"}
+    listed=[]
+    for item in artifacts.values() if isinstance(artifacts,dict) else []:
+        if not isinstance(item,dict) or set(item)!={"file","sha256"}: errors.append("invalid_intune_artifact"); continue
+        name=item.get("file",""); listed.append(name); path=downloads/name
+        if name not in expected_intune_files or not path.is_file() or item.get("sha256")!=digest(path): errors.append(f"intune_artifact_mismatch:{name}")
+    if set(listed)!=expected_intune_files or len(listed)!=len(expected_intune_files): errors.append("incomplete_intune_artifact_set")
+    if intune.get("deployment_order")!=["collector_and_tls","reporting_credentials","endpoint_installation","reporting_configuration","custom_compliance","conditional_access"]: errors.append("unsafe_intune_deployment_order")
     try: service=(downloads/"sentinel-collector.service").read_text()
     except OSError as exc: errors.append(f"invalid_collector_service:{type(exc).__name__}"); service=""
     for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/collector.env","--listen 127.0.0.1","NoNewPrivileges=true","ProtectSystem=strict","ProtectHome=true","CapabilityBoundingSet="):

@@ -1,0 +1,45 @@
+{
+  "schema": "sentinel.intune-deployment/v1",
+  "execution": {
+    "windows_run_as": "system",
+    "windows_run_as_32_bit": false,
+    "macos_run_as": "root",
+    "macos_hide_notifications": true,
+    "script_signature_state": "pilot_unsigned",
+    "production_signature_required": true
+  },
+  "artifacts": {
+    "windows_detection": {"file": "intune-windows-detect.ps1", "sha256": "6ff20565c695468a4a56a486713eb6e72b8ca4541b87c3719a4ac88a31509477"},
+    "windows_remediation": {"file": "intune-windows-remediate.ps1", "sha256": "7a278fefc5e2ef89bdd258df88cfa8af87ab37f110df41d8f2518d84e9ec1874"},
+    "windows_compliance_discovery": {"file": "intune-compliance-discovery.ps1", "sha256": "c4828d07ff887690b3f992a223edf682808a113f639814d7fcb6088d01ce4e99"},
+    "windows_compliance_rules": {"file": "intune-compliance-policy.json", "sha256": "f6855edcf38f903bab574dec37fe0b94efec055e70f48249e4f00d74ac7f4447"},
+    "windows_reporting_configuration": {"file": "sentinel-configure-windows.ps1", "sha256": "256a35ffb5ff9e54938d089685437905892f60aa513544848d1b4da88694432f"},
+    "macos_install": {"file": "intune-macos-install.sh", "sha256": "2bf7be1fb2417a7fd6b9655dd2e75a23b4eef5f193fa7f0fac76665f8d2b3cad"},
+    "macos_compliance_discovery": {"file": "intune-macos-compliance.sh", "sha256": "52b7da5d1c9158b78cac337d1fb505183b9fe57d45a47d484fceeefa99f4550f"},
+    "macos_compliance_rules": {"file": "intune-macos-compliance-policy.json", "sha256": "7d321c6dce9654203aaab19efe689f3ba75d8f6193661e67ed3e2d26534b330f"},
+    "macos_reporting_configuration": {"file": "sentinel-configure-macos.sh", "sha256": "d6b6cf249fa3a3387c5024aea892eaeb2a608fa2be1c796221c4b59e3ce7cea0"}
+  },
+  "deployment_order": [
+    "collector_and_tls",
+    "reporting_credentials",
+    "endpoint_installation",
+    "reporting_configuration",
+    "custom_compliance",
+    "conditional_access"
+  ],
+  "rollout_rings": [
+    {"name": "lab", "maximum_percent": 1, "minimum_observation_hours": 24},
+    {"name": "pilot", "maximum_percent": 5, "minimum_observation_hours": 48},
+    {"name": "broad", "maximum_percent": 25, "minimum_observation_hours": 72},
+    {"name": "production", "maximum_percent": 100, "minimum_observation_hours": 168}
+  ],
+  "gates": [
+    "collector_probe_read_only_passed",
+    "release_verifier_passed",
+    "reporting_credentials_delivered_out_of_band",
+    "rollback_tested_in_ring",
+    "no_critical_findings",
+    "reporting_healthy_24h"
+  ],
+  "secrets_embedded": false
+}
