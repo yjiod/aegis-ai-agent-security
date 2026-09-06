@@ -160,6 +160,163 @@
 [data-theme="light"] .metric em { color: #0f7a52; }
 [data-theme="light"] .metric i { color: #c0392b; }
 
+/* Page heading: the dark theme paints it with a near-white gradient text-fill,
+   which is invisible on light surfaces. Re-ink it instead of re-grading it. */
+[data-theme="light"] .page-head h1 {
+  background: none;
+  -webkit-text-fill-color: #0d1f1a;
+  color: #0d1f1a;
+}
+
+/* Topbar text + interactive states (base hover colours are near-white). */
+[data-theme="light"] .brand-muted { color: #527469; }
+[data-theme="light"] .system-ok { color: #4a6d62; }
+[data-theme="light"] .icon-btn:hover {
+  border-color: rgba(18, 122, 84, 0.45);
+  color: #0d1f1a;
+  box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1), 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .avatar:hover {
+  border-color: rgba(18, 122, 84, 0.45);
+  box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1);
+}
+
+/* Selection: dark ink on pale green (base is near-white ink on pale green). */
+[data-theme="light"] ::selection { background: #bfe6d6; color: #0d1f1a; }
+
+/* Scrollbar chrome — cover the root element and all descendants. */
+[data-theme="light"],
+[data-theme="light"] * { scrollbar-color: #a9c6bb transparent; }
+[data-theme="light"]::-webkit-scrollbar-thumb,
+[data-theme="light"] *::-webkit-scrollbar-thumb {
+  background: #a9c6bb;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+[data-theme="light"]::-webkit-scrollbar-thumb:hover,
+[data-theme="light"] *::-webkit-scrollbar-thumb:hover {
+  background: #8fb3a5;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Sidebar. */
+[data-theme="light"] .nav-label { color: #4a6d62; }
+[data-theme="light"] .nav-item b {
+  background: #fde8e8;
+  border-color: #f5c6cb;
+  color: #b03a2e;
+  box-shadow: none;
+}
+[data-theme="light"] .side-foot:hover { border-color: rgba(18, 122, 84, 0.35); }
+[data-theme="light"] .side-foot strong { color: #1a3d30; }
+
+/* Page-head actions — the first button is a dark glass surface by default. */
+[data-theme="light"] .head-actions button:first-child {
+  border-color: #d4e5df;
+  background: #ffffff;
+  color: #4a6d62;
+}
+[data-theme="light"] .head-actions button:first-child:hover {
+  border-color: rgba(18, 122, 84, 0.45);
+  color: #0d1f1a;
+  box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1), 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+/* Panels. */
+[data-theme="light"] .panel:hover {
+  border-color: #b8d4ca;
+  box-shadow: var(--shadow-card-hover);
+}
+[data-theme="light"] .panel-head [data-slot="badge"] {
+  border-color: #b8d4ca;
+  background: #e8f5f0;
+  color: #0f7a52;
+  box-shadow: none;
+}
+[data-theme="light"] .panel-head [data-slot="badge"]:hover {
+  border-color: rgba(18, 122, 84, 0.45);
+  box-shadow: none;
+}
+[data-theme="light"] .panel-head button { color: #0f7a52; }
+[data-theme="light"] .panel-head button:hover { background: #e8f5f0; color: #0b5f40; }
+
+/* Metric cards. */
+[data-theme="light"] .metric::before,
+[data-theme="light"] .panel::before {
+  background: linear-gradient(90deg, transparent, rgba(18, 122, 84, 0.35), transparent);
+}
+[data-theme="light"] .metric:hover { border-color: #b8d4ca; }
+[data-theme="light"] .metric strong small { color: #527469; }
+[data-theme="light"] .metric.danger .metric-top svg { color: #c0392b; filter: none; }
+[data-theme="light"] .metric [data-slot="progress"],
+[data-theme="light"] .coverage-row [data-slot="progress"] {
+  background: #e3ece8;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+[data-theme="light"] .metric [data-slot="progress"] div,
+[data-theme="light"] .coverage-row [data-slot="progress"] div {
+  background: linear-gradient(90deg, #1a9d6e, #127a54);
+  box-shadow: none;
+}
+[data-theme="light"] .metric.danger [data-slot="progress"] div {
+  background: linear-gradient(90deg, #d9564e, #c0392b);
+  box-shadow: none;
+}
+
+/* Module grid + flow strip. */
+[data-theme="light"] .module p { color: #527469; }
+[data-theme="light"] .module:hover {
+  border-color: #b8d4ca;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.08);
+}
+[data-theme="light"] .status.green { color: #0f7a52; text-shadow: none; }
+[data-theme="light"] .status.blue { color: #1f6f9c; text-shadow: none; }
+[data-theme="light"] .flow:hover { border-color: #b8d4ca; box-shadow: none; }
+[data-theme="light"] .flow b { color: #7d9c92; }
+
+/* Coverage rows. */
+[data-theme="light"] .coverage-row:hover { background: #f0f5f3; border-color: #d4e5df; }
+[data-theme="light"] .coverage-row:hover .tool-logo { border-color: #b8d4ca; box-shadow: none; }
+[data-theme="light"] .coverage-data span { color: #527469; }
+
+/* Risk table. */
+[data-theme="light"] .risk-row { border-top-color: #e8f0ed; }
+[data-theme="light"] .risk-row:hover {
+  background: linear-gradient(90deg, #f0f8f5, #e8f5f0);
+  box-shadow: inset 2px 0 0 rgba(18, 122, 84, 0.35);
+}
+[data-theme="light"] .risk-main span,
+[data-theme="light"] .device,
+[data-theme="light"] .time { color: #527469; }
+[data-theme="light"] .severity.red,
+[data-theme="light"] .severity.orange { box-shadow: none; }
+[data-theme="light"] .severity.red { border-color: #f0bfba; }
+[data-theme="light"] .severity.orange { border-color: #ecd3a3; }
+[data-theme="light"] .handle:hover {
+  border-color: rgba(18, 122, 84, 0.5);
+  background: #dff0e8;
+  color: #0b5f40;
+  box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1);
+}
+
+/* Score ring + breakdown list. */
+[data-theme="light"] .score-ring {
+  background: conic-gradient(var(--primary) 0 92%, #dfe9e5 92%);
+  animation: none;
+}
+[data-theme="light"] .score-ring::after {
+  background: radial-gradient(circle at 50% 35%, #ffffff 0%, #f2f7f5 65%);
+  box-shadow:
+    inset 0 2px 8px rgba(0, 0, 0, 0.06),
+    inset 0 0 0 1px rgba(18, 122, 84, 0.1);
+}
+[data-theme="light"] .score-ring strong { color: #0d1f1a; text-shadow: none; }
+[data-theme="light"] .score-ring span { color: #527469; }
+[data-theme="light"] .score-list p { color: #527469; border-bottom-color: #e8f0ed; }
+[data-theme="light"] .score-list p:hover { color: #1a3d30; }
+[data-theme="light"] .score-list b { color: #1a3d30; }
+
 /* ---------- 1b. Motion entrance utilities ----------------- */
 @keyframes entrance-fade-up {
   from { opacity: 0; transform: translateY(8px); }
