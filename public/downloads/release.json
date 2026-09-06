@@ -1,8 +1,9 @@
 {
-  "release": "0.62.0",
+  "release": "0.63.0",
   "channel": "pilot",
-  "published_at": "2026-09-07T16:00:00+08:00",
+  "published_at": "2026-09-07T18:00:00+08:00",
   "features": [
+    "collector_0_15", "ten_thousand_device_evidence_export", "complete_fleet_evidence_marker", "bounded_device_query_limit", "linear_device_aggregation",
     "collector_0_14", "timestamped_activation_evidence", "bounded_evidence_freshness", "active_device_prune_gate", "duplicate_auth_last_seen",
     "collector_0_13", "credential_generation_consistency", "credential_activation_posture", "evidence_gated_old_credential_pruning", "console_credential_posture",
     "credential_manifest_metadata_preservation", "atomic_owner_group_mode_retention", "live_rotation_service_readability", "strict_0600_0640_manifest_modes",
