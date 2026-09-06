@@ -7,7 +7,6 @@ import {
   Bot,
   Check,
   ChevronDown,
-  CircleDot,
   Code2,
   Cpu,
   Laptop,
@@ -30,6 +29,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useCollector } from '@/components/collector-context';
+import { Toast } from '@/components/toast';
 
 /* ─── Animated Number Hook ─────────────────────────────────────────────── */
 function useAnimatedNumber(target: number, duration = 800): number {
@@ -215,12 +215,7 @@ export default function Home() {
           </Button>
         </div>
       </div>
-      {toast && (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      )}
+      <Toast message={toast} />
 
       {/* ─── Metric Cards with Sparklines ──────────────────────────── */}
       <div className="metrics">

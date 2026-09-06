@@ -92,6 +92,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { Toast } from '@/components/toast';
 
 /* ---------- 目录导航数据 ---------- */
 
@@ -268,12 +269,7 @@ export default function CatalogPage() {
         </div>
       </div>
 
-      {toast ? (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      ) : null}
+      <Toast message={toast} />
 
       <div className="grid gap-5 lg:grid-cols-[196px_minmax(0,1fr)]">
         {/* 分类侧边导航：锚点滚动，html 已启用 scroll-behavior: smooth */}
