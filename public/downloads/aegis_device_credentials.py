@@ -3,8 +3,8 @@
 import argparse, json, os, re, secrets, stat, tempfile, time
 from pathlib import Path
 
-SCHEMA="sentinel.device-credentials/v1"
-ENROLLMENT_SCHEMA="sentinel.device-enrollment/v1"
+SCHEMA="aegis.device-credentials/v1"
+ENROLLMENT_SCHEMA="aegis.device-enrollment/v1"
 
 def private_atomic(path,value,mode=0o600,preserve_metadata=False):
     path=Path(path)

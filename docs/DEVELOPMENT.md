@@ -15,10 +15,10 @@ npm ci
 python3 -m unittest discover -s tests -v
 for file in public/downloads/*.sh; do sh -n "$file"; done
 npm run build
-python3 public/downloads/sentinel_release_verify.py public/downloads
+python3 public/downloads/aegis_release_verify.py public/downloads
 git diff --check
 ```
 
-修改 `sentinel_agent.py`、`sentinel-windows.ps1`、`sentinel-policy.json` 或 `sentinel-security-baseline.md` 后，必须重算 `CHECKSUMS.sha256`，同步安装/检测/合规脚本内嵌哈希，并重建 ZIP。
+修改 `aegis_agent.py`、`aegis-windows.ps1`、`aegis-policy.json` 或 `aegis-security-baseline.md` 后，必须重算 `CHECKSUMS.sha256`，同步安装/检测/合规脚本内嵌哈希，并重建 ZIP。
 
 评审必须检查：不可信输入边界、代码执行可能性、链接越界、失败关闭、可恢复性、敏感数据暴露、虚假成功状态和跨平台行为对等。

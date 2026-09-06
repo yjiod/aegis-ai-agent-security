@@ -1,10 +1,10 @@
 $ErrorActionPreference = 'Stop'
-$baseUrl = 'https://sentinel-agent-security.yjiod2022.chatgpt.site/downloads'
-$installDir = Join-Path $env:ProgramData 'SentinelAgent'
+$baseUrl = 'https://aegis-agent-security.yjiod2022.chatgpt.site/downloads'
+$installDir = Join-Path $env:ProgramData 'AegisAgent'
 $reportDir = Join-Path $installDir 'reports'
 $previousDir = Join-Path $installDir 'previous'
 $stageDir = Join-Path $installDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
-$expected = @{ 'sentinel-policy.json'='0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423'; 'sentinel-windows.ps1'='e92d7378d84cc9a7639ed442ee8d9d731eb3e3f79a3292e96fc2be445e0ea79d'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
+$expected = @{ 'aegis-policy.json'='0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423'; 'aegis-windows.ps1'='e92d7378d84cc9a7639ed442ee8d9d731eb3e3f79a3292e96fc2be445e0ea79d'; 'aegis-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
 New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null
 & icacls.exe $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
 try {
@@ -22,8 +22,8 @@ try {
   }
   foreach ($name in $expected.Keys) { Move-Item (Join-Path $stageDir $name) (Join-Path $installDir $name) -Force }
 } finally { Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue }
-$baseline = Get-Content (Join-Path $installDir 'sentinel-security-baseline.md') -Raw
-$userBaselineStart='<!-- sentinel-managed-user-baseline:start -->';$userBaselineEnd='<!-- sentinel-managed-user-baseline:end -->'
+$baseline = Get-Content (Join-Path $installDir 'aegis-security-baseline.md') -Raw
+$userBaselineStart='<!-- aegis-managed-user-baseline:start -->';$userBaselineEnd='<!-- aegis-managed-user-baseline:end -->'
 $userBaselineBlock=$userBaselineStart+"`n"+$baseline.TrimEnd()+"`n"+$userBaselineEnd
 Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
   $targets=@()
@@ -35,14 +35,14 @@ Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','
     if((Test-Path $target) -and ((Get-Item $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){continue}
     $existing=if(Test-Path $target){Get-Content $target -Raw}else{''}
     $pattern=[regex]::Escape($userBaselineStart)+'.*?'+[regex]::Escape($userBaselineEnd)
-    if($existing.Contains($userBaselineStart) -xor $existing.Contains($userBaselineEnd)){Write-Output "Sentinel baseline markers malformed; preserving $target";continue}
+    if($existing.Contains($userBaselineStart) -xor $existing.Contains($userBaselineEnd)){Write-Output "Aegis baseline markers malformed; preserving $target";continue}
     if($existing -match [regex]::Escape($userBaselineStart)){$updated=[regex]::Replace($existing,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match)$userBaselineBlock},[System.Text.RegularExpressions.RegexOptions]::Singleline)}
     else{$updated=$existing.TrimEnd()+$(if($existing.Trim()){"`n`n"}else{''})+$userBaselineBlock+"`n"}
     if($updated -ne $existing){Set-Content -Encoding UTF8 $target $updated}
   }
 }
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$installDir\sentinel-windows.ps1`" -Output `"$reportDir\latest.json`""
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$installDir\aegis-windows.ps1`" -Output `"$reportDir\latest.json`""
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Hours 4)
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-Register-ScheduledTask -TaskName 'Sentinel AI Agent Security Scan' -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
-Write-Output 'Sentinel Agent installed and scheduled.'
+Register-ScheduledTask -TaskName 'Aegis AI Agent Security Scan' -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+Write-Output 'Aegis Agent installed and scheduled.'

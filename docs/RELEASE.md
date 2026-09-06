@@ -2,7 +2,7 @@
 
 1. 更新代码、测试、部署文档和版本元数据。
 2. 重算四项运行时 SHA-256，更新全部哈希消费者。
-3. 按 `sentinel_release_verify.py` 的 `BUNDLE_FILES` 重建 `sentinel-enterprise-bundle.zip`。
+3. 按 `aegis_release_verify.py` 的 `BUNDLE_FILES` 重建 `aegis-enterprise-bundle.zip`。
 4. 执行 Python 测试、Shell 语法检查、前端构建、离线验证和 `git diff --check`。
 5. 提交并推送 GitHub 私有仓库。
 6. 从同一提交生成 Sites 归档、保存版本、部署私有站点并轮询到成功。

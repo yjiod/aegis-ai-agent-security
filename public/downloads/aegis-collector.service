@@ -1,17 +1,17 @@
 [Unit]
-Description=Sentinel AI Agent security report collector
+Description=Aegis AI Agent security report collector
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=sentinel
-Group=sentinel
-EnvironmentFile=/etc/sentinel/collector.env
-ExecStart=/usr/bin/python3 /opt/sentinel/sentinel_collector.py --listen 127.0.0.1 --port 8788 --db /var/lib/sentinel/sentinel.db
+User=aegis
+Group=aegis
+EnvironmentFile=/etc/aegis/collector.env
+ExecStart=/usr/bin/python3 /opt/aegis/aegis_collector.py --listen 127.0.0.1 --port 8788 --db /var/lib/aegis/aegis.db
 Restart=on-failure
 RestartSec=5s
-StateDirectory=sentinel
+StateDirectory=aegis
 StateDirectoryMode=0700
 UMask=0077
 NoNewPrivileges=true

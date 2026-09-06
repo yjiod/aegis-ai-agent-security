@@ -103,9 +103,9 @@ function unavailable(error: string, status = 503) {
 }
 
 export async function GET() {
-  const endpoint = process.env.SENTINEL_COLLECTOR_URL;
-  const allowedHost = process.env.SENTINEL_COLLECTOR_ALLOWED_HOST;
-  const token = process.env.SENTINEL_COLLECTOR_TOKEN;
+  const endpoint = process.env.AEGIS_COLLECTOR_URL;
+  const allowedHost = process.env.AEGIS_COLLECTOR_ALLOWED_HOST;
+  const token = process.env.AEGIS_COLLECTOR_TOKEN;
   if (!endpoint || !allowedHost || !token)
     return unavailable('collector_not_configured');
   let target: URL;

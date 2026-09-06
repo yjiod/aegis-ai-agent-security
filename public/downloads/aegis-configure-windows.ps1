@@ -1,8 +1,8 @@
 param(
-  [string]$ReportUrl = $env:SENTINEL_REPORT_URL,
-  [string]$ReportToken = $env:SENTINEL_REPORT_TOKEN,
-  [string]$SigningSecret = $env:SENTINEL_REPORT_SIGNING_SECRET,
-  [string]$OutputPath = "$env:ProgramData\SentinelAgent\reporting.dpapi"
+  [string]$ReportUrl = $env:AEGIS_REPORT_URL,
+  [string]$ReportToken = $env:AEGIS_REPORT_TOKEN,
+  [string]$SigningSecret = $env:AEGIS_REPORT_SIGNING_SECRET,
+  [string]$OutputPath = "$env:ProgramData\AegisAgent\reporting.dpapi"
 )
 $ErrorActionPreference='Stop'
 if($ReportUrl.Length -gt 2048){throw 'Report URL is too long'}
@@ -14,8 +14,8 @@ if($ReportToken -ceq $SigningSecret){throw 'Report token and signing secret must
 $parent=Split-Path $OutputPath -Parent
 New-Item -ItemType Directory -Force -Path $parent|Out-Null
 & icacls.exe $parent /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /C|Out-Null
-$payload=@{schema='sentinel.reporting/v1';report_url=$ReportUrl;report_token=$ReportToken;signing_secret=$SigningSecret}|ConvertTo-Json -Compress
-$plain=[Text.Encoding]::UTF8.GetBytes($payload);$entropy=[Text.Encoding]::UTF8.GetBytes('SentinelAgent.Reporting.v1')
+$payload=@{schema='aegis.reporting/v1';report_url=$ReportUrl;report_token=$ReportToken;signing_secret=$SigningSecret}|ConvertTo-Json -Compress
+$plain=[Text.Encoding]::UTF8.GetBytes($payload);$entropy=[Text.Encoding]::UTF8.GetBytes('AegisAgent.Reporting.v1')
 try{$encrypted=[Security.Cryptography.ProtectedData]::Protect($plain,$entropy,[Security.Cryptography.DataProtectionScope]::LocalMachine)}finally{[Array]::Clear($plain,0,$plain.Length)}
 $temp=$OutputPath+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
 try{
@@ -23,4 +23,4 @@ try{
   & icacls.exe $temp /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' /C|Out-Null
   Move-Item $temp $OutputPath -Force
 }finally{Remove-Item $temp -Force -ErrorAction SilentlyContinue;[Array]::Clear($encrypted,0,$encrypted.Length)}
-Write-Output 'Sentinel reporting configuration encrypted for this Windows device.'
+Write-Output 'Aegis reporting configuration encrypted for this Windows device.'

@@ -29,4 +29,4 @@ jobs:
       - run: |
           for file in public/downloads/*.sh; do sh -n "$file"; done
       - run: npm run build
-      - run: python3 public/downloads/sentinel_release_verify.py public/downloads
+      - run: python3 public/downloads/aegis_release_verify.py public/downloads

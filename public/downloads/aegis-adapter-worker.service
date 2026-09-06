@@ -1,18 +1,18 @@
 [Unit]
-Description=Sentinel validated report vendor adapter worker
-After=sentinel-collector.service
-Requires=sentinel-collector.service
+Description=Aegis validated report vendor adapter worker
+After=aegis-collector.service
+Requires=aegis-collector.service
 
 [Service]
 Type=simple
-User=sentinel
-Group=sentinel
-EnvironmentFile=/etc/sentinel/collector.env
-EnvironmentFile=/etc/sentinel/adapter.env
-ExecStart=/usr/bin/python3 /opt/sentinel/sentinel_adapter_worker.py --db /var/lib/sentinel/sentinel.db --config /etc/sentinel/adapters.json --spool /var/lib/sentinel/adapter-spool
+User=aegis
+Group=aegis
+EnvironmentFile=/etc/aegis/collector.env
+EnvironmentFile=/etc/aegis/adapter.env
+ExecStart=/usr/bin/python3 /opt/aegis/aegis_adapter_worker.py --db /var/lib/aegis/aegis.db --config /etc/aegis/adapters.json --spool /var/lib/aegis/adapter-spool
 Restart=on-failure
 RestartSec=10s
-StateDirectory=sentinel
+StateDirectory=aegis
 StateDirectoryMode=0700
 UMask=0077
 NoNewPrivileges=true
