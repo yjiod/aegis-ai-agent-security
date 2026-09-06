@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -112,6 +112,10 @@ def verify(downloads):
     try: device_example=json.loads((downloads/"sentinel-device-credentials.example.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_device_credentials_example:{type(exc).__name__}"); device_example={}
     if device_example!={"schema":"sentinel.device-credentials/v1","devices":{"0123456789ab":{"tokens":[""],"signing_secrets":[""]}}}: errors.append("unsafe_device_credentials_example")
+    try: provisioner=(downloads/"sentinel_device_credentials.py").read_text()
+    except OSError as exc: errors.append(f"invalid_device_credential_provisioner:{type(exc).__name__}"); provisioner=""
+    for directive in ("secrets.token_urlsafe(48)","os.fsync(handle.fileno())","os.replace(temp,path)","secrets_printed","--prune-old","enrollment_directory_symlink"):
+        if directive not in provisioner: errors.append(f"unsafe_device_credential_provisioner:{directive}")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:
