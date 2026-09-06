@@ -63,3 +63,6 @@ jobs:
         shell: bash
         run: |
           for file in public/downloads/*.sh; do /bin/bash -n "$file"; /bin/sh -n "$file"; done
+      - name: Run isolated installer and Agent smoke tests on macOS
+        shell: bash
+        run: /bin/sh tests/macos-agent-smoke.sh

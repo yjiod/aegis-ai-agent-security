@@ -32,9 +32,13 @@ class SentinelTests(unittest.TestCase):
             self.assertIn(directive,workflow)
         self.assertGreaterEqual(workflow.count('actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09'),3)
         self.assertIn('tests/windows-agent-smoke.ps1',workflow)
+        self.assertIn('tests/macos-agent-smoke.sh',workflow)
         smoke=(ROOT/'tests/windows-agent-smoke.ps1').read_text()
         for directive in ('Start-Process -FilePath',"'-NoProfile'","'-ManagedUsersRoot'",'RedirectStandardError',"agent_version -cne '0.34.0'","policy_version -cne 'invalid'","policy_load_failed"):
             self.assertIn(directive,smoke)
+        mac_smoke=(ROOT/'tests/macos-agent-smoke.sh').read_text()
+        for directive in ('SENTINEL_BASE_URL="file://$SOURCE"','install-sentinel.sh','sentinel_agent.py','stat.S_IMODE','hardcoded_secret','secret not in open'):
+            self.assertIn(directive,mac_smoke)
         self.assertTrue((DOWNLOADS/'sentinel-windows.ps1').read_bytes().startswith(b'\xef\xbb\xbf'))
     def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
         manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
