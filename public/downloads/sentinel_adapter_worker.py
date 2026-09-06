@@ -9,6 +9,11 @@ def load_adapter(path=None):
     spec=importlib.util.spec_from_file_location("sentinel_adapter_runtime",path)
     module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
+def load_vendor_preflight(path=None):
+    path=Path(path or Path(__file__).with_name("sentinel_vendor_preflight.py"))
+    spec=importlib.util.spec_from_file_location("sentinel_vendor_preflight_runtime",path)
+    module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
+
 def retention_days(value=None):
     raw=os.getenv("SENTINEL_ADAPTER_DISPATCH_RETENTION_DAYS","90") if value is None else value
     try: return min(max(int(raw),1),3650)
@@ -24,7 +29,7 @@ def poll_seconds(value=None):
     try: return min(max(float(raw),1),3600)
     except (TypeError,ValueError): return 10
 
-def preflight(config,adapter):
+def preflight(config,adapter,acceptance=None,now=None):
     adapter.validate_config(config)
     enabled=0
     for name in adapter.ADAPTERS:
@@ -35,6 +40,8 @@ def preflight(config,adapter):
             for action in target.get("actions",{}).values():
                 if action not in adapter.SAFE_ACTIONS: raise ValueError(f"unsafe_sangfor_action:{action}")
     if not enabled: raise ValueError("no_enabled_adapters")
+    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.9",now=now)
+    if blockers: raise ValueError("vendor_acceptance_failed:"+",".join(blockers))
 
 @contextmanager
 def open_db(path):
@@ -49,8 +56,8 @@ def result_summary(outputs):
     allowed=("adapter","result","status","queue_id","error")
     return [{key:item[key] for key in allowed if key in item} for item in outputs]
 
-def dispatch_once(db_path,config,spool,adapter=None,sender=None,limit=None,now=None):
-    adapter=adapter or load_adapter(); preflight(config,adapter); now=int(time.time()) if now is None else int(now)
+def dispatch_once(db_path,config,spool,adapter=None,sender=None,limit=None,now=None,acceptance=None):
+    adapter=adapter or load_adapter(); now=int(time.time()) if now is None else int(now); preflight(config,adapter,acceptance,now)
     spool=Path(spool); adapter.flush_spool(config,spool,sender=sender or adapter.send)
     with open_db(db_path) as db:
         db.execute("DELETE FROM adapter_dispatches WHERE processed_at < ? AND report_id NOT IN (SELECT id FROM reports)",(now-retention_days()*86400,)); db.commit()
@@ -75,12 +82,16 @@ def dispatch_once(db_path,config,spool,adapter=None,sender=None,limit=None,now=N
     return completed
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--db",default="/var/lib/sentinel/sentinel.db"); ap.add_argument("--config",default="/etc/sentinel/adapters.json"); ap.add_argument("--spool",default="/var/lib/sentinel/adapter-spool"); ap.add_argument("--once",action="store_true"); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--db",default="/var/lib/sentinel/sentinel.db"); ap.add_argument("--config",default="/etc/sentinel/adapters.json"); ap.add_argument("--acceptance",default="/etc/sentinel/vendor-acceptance.json"); ap.add_argument("--spool",default="/var/lib/sentinel/adapter-spool"); ap.add_argument("--once",action="store_true"); args=ap.parse_args()
     adapter=load_adapter()
-    try: config=json.loads(Path(args.config).read_text()); preflight(config,adapter)
+    try:
+        config=json.loads(Path(args.config).read_text())
+        needs_acceptance=any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in ("sangfor","leagsoft"))
+        acceptance=json.loads(Path(args.acceptance).read_text()) if needs_acceptance else None
+        preflight(config,adapter,acceptance)
     except (OSError,ValueError,TypeError,RecursionError) as exc: raise SystemExit("invalid adapter worker configuration: "+str(exc))
     while True:
-        results=dispatch_once(args.db,config,args.spool,adapter=adapter)
+        results=dispatch_once(args.db,config,args.spool,adapter=adapter,acceptance=acceptance)
         if args.once: print(json.dumps(results,ensure_ascii=False,indent=2)); return
         time.sleep(poll_seconds())
 

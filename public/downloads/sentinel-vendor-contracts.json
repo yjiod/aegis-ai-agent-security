@@ -1,6 +1,12 @@
 {
   "schema": "sentinel.vendor-contracts/v1",
-  "adapter_version": "0.8",
+  "adapter_version": "0.9",
+  "production_enablement": {
+    "evidence_schema": "sentinel.vendor-acceptance/v1",
+    "maximum_evidence_age_seconds": 604800,
+    "required_for": ["sangfor", "leagsoft"],
+    "secrets_allowed": false
+  },
   "transport": {
     "method": "POST",
     "scheme": "https",

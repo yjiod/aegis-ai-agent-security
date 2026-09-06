@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","intune-rollout-evidence.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel-sign-intune.ps1",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","intune-rollout-evidence.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -113,21 +113,30 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_adapter_worker:{type(exc).__name__}"); worker=worker_service=""
     for directive in ("adapter_dispatches","adapter.validate_target","result_summary(outputs)","INSERT OR IGNORE INTO adapter_dispatches"):
         if directive not in worker: errors.append(f"unsafe_adapter_worker:{directive}")
-    for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/adapter.env","NoNewPrivileges=true","ProtectSystem=strict","CapabilityBoundingSet="):
+    for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/adapter.env","--acceptance /etc/sentinel/vendor-acceptance.json","NoNewPrivileges=true","ProtectSystem=strict","CapabilityBoundingSet="):
         if directive not in worker_service: errors.append(f"unsafe_adapter_worker_service:{directive}")
     try: adapter_text=(downloads/"sentinel_adapter.py").read_text()
     except OSError as exc: errors.append(f"invalid_adapter:{type(exc).__name__}"); adapter_text=""
     if '"Idempotency-Key":hashlib.sha256(body).hexdigest()' not in adapter_text: errors.append("missing_adapter_idempotency_key")
-    for directive in ('SentinelAdapter/0.8','action not in SAFE_ACTIONS','set(compliance)!={"max_policy_age_hours","critical_allowed"}','not 1<=age<=168','critical!=0'):
+    for directive in ('SentinelAdapter/0.9','action not in SAFE_ACTIONS','set(compliance)!={"max_policy_age_hours","critical_allowed"}','not 1<=age<=168','critical!=0'):
         if directive not in adapter_text: errors.append(f"missing_vendor_config_boundary:{directive}")
     try: vendor_contract=json.loads((downloads/"sentinel-vendor-contracts.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_vendor_contract:{type(exc).__name__}"); vendor_contract={}
-    if vendor_contract.get("schema")!="sentinel.vendor-contracts/v1" or vendor_contract.get("adapter_version")!="0.8" or vendor_contract.get("secrets_embedded") is not False: errors.append("vendor_contract_version_drift")
+    if vendor_contract.get("schema")!="sentinel.vendor-contracts/v1" or vendor_contract.get("adapter_version")!="0.9" or vendor_contract.get("secrets_embedded") is not False: errors.append("vendor_contract_version_drift")
     transport=vendor_contract.get("transport",{}); boundaries=vendor_contract.get("credential_boundaries",{})
     if transport.get("scheme")!="https" or transport.get("timeout_seconds")!=15 or transport.get("idempotency_header")!="Idempotency-Key" or transport.get("credentials_in_url_allowed") is not False: errors.append("unsafe_vendor_transport_contract")
     if vendor_contract.get("sangfor",{}).get("safe_actions")!=["observe","alert","isolate_pending_approval","block_pending_approval"] or vendor_contract.get("sangfor",{}).get("direct_destructive_actions_allowed") is not False: errors.append("unsafe_sangfor_contract")
     if vendor_contract.get("leagsoft",{}).get("compliance_configuration")!={"max_policy_age_hours_min":1,"max_policy_age_hours_max":168,"critical_allowed":0}: errors.append("unsafe_leagsoft_contract")
     if [boundaries.get(name,{}).get("allowed_env_prefix") for name in ("sangfor","leagsoft","security_webhook")]!=["SANGFOR_","LEAGSOFT_","SENTINEL_"]: errors.append("vendor_credential_boundary_drift")
+    enablement=vendor_contract.get("production_enablement",{})
+    if enablement!={"evidence_schema":"sentinel.vendor-acceptance/v1","maximum_evidence_age_seconds":604800,"required_for":["sangfor","leagsoft"],"secrets_allowed":False}: errors.append("vendor_enablement_contract_drift")
+    try: vendor_evidence=json.loads((downloads/"vendor-acceptance-evidence.example.json").read_text()); vendor_preflight=(downloads/"sentinel_vendor_preflight.py").read_text()
+    except (OSError,ValueError) as exc: errors.append(f"invalid_vendor_preflight:{type(exc).__name__}"); vendor_evidence={}; vendor_preflight=""
+    if vendor_evidence.get("schema")!="sentinel.vendor-acceptance/v1" or vendor_evidence.get("adapter_version")!="0.9" or vendor_evidence.get("secrets_embedded") is not False: errors.append("unsafe_vendor_acceptance_example")
+    for directive in ('max_age_seconds=604800','vendor_endpoint_not_accepted','vendor_gate_failed','vendor_acceptance_must_be_secret_free','auth_scheme'):
+        if directive not in vendor_preflight: errors.append(f"unsafe_vendor_preflight:{directive}")
+    for directive in ('--acceptance','vendor_acceptance_failed','adapter_version="0.9"'):
+        if directive not in worker: errors.append(f"missing_vendor_worker_gate:{directive}")
     try: windows_config=(downloads/"sentinel-configure-windows.ps1").read_text(); windows_agent=(downloads/"sentinel-windows.ps1").read_text(); mac_config=(downloads/"sentinel-configure-macos.sh").read_text(); python_agent=(downloads/"sentinel_agent.py").read_text()
     except OSError as exc: errors.append(f"invalid_endpoint_reporting_config:{type(exc).__name__}"); windows_config=windows_agent=mac_config=python_agent=""
     for directive in ("DataProtectionScope]::LocalMachine","SENTINEL_REPORT_SIGNING_SECRET","Report token and signing secret must be independent","icacls.exe"):

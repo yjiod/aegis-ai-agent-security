@@ -1,0 +1,32 @@
+{
+  "schema": "sentinel.vendor-acceptance/v1",
+  "generated_at": 0,
+  "adapter_version": "0.9",
+  "vendors": {
+    "sangfor": {
+      "product_version": "",
+      "api_document_id": "",
+      "endpoint_url": "",
+      "auth_scheme": "bearer",
+      "field_mapping_approved": false,
+      "idempotency_verified": false,
+      "non_2xx_retry_verified": false,
+      "safe_action_mapping_verified": false,
+      "dry_run_payload_approved": false,
+      "approved_by": ""
+    },
+    "leagsoft": {
+      "product_version": "",
+      "api_document_id": "",
+      "endpoint_url": "",
+      "auth_scheme": "bearer",
+      "field_mapping_approved": false,
+      "idempotency_verified": false,
+      "non_2xx_retry_verified": false,
+      "safe_action_mapping_verified": false,
+      "dry_run_payload_approved": false,
+      "approved_by": ""
+    }
+  },
+  "secrets_embedded": false
+}

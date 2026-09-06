@@ -555,6 +555,8 @@ function DetailPanel({
                 <a href="/downloads/sentinel_collector_probe.py" download>Collector 验收探针</a>
                 <a href="/downloads/sentinel-collector.openapi.json" download>Collector API 规范</a>
                 <a href="/downloads/sentinel-vendor-contracts.json" download>厂商联动契约</a>
+                <a href="/downloads/vendor-acceptance-evidence.example.json" download>厂商验收证据模板</a>
+                <a href="/downloads/sentinel_vendor_preflight.py" download>厂商接入预检</a>
                 <a href="/downloads/intune-deployment-manifest.json" download>Intune 部署清单</a>
                 <a href="/downloads/sentinel-sign-intune.ps1" download>Windows 企业签名工具</a>
                 <a href="/downloads/intune-rollout-evidence.example.json" download>Intune 晋级证据模板</a>
