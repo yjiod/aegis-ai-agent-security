@@ -11,7 +11,7 @@ def vendor_report(level='normal'):
     return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -212,6 +212,23 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(self.collector.valid_signature(headers,body,now=1301,secret='signing-secret'))
         self.assertEqual(headers['Authorization'],'Bearer bearer'); self.assertTrue(headers['X-Sentinel-Signature'].startswith('sha256='))
         bound=self.agent.report_headers(body,'bearer','signing-secret',now=1000,device_id='abcdef123456'); self.assertTrue(self.collector.valid_signature(bound,body,now=1001,secret='signing-secret')); self.assertFalse(self.collector.valid_signature({**bound,'X-Sentinel-Device-ID':'000000000000'},body,now=1001,secret='signing-secret'))
+    def test_collector_acceptance_probe_is_read_only_by_default_and_body_bound(self):
+        with tempfile.TemporaryDirectory() as d:
+            token='t'*32; secret='s'*32
+            with patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKEN':token,'SENTINEL_REPORT_SIGNING_SECRET':secret},clear=True):
+                server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(Path(d)/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+                try:
+                    base=f'http://127.0.0.1:{server.server_port}'
+                    read_only=self.probe.check_read_only(base,token); self.assertTrue(read_only['fleet_complete'])
+                    db=sqlite3.connect(server.db_path)
+                    try: self.assertEqual(db.execute('SELECT COUNT(*) FROM reports').fetchone()[0],0)
+                    finally: db.close()
+                    written=self.probe.check_write(base,token,secret,'sentinel-probe'); self.assertEqual(written['statuses'],[202,200])
+                    db=sqlite3.connect(server.db_path)
+                    try: self.assertEqual(db.execute('SELECT COUNT(*) FROM reports').fetchone()[0],1)
+                    finally: db.close()
+                    with self.assertRaisesRegex(ValueError,'collector_url_requires_https'): self.probe.validate_base('http://collector.example.internal')
+                finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_collector_binds_device_identity_to_independent_credentials(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); credentials_path=root/'devices.json'; device_id='abcdef123456'; token='t'*32; secret='s'*32; old_token='u'*32; old_secret='v'*32; admin='a'*32

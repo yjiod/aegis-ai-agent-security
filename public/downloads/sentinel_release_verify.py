@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -116,6 +116,10 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_device_credential_provisioner:{type(exc).__name__}"); provisioner=""
     for directive in ("secrets.token_urlsafe(48)","os.fsync(handle.fileno())","os.replace(temp,path)","secrets_printed","--prune-old","enrollment_directory_symlink","preserve_metadata=True","os.chown(temp,metadata[1],metadata[2])","stat.S_IMODE(info.st_mode) not in {0o600,0o640}","activation_evidence_required","devices_not_on_current_credentials","--activation-evidence","activation_evidence_stale","now-generated_at<=max_age","generated_at-row[\"last_seen\"]<=active_window",'value.get("complete") is not True'):
         if directive not in provisioner: errors.append(f"unsafe_device_credential_provisioner:{directive}")
+    try: probe=(downloads/"sentinel_collector_probe.py").read_text()
+    except OSError as exc: errors.append(f"invalid_collector_probe:{type(exc).__name__}"); probe=""
+    for directive in ('parser.add_argument("--write-test",action="store_true")','parsed.scheme!="https"','parsed.username or parsed.password or parsed.query or parsed.fragment','expected=(401,)','/v1/devices?limit=10000','X-Sentinel-Device-ID','digest[:20]','expected_duplicate','hmac.compare_digest(token,secret)','MAX_RESPONSE=1_000_000'):
+        if directive not in probe: errors.append(f"unsafe_collector_probe:{directive}")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:
