@@ -1,0 +1,32 @@
+{
+  "allowed_hosts": ["127.0.0.1"],
+  "sangfor": {
+    "enabled": true,
+    "mode": "webhook",
+    "url": "http://127.0.0.1:9443/api/aegis/events",
+    "token_env": "SANGFOR_EDR_TOKEN",
+    "actions": {
+      "critical": "isolate_pending_approval",
+      "high": "alert",
+      "medium": "observe",
+      "low": "observe",
+      "normal": "observe"
+    }
+  },
+  "leagsoft": {
+    "enabled": true,
+    "mode": "webhook",
+    "url": "http://127.0.0.1:9443/api/aegis/posture",
+    "token_env": "LEAGSOFT_TOKEN",
+    "compliance": {
+      "max_policy_age_hours": 24,
+      "critical_allowed": 0
+    }
+  },
+  "security_webhook": {
+    "enabled": true,
+    "mode": "webhook",
+    "url": "http://127.0.0.1:9443/hooks/aegis",
+    "secret_env": "AEGIS_WEBHOOK_SECRET"
+  }
+}
