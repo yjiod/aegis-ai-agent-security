@@ -31,3 +31,11 @@
   margin-right: 8px;
   color: #ffd77f;
 }
+
+/* ─── Light theme ─────────────────────────────────────────
+   The notice surface and its `strong` are re-coloured in
+   globals.css; only the icon needs a darker amber here so it
+   keeps >=3:1 against the pale #fff8e6 background. */
+[data-theme="light"] .demo-notice svg {
+  color: #b8860b;
+}
