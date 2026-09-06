@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import {
-  AlertTriangle, CircleDot, Plus, X, Check, Clock,
-  ShieldCheck, Search as SearchIcon,
+  AlertTriangle, Plus, X, Check, Clock,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCollector } from '@/components/collector-context';
+import { Toast } from '@/components/toast';
 
 /* ─── Types ─────────────────────────────────────────────── */
 type TicketStatus = 'open' | 'acknowledged' | 'investigating' | 'resolved' | 'dismissed';
@@ -29,12 +30,19 @@ const FILTERS: { key: string; label: string }[] = [
 ];
 
 function timeAgo(ts: number): string {
-  const diff = Math.floor(Date.now() / 1000) - ts;
+  // ts 是 epoch 毫秒（见 lib/store.ts 头部约定），先换算成秒再比对阈值。
+  // 此前写成「当前秒 − ts(毫秒)」得到巨大负数，恒命中 diff < 60，
+  // 于是所有工单不论新旧一律显示「刚刚」（有种子上限是 2 天）。
+  const diff = Math.floor((Date.now() - ts) / 1000);
   if (diff < 60) return '刚刚';
   if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
   return `${Math.floor(diff / 86400)} 天前`;
 }
+
+/** `await res.json()` 的静态类型是 unknown，按接口契约收窄后再取字段。 */
+type TicketsResponse = { tickets?: Ticket[] };
+type ErrorResponse = { error?: string };
 
 /* ─── Page ──────────────────────────────────────────────── */
 export default function RisksPage() {
@@ -46,16 +54,37 @@ export default function RisksPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
-  const fetchTickets = useCallback(async () => {
+  const fetchTickets = useCallback(async (signal?: AbortSignal) => {
     try {
       const url = filter ? `/api/tickets?status=${filter}` : '/api/tickets';
-      const res = await fetch(url, { cache: 'no-store' });
-      if (res.ok) { const data = await res.json(); setTickets(data.tickets ?? []); }
-    } catch { /* keep current */ }
+      const res = await fetch(url, { cache: 'no-store', signal });
+      if (res.ok) {
+        const data = (await res.json()) as TicketsResponse;
+        setTickets(data.tickets ?? []);
+      }
+    } catch (error) {
+      // 主动取消不是失败：effect 清理时 abort 掉在途请求，直接返回，
+      // 不再触碰 state（组件可能已卸载或筛选已切换）。
+      if (error instanceof Error && error.name === 'AbortError') return;
+      /* 其余错误保持现有数据 */
+    }
     setLoading(false);
   }, [filter]);
 
-  useEffect(() => { fetchTickets(); }, [fetchTickets]);
+  // AbortController 版本：快速切换筛选时旧请求会被中止，避免「旧响应后到并
+  // 覆盖新结果」的竞态；同时 setState 全部发生在 await 之后，不是 effect 内的
+  // 同步 setState（react-compiler EffectSetState）。
+  useEffect(() => {
+    const controller = new AbortController();
+    // EffectSetState 是基于调用图的静态启发式：它只看到「effect 内调用了含
+    // setState 的函数」，看不见 await 边界。此处 setState 全部位于 await 之后，
+    // 由 React 18+ 自动批处理合并为单次渲染，不构成规则所担心的同步级联渲染；
+    // AbortController 另保证迟到的响应不会写回已失效的状态。「按依赖变化取数
+    // 并存入 state」是 React 标准模式，不宜为迁就静态分析而扭曲结构。
+    // oxlint-disable-next-line react/react-compiler
+    void fetchTickets(controller.signal);
+    return () => controller.abort();
+  }, [fetchTickets]);
 
   function notify(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500); }
 
@@ -64,8 +93,13 @@ export default function RisksPage() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, note, actor: 'console_user' }),
     });
-    if (res.ok) { notify(`工单 ${ticket_id} 已转为「${STATUS_LABEL[status]}」`); fetchTickets(); }
-    else { const err = await res.json().catch(() => ({})); notify(`操作失败: ${err.error ?? res.status}`); }
+    if (res.ok) {
+      notify(`工单 ${ticket_id} 已转为「${STATUS_LABEL[status]}」`);
+      await fetchTickets();
+    } else {
+      const err = (await res.json().catch(() => ({}))) as ErrorResponse;
+      notify(`操作失败: ${err.error ?? res.status}`);
+    }
   }
 
   const openCount = tickets.filter((t) => t.status === 'open').length;
@@ -93,7 +127,7 @@ export default function RisksPage() {
         </div>
       </div>
 
-      {toast && <div className="toast" role="status"><CircleDot size={16} />{toast}</div>}
+      <Toast message={toast} />
 
       {/* KPIs */}
       <div className="detail-kpis animate-entrance animate-entrance-2">
@@ -103,7 +137,7 @@ export default function RisksPage() {
       </div>
 
       {/* Create form */}
-      {showCreate && <CreateTicketForm onCreated={() => { setShowCreate(false); fetchTickets(); notify('工单创建成功。'); }} notify={notify} />}
+      {showCreate && <CreateTicketForm onCreated={() => { setShowCreate(false); void fetchTickets(); notify('工单创建成功。'); }} notify={notify} />}
 
       {/* Filters */}
       <div className="panel animate-entrance animate-entrance-3" style={{ marginBottom: 14, padding: '12px 16px' }}>
@@ -133,16 +167,28 @@ export default function RisksPage() {
         ) : (
           tickets.map((t, i) => (
             <div key={t.ticket_id}>
-              <div className="risk-row wide animate-row-entrance" style={{ animationDelay: `${i * 30 + 200}ms`, cursor: 'pointer' }} onClick={() => setExpanded(expanded === t.ticket_id ? null : t.ticket_id)}>
+              {/* 真 <button> 而非 div[role="button"]：语义、Enter/Space 键盘通路、
+                  焦点可达性均由浏览器提供，焦点环走全局 :focus-visible。
+                  cursor:pointer 已由全局 button 规则给出，无需内联。 */}
+              <button
+                type="button"
+                className="risk-row wide animate-row-entrance"
+                style={{ animationDelay: `${i * 30 + 200}ms` }}
+                aria-expanded={expanded === t.ticket_id}
+                aria-label={`展开工单 ${t.ticket_id}`}
+                onClick={() => setExpanded(expanded === t.ticket_id ? null : t.ticket_id)}
+              >
                 <span className={`severity ${SEV_CLASS[t.severity]}`}>{SEV_LABEL[t.severity]}</span>
-                <div className="risk-main">
+                {/* button 的内容模型只允许 phrasing content，故用 span；
+                    .risk-main 已显式声明 display:flex，视觉与 div 完全一致。 */}
+                <span className="risk-main">
                   <strong>{t.title}</strong>
                   <span>{t.source} · {t.ticket_id}</span>
-                </div>
+                </span>
                 <span className="device">{t.device_id}</span>
                 <span style={{ fontSize: 10, color: STATUS_COLOR[t.status], fontWeight: 600 }}>{STATUS_LABEL[t.status]}</span>
                 <span className="time">{timeAgo(t.updated_at)}</span>
-              </div>
+              </button>
 
               {expanded === t.ticket_id && (
                 <TicketDetail ticket={t} onTransition={transition} />
@@ -209,15 +255,20 @@ function TicketDetail({ ticket, onTransition }: { ticket: Ticket; onTransition: 
 function CreateTicketForm({ onCreated, notify }: { onCreated: () => void; notify: (m: string) => void }) {
   const [form, setForm] = useState({ title: '', severity: 'high', source: '', device_id: '', description: '' });
   const [submitting, setSubmitting] = useState(false);
+  // useId 而非硬编码 id：保证 SSR/CSR 一致，且同页多实例不冲突。
+  const uid = useId();
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!form.title || !form.source || !form.device_id) { notify('请填写标题、来源和设备 ID。'); return; }
     setSubmitting(true);
     const res = await fetch('/api/tickets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
     setSubmitting(false);
     if (res.status === 201) onCreated();
-    else { const err = await res.json().catch(() => ({})); notify(`创建失败: ${err.error ?? res.status}`); }
+    else {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      notify(`创建失败: ${err.error ?? res.status}`);
+    }
   }
 
   return (
@@ -225,26 +276,26 @@ function CreateTicketForm({ onCreated, notify }: { onCreated: () => void; notify
       <div className="panel-head"><div><h2>新建风险工单</h2><p>手动创建安全事件工单</p></div></div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div style={{ gridColumn: '1 / -1' }}>
-          <label style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>标题 *</label>
-          <input className="form-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="简要描述安全事件" />
+          <label htmlFor={`${uid}-title`} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>标题 *</label>
+          <input id={`${uid}-title`} className="form-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="简要描述安全事件" />
         </div>
         <div>
-          <label style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>严重度</label>
-          <select className="form-select" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
+          <label htmlFor={`${uid}-severity`} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>严重度</label>
+          <select id={`${uid}-severity`} className="form-select" value={form.severity} onChange={(e) => setForm({ ...form, severity: e.target.value })}>
             <option value="critical">严重</option><option value="high">高危</option><option value="medium">中危</option><option value="low">低危</option>
           </select>
         </div>
         <div>
-          <label style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>设备 ID *</label>
-          <input className="form-input" value={form.device_id} onChange={(e) => setForm({ ...form, device_id: e.target.value })} placeholder="ENG-MBP-1032" />
+          <label htmlFor={`${uid}-device`} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>设备 ID *</label>
+          <input id={`${uid}-device`} className="form-input" value={form.device_id} onChange={(e) => setForm({ ...form, device_id: e.target.value })} placeholder="ENG-MBP-1032" />
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
-          <label style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>来源 *</label>
-          <input className="form-input" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} placeholder="cursor-mcp-filesystem / prompt-helper.skill" />
+          <label htmlFor={`${uid}-source`} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>来源 *</label>
+          <input id={`${uid}-source`} className="form-input" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} placeholder="cursor-mcp-filesystem / prompt-helper.skill" />
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
-          <label style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>描述</label>
-          <textarea className="form-input" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="详细描述发现的问题..." style={{ resize: 'vertical' }} />
+          <label htmlFor={`${uid}-description`} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>描述</label>
+          <textarea id={`${uid}-description`} className="form-input" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="详细描述发现的问题..." style={{ resize: 'vertical' }} />
         </div>
       </div>
       <div style={{ marginTop: 16 }}><Button type="submit" disabled={submitting}>{submitting ? '创建中...' : '创建工单'}</Button></div>

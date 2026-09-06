@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getTicketStore, nextTicketId, type Ticket } from '@/lib/store';
+import { invalidFieldPayload, maybeText, optionalText } from '@/lib/http-body';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,21 +42,39 @@ export async function POST(request: Request) {
     return json({ error: 'invalid_json' }, 400);
   }
 
-  const title = String(body.title ?? '').trim();
-  const severity = String(body.severity ?? 'medium');
-  const source = String(body.source ?? '').trim();
-  const device_id = String(body.device_id ?? '').trim();
-  const description = body.description ? String(body.description).slice(0, 2000) : undefined;
-  const finding_ref = body.finding_ref ? String(body.finding_ref).slice(0, 64) : undefined;
+  let title: string;
+  let severity: string;
+  let source: string;
+  let device_id: string;
+  let description: string | undefined;
+  let finding_ref: string | undefined;
+  try {
+    title = optionalText(body, 'title', '').trim();
+    severity = optionalText(body, 'severity', 'medium');
+    source = optionalText(body, 'source', '').trim();
+    device_id = optionalText(body, 'device_id', '').trim();
+    description = maybeText(body, 'description', 2000);
+    finding_ref = maybeText(body, 'finding_ref', 64);
+  } catch (error) {
+    const payload = invalidFieldPayload(error);
+    if (!payload) throw error;
+    return json({ ...payload, hint: 'fields must be string/number/boolean, not object or array' }, 400);
+  }
 
   if (!title || title.length > 200) return json({ error: 'invalid_title', hint: '1-200 chars required' }, 400);
   if (!SEVERITIES.includes(severity as typeof SEVERITIES[number])) return json({ error: 'invalid_severity', allowed: SEVERITIES }, 400);
   if (!source || source.length > 128) return json({ error: 'invalid_source' }, 400);
   if (!device_id || device_id.length > 64) return json({ error: 'invalid_device_id' }, 400);
 
-  const now = Math.floor(Date.now() / 1000);
+  // 时间戳一律 epoch 毫秒（见 lib/store.ts 头部约定）。此前误写为秒，会让新建
+  // 工单的 created_at 与种子数据相差 1000 倍：排序恒为最旧、ticketDay() 落到
+  // 1970、客户端 timeAgo() 失真。
+  const now = Date.now();
+  // nextTicketId 需要现存 store 才能算出当日序号（TKT-YYYYMMDD-NNNN），
+  // 因此必须先取 store 再分配 id —— 此前无参调用会在 store.keys() 上抛 TypeError。
+  const store = getTicketStore();
   const ticket: Ticket = {
-    ticket_id: nextTicketId(),
+    ticket_id: nextTicketId(store, now),
     title,
     severity: severity as Ticket['severity'],
     status: 'open',
@@ -68,7 +87,6 @@ export async function POST(request: Request) {
     history: [{ action: 'created', actor: 'console_user', timestamp: now, note: '通过控制台手动创建' }],
   };
 
-  const store = getTicketStore();
   store.set(ticket.ticket_id, ticket);
   return json({ ticket }, 201);
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, CircleDot, Network, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Network, RefreshCw } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Toast } from '@/components/toast';
 
 const scanTrend = [
   { day: '周一', scanned: 8, findings: 1 },
@@ -78,12 +79,7 @@ export default function McpPage() {
         </div>
       </div>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      )}
+      <Toast message={toast} />
 
       <div className="detail-kpis">
         <article className="animate-entrance animate-entrance-1">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, CircleDot, RefreshCw, Wrench } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Wrench } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Toast } from '@/components/toast';
 
 const scanTrend = [
   { day: '周一', scanned: 22, findings: 3 },
@@ -80,12 +81,7 @@ export default function QualityPage() {
         </div>
       </div>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      )}
+      <Toast message={toast} />
 
       <div className="detail-kpis">
         <article className="animate-entrance animate-entrance-1">
