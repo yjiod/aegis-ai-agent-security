@@ -84,7 +84,7 @@ def device_credentials(path=None):
     source=Path(path)
     if source.is_symlink(): raise ValueError("device_credentials_symlink")
     info=source.stat()
-    if not stat.S_ISREG(info.st_mode) or info.st_mode&0o037 or info.st_uid not in {0,os.geteuid()}: raise ValueError("device_credentials_permissions")
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) not in {0o600,0o640} or info.st_uid not in {0,os.geteuid()}: raise ValueError("device_credentials_permissions")
     value=json.loads(source.read_text(encoding="utf-8")); devices=value.get("devices") if isinstance(value,dict) else None
     if set(value)!={"schema","devices"} or value.get("schema")!="sentinel.device-credentials/v1" or not isinstance(devices,dict) or not 1<=len(devices)<=10000: raise ValueError("device_credentials_contract")
     normalized={}; all_tokens=set(); all_signing=set()

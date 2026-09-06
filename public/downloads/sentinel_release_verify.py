@@ -114,7 +114,7 @@ def verify(downloads):
     if device_example!={"schema":"sentinel.device-credentials/v1","devices":{"0123456789ab":{"tokens":[""],"signing_secrets":[""]}}}: errors.append("unsafe_device_credentials_example")
     try: provisioner=(downloads/"sentinel_device_credentials.py").read_text()
     except OSError as exc: errors.append(f"invalid_device_credential_provisioner:{type(exc).__name__}"); provisioner=""
-    for directive in ("secrets.token_urlsafe(48)","os.fsync(handle.fileno())","os.replace(temp,path)","secrets_printed","--prune-old","enrollment_directory_symlink"):
+    for directive in ("secrets.token_urlsafe(48)","os.fsync(handle.fileno())","os.replace(temp,path)","secrets_printed","--prune-old","enrollment_directory_symlink","preserve_metadata=True","os.chown(temp,metadata[1],metadata[2])","stat.S_IMODE(info.st_mode) not in {0o600,0o640}"):
         if directive not in provisioner: errors.append(f"unsafe_device_credential_provisioner:{directive}")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:

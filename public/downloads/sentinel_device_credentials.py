@@ -6,17 +6,25 @@ from pathlib import Path
 SCHEMA="sentinel.device-credentials/v1"
 ENROLLMENT_SCHEMA="sentinel.device-enrollment/v1"
 
-def private_atomic(path,value,mode=0o600):
+def private_atomic(path,value,mode=0o600,preserve_metadata=False):
     path=Path(path)
     if path.is_symlink(): raise ValueError("output_symlink")
     parent_existed=path.parent.exists(); path.parent.mkdir(parents=True,exist_ok=True); parent=path.parent.resolve(strict=True)
     if not parent_existed: os.chmod(parent,0o700)
-    path=parent/path.name
+    path=parent/path.name; metadata=None
+    if path.exists():
+        info=path.lstat()
+        if not stat.S_ISREG(info.st_mode): raise ValueError("output_not_regular")
+        if preserve_metadata: metadata=(stat.S_IMODE(info.st_mode),info.st_uid,info.st_gid)
     fd,temp_name=tempfile.mkstemp(prefix="."+path.name+".",suffix=".tmp",dir=parent); temp=Path(temp_name)
     try:
         with os.fdopen(fd,"w",encoding="utf-8") as handle:
             json.dump(value,handle,ensure_ascii=False,sort_keys=True,separators=(",",":")); handle.write("\n"); handle.flush(); os.fsync(handle.fileno())
-        os.chmod(temp,mode); os.replace(temp,path)
+        target_mode=metadata[0] if metadata else mode
+        if metadata:
+            temp_info=temp.stat()
+            if (temp_info.st_uid,temp_info.st_gid)!=(metadata[1],metadata[2]): os.chown(temp,metadata[1],metadata[2])
+        os.chmod(temp,target_mode); os.replace(temp,path)
     except Exception:
         try: os.close(fd)
         except OSError: pass
@@ -31,7 +39,7 @@ def load_manifest(path):
     if not path.exists(): return {"schema":SCHEMA,"devices":{}}
     if path.is_symlink(): raise ValueError("manifest_symlink")
     info=path.stat()
-    if not stat.S_ISREG(info.st_mode) or info.st_mode&0o037: raise ValueError("manifest_permissions")
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) not in {0o600,0o640}: raise ValueError("manifest_permissions")
     value=json.loads(path.read_text(encoding="utf-8")); devices=value.get("devices") if isinstance(value,dict) else None
     if set(value)!={"schema","devices"} or value.get("schema")!=SCHEMA or not isinstance(devices,dict) or len(devices)>10000: raise ValueError("manifest_contract")
     all_tokens=set(); all_signing=set()
@@ -64,7 +72,7 @@ def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False):
     for device_id in ids:
         credential=devices[device_id]
         private_atomic(enrollment_dir/(device_id+".json"),{"schema":ENROLLMENT_SCHEMA,"device_id":device_id,"report_token":credential["tokens"][0],"signing_secret":credential["signing_secrets"][0]})
-    private_atomic(output,manifest)
+    private_atomic(output,manifest,preserve_metadata=True)
     return {"ok":True,"device_count":len(devices),"created":created,"rotated":rotated,"pruned":pruned,"secrets_printed":False}
 
 def main():
