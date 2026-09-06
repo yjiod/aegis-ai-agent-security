@@ -21,7 +21,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('演示模式',page); self.assertIn('接收器未连接',page); self.assertIn('未对任何终端执行操作',page)
         self.assertNotIn('start_enterprise_security_scan',page); self.assertNotIn('status: \'dispatched\'',page); self.assertNotIn('系统运行正常',page); self.assertNotIn('实时上报',page); self.assertNotIn('已强制应用',page)
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
-        self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route)
+        self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
@@ -152,6 +152,7 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(summary['total_devices'],3); self.assertEqual(summary['active_devices'],2); self.assertEqual(summary['stale_devices'],1)
             self.assertEqual(summary['latest_severity'],{'critical':1,'high':1,'normal':1})
             self.assertEqual(summary['version_posture'],{'current':0,'agent_mismatch':0,'policy_mismatch':0,'both_mismatch':0,'unknown':3})
+            self.assertEqual(summary['credential_posture'],{'current':0,'previous':0,'legacy':3})
     def test_collector_summary_classifies_latest_version_drift(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
@@ -213,8 +214,8 @@ class SentinelTests(unittest.TestCase):
         bound=self.agent.report_headers(body,'bearer','signing-secret',now=1000,device_id='abcdef123456'); self.assertTrue(self.collector.valid_signature(bound,body,now=1001,secret='signing-secret')); self.assertFalse(self.collector.valid_signature({**bound,'X-Sentinel-Device-ID':'000000000000'},body,now=1001,secret='signing-secret'))
     def test_collector_binds_device_identity_to_independent_credentials(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); credentials_path=root/'devices.json'; device_id='abcdef123456'; token='t'*32; secret='s'*32; admin='a'*32
-            credentials_path.write_text(json.dumps({'schema':'sentinel.device-credentials/v1','devices':{device_id:{'tokens':[token],'signing_secrets':[secret]}}})); credentials_path.chmod(0o600)
+            root=Path(d); credentials_path=root/'devices.json'; device_id='abcdef123456'; token='t'*32; secret='s'*32; old_token='u'*32; old_secret='v'*32; admin='a'*32
+            credentials_path.write_text(json.dumps({'schema':'sentinel.device-credentials/v1','devices':{device_id:{'tokens':[token,old_token],'signing_secrets':[secret,old_secret]}}})); credentials_path.chmod(0o600)
             self.assertEqual(set(self.collector.device_credentials(credentials_path)),{device_id})
             env={'SENTINEL_COLLECTOR_TOKEN':admin,'SENTINEL_DEVICE_CREDENTIALS_FILE':str(credentials_path)}
             self.assertEqual(self.collector.runtime_secret_errors(env),[])
@@ -224,6 +225,18 @@ class SentinelTests(unittest.TestCase):
                     now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.30.0','policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
                     headers=self.agent.report_headers(body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=headers,method='POST')
                     with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,202)
+                    mixed=self.agent.report_headers(body,token,old_secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=mixed,method='POST')
+                    with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(request,timeout=3)
+                    self.assertEqual(error.exception.code,401); error.exception.close()
+                    previous=self.agent.report_headers(body,old_token,old_secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=previous,method='POST')
+                    with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,200)
+                    summary_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/summary',headers={'Authorization':'Bearer '+admin})
+                    with urllib.request.urlopen(summary_request,timeout=3) as response: self.assertEqual(json.load(response)['credential_posture'],{'current':0,'previous':1,'legacy':0})
+                    request=urllib.request.Request(url,data=body,headers=headers,method='POST')
+                    with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,200)
+                    with urllib.request.urlopen(summary_request,timeout=3) as response: self.assertEqual(json.load(response)['credential_posture'],{'current':1,'previous':0,'legacy':0})
+                    devices_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices',headers={'Authorization':'Bearer '+admin})
+                    with urllib.request.urlopen(devices_request,timeout=3) as response: self.assertEqual(json.load(response)['devices'][0]['credential_generation'],'current')
                     wrong={**report,'device_id':'000000000000'}; wrong_body=json.dumps(wrong).encode(); headers=self.agent.report_headers(wrong_body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=wrong_body,headers=headers,method='POST')
                     with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(request,timeout=3)
                     self.assertEqual(error.exception.code,401); error.exception.close()
@@ -242,7 +255,10 @@ class SentinelTests(unittest.TestCase):
                 enrollment=enrollments/(device_id+'.json'); self.assertEqual(enrollment.stat().st_mode&0o777,0o600); value=json.loads(enrollment.read_text()); self.assertEqual(value['report_token'],first['devices'][device_id]['tokens'][0])
             unchanged=self.credentials.provision(ids,manifest,enrollments); self.assertEqual(unchanged['created'],[]); self.assertEqual(json.loads(manifest.read_text()),first)
             manifest.chmod(0o640); before=manifest.stat(); rotated=self.credentials.provision([ids[0]],manifest,enrollments,rotate=True); after=manifest.stat(); self.assertEqual((stat.S_IMODE(after.st_mode),after.st_uid,after.st_gid),(0o640,before.st_uid,before.st_gid)); self.assertEqual(rotated['rotated'],[ids[0]]); second=json.loads(manifest.read_text()); self.assertEqual(second['devices'][ids[0]]['tokens'][1],token); self.assertNotEqual(second['devices'][ids[0]]['tokens'][0],token)
-            self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True); third=json.loads(manifest.read_text()); self.assertEqual(len(third['devices'][ids[0]]['tokens']),1); self.assertEqual(json.loads((enrollments/(ids[0]+'.json')).read_text())['report_token'],third['devices'][ids[0]]['tokens'][0])
+            with self.assertRaisesRegex(ValueError,'activation_evidence_required'): self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True)
+            evidence=root/'devices-export.json'; evidence.write_text(json.dumps({'devices':[{'device_id':ids[0],'last_seen':1,'report_count':2,'credential_generation':'previous'}]}))
+            with self.assertRaisesRegex(ValueError,'devices_not_on_current_credentials'): self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True,activation_evidence=evidence)
+            evidence.write_text(json.dumps({'devices':[{'device_id':ids[0],'last_seen':2,'report_count':3,'credential_generation':'current'}]})); self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True,activation_evidence=evidence); third=json.loads(manifest.read_text()); self.assertEqual(len(third['devices'][ids[0]]['tokens']),1); self.assertEqual(json.loads((enrollments/(ids[0]+'.json')).read_text())['report_token'],third['devices'][ids[0]]['tokens'][0])
             bad=root/'bad'; bad.symlink_to(enrollments,target_is_directory=True); untouched=root/'untouched.json'
             with self.assertRaisesRegex(ValueError,'enrollment_directory_symlink'): self.credentials.provision(['111111111111'],untouched,bad)
             self.assertFalse(untouched.exists())

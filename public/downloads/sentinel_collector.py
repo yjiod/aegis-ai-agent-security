@@ -20,6 +20,7 @@ def db_open(path):
         db.execute("CREATE INDEX IF NOT EXISTS idx_reports_device_time ON reports(device_id, received_at DESC)"); db.commit()
         db.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY,event TEXT NOT NULL,occurred_at INTEGER NOT NULL,device_id TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
         db.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(occurred_at DESC)"); db.commit()
+        db.execute("CREATE TABLE IF NOT EXISTS device_auth_state(device_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,generation INTEGER NOT NULL)"); db.commit()
         yield db
     finally: db.close()
 def valid_report(d,now=None):
@@ -52,20 +53,22 @@ def valid_report(d,now=None):
         if "evidence" in finding and (not isinstance(finding["evidence"],str) or len(finding["evidence"])>512): return False
         counts[finding["severity"]]+=1
     return counts==summary
-def valid_signature(headers,body,now=None,secret=None,max_skew=300):
-    secrets=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS") if secret is None else (secret if isinstance(secret,list) else ([secret] if secret else []))
-    if not secrets: return allow_unsigned_reports()
+def signature_index(headers,body,secrets,now=None,max_skew=300):
+    if not secrets: return -1 if allow_unsigned_reports() else None
     def header(name): return headers.get(name) or headers.get(name.lower())
     timestamp=header("X-Sentinel-Timestamp"); supplied=header("X-Sentinel-Signature") or ""
     try: request_time=int(timestamp)
-    except (TypeError,ValueError): return False
+    except (TypeError,ValueError): return None
     now=int(time.time()) if now is None else now
-    if abs(now-request_time)>max_skew: return False
-    matched=False
+    if abs(now-request_time)>max_skew: return None
     device_id=header("X-Sentinel-Device-ID") or ""; prefix=timestamp.encode()+b"."+(device_id.encode()+b"." if device_id else b"")
+    matches=[]
     for candidate in secrets:
-        expected="sha256="+hmac.new(candidate.encode(),prefix+body,hashlib.sha256).hexdigest(); matched |= hmac.compare_digest(expected,supplied)
-    return matched
+        expected="sha256="+hmac.new(candidate.encode(),prefix+body,hashlib.sha256).hexdigest(); matches.append(hmac.compare_digest(expected,supplied))
+    return next((index for index,matched in enumerate(matches) if matched),None)
+def valid_signature(headers,body,now=None,secret=None,max_skew=300):
+    secrets=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS") if secret is None else (secret if isinstance(secret,list) else ([secret] if secret else []))
+    return signature_index(headers,body,secrets,now,max_skew) is not None
 def secret_values(single_name,multiple_name,env=None):
     env=os.environ if env is None else env; raw=env.get(multiple_name,"")
     if raw:
@@ -152,14 +155,15 @@ class RateLimiter:
             while queue and queue[0]<=cutoff: queue.popleft()
             if len(queue)>=self.limit: return False,max(1,int(self.window-(now-queue[0])+0.999))
             queue.append(now); return True,0
-def store_report(db_path,body,report,now=None,days=None):
+def store_report(db_path,body,report,now=None,days=None,credential_generation=None):
     now=int(time.time()) if now is None else now; days=retention_days(days)
     severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"
     canonical=json.dumps(report,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); digest=hashlib.sha256(canonical).hexdigest(); receipt_id=hashlib.sha256(body).hexdigest()[:20]
     with db_open(db_path) as db:
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
         cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode(),report.get("agent_version"),report.get("policy_version"))); duplicate=cursor.rowcount==0
-        db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity)); prune_audit(db,now); db.commit()
+        if credential_generation is not None: db.execute("INSERT INTO device_auth_state(device_id,last_seen,generation) VALUES(?,?,?) ON CONFLICT(device_id) DO UPDATE SET last_seen=excluded.last_seen,generation=excluded.generation",(report["device_id"],now,int(credential_generation)))
+        generation="legacy" if credential_generation is None else "g"+str(int(credential_generation)); db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity+":"+generation)); prune_audit(db,now); db.commit()
     return {"accepted":True,"duplicate":duplicate,"report_id":receipt_id,"severity":severity}
 def prune_audit(db,now=None,days=None,max_events=None):
     now=int(time.time()) if now is None else int(now); days=audit_retention_days(days); max_events=audit_max_events(max_events)
@@ -178,20 +182,22 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
     with db_open(db_path) as db:
-        rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id").fetchall()
+        rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
     versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.30.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
-    for _,severity,agent,policy in rows:
+    credential_posture={"current":0,"previous":0,"legacy":0}
+    for _,severity,agent,policy,generation in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1
         if not agent or not policy: versions["unknown"]+=1
         elif agent!=required_agent and policy!=required_policy: versions["both_mismatch"]+=1
         elif agent!=required_agent: versions["agent_mismatch"]+=1
         elif policy!=required_policy: versions["policy_mismatch"]+=1
         else: versions["current"]+=1
-    active=sum(received>=now-active_window for received,_,_,_ in rows)
-    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions}
+        credential_posture["legacy" if generation is None else "current" if generation==0 else "previous"]+=1
+    active=sum(received>=now-active_window for received,_,_,_,_ in rows)
+    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.12"
+    server_version="SentinelCollector/0.13"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -214,8 +220,10 @@ class Handler(BaseHTTPRequestHandler):
         device_id=self.headers.get("X-Sentinel-Device-ID",""); credential=credentials.get(device_id)
         if not credential: return (False,None)
         supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
-        for candidate in credential["tokens"]: matched |= hmac.compare_digest(candidate,supplied)
-        return (matched,(device_id,credential["signing_secrets"]))
+        matches=[]
+        for candidate in credential["tokens"]: matches.append(hmac.compare_digest(candidate,supplied))
+        token_index=next((index for index,value in enumerate(matches) if value),None)
+        return (token_index is not None,(device_id,credential["signing_secrets"],token_index))
     def do_GET(self):
         if self.path=="/health":
             try:
@@ -226,10 +234,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         if self.path=="/v1/devices":
             try:
-                with db_open(self.server.db_path) as db: rows=db.execute("SELECT device_id, MAX(received_at), COUNT(*) FROM reports GROUP BY device_id ORDER BY MAX(received_at) DESC LIMIT 500").fetchall()
+                with db_open(self.server.db_path) as db: rows=db.execute("SELECT r.device_id,r.received_at,(SELECT COUNT(*) FROM reports c WHERE c.device_id=r.device_id),a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.received_at DESC LIMIT 500").fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             audit_event(self.server.db_path,"devices_read",detail=str(len(rows)))
-            return self.reply(200,{"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2]} for r in rows]})
+            return self.reply(200,{"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2],"credential_generation":"legacy" if r[3] is None else "current" if r[3]==0 else "previous"} for r in rows]})
         if self.path=="/v1/summary":
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
@@ -248,12 +256,15 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError: return self.reply(400,{"error":"invalid_size"})
         if length<2 or length>2_000_000: return self.reply(413,{"error":"invalid_size"})
         body=self.rfile.read(length)
-        if not valid_signature(self.headers,body,secret=binding[1] if binding else None): return self.reply(401,{"error":"invalid_signature"})
+        if binding:
+            signing_index=signature_index(self.headers,body,binding[1])
+            if signing_index is None or signing_index!=binding[2]: return self.reply(401,{"error":"credential_generation_mismatch"})
+        elif not valid_signature(self.headers,body): return self.reply(401,{"error":"invalid_signature"})
         try: report=json.loads(body)
         except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError): return self.reply(400,{"error":"invalid_json"})
         if not valid_report(report): return self.reply(400,{"error":"invalid_report"})
         if binding and report["device_id"]!=binding[0]: return self.reply(401,{"error":"device_identity_mismatch"})
-        try: result=store_report(self.server.db_path,body,report)
+        try: result=store_report(self.server.db_path,body,report,credential_generation=binding[2] if binding else None)
         except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(200 if result["duplicate"] else 202,result)
     def log_message(self,fmt,*args): pass

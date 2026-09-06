@@ -50,10 +50,23 @@ def load_manifest(path):
         all_tokens.update(tokens); all_signing.update(signing)
     return value
 
-def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False):
+def verify_activation_evidence(path,device_ids):
+    if not path: raise ValueError("activation_evidence_required")
+    source=Path(path)
+    if source.is_symlink() or not source.is_file() or source.stat().st_size>1_000_000: raise ValueError("activation_evidence_invalid")
+    value=json.loads(source.read_text(encoding="utf-8")); rows=value.get("devices") if isinstance(value,dict) else None
+    if not isinstance(value,dict) or set(value)!={"devices"} or not isinstance(rows,list) or len(rows)>10000: raise ValueError("activation_evidence_invalid")
+    generations={}
+    for row in rows:
+        if not isinstance(row,dict) or set(row)!={"device_id","last_seen","report_count","credential_generation"} or not re.fullmatch(r"[0-9a-f]{12}",str(row.get("device_id",""))) or type(row.get("last_seen")) is not int or type(row.get("report_count")) is not int or row["last_seen"]<0 or row["report_count"]<1 or row.get("credential_generation") not in {"current","previous","legacy"} or row["device_id"] in generations: raise ValueError("activation_evidence_invalid")
+        generations[row["device_id"]]=row["credential_generation"]
+    if any(generations.get(device_id)!="current" for device_id in device_ids): raise ValueError("devices_not_on_current_credentials")
+
+def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False,activation_evidence=None):
     if rotate and prune_old: raise ValueError("conflicting_operation")
     ids=sorted(set(device_ids))
     if not ids or any(not isinstance(item,str) or not re.fullmatch(r"[0-9a-f]{12}",item) for item in ids): raise ValueError("invalid_device_id")
+    if prune_old: verify_activation_evidence(activation_evidence,ids)
     manifest=load_manifest(output); devices=manifest["devices"]
     if len(set(devices)|set(ids))>10000: raise ValueError("device_limit")
     created=[]; rotated=[]; pruned=[]
@@ -76,7 +89,7 @@ def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False):
     return {"ok":True,"device_count":len(devices),"created":created,"rotated":rotated,"pruned":pruned,"secrets_printed":False}
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("device_ids",nargs="+"); ap.add_argument("--output",required=True); ap.add_argument("--enrollment-dir",required=True); group=ap.add_mutually_exclusive_group(); group.add_argument("--rotate",action="store_true"); group.add_argument("--prune-old",action="store_true"); args=ap.parse_args()
-    result=provision(args.device_ids,args.output,args.enrollment_dir,args.rotate,args.prune_old); print(json.dumps(result,separators=(",",":")))
+    ap=argparse.ArgumentParser(); ap.add_argument("device_ids",nargs="+"); ap.add_argument("--output",required=True); ap.add_argument("--enrollment-dir",required=True); ap.add_argument("--activation-evidence"); group=ap.add_mutually_exclusive_group(); group.add_argument("--rotate",action="store_true"); group.add_argument("--prune-old",action="store_true"); args=ap.parse_args()
+    result=provision(args.device_ids,args.output,args.enrollment_dir,args.rotate,args.prune_old,args.activation_evidence); print(json.dumps(result,separators=(",",":")))
 
 if __name__=="__main__": main()
