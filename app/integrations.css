@@ -1,1 +1,11 @@
 .control-planes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px}.control-planes article{border:1px solid #203b32;background:#0a1814;border-radius:9px;padding:14px}.control-planes b{display:block;font-size:13px;margin-bottom:4px}.control-planes span{font-size:10px;color:#59dda7}.control-planes p{font-size:11px;line-height:1.6;color:#77958b;margin:10px 0 0}@media(max-width:650px){.control-planes{grid-template-columns:1fr}}
+
+/* ─── Light theme overrides ─────────────────────────────── */
+[data-theme="light"] .control-planes article {
+  border-color: #d4e5df;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .control-planes span { color: #0f7a52; }
+[data-theme="light"] .control-planes p { color: #527469; }
