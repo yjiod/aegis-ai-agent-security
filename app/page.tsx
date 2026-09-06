@@ -143,7 +143,7 @@ export default function Home() {
             <ShieldCheck size={19} />
           </span>
           <span>
-            Sentinel<span className="brand-muted"> / Agent Security</span>
+            Aegis<span className="brand-muted"> / Agent Security</span>
           </span>
         </div>
         <div className="header-actions">
@@ -530,7 +530,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent 0.30.0</h2>
+                <h2>Aegis Endpoint Agent 0.30.0</h2>
                 <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
@@ -544,14 +544,14 @@ function DetailPanel({
               </div>
               <ol><li><b>自动发现</b><span>Intune 周期任务检测 Cursor、Claude Code、Codex 与 Windsurf 配置。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>联动处置</b><span>以 device_id 关联深信服 EDR 与联软资产，按风险等级分级响应。</span></li></ol>
               <div className="download-actions">
-                <a className="download-primary" href="/downloads/sentinel-enterprise-bundle.zip" download>下载完整部署包</a>
+                <a className="download-primary" href="/downloads/aegis-enterprise-bundle.zip" download>下载完整部署包</a>
                 <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>
                 <a href="/downloads/intune-windows-detect.ps1" download>Windows 检测脚本</a>
                 <a href="/downloads/intune-windows-remediate.ps1" download>Windows 修复脚本</a>
                 <a href="/downloads/intune-macos-install.sh" download>macOS Intune 脚本</a>
                 <a href="/downloads/intune-macos-compliance.sh" download>macOS 合规脚本</a>
-                <a href="/downloads/sentinel-policy.json" download>策略基线</a>
-                <a href="/downloads/sentinel_device_credentials.py" download>逐设备凭据工具</a>
+                <a href="/downloads/aegis-policy.json" download>策略基线</a>
+                <a href="/downloads/aegis_device_credentials.py" download>逐设备凭据工具</a>
               </div>
               <p className="safety-note"><LockKeyhole size={15}/>部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。</p>
             </div>

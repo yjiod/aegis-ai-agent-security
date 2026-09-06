@@ -8,21 +8,21 @@ def load(name,file):
 def vendor_report(level='normal'):
     summary={name:0 for name in ('critical','high','medium','low')}; findings=[]
     if level!='normal': summary[level]=1; findings=[{'kind':'test','severity':level,'path':'x','message':'test'}]
-    return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
+    return {'schema':'aegis.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 
-class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+class AegisTests(unittest.TestCase):
+    def setUp(self): self.agent=load('agent','aegis_agent.py'); self.collector=load('collector','aegis_collector.py'); self.credentials=load('credentials','aegis_device_credentials.py'); self.backup=load('backup','aegis_collector_backup.py'); self.restore=load('restore','aegis_collector_restore.py'); self.adapter=load('adapter','aegis_adapter.py'); self.worker=load('adapter_worker','aegis_adapter_worker.py'); self.verifier=load('verifier','aegis_release_verify.py'); self.policy=json.loads((DOWNLOADS/'aegis-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
-            self.assertEqual(report['schema'],'sentinel.report/v1'); self.assertEqual(report['summary']['critical'],0)
+            self.assertEqual(report['schema'],'aegis.report/v1'); self.assertEqual(report['summary']['critical'],0)
     def test_console_does_not_claim_live_data_or_fake_task_dispatch(self):
         page=(ROOT/'app/page.tsx').read_text()
         self.assertIn('演示模式',page); self.assertIn('接收器未连接',page); self.assertIn('未对任何终端执行操作',page)
         self.assertNotIn('start_enterprise_security_scan',page); self.assertNotIn('status: \'dispatched\'',page); self.assertNotIn('系统运行正常',page); self.assertNotIn('实时上报',page); self.assertNotIn('已强制应用',page)
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
-        self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
+        self.assertNotIn('AEGIS_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)
@@ -61,7 +61,7 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(count,2); self.assertIn('oversized_file_skipped',{item['kind'] for item in skill_findings})
         self.assertEqual(self.agent.max_file_bytes({'limits':{'max_file_bytes':'bad'}}),1000000)
         self.assertEqual(self.agent.max_file_bytes({'limits':{'max_file_bytes':1}}),65536)
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn("kind='oversized_file_skipped'",windows); self.assertIn('$maxFileBytes',windows)
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertIn("kind='oversized_file_skipped'",windows); self.assertIn('$maxFileBytes',windows)
     def test_secret_detection_is_redacted(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'app.py'; p.write_text('token="sk-abcdefghijklmnopqrstuvwxyz123456"')
@@ -71,10 +71,10 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); (root/'AGENTS.md').write_text('# Existing\nkeep me')
             self.agent.install_baseline(root); self.agent.install_baseline(root)
-            text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
+            text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/aegis-security.mdc').exists())
     def test_baseline_write_rejects_symlink_escape(self):
         with tempfile.TemporaryDirectory() as d:
-            base=Path(d); root=base/'repo'; outside=base/'outside'; root.mkdir(); outside.mkdir(); (root/'.sentinel').symlink_to(outside, target_is_directory=True)
+            base=Path(d); root=base/'repo'; outside=base/'outside'; root.mkdir(); outside.mkdir(); (root/'.aegis').symlink_to(outside, target_is_directory=True)
             victim=outside/'SECURITY_BASELINE.md'; victim.write_text('do not change')
             self.agent.install_baseline(root)
             self.assertEqual(victim.read_text(),'do not change')
@@ -87,16 +87,16 @@ class SentinelTests(unittest.TestCase):
             first=self.agent.install_user_baselines([active,untouched]); second=self.agent.install_user_baselines([active,untouched])
             text=target.read_text(); self.assertEqual(first,[str(target)]); self.assertEqual(second,[])
             self.assertIn('Personal rules',text); self.assertEqual(text.count(self.agent.USER_BASELINE_START),1); self.assertFalse((untouched/'.codex').exists())
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); self.assertIn('function Sync-SentinelUserBaselines',windows); self.assertIn('Sync-SentinelUserBaselines $userHomes',windows); self.assertIn("kind='malformed_user_baseline_block'",windows); self.assertIn('baseline markers malformed',remediation)
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); self.assertIn('function Sync-AegisUserBaselines',windows); self.assertIn('Sync-AegisUserBaselines $userHomes',windows); self.assertIn("kind='malformed_user_baseline_block'",windows); self.assertIn('baseline markers malformed',remediation)
         remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
-        self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('ReparsePoint',remediation)
+        self.assertIn('aegis-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('ReparsePoint',remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
-        mac=(DOWNLOADS/'uninstall-sentinel-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-sentinel-windows.ps1').read_text()
-        for script in (mac,windows): self.assertIn('sentinel-managed-user-baseline:start',script); self.assertIn('sentinel-managed-user-baseline:end',script)
+        mac=(DOWNLOADS/'uninstall-aegis-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-aegis-windows.ps1').read_text()
+        for script in (mac,windows): self.assertIn('aegis-managed-user-baseline:start',script); self.assertIn('aegis-managed-user-baseline:end',script)
         self.assertIn('[ ! -L "$file" ]',mac); self.assertIn('ReparsePoint',windows)
         self.assertIn('Repository rule files',mac); self.assertIn('Repository rule files',windows)
     def test_collector_contract(self):
-        now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+        now=int(time.time()); report={'schema':'aegis.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
         self.assertTrue(self.collector.valid_report(report,now)); self.assertFalse(self.collector.valid_report({'schema':'other'},now))
         stale={**report,'scanned_at':now-8*86400}; self.assertFalse(self.collector.valid_report(stale,now))
         inconsistent={**report,'findings':[{'kind':'x','severity':'high','path':'x','message':'x'}]}; self.assertFalse(self.collector.valid_report(inconsistent,now))
@@ -105,7 +105,7 @@ class SentinelTests(unittest.TestCase):
         oversized_inventory={**report,'inventory':[{}]*5001}; self.assertFalse(self.collector.valid_report(oversized_inventory,now))
         oversized_version={**report,'agent_version':'x'*65}; self.assertFalse(self.collector.valid_report(oversized_version,now))
         oversized_finding={**report,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'x','severity':'high','path':'p','message':'x'*2049}]}; self.assertFalse(self.collector.valid_report(oversized_finding,now))
-        schema=json.loads((DOWNLOADS/'sentinel-report.schema.json').read_text())
+        schema=json.loads((DOWNLOADS/'aegis-report.schema.json').read_text())
         self.assertEqual(schema['properties']['inventory']['maxItems'],5000); self.assertEqual(schema['properties']['findings']['maxItems'],10000)
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_database_deduplication_support(self):
@@ -130,7 +130,7 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(self.collector.audit_retention_days('bad'),90); self.assertEqual(self.collector.audit_max_events(5),1000)
     def test_collector_semantic_deduplication_ignores_json_formatting(self):
         with tempfile.TemporaryDirectory() as d:
-            path=Path(d)/'reports.db'; report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':1,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+            path=Path(d)/'reports.db'; report={'schema':'aegis.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':1,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
             compact=json.dumps(report,separators=(',',':')).encode(); pretty=json.dumps(report,indent=2,sort_keys=True).encode()
             first=self.collector.store_report(path,compact,report,now=1); second=self.collector.store_report(path,pretty,report,now=1)
             self.assertFalse(first['duplicate']); self.assertTrue(second['duplicate']); self.assertNotEqual(first['report_id'],second['report_id'])
@@ -165,20 +165,20 @@ class SentinelTests(unittest.TestCase):
             with self.collector.db_open(path) as db: self.assertTrue({'agent_version','policy_version'}.issubset({row[1] for row in db.execute('PRAGMA table_info(reports)')}))
     def test_collector_online_backup_is_consistent_private_and_retained(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); source=root/'sentinel.db'; output=root/'backups'
+            root=Path(d); source=root/'aegis.db'; output=root/'backups'
             with self.collector.db_open(source) as db:
                 db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('one','device-a',1,'normal','{}')); db.commit()
             first=self.backup.backup_database(source,output,keep=1,now=1)
             self.assertTrue(self.backup.quick_check(first)); self.assertEqual(first.stat().st_mode & 0o777,0o600)
             second=self.backup.backup_database(source,output,keep=1,now=2)
-            self.assertTrue(second.exists()); self.assertFalse(first.exists()); self.assertEqual(len(list(output.glob('sentinel-backup-*.sqlite'))),1)
+            self.assertTrue(second.exists()); self.assertFalse(first.exists()); self.assertEqual(len(list(output.glob('aegis-backup-*.sqlite'))),1)
             db=sqlite3.connect(second)
             try: self.assertEqual(db.execute("SELECT COUNT(*) FROM reports").fetchone()[0],1)
             finally: db.close()
         self.assertEqual(self.backup.keep_count('invalid'),14); self.assertEqual(self.backup.keep_count(999),365)
     def test_collector_restore_candidate_is_verified_private_and_non_overwriting(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); source=root/'sentinel.db'; backups=root/'backups'; restored=root/'restore/candidate.db'
+            root=Path(d); source=root/'aegis.db'; backups=root/'backups'; restored=root/'restore/candidate.db'
             with self.collector.db_open(source) as db:
                 db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('one','device-a',1,'high','{}')); db.commit()
             backup=self.backup.backup_database(source,backups)
@@ -196,7 +196,7 @@ class SentinelTests(unittest.TestCase):
         now[0]=161; self.assertEqual(limiter.check('client-a'),(True,0))
         self.assertEqual(self.collector.requests_per_minute('invalid'),120); self.assertEqual(self.collector.requests_per_minute(99999),10000)
     def test_collector_http_rate_limit_contract(self):
-        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKEN':'bearer'}):
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'AEGIS_COLLECTOR_TOKEN':'bearer'}):
             server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(Path(d)/'reports.db'); server.rate_limiter=self.collector.RateLimiter(limit=1)
             thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
             try:
@@ -210,19 +210,19 @@ class SentinelTests(unittest.TestCase):
         self.assertTrue(self.collector.valid_signature(headers,body,now=1001,secret='signing-secret'))
         self.assertFalse(self.collector.valid_signature(headers,body+b'x',now=1001,secret='signing-secret'))
         self.assertFalse(self.collector.valid_signature(headers,body,now=1301,secret='signing-secret'))
-        self.assertEqual(headers['Authorization'],'Bearer bearer'); self.assertTrue(headers['X-Sentinel-Signature'].startswith('sha256='))
-        bound=self.agent.report_headers(body,'bearer','signing-secret',now=1000,device_id='abcdef123456'); self.assertTrue(self.collector.valid_signature(bound,body,now=1001,secret='signing-secret')); self.assertFalse(self.collector.valid_signature({**bound,'X-Sentinel-Device-ID':'000000000000'},body,now=1001,secret='signing-secret'))
+        self.assertEqual(headers['Authorization'],'Bearer bearer'); self.assertTrue(headers['X-Aegis-Signature'].startswith('sha256='))
+        bound=self.agent.report_headers(body,'bearer','signing-secret',now=1000,device_id='abcdef123456'); self.assertTrue(self.collector.valid_signature(bound,body,now=1001,secret='signing-secret')); self.assertFalse(self.collector.valid_signature({**bound,'X-Aegis-Device-ID':'000000000000'},body,now=1001,secret='signing-secret'))
     def test_collector_binds_device_identity_to_independent_credentials(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); credentials_path=root/'devices.json'; device_id='abcdef123456'; token='t'*32; secret='s'*32; old_token='u'*32; old_secret='v'*32; admin='a'*32
-            credentials_path.write_text(json.dumps({'schema':'sentinel.device-credentials/v1','devices':{device_id:{'tokens':[token,old_token],'signing_secrets':[secret,old_secret]}}})); credentials_path.chmod(0o600)
+            credentials_path.write_text(json.dumps({'schema':'aegis.device-credentials/v1','devices':{device_id:{'tokens':[token,old_token],'signing_secrets':[secret,old_secret]}}})); credentials_path.chmod(0o600)
             self.assertEqual(set(self.collector.device_credentials(credentials_path)),{device_id})
-            env={'SENTINEL_COLLECTOR_TOKEN':admin,'SENTINEL_DEVICE_CREDENTIALS_FILE':str(credentials_path)}
+            env={'AEGIS_COLLECTOR_TOKEN':admin,'AEGIS_DEVICE_CREDENTIALS_FILE':str(credentials_path)}
             self.assertEqual(self.collector.runtime_secret_errors(env),[])
             with patch.dict(os.environ,env,clear=True):
                 server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
                 try:
-                    now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.30.0','policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
+                    now=int(time.time()); report={'schema':'aegis.report/v1','agent_version':'0.30.0','policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
                     headers=self.agent.report_headers(body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=headers,method='POST')
                     with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,202)
                     mixed=self.agent.report_headers(body,token,old_secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=mixed,method='POST')
@@ -251,7 +251,7 @@ class SentinelTests(unittest.TestCase):
                 finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
             credentials_path.chmod(0o644)
             with self.assertRaisesRegex(ValueError,'device_credentials_permissions'): self.collector.device_credentials(credentials_path)
-            credentials_path.chmod(0o600); credentials_path.write_text(json.dumps({'schema':'sentinel.device-credentials/v1','devices':{device_id:{'tokens':[token],'signing_secrets':[secret]},'000000000000':{'tokens':[token],'signing_secrets':['x'*32]}}}))
+            credentials_path.chmod(0o600); credentials_path.write_text(json.dumps({'schema':'aegis.device-credentials/v1','devices':{device_id:{'tokens':[token],'signing_secrets':[secret]},'000000000000':{'tokens':[token],'signing_secrets':['x'*32]}}}))
             with self.assertRaisesRegex(ValueError,'device_credentials_not_independent'): self.collector.device_credentials(credentials_path)
     def test_device_credential_provisioning_is_private_atomic_and_rotation_safe(self):
         with tempfile.TemporaryDirectory() as d:
@@ -285,10 +285,10 @@ class SentinelTests(unittest.TestCase):
         with patch.object(self.agent.urllib.request,'urlopen',return_value=Response(json.dumps(valid).encode())): self.assertEqual(self.agent.post_report('https://collector.invalid/v1/reports','token',report,'secret'),valid)
         for body,error in ((b'', 'collector_ack_invalid_json'),(json.dumps({**valid,'extra':True}).encode(),'collector_ack_invalid_contract'),(json.dumps({**valid,'report_id':'a'*20}).encode(),'collector_ack_invalid_contract'),(b'x'*4097,'collector_ack_too_large')):
             with patch.object(self.agent.urllib.request,'urlopen',return_value=Response(body)),self.assertRaisesRegex(OSError,error): self.agent.post_report('https://collector.invalid/v1/reports','token',report,'secret')
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn('Collector acknowledgement contract is invalid',windows); self.assertIn("accepted,duplicate,report_id,severity",windows); self.assertIn('$ackBytes -gt 4096',windows)
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertIn('Collector acknowledgement contract is invalid',windows); self.assertIn("accepted,duplicate,report_id,severity",windows); self.assertIn('$ackBytes -gt 4096',windows)
     def test_reporting_config_requires_private_file_and_strict_contract(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); path=root/'reporting.json'; value={'schema':'sentinel.reporting/v1','report_url':'https://collector.example.internal/v1/reports','report_token':'t'*32,'signing_secret':'s'*32}
+            root=Path(d); path=root/'reporting.json'; value={'schema':'aegis.reporting/v1','report_url':'https://collector.example.internal/v1/reports','report_token':'t'*32,'signing_secret':'s'*32}
             path.write_text(json.dumps(value)); path.chmod(0o600); self.assertEqual(self.agent.load_reporting_config(path),value)
             path.chmod(0o644)
             with self.assertRaisesRegex(ValueError,'reporting_config_permissions'): self.agent.load_reporting_config(path)
@@ -299,12 +299,12 @@ class SentinelTests(unittest.TestCase):
             path.write_text(json.dumps({**value,'signing_secret':'t'*32}))
             with self.assertRaisesRegex(ValueError,'reporting_config_secrets'): self.agent.load_reporting_config(path)
             status=root/'upload-status.json'; self.agent.write_upload_status(status,'https://Collector.Example.Internal/v1/reports',now=123)
-            self.assertEqual(json.loads(status.read_text()),{'schema':'sentinel.upload-status/v1','status':'accepted','last_success':123,'collector_host':'collector.example.internal'}); self.assertEqual(status.stat().st_mode&0o777,0o600)
-        windows=(DOWNLOADS/'sentinel-configure-windows.ps1').read_text(); scanner=(DOWNLOADS/'sentinel-windows.ps1').read_text(); mac=(DOWNLOADS/'sentinel-configure-macos.sh').read_text()
+            self.assertEqual(json.loads(status.read_text()),{'schema':'aegis.upload-status/v1','status':'accepted','last_success':123,'collector_host':'collector.example.internal'}); self.assertEqual(status.stat().st_mode&0o777,0o600)
+        windows=(DOWNLOADS/'aegis-configure-windows.ps1').read_text(); scanner=(DOWNLOADS/'aegis-windows.ps1').read_text(); mac=(DOWNLOADS/'aegis-configure-macos.sh').read_text()
         self.assertIn('DataProtectionScope]::LocalMachine',windows); self.assertIn('ProtectedData]::Unprotect',scanner); self.assertIn("kind='reporting_config_invalid'",scanner); self.assertIn('umask 077',mac)
     def test_collector_supports_bounded_token_and_signing_key_rotation(self):
         body=b'{"device":"test"}'; old=self.agent.report_headers(body,'old-token','old-signing',now=1000); new=self.agent.report_headers(body,'new-token','new-signing',now=1000)
-        env={'SENTINEL_REPORT_SIGNING_SECRETS':'["new-signing","old-signing"]'}
+        env={'AEGIS_REPORT_SIGNING_SECRETS':'["new-signing","old-signing"]'}
         with patch.dict(os.environ,env,clear=True):
             self.assertTrue(self.collector.valid_signature(old,body,now=1000)); self.assertTrue(self.collector.valid_signature(new,body,now=1000))
         self.assertEqual(self.collector.secret_values('ONE','MANY',{'ONE':'legacy'}),['legacy'])
@@ -312,28 +312,28 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(self.collector.secret_values('ONE','MANY',{'MANY':'not-json'}),[])
         self.assertEqual(self.collector.secret_values('ONE','MANY',{'MANY':json.dumps(['x']*6)}),[])
         handler=object.__new__(self.collector.Handler); handler.headers={'Authorization':'Bearer old-token'}
-        with patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKENS':'["new-token","old-token"]'},clear=True): self.assertTrue(handler.authorized())
+        with patch.dict(os.environ,{'AEGIS_COLLECTOR_TOKENS':'["new-token","old-token"]'},clear=True): self.assertTrue(handler.authorized())
     def test_collector_runtime_secrets_require_strength_uniqueness_and_separation(self):
-        good={'SENTINEL_COLLECTOR_TOKENS':json.dumps(['t'*32,'u'*32]),'SENTINEL_REPORT_SIGNING_SECRETS':json.dumps(['s'*32,'v'*32])}
+        good={'AEGIS_COLLECTOR_TOKENS':json.dumps(['t'*32,'u'*32]),'AEGIS_REPORT_SIGNING_SECRETS':json.dumps(['s'*32,'v'*32])}
         self.assertEqual(self.collector.runtime_secret_errors(good),[])
-        weak={'SENTINEL_COLLECTOR_TOKEN':'short','SENTINEL_REPORT_SIGNING_SECRET':'tiny'}
+        weak={'AEGIS_COLLECTOR_TOKEN':'short','AEGIS_REPORT_SIGNING_SECRET':'tiny'}
         self.assertTrue({'collector_token_too_short','signing_secret_too_short'}.issubset(self.collector.runtime_secret_errors(weak)))
-        reused={'SENTINEL_COLLECTOR_TOKEN':'x'*32,'SENTINEL_REPORT_SIGNING_SECRET':'x'*32}
+        reused={'AEGIS_COLLECTOR_TOKEN':'x'*32,'AEGIS_REPORT_SIGNING_SECRET':'x'*32}
         self.assertIn('authentication_and_signing_secret_reused',self.collector.runtime_secret_errors(reused))
-        duplicate={'SENTINEL_COLLECTOR_TOKENS':json.dumps(['a'*32,'a'*32]),'SENTINEL_REPORT_SIGNING_SECRET':'b'*32}
+        duplicate={'AEGIS_COLLECTOR_TOKENS':json.dumps(['a'*32,'a'*32]),'AEGIS_REPORT_SIGNING_SECRET':'b'*32}
         self.assertIn('collector_token_duplicate',self.collector.runtime_secret_errors(duplicate))
-        pilot={'SENTINEL_COLLECTOR_TOKEN':'a'*32,'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'}
+        pilot={'AEGIS_COLLECTOR_TOKEN':'a'*32,'AEGIS_ALLOW_UNSIGNED_REPORTS':'true'}
         self.assertEqual(self.collector.runtime_secret_errors(pilot),[])
     def test_unsigned_reports_are_denied_unless_explicitly_enabled(self):
         with patch.dict(os.environ,{},clear=True): self.assertFalse(self.collector.valid_signature({},b'body',now=1,secret=''))
-        with patch.dict(os.environ,{'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'},clear=True): self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))
+        with patch.dict(os.environ,{'AEGIS_ALLOW_UNSIGNED_REPORTS':'true'},clear=True): self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))
         self.assertFalse(self.collector.allow_unsigned_reports('false')); self.assertTrue(self.collector.allow_unsigned_reports('yes'))
     def test_collector_http_accepts_signed_report_and_deduplicates(self):
-        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKEN':'bearer','SENTINEL_REPORT_SIGNING_SECRET':'signing-secret'}):
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'AEGIS_COLLECTOR_TOKEN':'bearer','AEGIS_REPORT_SIGNING_SECRET':'signing-secret'}):
             server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(Path(d)/'reports.db')
             thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
             try:
-                now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-http','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode()
+                now=int(time.time()); report={'schema':'aegis.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-http','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode()
                 headers=self.agent.report_headers(body,'bearer','signing-secret',now=now); request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/reports',data=body,headers=headers,method='POST')
                 with urllib.request.urlopen(request,timeout=3) as response:
                     self.assertEqual(response.status,202); accepted=json.load(response); self.assertFalse(accepted['duplicate']); self.assertEqual(accepted['report_id'],hashlib.sha256(body).hexdigest()[:20])
@@ -390,7 +390,7 @@ class SentinelTests(unittest.TestCase):
         allowed_policy={**self.policy,'allowed_mcp_command_paths':['/tmp/node']}
         allowed={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,allowed_policy)}
         self.assertNotIn('unapproved_mcp_command_path',allowed)
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertGreaterEqual(windows.count("kind='unapproved_mcp_command_path'"),2); self.assertIn('$rawCommand',windows)
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertGreaterEqual(windows.count("kind='unapproved_mcp_command_path'"),2); self.assertIn('$rawCommand',windows)
     def test_mcp_launcher_arguments_require_exact_invocation_approval(self):
         cfg={'command':'npx','args':['-y','untrusted-package','/workspace']}
         blocked={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',cfg,self.policy)}
@@ -401,14 +401,14 @@ class SentinelTests(unittest.TestCase):
         changed={**cfg,'args':['-y','other-package','/workspace']}
         changed_kinds={item['kind'] for item in self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',changed,approved)}
         self.assertIn('unapproved_mcp_invocation',changed_kinds)
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn('function Test-SentinelMcpInvocation',windows); self.assertGreaterEqual(windows.count("kind='unapproved_mcp_invocation'"),2)
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertIn('function Test-AegisMcpInvocation',windows); self.assertGreaterEqual(windows.count("kind='unapproved_mcp_invocation'"),2)
         invalid=self.agent.scan_mcp_server(Path('/tmp/mcp.json'),'github',{'command':'npx','args':'-y package'},self.policy)
         self.assertIn('invalid_mcp_arguments',{item['kind'] for item in invalid})
     def test_mcp_malformed_server_and_environment_are_visible_without_crashing(self):
         config={'mcpServers':{'scalar':'not-an-object','bad-env':{'command':'node','env':['TOKEN=secret']}}}
         kinds={item['kind'] for item in self.agent.scan_mcp_config(Path('/tmp/mcp.json'),json.dumps(config),self.policy)}
         self.assertTrue({'invalid_mcp_server','invalid_mcp_environment'}.issubset(kinds))
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn("kind='invalid_mcp_server'",windows); self.assertIn("kind='invalid_mcp_environment'",windows)
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertIn("kind='invalid_mcp_server'",windows); self.assertIn("kind='invalid_mcp_environment'",windows)
         self.assertIn("kind='policy_load_failed'",windows); self.assertIn("invalid MCP invocation policy",windows)
     def test_policy_declared_text_rules_are_enforced(self):
         hidden=self.agent.scan_text(Path('/tmp/SKILL.md'),'safe text\u202ehidden',self.policy)
@@ -421,7 +421,7 @@ class SentinelTests(unittest.TestCase):
         text='''import pickle\nvalue = requests.get(url, verify=False)\nobject = pickle.loads(payload)\napp.run(host="0.0.0.0", debug=True)\ntry:\n    work()\nexcept Exception:\n    pass\n'''
         kinds={item['kind'] for item in self.agent.scan_text(Path('/tmp/app.py'),text,self.policy)}
         self.assertTrue({'insecure_tls_verification','unsafe_deserialization','debug_mode_enabled','empty_exception_handler'}.issubset(kinds))
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text()
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text()
         for kind in ('insecure_tls_verification','unsafe_deserialization','debug_mode_enabled','empty_exception_handler'): self.assertIn("Kind='"+kind+"'",windows)
     def test_blocked_command_does_not_match_documentation_inline(self):
         findings=self.agent.scan_text(Path('/tmp/README.md'),'Never run `rm -rf` on a workstation.',self.policy)
@@ -432,7 +432,7 @@ class SentinelTests(unittest.TestCase):
             (root/'run.py').write_text('token = "sk-abcdefghijklmnopqrstuvwxyz123456"')
             findings,count=self.agent.scan_skill(skill,self.policy); kinds={f['kind'] for f in findings}
             self.assertEqual(count,2); self.assertIn('unknown_skill',kinds); self.assertIn('hardcoded_secret',kinds)
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertLess(windows.index("$skillManifests=@(Get-ChildItem"),windows.index('$oversized=@(')); self.assertIn("kind='skill_scan_truncated'",windows); self.assertIn("kind='project_scan_truncated'",windows); self.assertIn("kind='skill_link_findings_truncated'",windows)
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertLess(windows.index("$skillManifests=@(Get-ChildItem"),windows.index('$oversized=@(')); self.assertIn("kind='skill_scan_truncated'",windows); self.assertIn("kind='project_scan_truncated'",windows); self.assertIn("kind='skill_link_findings_truncated'",windows)
     def test_approved_skill_and_symlink_boundary(self):
         with tempfile.TemporaryDirectory() as d:
             base=Path(d); root=base/'approved'; root.mkdir(); skill=root/'SKILL.md'; skill.write_text('# safe')
@@ -452,31 +452,31 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(self.agent.scan_dependency_manifest(requirements,requirements.read_text()),[])
     def test_endpoint_integrity_manifest_covers_all_runtime_inputs(self):
         entries={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
-        for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
+        for name in ('aegis_agent.py','aegis-windows.ps1','aegis-policy.json','aegis-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
-        self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.30.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.30.0')
+        self.assertTrue((DOWNLOADS/'rollback-aegis-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-aegis-macos.sh').exists())
+        self.assertIn("agent_version='0.30.0'",(DOWNLOADS/'aegis-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'AegisAgent/0.30.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
-            script=str(DOWNLOADS/'install-sentinel.sh')
+            root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'AEGIS_INSTALL_DIR':str(install),'AEGIS_BASE_URL':source.as_uri()}
+            script=str(DOWNLOADS/'install-aegis.sh')
             subprocess.run(['/bin/sh',script],env=env,check=True,capture_output=True,text=True)
-            for name in ('sentinel_agent.py','sentinel-policy.json','sentinel-security-baseline.md'): (install/name).write_text('previous-'+name)
+            for name in ('aegis_agent.py','aegis-policy.json','aegis-security-baseline.md'): (install/name).write_text('previous-'+name)
             subprocess.run(['/bin/sh',script],env=env,check=True,capture_output=True,text=True)
             previous=install/'previous'; self.assertTrue((previous/'CHECKSUMS.sha256').exists())
-            for name in ('sentinel_agent.py','sentinel-policy.json','sentinel-security-baseline.md'): self.assertEqual((previous/name).read_text(),'previous-'+name)
-            snapshot={name:(previous/name).read_bytes() for name in ('sentinel_agent.py','sentinel-policy.json','sentinel-security-baseline.md','CHECKSUMS.sha256')}
-            (install/'sentinel-policy.json').unlink()
+            for name in ('aegis_agent.py','aegis-policy.json','aegis-security-baseline.md'): self.assertEqual((previous/name).read_text(),'previous-'+name)
+            snapshot={name:(previous/name).read_bytes() for name in ('aegis_agent.py','aegis-policy.json','aegis-security-baseline.md','CHECKSUMS.sha256')}
+            (install/'aegis-policy.json').unlink()
             subprocess.run(['/bin/sh',script],env=env,check=True,capture_output=True,text=True)
             self.assertEqual(snapshot,{name:(previous/name).read_bytes() for name in snapshot})
         windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text()
         self.assertIn("'.previous-stage-'",windows); self.assertIn('$currentComplete',windows); self.assertIn('.previous-stage.$$',mac); self.assertIn('CURRENT_COMPLETE',mac)
-        rollback_mac=(DOWNLOADS/'rollback-sentinel-macos.sh').read_text(); rollback_windows=(DOWNLOADS/'rollback-sentinel-windows.ps1').read_text()
+        rollback_mac=(DOWNLOADS/'rollback-aegis-macos.sh').read_text(); rollback_windows=(DOWNLOADS/'rollback-aegis-windows.ps1').read_text()
         self.assertIn('checksum manifest has an unexpected file set',rollback_mac); self.assertGreaterEqual(rollback_mac.count('shasum -a 256 -c'),2); self.assertLess(rollback_mac.rindex('shasum -a 256 -c'),rollback_mac.index('launchctl bootstrap'))
         self.assertIn('checksum manifest has an unexpected file set',rollback_windows); self.assertIn('Restored version integrity verification failed',rollback_windows); self.assertLess(rollback_windows.index('Restored version integrity verification failed'),rollback_windows.index('Start-ScheduledTask'))
     def test_installers_bound_each_network_download(self):
-        generic=(DOWNLOADS/'install-sentinel.sh').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text(); windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
+        generic=(DOWNLOADS/'install-aegis.sh').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text(); windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
         for script in (generic,mac):
             self.assertIn('--connect-timeout 15',script); self.assertIn('--max-time 120',script); self.assertIn('shasum -a 256 -c -',script)
         self.assertIn('-TimeoutSec 120',windows); self.assertIn('Get-FileHash',windows)
@@ -485,62 +485,62 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
     def test_release_verifier_rejects_runtime_drift(self):
         with tempfile.TemporaryDirectory() as d:
-            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel_agent.py').write_text('# drift')
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'aegis_agent.py').write_text('# drift')
             errors=self.verifier.verify(copy)
-            self.assertIn('checksum_mismatch:sentinel_agent.py',errors); self.assertIn('bundle_content_mismatch:sentinel_agent.py',errors)
+            self.assertIn('checksum_mismatch:aegis_agent.py',errors); self.assertIn('bundle_content_mismatch:aegis_agent.py',errors)
     def test_release_verifier_rejects_invalid_policy_regex(self):
         with tempfile.TemporaryDirectory() as d:
-            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'sentinel-policy.json').read_text()); policy['secret_patterns']=['[invalid']; (copy/'sentinel-policy.json').write_text(json.dumps(policy))
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'aegis-policy.json').read_text()); policy['secret_patterns']=['[invalid']; (copy/'aegis-policy.json').write_text(json.dumps(policy))
             self.assertIn('invalid_secret_pattern_regex:0',self.verifier.verify(copy))
     def test_release_verifier_rejects_invalid_mcp_invocation_policy(self):
         with tempfile.TemporaryDirectory() as d:
-            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'sentinel-policy.json').read_text()); policy['allowed_mcp_invocations']=[['npx','']]; (copy/'sentinel-policy.json').write_text(json.dumps(policy))
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); policy=json.loads((copy/'aegis-policy.json').read_text()); policy['allowed_mcp_invocations']=[['npx','']]; (copy/'aegis-policy.json').write_text(json.dumps(policy))
             self.assertIn('invalid_allowed_mcp_invocation:0',self.verifier.verify(copy))
     def test_collector_deployment_assets_are_fail_closed_and_verified(self):
-        service=(DOWNLOADS/'sentinel-collector.service').read_text(); env=(DOWNLOADS/'sentinel-collector.env.example').read_text(); nginx=(DOWNLOADS/'sentinel-collector.nginx.conf').read_text()
+        service=(DOWNLOADS/'aegis-collector.service').read_text(); env=(DOWNLOADS/'aegis-collector.env.example').read_text(); nginx=(DOWNLOADS/'aegis-collector.nginx.conf').read_text()
         self.assertIn('--listen 127.0.0.1',service); self.assertIn('NoNewPrivileges=true',service); self.assertIn('ProtectSystem=strict',service); self.assertIn('CapabilityBoundingSet=\n',service)
-        self.assertIn('SENTINEL_COLLECTOR_TOKEN=\n',env); self.assertIn('SENTINEL_REPORT_SIGNING_SECRET=\n',env); self.assertIn('SENTINEL_ALLOW_UNSIGNED_REPORTS=false',env)
-        self.assertIn('listen 443 ssl',nginx); self.assertIn('client_max_body_size 2m',nginx); self.assertIn('limit_req zone=sentinel_reports',nginx)
+        self.assertIn('AEGIS_COLLECTOR_TOKEN=\n',env); self.assertIn('AEGIS_REPORT_SIGNING_SECRET=\n',env); self.assertIn('AEGIS_ALLOW_UNSIGNED_REPORTS=false',env)
+        self.assertIn('listen 443 ssl',nginx); self.assertIn('client_max_body_size 2m',nginx); self.assertIn('limit_req zone=aegis_reports',nginx)
         with tempfile.TemporaryDirectory() as d:
-            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel-collector.service').write_text(service.replace('ProtectSystem=strict','ProtectSystem=false'))
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'aegis-collector.service').write_text(service.replace('ProtectSystem=strict','ProtectSystem=false'))
             self.assertIn('unsafe_collector_service:ProtectSystem=strict',self.verifier.verify(copy))
     def test_intune_compliance_checks_integrity_task_and_policy(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'intune-windows-detect.ps1').read_text()
-        for name in ('sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
+        for name in ('aegis-windows.ps1','aegis-policy.json','aegis-security-baseline.md'):
             self.assertIn(manifest[name],discovery); self.assertIn(manifest[name],detection)
         rules=json.loads((DOWNLOADS/'intune-compliance-policy.json').read_text())['Rules']; names={x['SettingName'] for x in rules}
-        self.assertTrue({'SentinelIntegrityValid','SentinelScheduledTaskHealthy','SentinelReportingConfigured','SentinelReportingHealthy','SentinelPolicyVersion','SentinelReportValid','SentinelScanRecent'}.issubset(names))
-        self.assertIn('ProtectedData]::Unprotect',discovery); self.assertIn('SentinelReportingConfigured=$reportingConfigured',discovery); self.assertIn('SentinelReportingHealthy=$reportingHealthy',discovery)
-        version=next(x['Operand'] for x in rules if x['SettingName']=='SentinelPolicyVersion'); self.assertEqual(version,self.policy['version'])
+        self.assertTrue({'AegisIntegrityValid','AegisScheduledTaskHealthy','AegisReportingConfigured','AegisReportingHealthy','AegisPolicyVersion','AegisReportValid','AegisScanRecent'}.issubset(names))
+        self.assertIn('ProtectedData]::Unprotect',discovery); self.assertIn('AegisReportingConfigured=$reportingConfigured',discovery); self.assertIn('AegisReportingHealthy=$reportingHealthy',discovery)
+        version=next(x['Operand'] for x in rules if x['SettingName']=='AegisPolicyVersion'); self.assertEqual(version,self.policy['version'])
         self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
     def test_intune_macos_compliance_contract(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'intune-macos-compliance.sh').read_text(); rules=json.loads((DOWNLOADS/'intune-macos-compliance-policy.json').read_text())['Rules']
-        for name in ('sentinel_agent.py','sentinel-policy.json','sentinel-security-baseline.md'): self.assertIn(manifest[name],discovery)
-        names={rule['SettingName'] for rule in rules}; self.assertTrue({'SentinelInstalled','SentinelIntegrityValid','SentinelLaunchDaemonHealthy','SentinelReportingConfigured','SentinelReportingHealthy','SentinelPolicyVersion','SentinelReportValid','SentinelScanRecent','SentinelCriticalFindings','SentinelHighFindings'}.issubset(names))
+        for name in ('aegis_agent.py','aegis-policy.json','aegis-security-baseline.md'): self.assertIn(manifest[name],discovery)
+        names={rule['SettingName'] for rule in rules}; self.assertTrue({'AegisInstalled','AegisIntegrityValid','AegisLaunchDaemonHealthy','AegisReportingConfigured','AegisReportingHealthy','AegisPolicyVersion','AegisReportValid','AegisScanRecent','AegisCriticalFindings','AegisHighFindings'}.issubset(names))
         self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
-        version=next(rule['Operand'] for rule in rules if rule['SettingName']=='SentinelPolicyVersion'); self.assertEqual(version,self.policy['version'])
-        with zipfile.ZipFile(DOWNLOADS/'sentinel-enterprise-bundle.zip') as bundle:
+        version=next(rule['Operand'] for rule in rules if rule['SettingName']=='AegisPolicyVersion'); self.assertEqual(version,self.policy['version'])
+        with zipfile.ZipFile(DOWNLOADS/'aegis-enterprise-bundle.zip') as bundle:
             self.assertTrue({'intune-macos-compliance.sh','intune-macos-compliance-policy.json'}.issubset(bundle.namelist()))
     def test_macos_compliance_recomputes_report_summary(self):
         script=(DOWNLOADS/'intune-macos-compliance.sh').read_text().split("<<'PY'\n",1)[1].split("\nPY",1)[0]
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'sentinel.report/v1','agent_version':'0.30.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
-            result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['SentinelReportValid']); self.assertTrue(parsed['SentinelReportingConfigured']); self.assertTrue(parsed['SentinelReportingHealthy'])
-            upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingHealthy']); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingConfigured']); reporting.chmod(0o600)
-            value['summary']['high']=0; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportValid'])
-            value['summary']['high']=1; value['agent_version']='0.22.0'; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportValid'])
-        windows=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); self.assertIn('$actualCritical',windows); self.assertIn('SentinelReportValid=$reportValid',windows)
+            root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'aegis.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'aegis.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
+            value={'schema':'aegis.report/v1','agent_version':'0.30.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['AegisReportValid']); self.assertTrue(parsed['AegisReportingConfigured']); self.assertTrue(parsed['AegisReportingHealthy'])
+            upload.write_text(json.dumps({'schema':'aegis.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportingHealthy']); upload.write_text(json.dumps({'schema':'aegis.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
+            reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportingConfigured']); reporting.chmod(0o600)
+            value['summary']['high']=0; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportValid'])
+            value['summary']['high']=1; value['agent_version']='0.22.0'; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportValid'])
+        windows=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); self.assertIn('$actualCritical',windows); self.assertIn('AegisReportValid=$reportValid',windows)
     def test_windows_scanner_covers_codex_toml_mcp_contract(self):
-        script=(DOWNLOADS/'sentinel-windows.ps1').read_text()
-        self.assertIn('function Inspect-SentinelMcpToml',script); self.assertIn("$_.Name -eq 'config.toml'",script)
+        script=(DOWNLOADS/'aegis-windows.ps1').read_text()
+        self.assertIn('function Inspect-AegisMcpToml',script); self.assertIn("$_.Name -eq 'config.toml'",script)
         for finding in ('unknown_mcp','unapproved_mcp_command','broad_filesystem_scope','ambiguous_mcp_transport','unapproved_mcp_transport','unapproved_mcp_domain','mcp_url_credentials','literal_mcp_secret'):
-            self.assertIn("kind='"+finding+"'",script[script.index('function Inspect-SentinelMcpToml'):])
-        self.assertIn('function Test-SentinelSafeTarget',script); self.assertIn('ReparsePoint',script[script.index('function Test-SentinelSafeTarget'):script.index('function Inspect-SentinelMcpJson')])
+            self.assertIn("kind='"+finding+"'",script[script.index('function Inspect-AegisMcpToml'):])
+        self.assertIn('function Test-AegisSafeTarget',script); self.assertIn('ReparsePoint',script[script.index('function Test-AegisSafeTarget'):script.index('function Inspect-AegisMcpJson')])
     def test_offline_spool(self):
         with tempfile.TemporaryDirectory() as d:
             report={'scanned_at':1,'device_id':'dev'}; path=self.agent.queue_report(Path(d),report)
@@ -553,7 +553,7 @@ class SentinelTests(unittest.TestCase):
             with patch.object(self.agent.os,'replace',side_effect=OSError('simulated')):
                 with self.assertRaises(OSError): self.agent.write_private_atomic(output,'broken')
             self.assertEqual(output.read_text(),'{"ok":true}'); self.assertFalse(list(output.parent.glob('.latest.json.*.tmp')))
-        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn("$outputTemp=$Output+'.'",windows); self.assertLess(windows.index('Set-Content -Encoding UTF8 $outputTemp'),windows.index('Move-Item $outputTemp $Output -Force'))
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertIn("$outputTemp=$Output+'.'",windows); self.assertLess(windows.index('Set-Content -Encoding UTF8 $outputTemp'),windows.index('Move-Item $outputTemp $Output -Force'))
     def test_offline_spool_is_bounded_unique_and_skips_corruption(self):
         with tempfile.TemporaryDirectory() as d:
             spool=Path(d); report={'scanned_at':1,'device_id':'device-123'}
@@ -586,7 +586,7 @@ class SentinelTests(unittest.TestCase):
     def test_adapter_worker_dispatches_each_collector_report_once(self):
         config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l'}):
-            root=Path(d); db=root/'sentinel.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
+            root=Path(d); db=root/'aegis.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             sent=[]; sender=lambda url,payload,token='',secret='': sent.append((url,payload,token,secret)) or 202
             first=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=101); second=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=102)
             self.assertEqual(first[0]['result'],'dispatched'); self.assertEqual(second,[]); self.assertEqual(len(sent),2)
@@ -648,7 +648,7 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); repo=root/'repo'; other=root/'ordinary'; (repo/'.git').mkdir(parents=True); other.mkdir()
             with patch.object(self.agent,'managed_homes',return_value=[]): changed=self.agent.auto_enroll(root)
-            self.assertTrue(changed); self.assertTrue((repo/'.cursor/rules/sentinel-security.mdc').exists()); self.assertFalse((other/'AGENTS.md').exists())
+            self.assertTrue(changed); self.assertTrue((repo/'.cursor/rules/aegis-security.mdc').exists()); self.assertFalse((other/'AGENTS.md').exists())
     def test_agent_discovery_uses_markers_without_execution(self):
         with tempfile.TemporaryDirectory() as d:
             home=Path(d); (home/'.codex').mkdir(); (home/'.codex/config.toml').write_text('model="approved"')

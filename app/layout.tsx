@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Sentinel Agent 安全中心',
+  title: 'Aegis Agent 安全中心',
   description: 'AI Agent 安全编码基线、Skill、MCP 与代码质量统一治理控制台',
 };
 

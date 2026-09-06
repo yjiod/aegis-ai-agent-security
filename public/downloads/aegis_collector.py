@@ -30,7 +30,7 @@ def valid_report(d,now=None):
     required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}
     allowed=required|{"scan_root","inventory"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
-    if d.get("schema")!="sentinel.report/v1": return False
+    if d.get("schema")!="aegis.report/v1": return False
     if not all(isinstance(d.get(k),str) and 1<=len(d[k])<=64 for k in ("agent_version","policy_version")): return False
     if not isinstance(d.get("device_id"),str) or not 8<=len(d["device_id"])<=128: return False
     if "scan_root" in d and (not isinstance(d["scan_root"],str) or len(d["scan_root"])>1024): return False
@@ -57,18 +57,18 @@ def valid_report(d,now=None):
 def signature_index(headers,body,secrets,now=None,max_skew=300):
     if not secrets: return -1 if allow_unsigned_reports() else None
     def header(name): return headers.get(name) or headers.get(name.lower())
-    timestamp=header("X-Sentinel-Timestamp"); supplied=header("X-Sentinel-Signature") or ""
+    timestamp=header("X-Aegis-Timestamp"); supplied=header("X-Aegis-Signature") or ""
     try: request_time=int(timestamp)
     except (TypeError,ValueError): return None
     now=int(time.time()) if now is None else now
     if abs(now-request_time)>max_skew: return None
-    device_id=header("X-Sentinel-Device-ID") or ""; prefix=timestamp.encode()+b"."+(device_id.encode()+b"." if device_id else b"")
+    device_id=header("X-Aegis-Device-ID") or ""; prefix=timestamp.encode()+b"."+(device_id.encode()+b"." if device_id else b"")
     matches=[]
     for candidate in secrets:
         expected="sha256="+hmac.new(candidate.encode(),prefix+body,hashlib.sha256).hexdigest(); matches.append(hmac.compare_digest(expected,supplied))
     return next((index for index,matched in enumerate(matches) if matched),None)
 def valid_signature(headers,body,now=None,secret=None,max_skew=300):
-    secrets=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS") if secret is None else (secret if isinstance(secret,list) else ([secret] if secret else []))
+    secrets=secret_values("AEGIS_REPORT_SIGNING_SECRET","AEGIS_REPORT_SIGNING_SECRETS") if secret is None else (secret if isinstance(secret,list) else ([secret] if secret else []))
     return signature_index(headers,body,secrets,now,max_skew) is not None
 def secret_values(single_name,multiple_name,env=None):
     env=os.environ if env is None else env; raw=env.get(multiple_name,"")
@@ -80,17 +80,17 @@ def secret_values(single_name,multiple_name,env=None):
         return values
     value=env.get(single_name,""); return [value] if value and len(value)<=4096 else []
 def allow_unsigned_reports(value=None):
-    raw=os.getenv("SENTINEL_ALLOW_UNSIGNED_REPORTS","") if value is None else value
+    raw=os.getenv("AEGIS_ALLOW_UNSIGNED_REPORTS","") if value is None else value
     return str(raw).strip().lower() in {"1","true","yes"}
 def device_credentials(path=None):
-    path=os.getenv("SENTINEL_DEVICE_CREDENTIALS_FILE","") if path is None else path
+    path=os.getenv("AEGIS_DEVICE_CREDENTIALS_FILE","") if path is None else path
     if not path: return {}
     source=Path(path)
     if source.is_symlink(): raise ValueError("device_credentials_symlink")
     info=source.stat()
     if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) not in {0o600,0o640} or info.st_uid not in {0,os.geteuid()}: raise ValueError("device_credentials_permissions")
     value=json.loads(source.read_text(encoding="utf-8")); devices=value.get("devices") if isinstance(value,dict) else None
-    if set(value)!={"schema","devices"} or value.get("schema")!="sentinel.device-credentials/v1" or not isinstance(devices,dict) or not 1<=len(devices)<=10000: raise ValueError("device_credentials_contract")
+    if set(value)!={"schema","devices"} or value.get("schema")!="aegis.device-credentials/v1" or not isinstance(devices,dict) or not 1<=len(devices)<=10000: raise ValueError("device_credentials_contract")
     normalized={}; all_tokens=set(); all_signing=set()
     for device_id,credential in devices.items():
         if not isinstance(device_id,str) or not re.fullmatch(r"[0-9a-f]{12}",device_id) or not isinstance(credential,dict) or set(credential)!={"tokens","signing_secrets"}: raise ValueError("device_credentials_contract")
@@ -101,14 +101,14 @@ def device_credentials(path=None):
     return normalized
 def runtime_secret_errors(env=None):
     env=os.environ if env is None else env
-    tokens=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS",env)
-    signing=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS",env)
+    tokens=secret_values("AEGIS_COLLECTOR_TOKEN","AEGIS_COLLECTOR_TOKENS",env)
+    signing=secret_values("AEGIS_REPORT_SIGNING_SECRET","AEGIS_REPORT_SIGNING_SECRETS",env)
     errors=[]
     if not tokens: errors.append("collector_token_missing_or_invalid")
     if any(len(value)<32 for value in tokens): errors.append("collector_token_too_short")
     if len(tokens)!=len(set(tokens)): errors.append("collector_token_duplicate")
-    unsigned=str(env.get("SENTINEL_ALLOW_UNSIGNED_REPORTS","")).strip().lower() in {"1","true","yes"}
-    credentials_path=env.get("SENTINEL_DEVICE_CREDENTIALS_FILE","")
+    unsigned=str(env.get("AEGIS_ALLOW_UNSIGNED_REPORTS","")).strip().lower() in {"1","true","yes"}
+    credentials_path=env.get("AEGIS_DEVICE_CREDENTIALS_FILE","")
     credentials={}
     if credentials_path:
         try: credentials=device_credentials(credentials_path)
@@ -121,19 +121,19 @@ def runtime_secret_errors(env=None):
     if set(tokens)&set(signing): errors.append("authentication_and_signing_secret_reused")
     return errors
 def retention_days(value=None):
-    raw=os.getenv("SENTINEL_RETENTION_DAYS","30") if value is None else value
+    raw=os.getenv("AEGIS_RETENTION_DAYS","30") if value is None else value
     try: return min(max(int(raw),1),3650)
     except (TypeError,ValueError): return 30
 def requests_per_minute(value=None):
-    raw=os.getenv("SENTINEL_REQUESTS_PER_MINUTE","120") if value is None else value
+    raw=os.getenv("AEGIS_REQUESTS_PER_MINUTE","120") if value is None else value
     try: return min(max(int(raw),1),10000)
     except (TypeError,ValueError): return 120
 def audit_retention_days(value=None):
-    raw=os.getenv("SENTINEL_AUDIT_RETENTION_DAYS","90") if value is None else value
+    raw=os.getenv("AEGIS_AUDIT_RETENTION_DAYS","90") if value is None else value
     try: return min(max(int(raw),1),3650)
     except (TypeError,ValueError): return 90
 def audit_max_events(value=None):
-    raw=os.getenv("SENTINEL_AUDIT_MAX_EVENTS","100000") if value is None else value
+    raw=os.getenv("AEGIS_AUDIT_MAX_EVENTS","100000") if value is None else value
     try: return min(max(int(raw),1000),1000000)
     except (TypeError,ValueError): return 100000
 def required_version(name,default,env=None):
@@ -185,7 +185,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.30.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("AEGIS_REQUIRED_AGENT_VERSION","0.30.0"); required_policy=required_policy or required_version("AEGIS_REQUIRED_POLICY_VERSION","4.8.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
     for _,severity,agent,policy,generation in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1
@@ -198,7 +198,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.15"
+    server_version="AegisCollector/0.15"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -210,15 +210,15 @@ class Handler(BaseHTTPRequestHandler):
         if allowed: return False
         self.reply(429,{"error":"rate_limited"},{"Retry-After":retry}); return True
     def authorized(self):
-        expected=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS"); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
+        expected=secret_values("AEGIS_COLLECTOR_TOKEN","AEGIS_COLLECTOR_TOKENS"); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
         for candidate in expected: matched |= hmac.compare_digest(candidate,supplied)
         return bool(expected) and matched
     def report_authentication(self):
-        path=os.getenv("SENTINEL_DEVICE_CREDENTIALS_FILE","")
+        path=os.getenv("AEGIS_DEVICE_CREDENTIALS_FILE","")
         if not path: return (self.authorized(),None)
         try: credentials=device_credentials(path)
         except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): return (False,None)
-        device_id=self.headers.get("X-Sentinel-Device-ID",""); credential=credentials.get(device_id)
+        device_id=self.headers.get("X-Aegis-Device-ID",""); credential=credentials.get(device_id)
         if not credential: return (False,None)
         supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
         matches=[]
@@ -277,7 +277,7 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(200 if result["duplicate"] else 202,result)
     def log_message(self,fmt,*args): pass
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--listen",default="127.0.0.1"); ap.add_argument("--port",type=int,default=8788); ap.add_argument("--db",default="sentinel.db"); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--listen",default="127.0.0.1"); ap.add_argument("--port",type=int,default=8788); ap.add_argument("--db",default="aegis.db"); args=ap.parse_args()
     errors=runtime_secret_errors()
     if errors: raise SystemExit("invalid secret configuration: "+",".join(errors))
     server=ThreadingHTTPServer((args.listen,args.port),Handler); server.db_path=args.db; server.rate_limiter=RateLimiter(); server.serve_forever()
