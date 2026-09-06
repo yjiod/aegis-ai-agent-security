@@ -111,8 +111,11 @@ export async function GET() {
   let target: URL;
   try {
     const base = new URL(endpoint);
+    const isLocalDev =
+      process.env.NODE_ENV === 'development' &&
+      (base.hostname === '127.0.0.1' || base.hostname === 'localhost');
     if (
-      base.protocol !== 'https:' ||
+      (!isLocalDev && base.protocol !== 'https:') ||
       base.hostname.toLowerCase() !== allowedHost.toLowerCase() ||
       base.username ||
       base.password ||

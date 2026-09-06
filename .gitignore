@@ -10,6 +10,9 @@
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
+/storybook-static/
 
 # next.js
 /.next/
