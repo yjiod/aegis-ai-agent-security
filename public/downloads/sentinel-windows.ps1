@@ -49,6 +49,7 @@ if($policyInvalid){$findings += @{kind='policy_load_failed';severity='high';path
 if($reportConfigInvalid){$findings += @{kind='reporting_config_invalid';severity='high';path='reporting.dpapi';message='受保护上报配置无法解密或契约无效；本轮拒绝上报'}}
 function Send-SentinelReport([string]$json,[string]$url) {
   $bytes=[Text.Encoding]::UTF8.GetBytes($json);$headers=@{}
+  $sha256=[Security.Cryptography.SHA256]::Create();try{$expectedReportId=([BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace('-','').ToLower().Substring(0,20)}finally{$sha256.Dispose()}
   if($env:SENTINEL_REPORT_TOKEN){$headers.Authorization='Bearer '+$env:SENTINEL_REPORT_TOKEN}
   if($env:SENTINEL_REPORT_SIGNING_SECRET){
     $timestamp=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds().ToString();$prefix=[Text.Encoding]::UTF8.GetBytes($timestamp+'.');$signed=New-Object byte[] ($prefix.Length+$bytes.Length);[Array]::Copy($prefix,0,$signed,0,$prefix.Length);[Array]::Copy($bytes,0,$signed,$prefix.Length,$bytes.Length)
@@ -60,7 +61,7 @@ function Send-SentinelReport([string]$json,[string]$url) {
   if($response.StatusCode -notin @(200,202) -or $ackBytes -gt 4096){throw 'Collector acknowledgement contract is invalid'}
   try{$ack=([string]$response.Content)|ConvertFrom-Json}catch{throw 'Collector acknowledgement contract is invalid'}
   $names=@($ack.PSObject.Properties.Name|Sort-Object)
-  if(($names -join ',') -cne 'accepted,duplicate,report_id,severity' -or $ack.accepted -isnot [bool] -or -not $ack.accepted -or $ack.duplicate -isnot [bool] -or ([string]$ack.report_id) -notmatch '^[a-f0-9]{20}$' -or $ack.severity -notin @('critical','high','normal')){throw 'Collector acknowledgement contract is invalid'}
+  if(($names -join ',') -cne 'accepted,duplicate,report_id,severity' -or $ack.accepted -isnot [bool] -or -not $ack.accepted -or $ack.duplicate -isnot [bool] -or ([string]$ack.report_id) -cne $expectedReportId -or $ack.severity -notin @('critical','high','normal')){throw 'Collector acknowledgement contract is invalid'}
   return $ack
 }
 function Write-SentinelUploadStatus([string]$url){
@@ -267,7 +268,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.28.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.29.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
