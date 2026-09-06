@@ -14,8 +14,8 @@ $agent = Join-Path $install 'sentinel-windows.ps1'
 $previousProgramData = $env:ProgramData
 try {
   $env:ProgramData = $programData
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $agent -Output $output -ManagedUsersRoot $users
-  if ($LASTEXITCODE -ne 0) { throw "clean agent run failed with exit code $LASTEXITCODE" }
+  $agentOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $agent -Output $output -ManagedUsersRoot $users -Diagnostics 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "clean agent run failed with exit code $LASTEXITCODE`: $($agentOutput | Out-String)" }
   $report = Get-Content $output -Raw | ConvertFrom-Json
   if ($report.schema -cne 'sentinel.report/v1' -or $report.agent_version -cne '0.34.0' -or $report.policy_version -cne '4.9.0') { throw 'clean report contract mismatch' }
   if ($report.summary.critical -ne 0 -or $report.summary.high -ne 0) { throw 'clean report unexpectedly contains blocking findings' }
@@ -24,8 +24,8 @@ try {
   $policy = Get-Content $policyPath -Raw | ConvertFrom-Json
   $policy.secret_patterns = @('[invalid')
   $policy | ConvertTo-Json -Depth 20 | Set-Content -Encoding UTF8 $policyPath
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $agent -Output $output -ManagedUsersRoot $users
-  if ($LASTEXITCODE -ne 2) { throw "invalid policy did not fail closed; exit code $LASTEXITCODE" }
+  $agentOutput = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $agent -Output $output -ManagedUsersRoot $users 2>&1
+  if ($LASTEXITCODE -ne 2) { throw "invalid policy did not fail closed; exit code $LASTEXITCODE`: $($agentOutput | Out-String)" }
   $report = Get-Content $output -Raw | ConvertFrom-Json
   if ($report.policy_version -cne 'invalid' -or @($report.findings | Where-Object kind -eq 'policy_load_failed').Count -ne 1) { throw 'invalid policy finding contract mismatch' }
 } finally {

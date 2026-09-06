@@ -9,9 +9,9 @@
     "production_signature_required": true
   },
   "artifacts": {
-    "windows_detection": {"file": "intune-windows-detect.ps1", "sha256": "f9b27d71d0270ffdb0eba0a1442d0adc11d007b4ba747af4912d11339af904d8"},
-    "windows_remediation": {"file": "intune-windows-remediate.ps1", "sha256": "b83e57a7c8a8d1bcb625ff5172f5062a6ab265360c93eb5c700bc7af33a641d8"},
-    "windows_compliance_discovery": {"file": "intune-compliance-discovery.ps1", "sha256": "160724a8dfd9deff8395cabe5aa84eaa1b250d054c96ee72520b27c21eda2a1d"},
+    "windows_detection": {"file": "intune-windows-detect.ps1", "sha256": "b359b6ea086687c9c6e3d686e9f878df41da99a76c4c4e3e34d14dbeb9fdf221"},
+    "windows_remediation": {"file": "intune-windows-remediate.ps1", "sha256": "9b5a0ee4acf945add9057b0d81131ea62e45972094161bd06613ab4e9a23a895"},
+    "windows_compliance_discovery": {"file": "intune-compliance-discovery.ps1", "sha256": "ea7bf6dcf30deccbcf9dd038112463b5c408b4dfb04e5cf3ee9365ace35e7e70"},
     "windows_compliance_rules": {"file": "intune-compliance-policy.json", "sha256": "be4872ec0eb1f4c6ba96a9a490b75c93c435eb87e3cb9fc6c43012721afe9e77"},
     "windows_reporting_configuration": {"file": "sentinel-configure-windows.ps1", "sha256": "256a35ffb5ff9e54938d089685437905892f60aa513544848d1b4da88694432f"},
     "windows_rollback": {"file": "rollback-sentinel-windows.ps1", "sha256": "f39772b134a610339083e4a77e0a232e4d8c8ed5a4df5bcb6d9a209906881ffd"},

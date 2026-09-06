@@ -1,5 +1,5 @@
-﻿param([string]$Output = "$env:ProgramData\SentinelAgent\reports\latest.json",[string]$ReportUrl = $env:SENTINEL_REPORT_URL,[string]$ProtectedConfig = "$env:ProgramData\SentinelAgent\reporting.dpapi",[string]$ManagedUsersRoot = 'C:\Users')
-$ErrorActionPreference = 'SilentlyContinue'
+﻿param([string]$Output = "$env:ProgramData\SentinelAgent\reports\latest.json",[string]$ReportUrl = $env:SENTINEL_REPORT_URL,[string]$ProtectedConfig = "$env:ProgramData\SentinelAgent\reporting.dpapi",[string]$ManagedUsersRoot = 'C:\Users',[switch]$Diagnostics)
+$ErrorActionPreference = if($Diagnostics){'Stop'}else{'SilentlyContinue'}
 $reportConfigInvalid=$false
 if(Test-Path $ProtectedConfig){
   try{

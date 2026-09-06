@@ -186,4 +186,4 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 0.80.0 / Agent 0.34.0 / Policy 4.9.0 加固 Windows 动态策略执行。所有策略列表元素必须是字符串，密钥正则在策略启用前使用 250ms 超时完成编译预检；扫描阶段复用有超时的已编译规则。恶意或退化输入导致规则超时时生成高危 `scan_rule_timeout` 发现项，而不会终止整次终端扫描。Intune 合规、Collector 版本姿态、探针和控制台版本提示同步升级。
 
-0.81.0 / Agent 0.34.0 / Policy 4.9.0 将 Windows 发布门禁从语法检查扩展到真实运行。GitHub Windows runner 在隔离的 ProgramData 和用户目录中使用 Windows PowerShell 5.1 执行 Agent，验证干净策略报告契约，并注入损坏正则确认 Agent 返回阻断状态、策略版本标记为 `invalid` 且仅生成预期失败关闭发现项。`ManagedUsersRoot` 仅作为可选隔离参数，生产默认仍为 `C:\Users`。
+0.81.0 / Agent 0.34.0 / Policy 4.9.0 将 Windows 发布门禁从语法检查扩展到真实运行。GitHub Windows runner 在隔离的 ProgramData 和用户目录中使用 Windows PowerShell 5.1 执行 Agent，验证干净策略报告契约，并注入损坏正则确认 Agent 返回阻断状态、策略版本标记为 `invalid` 且仅生成预期失败关闭发现项。`ManagedUsersRoot` 仅作为可选隔离参数，生产默认仍为 `C:\Users`；`Diagnostics` 仅供隔离验收时显式启用，以便暴露原生运行错误，生产计划任务不启用。
