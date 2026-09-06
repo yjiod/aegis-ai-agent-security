@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","intune-rollout-evidence.example.json",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -75,6 +75,16 @@ def verify(downloads):
         if name not in expected_intune_files or not path.is_file() or item.get("sha256")!=digest(path): errors.append(f"intune_artifact_mismatch:{name}")
     if set(listed)!=expected_intune_files or len(listed)!=len(expected_intune_files): errors.append("incomplete_intune_artifact_set")
     if intune.get("deployment_order")!=["collector_and_tls","reporting_credentials","endpoint_installation","reporting_configuration","custom_compliance","conditional_access"]: errors.append("unsafe_intune_deployment_order")
+    if intune.get("rollout_rings")!=[{"name":"lab","maximum_percent":1,"minimum_observation_hours":24},{"name":"pilot","maximum_percent":5,"minimum_observation_hours":48},{"name":"broad","maximum_percent":25,"minimum_observation_hours":72},{"name":"production","maximum_percent":100,"minimum_observation_hours":168}]: errors.append("unsafe_intune_rollout_rings")
+    if intune.get("gates")!=["collector_probe_read_only_passed","release_verifier_passed","reporting_credentials_delivered_out_of_band","rollback_tested_in_ring","no_critical_findings","reporting_healthy_24h"]: errors.append("incomplete_intune_gates")
+    try: evidence=json.loads((downloads/"intune-rollout-evidence.example.json").read_text())
+    except (OSError,ValueError) as exc: errors.append(f"invalid_intune_evidence_example:{type(exc).__name__}"); evidence={}
+    expected_evidence={"schema":"sentinel.intune-evidence/v1","generated_at":0,"current_ring":"lab","current_ring_entered_at":0,"collector_probe_read_only_passed":False,"release_verifier_passed":False,"reporting_credentials_delivered_out_of_band":False,"rollback_tested_in_ring":False,"critical_findings":0,"reporting_healthy_since":0,"production_signature_verified":False}
+    if evidence!=expected_evidence: errors.append("unsafe_intune_evidence_example")
+    try: preflight=(downloads/"sentinel_intune_preflight.py").read_text()
+    except OSError as exc: errors.append(f"invalid_intune_preflight:{type(exc).__name__}"); preflight=""
+    for directive in ('script_signature_state")!="production_signed"','evidence.get("production_signature_verified") is not True','artifact_digest_mismatch','now-generated>86400','now-healthy<86400','RINGS.index(target_ring)!=RINGS.index(current)+1','now-entered<minimum*3600'):
+        if directive not in preflight: errors.append(f"unsafe_intune_preflight:{directive}")
     try: service=(downloads/"sentinel-collector.service").read_text()
     except OSError as exc: errors.append(f"invalid_collector_service:{type(exc).__name__}"); service=""
     for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/collector.env","--listen 127.0.0.1","NoNewPrivileges=true","ProtectSystem=strict","ProtectHome=true","CapabilityBoundingSet="):

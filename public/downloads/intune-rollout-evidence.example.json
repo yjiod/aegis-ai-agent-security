@@ -1,0 +1,13 @@
+{
+  "schema": "sentinel.intune-evidence/v1",
+  "generated_at": 0,
+  "current_ring": "lab",
+  "current_ring_entered_at": 0,
+  "collector_probe_read_only_passed": false,
+  "release_verifier_passed": false,
+  "reporting_credentials_delivered_out_of_band": false,
+  "rollback_tested_in_ring": false,
+  "critical_findings": 0,
+  "reporting_healthy_since": 0,
+  "production_signature_verified": false
+}

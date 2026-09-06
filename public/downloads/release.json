@@ -1,8 +1,9 @@
 {
-  "release": "0.68.0",
+  "release": "0.69.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T04:00:00+08:00",
+  "published_at": "2026-09-08T04:30:00+08:00",
   "features": [
+    "intune_rollout_preflight", "secret_free_promotion_evidence", "cumulative_ring_gates", "stale_evidence_rejection", "unsigned_production_fail_closed", "rollout_contract_verification",
     "intune_deployment_manifest", "intune_artifact_digest_pinning", "system_root_execution_contract", "staged_rollout_rings", "ordered_compliance_activation", "production_signature_gate",
     "collector_0_16", "privacy_minimized_agent_coverage", "latest_report_agent_aggregation", "active_agent_coverage", "live_console_agent_coverage", "strict_agent_coverage_proxy",
     "six_agent_console_coverage", "current_capability_documentation", "collector_probe_download_entry", "operator_visibility_alignment",

@@ -161,3 +161,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.67.0 / Collector 0.16 在认证摘要中增加 `agent_coverage`：仅从每台设备最新的已接受报告中按六个固定 Agent 名称去重计数，并分别返回总设备数与 24 小时活跃设备数。未知名称、路径、用户名和原始 inventory 均不会进入摘要，旧报告也不会重复放大覆盖率。控制台摘要代理要求固定键集合、非负安全整数、`active <= total <= total_devices`，清洗后才交给页面；未连接时仍使用明确标识的演示数据。
 
 0.68.0 提供 `intune-deployment-manifest.json`，固定九项 Intune 上传文件的 SHA-256、SYSTEM/root 执行上下文、64 位 Windows 模式、隐藏 macOS 通知、部署依赖顺序和四级扩圈观察窗口。每次上传前先运行离线发行验证器，任何脚本字节变化都会使清单校验失败。当前仓库发行物明确标记为试点未签名；进入生产环前必须使用企业代码签名证书签署 PowerShell 脚本、重新生成摘要和清单并通过验证，不得把“MDM 已认证上传”替代脚本签名。凭据仍必须通过 Intune 受保护变量或企业密钥代理在清单之外传递。
+
+0.69.0 提供不含凭据的 Intune 晋级证据模板与 `sentinel_intune_preflight.py`。将模板复制到受控工作目录，填写当前时间、当前环及入环时间、只读 Collector 探针、发行验证、凭据带外投递、回滚演练、critical 数量、上报健康起始时间和企业签名核验结果，再运行 `python3 sentinel_intune_preflight.py --evidence <文件> --target-ring <pilot|broad|production>`。证据超过 24 小时、未满足当前环最短观察时间、跳环、脚本哈希漂移、critical 非零、宽范围前未完成回滚或 24 小时健康观察都会返回非零；当前试点未签名发行物无论证据如何均不能通过 production 预检。模板本身所有门禁默认为 false，不能被误作通过凭证。

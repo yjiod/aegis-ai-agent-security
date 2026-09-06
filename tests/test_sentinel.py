@@ -11,7 +11,7 @@ def vendor_report(level='normal'):
     return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -23,12 +23,28 @@ class SentinelTests(unittest.TestCase):
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Intune 部署清单'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Intune 部署清单','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
         manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
         self.assertEqual(manifest['deployment_order'][-2:],['custom_compliance','conditional_access']); self.assertEqual([ring['maximum_percent'] for ring in manifest['rollout_rings']],[1,5,25,100])
         for item in manifest['artifacts'].values(): self.assertEqual(item['sha256'],hashlib.sha256((DOWNLOADS/item['file']).read_bytes()).hexdigest())
+    def test_intune_preflight_enforces_cumulative_promotion_gates(self):
+        now=2_000_000_000
+        evidence={'schema':'sentinel.intune-evidence/v1','generated_at':now,'current_ring':'lab','current_ring_entered_at':now-86400,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':False,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
+        self.assertEqual(self.preflight.evaluate(DOWNLOADS,evidence,'pilot',now),[])
+        evidence.update(current_ring='pilot',current_ring_entered_at=now-48*3600)
+        self.assertIn('gate_failed:rollback_tested_in_ring',self.preflight.evaluate(DOWNLOADS,evidence,'broad',now))
+        evidence.update(rollback_tested_in_ring=True,current_ring='broad',current_ring_entered_at=now-72*3600)
+        self.assertIn('gate_failed:production_signature',self.preflight.evaluate(DOWNLOADS,evidence,'production',now))
+        self.assertIn('invalid_ring_promotion',self.preflight.evaluate(DOWNLOADS,{**evidence,'current_ring':'lab'},'production',now))
+    def test_intune_preflight_fails_closed_on_stale_evidence_and_digest_drift(self):
+        now=2_000_000_000
+        evidence={'schema':'sentinel.intune-evidence/v1','generated_at':now-86401,'current_ring':'pilot','current_ring_entered_at':now-48*3600,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':True,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
+        self.assertIn('evidence_not_current',self.preflight.evaluate(DOWNLOADS,evidence,'broad',now))
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'intune-windows-detect.ps1').write_text('# drift')
+            self.assertIn('artifact_digest_mismatch:intune-windows-detect.ps1',self.preflight.evaluate(copy,{**evidence,'generated_at':now},'broad',now))
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)
