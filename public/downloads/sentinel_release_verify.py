@@ -98,10 +98,14 @@ def verify(downloads):
         if directive not in python_agent: errors.append(f"missing_python_upload_receipt:{directive}")
     for directive in ("function Write-SentinelUploadStatus","sentinel.upload-status/v1","Write-SentinelUploadStatus $ReportUrl"):
         if directive not in windows_agent: errors.append(f"missing_windows_upload_receipt:{directive}")
-    for directive in ("response.read(4097)","collector_ack_too_large","collector_ack_invalid_json","collector_ack_invalid_contract",'set(ack)!={"accepted","duplicate","report_id","severity"}',r're.fullmatch(r"[0-9a-f]{20}"'):
+    for directive in ("response.read(4097)","collector_ack_too_large","collector_ack_invalid_json","collector_ack_invalid_contract",'set(ack)!={"accepted","duplicate","report_id","severity"}',"expected_report_id=hashlib.sha256(body).hexdigest()[:20]",'ack.get("report_id")!=expected_report_id'):
         if directive not in python_agent: errors.append(f"missing_python_strict_ack:{directive}")
-    for directive in ("Invoke-WebRequest -UseBasicParsing","GetByteCount([string]$response.Content)","$ackBytes -gt 4096","Collector acknowledgement contract is invalid","accepted,duplicate,report_id,severity","^[a-f0-9]{20}$"):
+    for directive in ("Invoke-WebRequest -UseBasicParsing","GetByteCount([string]$response.Content)","$ackBytes -gt 4096","Collector acknowledgement contract is invalid","accepted,duplicate,report_id,severity","$expectedReportId","-cne $expectedReportId"):
         if directive not in windows_agent: errors.append(f"missing_windows_strict_ack:{directive}")
+    try: collector_text=(downloads/"sentinel_collector.py").read_text()
+    except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
+    for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
+        if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:
