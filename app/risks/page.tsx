@@ -78,7 +78,7 @@ export default function RisksPage() {
         </span>
       </div>
 
-      <div className="page-head">
+      <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">风险中心 / 待研判</p>
           <h1>风险中心</h1>
@@ -111,15 +111,15 @@ export default function RisksPage() {
       )}
 
       <div className="detail-kpis">
-        <article>
+        <article className="animate-entrance animate-entrance-1">
           <strong>3</strong>
           <span>待研判事件（样例）</span>
         </article>
-        <article>
+        <article className="animate-entrance animate-entrance-2">
           <strong>17</strong>
           <span>本周已处置（样例）</span>
         </article>
-        <article>
+        <article className="animate-entrance animate-entrance-3">
           <strong>4.2min</strong>
           <span>平均响应时间（样例）</span>
         </article>
@@ -137,8 +137,12 @@ export default function RisksPage() {
           </Badge>
         </div>
         <div className="risk-table">
-          {risks.map((risk) => (
-            <div className="risk-row wide" key={risk.title}>
+          {risks.map((risk, i) => (
+            <div
+              className="risk-row wide animate-row-entrance"
+              key={risk.title}
+              style={{ animationDelay: `${i * 30 + 200}ms` }}
+            >
               <span className={`severity ${risk.color}`}>{risk.severity}</span>
               <div className="risk-main">
                 <strong>{risk.title}</strong>
