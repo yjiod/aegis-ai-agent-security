@@ -1,0 +1,34 @@
+{
+  "allowed_hosts": [
+    "<EDR_DOMAIN>"
+  ],
+  "<edr_vendor>": {
+    "enabled": true,
+    "mode": "webhook",
+    "url": "https://<EDR_DOMAIN>/api/edr/open/v1/event/custom",
+    "token_env": "<EDR_VENDOR_UPPER>_EDR_TOKEN",
+    "actions": {
+      "critical": "isolate_pending_approval",
+      "high": "alert",
+      "medium": "observe",
+      "low": "observe",
+      "normal": "observe"
+    }
+  },
+  "<mdm_vendor>": {
+    "enabled": false,
+    "mode": "webhook",
+    "url": "",
+    "token_env": "<MDM_VENDOR_UPPER>_TOKEN",
+    "compliance": {
+      "max_policy_age_hours": 24,
+      "critical_allowed": 0
+    }
+  },
+  "security_webhook": {
+    "enabled": false,
+    "mode": "webhook",
+    "url": "",
+    "secret_env": "AEGIS_WEBHOOK_SECRET"
+  }
+}
