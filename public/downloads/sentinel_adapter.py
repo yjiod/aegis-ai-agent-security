@@ -21,7 +21,12 @@ def validate_config(config):
         if env_name and (not isinstance(env_name,str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,127}",env_name) or not env_name.startswith(CREDENTIAL_PREFIX[name])): raise ValueError(f"invalid_adapter_credential_env:{name}")
         if name=="sangfor":
             actions=target.get("actions",{})
-            if not isinstance(actions,dict) or not set(actions).issubset({"critical","high","medium","low","normal"}) or any(not isinstance(action,str) for action in actions.values()): raise ValueError("invalid_sangfor_actions")
+            if not isinstance(actions,dict) or not set(actions).issubset({"critical","high","medium","low","normal"}) or any(not isinstance(action,str) or action not in SAFE_ACTIONS for action in actions.values()): raise ValueError("invalid_sangfor_actions")
+        if name=="leagsoft" and target:
+            compliance=target.get("compliance",{})
+            if not isinstance(compliance,dict) or set(compliance)!={"max_policy_age_hours","critical_allowed"}: raise ValueError("invalid_leagsoft_compliance")
+            age=compliance.get("max_policy_age_hours"); critical=compliance.get("critical_allowed")
+            if isinstance(age,bool) or not isinstance(age,int) or not 1<=age<=168 or isinstance(critical,bool) or not isinstance(critical,int) or critical!=0: raise ValueError("invalid_leagsoft_compliance")
     return config
 
 def valid_report(report):
@@ -78,7 +83,7 @@ def validate_target(name,target,config,dry_run=False):
     env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
     if not dry_run and (not env_name or not os.getenv(env_name,"")): raise ValueError(f"missing_adapter_credential:{name}")
 def send(url,payload,token="",secret=""):
-    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.7","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.8","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp

@@ -1,0 +1,38 @@
+{
+  "schema": "sentinel.vendor-contracts/v1",
+  "adapter_version": "0.8",
+  "transport": {
+    "method": "POST",
+    "scheme": "https",
+    "content_type": "application/json",
+    "timeout_seconds": 15,
+    "success_status": "200-299",
+    "idempotency_header": "Idempotency-Key",
+    "idempotency_value": "sha256(canonical_request_body)",
+    "credentials_in_url_allowed": false
+  },
+  "credential_boundaries": {
+    "sangfor": {"header": "Authorization: Bearer <SANGFOR_* env>", "allowed_env_prefix": "SANGFOR_"},
+    "leagsoft": {"header": "Authorization: Bearer <LEAGSOFT_* env>", "allowed_env_prefix": "LEAGSOFT_"},
+    "security_webhook": {"headers": ["X-Sentinel-Timestamp", "X-Sentinel-Signature"], "allowed_env_prefix": "SENTINEL_", "signature_input": "<timestamp>.<raw-body>"}
+  },
+  "sangfor": {
+    "additional_properties": false,
+    "required": ["event_type", "source", "device_id", "severity", "recommended_action", "finding_count", "policy_version", "occurred_at"],
+    "constants": {"event_type": "ai_agent_security_finding", "source": "sentinel"},
+    "severity": ["critical", "high", "medium", "low", "normal"],
+    "safe_actions": ["observe", "alert", "isolate_pending_approval", "block_pending_approval"],
+    "direct_destructive_actions_allowed": false
+  },
+  "leagsoft": {
+    "additional_properties": false,
+    "required": ["source", "device_id", "compliant", "risk_level", "policy_version", "last_scan", "reason"],
+    "constants": {"source": "sentinel"},
+    "risk_level": ["critical", "high", "medium", "low", "normal"],
+    "compliant_when": "risk_level not in [critical, high]",
+    "reason": ["policy_pass", "critical_or_high_finding"],
+    "compliance_configuration": {"max_policy_age_hours_min": 1, "max_policy_age_hours_max": 168, "critical_allowed": 0}
+  },
+  "security_webhook": {"payload_ref": "sentinel-report.schema.json"},
+  "secrets_embedded": false
+}

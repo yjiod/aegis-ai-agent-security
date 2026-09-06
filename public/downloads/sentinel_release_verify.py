@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","intune-rollout-evidence.example.json","sentinel-collector.openapi.json",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","intune-rollout-evidence.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -108,6 +108,16 @@ def verify(downloads):
     try: adapter_text=(downloads/"sentinel_adapter.py").read_text()
     except OSError as exc: errors.append(f"invalid_adapter:{type(exc).__name__}"); adapter_text=""
     if '"Idempotency-Key":hashlib.sha256(body).hexdigest()' not in adapter_text: errors.append("missing_adapter_idempotency_key")
+    for directive in ('SentinelAdapter/0.8','action not in SAFE_ACTIONS','set(compliance)!={"max_policy_age_hours","critical_allowed"}','not 1<=age<=168','critical!=0'):
+        if directive not in adapter_text: errors.append(f"missing_vendor_config_boundary:{directive}")
+    try: vendor_contract=json.loads((downloads/"sentinel-vendor-contracts.json").read_text())
+    except (OSError,ValueError) as exc: errors.append(f"invalid_vendor_contract:{type(exc).__name__}"); vendor_contract={}
+    if vendor_contract.get("schema")!="sentinel.vendor-contracts/v1" or vendor_contract.get("adapter_version")!="0.8" or vendor_contract.get("secrets_embedded") is not False: errors.append("vendor_contract_version_drift")
+    transport=vendor_contract.get("transport",{}); boundaries=vendor_contract.get("credential_boundaries",{})
+    if transport.get("scheme")!="https" or transport.get("timeout_seconds")!=15 or transport.get("idempotency_header")!="Idempotency-Key" or transport.get("credentials_in_url_allowed") is not False: errors.append("unsafe_vendor_transport_contract")
+    if vendor_contract.get("sangfor",{}).get("safe_actions")!=["observe","alert","isolate_pending_approval","block_pending_approval"] or vendor_contract.get("sangfor",{}).get("direct_destructive_actions_allowed") is not False: errors.append("unsafe_sangfor_contract")
+    if vendor_contract.get("leagsoft",{}).get("compliance_configuration")!={"max_policy_age_hours_min":1,"max_policy_age_hours_max":168,"critical_allowed":0}: errors.append("unsafe_leagsoft_contract")
+    if [boundaries.get(name,{}).get("allowed_env_prefix") for name in ("sangfor","leagsoft","security_webhook")]!=["SANGFOR_","LEAGSOFT_","SENTINEL_"]: errors.append("vendor_credential_boundary_drift")
     try: windows_config=(downloads/"sentinel-configure-windows.ps1").read_text(); windows_agent=(downloads/"sentinel-windows.ps1").read_text(); mac_config=(downloads/"sentinel-configure-macos.sh").read_text(); python_agent=(downloads/"sentinel_agent.py").read_text()
     except OSError as exc: errors.append(f"invalid_endpoint_reporting_config:{type(exc).__name__}"); windows_config=windows_agent=mac_config=python_agent=""
     for directive in ("DataProtectionScope]::LocalMachine","SENTINEL_REPORT_SIGNING_SECRET","Report token and signing secret must be independent","icacls.exe"):

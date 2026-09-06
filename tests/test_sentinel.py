@@ -23,7 +23,7 @@ class SentinelTests(unittest.TestCase):
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','Intune 部署清单','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','Intune 部署清单','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_intune_deployment_manifest_pins_context_order_and_artifacts(self):
         manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
@@ -625,10 +625,18 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(count,10); self.assertEqual(len(sent),10); self.assertTrue(list(spool.glob('*.invalid')))
     def test_vendor_adapter_is_explicit_and_dry_run(self):
         report=vendor_report('critical')
-        config={'allowed_hosts':['invalid'],'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid'}}
+        config={'allowed_hosts':['invalid'],'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid','compliance':{'max_policy_age_hours':24,'critical_allowed':0}}}
         outputs=self.adapter.process(report,config,dry_run=True)
         self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
         self.assertFalse(outputs[1]['payload']['compliant'])
+    def test_vendor_contract_and_configuration_are_fail_closed(self):
+        contract=json.loads((DOWNLOADS/'sentinel-vendor-contracts.json').read_text()); self.assertEqual(contract['adapter_version'],'0.8'); self.assertFalse(contract['secrets_embedded']); self.assertFalse(contract['sangfor']['direct_destructive_actions_allowed'])
+        self.assertEqual(contract['sangfor']['safe_actions'],sorted(self.adapter.SAFE_ACTIONS,key=lambda value:['observe','alert','isolate_pending_approval','block_pending_approval'].index(value)))
+        target={'allowed_hosts':['leag.invalid'],'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
+        with self.assertRaisesRegex(ValueError,'invalid_leagsoft_compliance'): self.adapter.validate_config(target)
+        for compliance in ({'max_policy_age_hours':0,'critical_allowed':0},{'max_policy_age_hours':24,'critical_allowed':1},{'max_policy_age_hours':True,'critical_allowed':0}):
+            with self.assertRaisesRegex(ValueError,'invalid_leagsoft_compliance'): self.adapter.validate_config({**target,'leagsoft':{**target['leagsoft'],'compliance':compliance}})
+        valid={**target,'leagsoft':{**target['leagsoft'],'compliance':{'max_policy_age_hours':24,'critical_allowed':0}}}; self.assertEqual(self.adapter.validate_config(valid),valid)
     def test_vendor_http_delivery_has_stable_idempotency_key(self):
         payload=self.adapter.sangfor_event(vendor_report('high'),{})
         class Response:
@@ -639,9 +647,9 @@ class SentinelTests(unittest.TestCase):
         with patch.object(self.adapter.urllib.request,'urlopen',side_effect=lambda request,timeout: captured.append((request,timeout)) or Response()):
             self.assertEqual(self.adapter.send('https://edr.invalid/events',payload,token='secret'),202)
         request,timeout=captured[0]; body=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
-        self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(timeout,15)
+        self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(request.get_header('User-agent'),'SentinelAdapter/0.8'); self.assertEqual(timeout,15)
     def test_adapter_worker_dispatches_each_collector_report_once(self):
-        config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
+        config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN','compliance':{'max_policy_age_hours':24,'critical_allowed':0}}}
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l'}):
             root=Path(d); db=root/'sentinel.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             sent=[]; sender=lambda url,payload,token='',secret='': sent.append((url,payload,token,secret)) or 202
@@ -657,7 +665,7 @@ class SentinelTests(unittest.TestCase):
         spoof={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid.evil','actions':{'critical':'alert'}}}
         insecure={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'http://edr.invalid','actions':{'critical':'alert'}}}
         embedded={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://user:pass@edr.invalid','actions':{'critical':'alert'}}}
-        self.assertEqual(self.adapter.process(report,unsafe,dry_run=True)[0]['error'],'unsafe_sangfor_action:isolate')
+        self.assertEqual(self.adapter.process(report,unsafe,dry_run=True)[0]['error'],'invalid_sangfor_actions')
         self.assertEqual(self.adapter.process(report,spoof,dry_run=True)[0]['error'],'unapproved_adapter_host:sangfor')
         self.assertEqual(self.adapter.process(report,insecure,dry_run=True)[0]['error'],'invalid_https_url:sangfor')
         self.assertEqual(self.adapter.process(report,embedded,dry_run=True)[0]['error'],'credentials_in_adapter_url:sangfor')
@@ -672,7 +680,7 @@ class SentinelTests(unittest.TestCase):
             replay=self.adapter.flush_spool(config,Path(d),sender=lambda *args,**kwargs:500); self.assertEqual(replay[0]['result'],'retained')
     def test_vendor_failure_isolation_and_offline_retry(self):
         report=vendor_report('high')
-        config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
+        config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN','compliance':{'max_policy_age_hours':24,'critical_allowed':0}}}
         def sender(url,payload,token='',secret=''):
             if 'edr.invalid' in url: raise OSError('offline')
             return 202

@@ -1,8 +1,9 @@
 {
-  "release": "0.70.0",
+  "release": "0.71.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T05:00:00+08:00",
+  "published_at": "2026-09-08T05:30:00+08:00",
   "features": [
+    "adapter_0_8", "machine_readable_vendor_contract", "strict_leagsoft_compliance_config", "early_sangfor_action_rejection", "vendor_transport_contract", "vendor_credential_boundary_contract",
     "collector_openapi_3_1", "machine_readable_report_receiver_contract", "hmac_signature_input_contract", "collector_route_drift_gate", "collector_response_contract", "gateway_import_artifact",
     "intune_rollout_preflight", "secret_free_promotion_evidence", "cumulative_ring_gates", "stale_evidence_rejection", "unsigned_production_fail_closed", "rollout_contract_verification",
     "intune_deployment_manifest", "intune_artifact_digest_pinning", "system_root_execution_contract", "staged_rollout_rings", "ordered_compliance_activation", "production_signature_gate",
