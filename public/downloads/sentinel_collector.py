@@ -197,7 +197,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.13"
+    server_version="SentinelCollector/0.14"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -234,10 +234,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         if self.path=="/v1/devices":
             try:
-                with db_open(self.server.db_path) as db: rows=db.execute("SELECT r.device_id,r.received_at,(SELECT COUNT(*) FROM reports c WHERE c.device_id=r.device_id),a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.received_at DESC LIMIT 500").fetchall()
+                generated_at=int(time.time())
+                with db_open(self.server.db_path) as db: rows=db.execute("SELECT r.device_id,COALESCE(a.last_seen,r.received_at),(SELECT COUNT(*) FROM reports c WHERE c.device_id=r.device_id),a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY COALESCE(a.last_seen,r.received_at) DESC LIMIT 500").fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             audit_event(self.server.db_path,"devices_read",detail=str(len(rows)))
-            return self.reply(200,{"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2],"credential_generation":"legacy" if r[3] is None else "current" if r[3]==0 else "previous"} for r in rows]})
+            return self.reply(200,{"generated_at":generated_at,"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2],"credential_generation":"legacy" if r[3] is None else "current" if r[3]==0 else "previous"} for r in rows]})
         if self.path=="/v1/summary":
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)

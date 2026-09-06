@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate and rotate per-device Collector credentials without printing secrets."""
-import argparse, json, os, re, secrets, stat, tempfile
+import argparse, json, os, re, secrets, stat, tempfile, time
 from pathlib import Path
 
 SCHEMA="sentinel.device-credentials/v1"
@@ -50,23 +50,25 @@ def load_manifest(path):
         all_tokens.update(tokens); all_signing.update(signing)
     return value
 
-def verify_activation_evidence(path,device_ids):
+def verify_activation_evidence(path,device_ids,now=None,max_age=900,active_window=86400):
     if not path: raise ValueError("activation_evidence_required")
     source=Path(path)
     if source.is_symlink() or not source.is_file() or source.stat().st_size>1_000_000: raise ValueError("activation_evidence_invalid")
     value=json.loads(source.read_text(encoding="utf-8")); rows=value.get("devices") if isinstance(value,dict) else None
-    if not isinstance(value,dict) or set(value)!={"devices"} or not isinstance(rows,list) or len(rows)>10000: raise ValueError("activation_evidence_invalid")
+    if not isinstance(value,dict) or set(value)!={"generated_at","devices"} or type(value.get("generated_at")) is not int or not isinstance(rows,list) or len(rows)>10000: raise ValueError("activation_evidence_invalid")
+    now=int(time.time()) if now is None else int(now); generated_at=value["generated_at"]
+    if not -60<=now-generated_at<=max_age: raise ValueError("activation_evidence_stale")
     generations={}
     for row in rows:
-        if not isinstance(row,dict) or set(row)!={"device_id","last_seen","report_count","credential_generation"} or not re.fullmatch(r"[0-9a-f]{12}",str(row.get("device_id",""))) or type(row.get("last_seen")) is not int or type(row.get("report_count")) is not int or row["last_seen"]<0 or row["report_count"]<1 or row.get("credential_generation") not in {"current","previous","legacy"} or row["device_id"] in generations: raise ValueError("activation_evidence_invalid")
+        if not isinstance(row,dict) or set(row)!={"device_id","last_seen","report_count","credential_generation"} or not re.fullmatch(r"[0-9a-f]{12}",str(row.get("device_id",""))) or type(row.get("last_seen")) is not int or type(row.get("report_count")) is not int or not 0<=generated_at-row["last_seen"]<=active_window or row["report_count"]<1 or row.get("credential_generation") not in {"current","previous","legacy"} or row["device_id"] in generations: raise ValueError("activation_evidence_invalid")
         generations[row["device_id"]]=row["credential_generation"]
     if any(generations.get(device_id)!="current" for device_id in device_ids): raise ValueError("devices_not_on_current_credentials")
 
-def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False,activation_evidence=None):
+def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False,activation_evidence=None,evidence_now=None):
     if rotate and prune_old: raise ValueError("conflicting_operation")
     ids=sorted(set(device_ids))
     if not ids or any(not isinstance(item,str) or not re.fullmatch(r"[0-9a-f]{12}",item) for item in ids): raise ValueError("invalid_device_id")
-    if prune_old: verify_activation_evidence(activation_evidence,ids)
+    if prune_old: verify_activation_evidence(activation_evidence,ids,now=evidence_now)
     manifest=load_manifest(output); devices=manifest["devices"]
     if len(set(devices)|set(ids))>10000: raise ValueError("device_limit")
     created=[]; rotated=[]; pruned=[]
