@@ -23,8 +23,10 @@ try {
   if($candidate.limits -isnot [PSCustomObject] -and $candidate.limits -isnot [hashtable]){throw 'invalid policy limits'}
   foreach($key in @('allowed_skills','allowed_mcp_transports','allowed_mcp_servers','allowed_mcp_commands','allowed_mcp_command_paths','allowed_mcp_invocations','allowed_mcp_domains','blocked_commands','secret_patterns','skill_rules','mcp_rules','code_rules')){
     if($null -ne $candidate.$key -and $candidate.$key -isnot [System.Array]){throw "invalid policy list: $key"}
+    if($key -ne 'allowed_mcp_invocations'){foreach($value in @($candidate.$key)){if($value -isnot [string]){throw "invalid policy list item: $key"}}}
   }
   foreach($invocation in @($candidate.allowed_mcp_invocations)){if($invocation -isnot [System.Array] -or @($invocation).Count -lt 2 -or @($invocation|Where-Object{-not ($_ -is [string]) -or -not $_}).Count){throw 'invalid MCP invocation policy'}}
+  foreach($secretPattern in @($candidate.secret_patterns)){$null=[regex]::new([string]$secretPattern,[Text.RegularExpressions.RegexOptions]::None,[TimeSpan]::FromMilliseconds(250))}
   $policy=$candidate
 } catch {$policyInvalid=$true}
 $maxFileBytes=1000000
@@ -46,6 +48,7 @@ $patterns = @(
   @{ Kind='empty_exception_handler'; Severity='medium'; Regex='(?m)^\s*except(\s+[^:]+)?:\s*(#.*\r?\n\s*)?pass\s*$|\bcatch\s*\{\s*\}' }
 )
 if($policy){foreach($secretPattern in @($policy.secret_patterns)){$patterns += @{Kind='hardcoded_secret';Severity='critical';Regex=[string]$secretPattern}}}
+$compiledPatterns=@();foreach($rule in $patterns){$compiledPatterns += @{Kind=$rule.Kind;Severity=$rule.Severity;Compiled=[regex]::new([string]$rule.Regex,[Text.RegularExpressions.RegexOptions]::None,[TimeSpan]::FromMilliseconds(250))}}
 $findings = @(); $inventory = @()
 if($policyInvalid){$findings += @{kind='policy_load_failed';severity='high';path=$policyPath;message='安全策略缺失或契约无效；MCP 策略检查采用失败关闭状态'}}
 if($reportConfigInvalid){$findings += @{kind='reporting_config_invalid';severity='high';path='reporting.dpapi';message='受保护上报配置无法解密或契约无效；本轮拒绝上报'}}
@@ -275,8 +278,9 @@ foreach ($root in $roots) {
     if($candidates.Count -gt $projectFileLimit){$findings+=@{kind='project_scan_truncated';severity='medium';path=(Protect-SentinelPath $root);message="项目候选文件超过扫描上限 $projectFileLimit"}}
     $candidates|Select-Object -First $projectFileLimit | ForEach-Object {
       $text = Get-Content $_.FullName -Raw
-      foreach ($rule in $patterns) {
-        if ($text -match $rule.Regex) { $findings += @{ kind=$rule.Kind; severity=$rule.Severity; path=(Protect-SentinelPath $_.FullName); message='Policy match' } }
+      foreach ($rule in $compiledPatterns) {
+        try{$matched=$rule.Compiled.IsMatch($text)}catch [Text.RegularExpressions.RegexMatchTimeoutException]{$findings += @{kind='scan_rule_timeout';severity='high';path=(Protect-SentinelPath $_.FullName);message='安全扫描规则超过执行时限'};continue}
+        if ($matched) { $findings += @{ kind=$rule.Kind; severity=$rule.Severity; path=(Protect-SentinelPath $_.FullName); message='Policy match' } }
       }
       if ($_.Name -in @('mcp.json','mcp_config.json','mcp-config.json','.mcp.json') -or ($_.Name -eq 'settings.json' -and $_.Directory.Name -eq '.gemini')) { Inspect-SentinelMcpJson $_ $text }
       if ($_.Name -eq 'config.toml' -and $_.FullName -match '\\\.codex\\') { Inspect-SentinelMcpToml $_ $text }
@@ -291,7 +295,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.33.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.34.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
