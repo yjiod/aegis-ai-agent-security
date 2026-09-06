@@ -185,7 +185,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.32.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.33.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.9.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
     supported_agents=("cursor","claude_code","codex","windsurf","gemini_cli","github_copilot_cli")
     agent_coverage={name:{"total":0,"active":0} for name in supported_agents}

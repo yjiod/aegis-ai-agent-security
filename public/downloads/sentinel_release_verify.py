@@ -35,6 +35,8 @@ def verify(downloads):
     try: policy=json.loads((downloads/"sentinel-policy.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_policy_json:{type(exc).__name__}"); policy={}
     patterns=policy.get("secret_patterns",[]) if isinstance(policy,dict) else []
+    required_secret_patterns={"AKIA[0-9A-Z]{16}","sk-[A-Za-z0-9_-]{20,}","ghp_[A-Za-z0-9]{30,}","AIza[0-9A-Za-z_-]{35}","xox[baprs]-[0-9A-Za-z-]{10,}","glpat-[0-9A-Za-z_-]{20,}","npm_[0-9A-Za-z]{36}","-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"}
+    if policy.get("version")!="4.9.0" or set(patterns)!=required_secret_patterns: errors.append("policy_secret_pattern_drift")
     if not isinstance(patterns,list): errors.append("invalid_secret_patterns_type")
     else:
         for index,pattern in enumerate(patterns):
@@ -178,9 +180,9 @@ def verify(downloads):
         if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
     for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid"):
         if directive not in python_agent: errors.append(f"missing_python_reporting_loader:{directive}")
-    for directive in ('"gemini_cli"','"github_copilot_cli"','".gemini/settings.json"','".copilot/mcp-config.json"','".gemini/GEMINI.md"','".copilot/copilot-instructions.md"','cfg.get("httpUrl"','".gemini/skills"','".copilot/skills"','def verify_user_baselines','"agent_baseline_not_loaded"','"type":"agent_baseline"','SentinelAgent/0.32.0'):
+    for directive in ('"gemini_cli"','"github_copilot_cli"','".gemini/settings.json"','".copilot/mcp-config.json"','".gemini/GEMINI.md"','".copilot/copilot-instructions.md"','cfg.get("httpUrl"','".gemini/skills"','".copilot/skills"','def verify_user_baselines','"agent_baseline_not_loaded"','"type":"agent_baseline"','SentinelAgent/0.33.0'):
         if directive not in python_agent: errors.append(f"missing_python_agent_coverage:{directive}")
-    for directive in ("gemini_cli=@(","github_copilot_cli=@(",".gemini\\GEMINI.md","copilot-instructions.md","$cfg.httpUrl","'.gemini','.copilot'","Get-SentinelUserBaselineStatus","type='agent_baseline'","agent_baseline_not_loaded","agent_version='0.32.0'"):
+    for directive in ("gemini_cli=@(","github_copilot_cli=@(",".gemini\\GEMINI.md","copilot-instructions.md","$cfg.httpUrl","'.gemini','.copilot'","Get-SentinelUserBaselineStatus","type='agent_baseline'","agent_baseline_not_loaded","agent_version='0.33.0'","foreach($secretPattern in @($policy.secret_patterns))","Kind='credential_access'","Kind='dynamic_eval'"):
         if directive not in windows_agent: errors.append(f"missing_windows_agent_coverage:{directive}")
     for directive in ("def write_upload_status(path,url,now=None):","sentinel.upload-status/v1","write_private_atomic(path"):
         if directive not in python_agent: errors.append(f"missing_python_upload_receipt:{directive}")
@@ -194,7 +196,7 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
     for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
-    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query","1<=limit<=10000",'"complete":complete',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"',"SentinelCollector/0.17"):
+    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query","1<=limit<=10000",'"complete":complete',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"','"0.33.0"','"4.9.0"',"SentinelCollector/0.17"):
         if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
     try: openapi=json.loads((downloads/"sentinel-collector.openapi.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_collector_openapi:{type(exc).__name__}"); openapi={}

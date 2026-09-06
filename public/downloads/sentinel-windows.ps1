@@ -33,17 +33,19 @@ $projectFileLimit=10000
 if($policy -and $policy.limits -and $policy.limits.project_files){$projectFileLimit=[Math]::Min([Math]::Max([int64]$policy.limits.project_files,100),100000)}
 $managedMarker = '<!-- sentinel-managed-baseline -->'
 $patterns = @(
-  @{ Kind='hardcoded_secret'; Severity='critical'; Regex='AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}' },
   @{ Kind='prompt_override'; Severity='high'; Regex='(?i)ignore (all |any )?(previous|prior) instructions' },
+  @{ Kind='credential_access'; Severity='high'; Regex='(?i)(~/|\$HOME/)(\.ssh|\.aws)|security\s+find-(generic|internet)-password' },
   @{ Kind='unbounded_shell'; Severity='high'; Regex='(?i)shell\s*=\s*true|Invoke-Expression|\biex\s' },
+  @{ Kind='dynamic_eval'; Severity='medium'; Regex='(?i)\beval\s*\(|\bexec\s*\(' },
   @{ Kind='hidden_instruction'; Severity='high'; Regex='[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]' },
-  @{ Kind='weak_random_token'; Severity='high'; Regex='(?is)(token|secret|session|nonce).{0,120}(Math\.random|random\.random)\s*\(' },
+  @{ Kind='weak_random_token'; Severity='high'; Regex='(?is)(token|secret|session|nonce).{0,120}(Math\.random|random\.random)\s*\(|(Math\.random|random\.random)\s*\(.{0,120}(token|secret|session|nonce)' },
   @{ Kind='blocked_command'; Severity='high'; Regex='(?im)^\s*(curl\s+[^\r\n]*\|\s*(sh|bash)|wget\s+[^\r\n]*\|\s*(sh|bash)|chmod\s+777|rm\s+-rf)(\s|$)' },
   @{ Kind='insecure_tls_verification'; Severity='critical'; Regex='(?is)\brequests\.(get|post|put|patch|delete|request)\s*\([^)]{0,500}\bverify\s*=\s*false|rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*["'']?0' },
   @{ Kind='unsafe_deserialization'; Severity='high'; Regex='(?i)\bpickle\.loads?\s*\(|\bBinaryFormatter\s*\(|\bObjectInputStream\s*\(' },
   @{ Kind='debug_mode_enabled'; Severity='medium'; Regex='(?is)\b(app|application)\.run\s*\([^)]{0,300}\bdebug\s*=\s*true' },
   @{ Kind='empty_exception_handler'; Severity='medium'; Regex='(?m)^\s*except(\s+[^:]+)?:\s*(#.*\r?\n\s*)?pass\s*$|\bcatch\s*\{\s*\}' }
 )
+if($policy){foreach($secretPattern in @($policy.secret_patterns)){$patterns += @{Kind='hardcoded_secret';Severity='critical';Regex=[string]$secretPattern}}}
 $findings = @(); $inventory = @()
 if($policyInvalid){$findings += @{kind='policy_load_failed';severity='high';path=$policyPath;message='安全策略缺失或契约无效；MCP 策略检查采用失败关闭状态'}}
 if($reportConfigInvalid){$findings += @{kind='reporting_config_invalid';severity='high';path='reporting.dpapi';message='受保护上报配置无法解密或契约无效；本轮拒绝上报'}}
@@ -289,7 +291,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.32.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.33.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

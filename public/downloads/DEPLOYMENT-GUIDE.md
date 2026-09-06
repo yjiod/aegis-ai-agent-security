@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.17 默认要求 Agent 0.32.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.17 默认要求 Agent 0.33.0、策略 4.9.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -181,3 +181,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.77.0 收紧卸载边界。Windows 与 macOS 仅在每个用户指令文件恰好存在一组、顺序正确的 Sentinel 起止标记时删除受管块；标记缺失、重复或倒置时完整保留文件供人工审计。用户主目录、工具配置父目录、文件本身或 Sentinel 运行目录出现符号链接/重解析点时拒绝越界访问；macOS 运行目录还必须由 root 所有。macOS 卸载脚本现已加入 Intune 部署清单并固定 SHA-256，Windows 卸载仍纳入 Authenticode 生产签名流程。
 
 0.78.0 将跨平台语法验证提升为 GitHub 必过门禁：原有 Ubuntu 作业继续执行完整行为测试、依赖审计、构建、Shell 语法和离线发行验证；新增 Windows runner 使用 Windows PowerShell 5.1 AST 解析全部 PowerShell 脚本，新增 macOS runner 同时用系统 Bash 与 POSIX sh 解析全部终端 Shell 脚本。首次原生门禁发现 Windows PowerShell 5.1 会按旧代码页误读含中文的 UTF-8 无 BOM Agent，现已将该脚本改为 UTF-8 BOM 并同步全部哈希消费者。三个作业都使用固定提交哈希的 checkout action、只读仓库权限和明确超时。真实 Intune 试点机仍需完成安装、升级、回滚和卸载演练，CI 不会冒充现网验收。
+
+0.79.0 / Agent 0.33.0 / Policy 4.9.0 消除 Windows 与 Python 的密钥扫描漂移。Windows 不再维护独立硬编码列表，而是在策略通过契约及正则预检后逐条加载 `secret_patterns`；策略新增 Google API Key、Slack、GitLab、npm Token 与私钥头检测，命中只生成通用发现项而不回传密钥正文。Windows 同时补齐凭据目录/系统钥匙串访问、动态 eval/exec 以及弱随机数出现在敏感变量前后的对等检测。Collector 默认版本姿态、探针、Intune 合规和控制台版本提示同步升级。

@@ -9,8 +9,8 @@ mkdir -m 700 "$STAGE_DIR"
 trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 2>/dev/null || true' EXIT HUP INT TERM
 for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
 verify_sha256() { if command -v shasum >/dev/null 2>&1; then echo "$1  $2" | shasum -a 256 -c -; else echo "$1  $2" | sha256sum -c -; fi; }
-verify_sha256 "939ca3f6b16d0cfc2f4421bc1e72ce3ec6ef23581d13b54bd0797a3c5b297c52" "$STAGE_DIR/sentinel_agent.py"
-verify_sha256 "0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423" "$STAGE_DIR/sentinel-policy.json"
+verify_sha256 "5821fc33ad6425282b3ed205e763795673df8620993c38990c695d09484434ac" "$STAGE_DIR/sentinel_agent.py"
+verify_sha256 "8016c6c9bf79ab07ceeae26f4b1f1caf58b19690d0d7d7fef7733eb3a5bb350c" "$STAGE_DIR/sentinel-policy.json"
 verify_sha256 "e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e" "$STAGE_DIR/sentinel-security-baseline.md"
 CURRENT_COMPLETE=1
 for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do if [ ! -f "$INSTALL_DIR/$name" ]; then CURRENT_COMPLETE=0; fi; done
