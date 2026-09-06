@@ -30,7 +30,7 @@ class SentinelTests(unittest.TestCase):
         manifest=json.loads((DOWNLOADS/'intune-deployment-manifest.json').read_text()); self.assertEqual(manifest['schema'],'sentinel.intune-deployment/v1'); self.assertFalse(manifest['secrets_embedded']); self.assertEqual(manifest['execution']['windows_run_as'],'system'); self.assertTrue(manifest['execution']['production_signature_required'])
         self.assertEqual(manifest['deployment_order'][-2:],['custom_compliance','conditional_access']); self.assertEqual([ring['maximum_percent'] for ring in manifest['rollout_rings']],[1,5,25,100])
         for item in manifest['artifacts'].values(): self.assertEqual(item['sha256'],hashlib.sha256((DOWNLOADS/item['file']).read_bytes()).hexdigest())
-        self.assertTrue({'rollback-sentinel-windows.ps1','uninstall-sentinel-windows.ps1'}.issubset({item['file'] for item in manifest['artifacts'].values()}))
+        self.assertTrue({'rollback-sentinel-windows.ps1','rollback-sentinel-macos.sh','uninstall-sentinel-windows.ps1'}.issubset({item['file'] for item in manifest['artifacts'].values()}))
     def test_intune_signing_workflow_is_isolated_and_fail_closed(self):
         script=(DOWNLOADS/'sentinel-sign-intune.ps1').read_text()
         for directive in ("OutputDirectory must not already exist","1.3.6.1.5.5.7.3.3","Set-AuthenticodeSignature","-HashAlgorithm SHA256","Get-AuthenticodeSignature","Status -ne 'Valid'","production_signed","[Text.UTF8Encoding]::new($false)","secrets_embedded=$false"):
@@ -547,6 +547,14 @@ class SentinelTests(unittest.TestCase):
         rollback_mac=(DOWNLOADS/'rollback-sentinel-macos.sh').read_text(); rollback_windows=(DOWNLOADS/'rollback-sentinel-windows.ps1').read_text()
         self.assertIn('checksum manifest has an unexpected file set',rollback_mac); self.assertGreaterEqual(rollback_mac.count('shasum -a 256 -c'),2); self.assertLess(rollback_mac.rindex('shasum -a 256 -c'),rollback_mac.index('launchctl bootstrap'))
         self.assertIn('checksum manifest has an unexpected file set',rollback_windows); self.assertIn('Restored version integrity verification failed',rollback_windows); self.assertLess(rollback_windows.index('Restored version integrity verification failed'),rollback_windows.index('Start-ScheduledTask'))
+        for directive in ('scheduled-task.xml','Export-ScheduledTask','$taskSafe','Principal.UserId'):
+            self.assertIn(directive,windows)
+        for directive in ('scheduled-task.xml','failed the safety contract','Register-ScheduledTask','65536'):
+            self.assertIn(directive,rollback_windows)
+        for directive in ('launch-daemon.plist','PlistBuddy','CURRENT_COMPLETE=0'):
+            self.assertIn(directive,mac)
+        for directive in ('launch-daemon.plist','failed the safety contract','65536'):
+            self.assertIn(directive,rollback_mac)
     def test_installers_bound_each_network_download(self):
         generic=(DOWNLOADS/'install-sentinel.sh').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text(); windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
         for script in (generic,mac):

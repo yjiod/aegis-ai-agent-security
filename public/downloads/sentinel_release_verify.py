@@ -68,7 +68,7 @@ def verify(downloads):
     if intune.get("schema")!="sentinel.intune-deployment/v1" or intune.get("secrets_embedded") is not False: errors.append("unsafe_intune_manifest_contract")
     state=execution.get("script_signature_state"); expected_execution={"windows_run_as":"system","windows_run_as_32_bit":False,"macos_run_as":"root","macos_hide_notifications":True,"script_signature_state":state,"production_signature_required":True}
     if state not in {"pilot_unsigned","production_signed"} or execution!=expected_execution: errors.append("unsafe_intune_execution_context")
-    expected_intune_files={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","sentinel-configure-windows.ps1","rollback-sentinel-windows.ps1","uninstall-sentinel-windows.ps1","intune-macos-install.sh","intune-macos-compliance.sh","intune-macos-compliance-policy.json","sentinel-configure-macos.sh"}
+    expected_intune_files={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","sentinel-configure-windows.ps1","rollback-sentinel-windows.ps1","uninstall-sentinel-windows.ps1","intune-macos-install.sh","intune-macos-compliance.sh","intune-macos-compliance-policy.json","sentinel-configure-macos.sh","rollback-sentinel-macos.sh"}
     listed=[]
     for item in artifacts.values() if isinstance(artifacts,dict) else []:
         if not isinstance(item,dict) or set(item)!={"file","sha256"}: errors.append("invalid_intune_artifact"); continue
@@ -106,6 +106,16 @@ def verify(downloads):
         if directive not in macos_install: errors.append(f"unsafe_macos_schedule:{directive}")
     for directive in ("Print :StartInterval",'[[ "$interval" == 3600 ]]',"Print :RunAtLoad",'[[ "$process_type" == Background ]]'):
         if directive not in macos_compliance: errors.append(f"missing_macos_schedule_compliance:{directive}")
+    try: windows_rollback=(downloads/"rollback-sentinel-windows.ps1").read_text(); macos_rollback=(downloads/"rollback-sentinel-macos.sh").read_text()
+    except OSError as exc: errors.append(f"invalid_schedule_rollback:{type(exc).__name__}"); windows_rollback=macos_rollback=""
+    for directive in ('scheduled-task.xml','Export-ScheduledTask','$taskSafe','Principal.UserId'):
+        if directive not in windows_remediation: errors.append(f"missing_windows_task_snapshot:{directive}")
+    for directive in ('scheduled-task.xml','Previous scheduled task snapshot is missing or oversized','failed the safety contract','Register-ScheduledTask'):
+        if directive not in windows_rollback: errors.append(f"unsafe_windows_task_rollback:{directive}")
+    for directive in ('launch-daemon.plist','PlistBuddy','CURRENT_COMPLETE=0'):
+        if directive not in macos_install: errors.append(f"missing_macos_daemon_snapshot:{directive}")
+    for directive in ('launch-daemon.plist','Previous LaunchDaemon snapshot is missing or oversized','failed the safety contract'):
+        if directive not in macos_rollback: errors.append(f"unsafe_macos_daemon_rollback:{directive}")
     try: service=(downloads/"sentinel-collector.service").read_text()
     except OSError as exc: errors.append(f"invalid_collector_service:{type(exc).__name__}"); service=""
     for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/collector.env","--listen 127.0.0.1","NoNewPrivileges=true","ProtectSystem=strict","ProtectHome=true","CapabilityBoundingSet="):

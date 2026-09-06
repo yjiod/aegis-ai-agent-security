@@ -175,3 +175,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.74.0 / Adapter 0.9 为深信服 EDR 与联软增加生产启用门禁。先从 `vendor-acceptance-evidence.example.json` 生成 `/etc/sentinel/vendor-acceptance.json`，填写双方确认的产品版本、正式 API 文档标识、与配置完全一致的 HTTPS 地址及审批人；只有字段映射、幂等、非 2xx 重试、安全动作语义和 dry-run payload 五项均验收为真，且证据不超过七天、未包含秘密时，`sentinel_vendor_preflight.py` 才通过。Adapter Worker 启动和每批派发都会执行同一门禁；缺少证据、证据过期、Adapter 版本变化或 URL 漂移都会拒绝派发。证据文件只能记录引用与结论，令牌仍只放在权限受限的环境文件中。
 
 0.75.0 将新安装 AI Agent 的自动发现窗口从四小时缩短到一小时。Windows 同时注册延迟两分钟的开机触发和一小时周期触发，启用错过计划补跑、三次失败重试、30 分钟执行上限及忽略并发实例；Intune 检测与自定义合规会逐项验证这些配置，任务仅仅存在不再视为健康。macOS LaunchDaemon 使用一小时 `StartInterval`、`RunAtLoad` 和后台进程类型，合规脚本同时读取 plist 配置与 launchd 运行态。由此新安装的受支持 Agent 在设备在线时最迟一小时进入基线同步与扫描，重启或休眠错过计划后会补跑。
+
+0.76.0 将运行调度定义纳入完整回滚点。Windows 升级仅在当前任务以 SYSTEM 身份、唯一 PowerShell 动作和精确 Sentinel 参数运行时导出 `scheduled-task.xml`，并与 Agent、策略、基线一起写入哈希清单；回滚在注册 XML 前再次验证大小、哈希、命令、参数和身份。macOS 升级仅快照 root 所有、非符号链接且 Label/Agent 路径正确的 plist，回滚同样在恢复前验证清单、大小与安全字段。缺少调度快照或出现字段漂移时回滚失败关闭，不再产生“文件版本已回退但调度仍是新版”的混合状态。旧格式回滚点必须先由 0.76.0 的一次成功升级刷新后才能使用。

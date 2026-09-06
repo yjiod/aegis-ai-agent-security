@@ -16,11 +16,13 @@ echo "0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423  $STAGE_D
 echo "e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e  $STAGE_DIR/sentinel-security-baseline.md" | shasum -a 256 -c -
 CURRENT_COMPLETE=1
 for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do if [ ! -f "$INSTALL_DIR/$name" ]; then CURRENT_COMPLETE=0; fi; done
+if [ ! -f "$PLIST" ] || [ -L "$PLIST" ] || [ "$(/usr/bin/stat -f '%u' "$PLIST" 2>/dev/null || echo -1)" -ne 0 ] || [ "$(/usr/libexec/PlistBuddy -c 'Print :Label' "$PLIST" 2>/dev/null || true)" != "com.company.sentinel-agent" ] || [ "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:1' "$PLIST" 2>/dev/null || true)" != "$INSTALL_DIR/sentinel_agent.py" ]; then CURRENT_COMPLETE=0; fi
 if [ "$CURRENT_COMPLETE" -eq 1 ]; then
   PREVIOUS_STAGE="$INSTALL_DIR/.previous-stage.$$"; PREVIOUS_OLD="$INSTALL_DIR/.previous-old.$$"
   mkdir -m 700 "$PREVIOUS_STAGE"
   for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do cp -p "$INSTALL_DIR/$name" "$PREVIOUS_STAGE/$name"; done
-  (cd "$PREVIOUS_STAGE" && shasum -a 256 sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md > CHECKSUMS.sha256)
+  cp -p "$PLIST" "$PREVIOUS_STAGE/launch-daemon.plist"
+  (cd "$PREVIOUS_STAGE" && shasum -a 256 sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md launch-daemon.plist > CHECKSUMS.sha256)
   mv "$INSTALL_DIR/previous" "$PREVIOUS_OLD"
   if ! mv "$PREVIOUS_STAGE" "$INSTALL_DIR/previous"; then mv "$PREVIOUS_OLD" "$INSTALL_DIR/previous"; exit 1; fi
   find "$PREVIOUS_OLD" -type f -delete 2>/dev/null || true; rmdir "$PREVIOUS_OLD" 2>/dev/null || true
