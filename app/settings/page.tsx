@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
-import { AlertTriangle, CircleDot, Settings } from 'lucide-react';
+import { AlertTriangle, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCollector } from '@/components/collector-context';
+import { Toast } from '@/components/toast';
 
 const settings = [
   { name: 'Collector 连接', desc: '报告接收器地址与认证令牌', value: '动态', type: 'status' as const },
@@ -59,12 +60,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      )}
+      <Toast message={toast} />
 
       <div className="panel">
         <div className="panel-head">

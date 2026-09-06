@@ -7,3 +7,9 @@
 5. 合并前必须通过 GitHub Actions 与离线发行验证器。
 
 PR 建议包含变更摘要、威胁模型、兼容性与回滚影响、测试证据，以及 Intune/EDR/联软验收需求。
+
+## Lint 约定
+
+- Lint 使用 oxlint（type-aware，配置见 `.oxlintrc.json`），门禁标准是 **0 error**。CI 的 `verify` 作业会执行 `npm run lint` 与 `npx tsc --noEmit`，两者必须全绿。
+- 业务代码优先改代码而非关规则；确需豁免时用 `oxlint-disable-next-line <plugin>/<rule>` 并附理由，且该指令必须紧贴被豁免代码的上一行——中间隔了其他注释会失效（oxlint 的 "next line" 是字面意义的下一行）。
+- `components/ui/**` 与 `hooks/use-mobile.ts` 是 shadcn/ui 生成的 vendored 代码，会被 CLI 重新生成覆盖，手改无意义且可能破坏样式。`.oxlintrc.json` 的 `overrides` 仅对这两个路径关闭其生成产物必然触发的少数规则（`prefer-tag-over-role`、`react-compiler`、`restrict-template-expressions` 等）。不要把该豁免扩大到业务代码。

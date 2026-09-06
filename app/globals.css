@@ -1277,6 +1277,22 @@ button {
   box-shadow: inset 2px 0 0 rgba(73, 232, 165, 0.3);
 }
 
+/* 工单行是真正的 <button>（可展开触发器），而非 div[role="button"]：
+   语义、键盘（Enter/Space）与焦点可达性全部由浏览器提供，焦点环复用上方
+   全局 :focus-visible。这里只需抹掉 UA 按钮外观 —— .risk-row 已声明
+   padding/margin/border-radius/border-top，故只重置其余三边边框，
+   避免 inline 写法把 border-top 一起覆盖掉。 */
+button.risk-row {
+  appearance: none;
+  background: none;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+}
+
 .severity {
   font-size: 10px;
   padding: 4px 8px;

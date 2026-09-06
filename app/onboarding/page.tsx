@@ -4,12 +4,12 @@ import { useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
-  CircleDot,
   Download,
   LockKeyhole,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Toast } from '@/components/toast';
 
 const controlPlanes = [
   {
@@ -97,12 +97,7 @@ export default function OnboardingPage() {
         </div>
       </div>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      )}
+      <Toast message={toast} />
 
       <div className="baseline-banner animate-entrance animate-entrance-1">
         <div>

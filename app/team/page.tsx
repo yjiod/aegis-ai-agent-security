@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
-import { AlertTriangle, CircleDot, ShieldCheck, Users } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Toast } from '@/components/toast';
 
 const plannedRoles = [
   ['安全管理员', '全部权限', '策略发布、事件处置、设备管理、审计导出'],
@@ -37,12 +38,7 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      )}
+      <Toast message={toast} />
 
       <div className="empty-detail">
         <ShieldCheck size={44} />

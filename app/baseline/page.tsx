@@ -3,13 +3,13 @@
 import { useState } from 'react';
 import {
   AlertTriangle,
-  CircleDot,
   Code2,
   FileText,
   RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Toast } from '@/components/toast';
 
 const coreRules = [
   ['SEC-AUTH-01', '禁止硬编码密钥与令牌', '阻断'],
@@ -70,12 +70,7 @@ export default function BaselinePage() {
         </div>
       </div>
 
-      {toast && (
-        <div className="toast" role="status">
-          <CircleDot size={16} />
-          {toast}
-        </div>
-      )}
+      <Toast message={toast} />
 
       <div className="baseline-banner animate-entrance animate-entrance-1">
         <div>
