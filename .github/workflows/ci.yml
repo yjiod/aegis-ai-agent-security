@@ -62,6 +62,12 @@ jobs:
           echo
           python3 -c 'import json; summary=json.load(open("/tmp/collector-summary.json")); assert summary["total_devices"] >= 5, summary'
       - name: Start console dev server in background
+        env:
+          # vinext/Vite binds `localhost` to IPv6 `::1` by default (Node 17+ DNS
+          # order is verbatim), but the probes below curl IPv4 127.0.0.1; the
+          # mismatch made the server unreachable and this step time out at 180s.
+          # ipv4first makes vinext bind 127.0.0.1 so the 127.0.0.1 probes connect.
+          NODE_OPTIONS: --dns-result-order=ipv4first
         run: |
           nohup npm run dev > /tmp/aegis-dev-server.log 2>&1 &
           echo $! > /tmp/aegis-dev-server.pid
