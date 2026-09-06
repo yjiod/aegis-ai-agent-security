@@ -6,7 +6,7 @@ START='<!-- sentinel-managed-user-baseline:start -->'
 END='<!-- sentinel-managed-user-baseline:end -->'
 for home in /Users/*; do
   [ -d "$home" ] || continue
-  for relative in '.codex/AGENTS.md' '.claude/CLAUDE.md'; do
+  for relative in '.codex/AGENTS.md' '.claude/CLAUDE.md' '.gemini/GEMINI.md' '.copilot/copilot-instructions.md'; do
     file="$home/$relative"
     [ -f "$file" ] && [ ! -L "$file" ] || continue
     if /usr/bin/grep -Fq "$START" "$file" && /usr/bin/grep -Fq "$END" "$file"; then

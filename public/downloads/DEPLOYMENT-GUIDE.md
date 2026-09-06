@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.15 默认要求 Agent 0.30.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.15 默认要求 Agent 0.31.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -153,3 +153,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.63.0 / Collector 0.15 为 `/v1/devices` 增加 `limit` 查询参数（1–10000，默认 500）及 `complete` 标志，并用单次聚合查询替代逐设备计数。全 fleet 裁剪前应请求 `/v1/devices?limit=10000`；只有结果未被截断时 `complete` 才为 true。凭据工具要求证据包含精确的 `complete:true`，因此默认 500 条导出、超出 10000 台的 fleet 或任何截断结果都不能被误当成全量激活证明。
 
 0.64.0 提供 `sentinel_collector_probe.py` 将生产验收转为机器可执行检查。默认只读模式验证健康状态、未认证访问被拒绝、摘要及最多 10000 台设备的管理契约；令牌仅从指定环境变量读取且不会输出。维护窗口可增加 `--write-test --device-id <已配置的探针设备>`，并通过 `SENTINEL_PROBE_SIGNING_SECRET` 验证 HMAC 上传、响应与原始请求体绑定以及相同报告重放去重。启用每设备凭据时，Token/HMAC 必须属于该探针设备；写模式会留下可识别的正常测试报告，不应对未获授权的生产环境运行。
+
+0.65.0 / Agent 0.31.0 将自动治理范围扩展到 Gemini CLI 与 GitHub Copilot CLI。终端仅通过配置、指令文件或可执行文件的文件系统标记发现工具，不启动第三方 Agent；发现后分别把带托管边界的用户基线同步到 `~/.gemini/GEMINI.md` 与 `~/.copilot/copilot-instructions.md`，并扫描 Gemini `settings.json`、Copilot `mcp-config.json`、仓库 `.mcp.json` / `.github/mcp.json` 及两者 Skill 目录。仓库继续使用 `AGENTS.md` 作为 Copilot 的跨工具入口，并新增 `GEMINI.md`。路径依据 [Gemini CLI context](https://google-gemini.github.io/gemini-cli/docs/cli/gemini-md.html)、[Gemini MCP](https://google-gemini.github.io/gemini-cli/docs/tools/mcp-server.html) 与 [GitHub Copilot CLI instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions) 官方规范；卸载只删除 Sentinel 托管块，保留用户原有内容。

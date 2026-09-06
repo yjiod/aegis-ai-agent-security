@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 Unregister-ScheduledTask -TaskName 'Sentinel AI Agent Security Scan' -Confirm:$false -ErrorAction SilentlyContinue
 $start='<!-- sentinel-managed-user-baseline:start -->';$end='<!-- sentinel-managed-user-baseline:end -->';$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
 Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
-  foreach($relative in @('.codex\AGENTS.md','.claude\CLAUDE.md')){
+  foreach($relative in @('.codex\AGENTS.md','.claude\CLAUDE.md','.gemini\GEMINI.md','.copilot\copilot-instructions.md')){
     $path=Join-Path $_.FullName $relative
     if(Test-Path $path){$item=Get-Item $path;if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){continue};$current=Get-Content $path -Raw;$updated=[regex]::Replace($current,$pattern,'',[System.Text.RegularExpressions.RegexOptions]::Singleline);if($updated -ne $current){Set-Content -Encoding UTF8 -NoNewline $path $updated}}
   }

@@ -104,7 +104,7 @@ function Install-SentinelBaseline([string]$repo) {
   $managed = "$managedMarker`n$baseline"
   $ruleTargets = @((Join-Path $repo '.cursor\rules\sentinel-security.mdc'),(Join-Path $repo '.windsurf\rules\sentinel-security.md'))
   foreach ($target in $ruleTargets) { if(-not (Test-SentinelSafeTarget $repo $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null;Set-Content -Encoding UTF8 $target $managed }
-  foreach ($name in @('AGENTS.md','CLAUDE.md')) {
+  foreach ($name in @('AGENTS.md','CLAUDE.md','GEMINI.md')) {
     $target=Join-Path $repo $name;if(-not (Test-SentinelSafeTarget $repo $target)){continue};$existing=if(Test-Path $target){Get-Content $target -Raw}else{''}
     if ($existing -notlike "*$managedMarker*") { Add-Content -Encoding UTF8 $target "`n$managedMarker`n## 企业安全基线`n执行任何代码变更前必须遵循 .sentinel/SECURITY_BASELINE.md。" }
   }
@@ -114,9 +114,11 @@ function Sync-SentinelUserBaselines([object[]]$homes) {
   if(-not (Test-Path $baselinePath)){return}
   $content=(Get-Content $baselinePath -Raw).TrimEnd();$start='<!-- sentinel-managed-user-baseline:start -->';$end='<!-- sentinel-managed-user-baseline:end -->';$block=$start+"`n"+$content+"`n"+$end
   foreach($home in $homes){
-    $targets=@();$codex=Join-Path $home.FullName '.codex';$claude=Join-Path $home.FullName '.claude'
+    $targets=@();$codex=Join-Path $home.FullName '.codex';$claude=Join-Path $home.FullName '.claude';$gemini=Join-Path $home.FullName '.gemini';$copilot=Join-Path $home.FullName '.copilot'
     if((Test-Path $codex) -and -not ((Get-Item $codex -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $codex 'AGENTS.md'}
     if(((Test-Path $claude) -and -not ((Get-Item $claude -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) -or (Test-Path (Join-Path $home.FullName '.claude.json'))){$targets+=Join-Path $claude 'CLAUDE.md'}
+    if((Test-Path $gemini) -and -not ((Get-Item $gemini -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $gemini 'GEMINI.md'}
+    if((Test-Path $copilot) -and -not ((Get-Item $copilot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $copilot 'copilot-instructions.md'}
     foreach($target in $targets){
       if(-not (Test-SentinelSafeTarget $home.FullName $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target)|Out-Null;if(-not (Test-SentinelSafeTarget $home.FullName $target)){continue}
       $existing=if(Test-Path $target){Get-Content $target -Raw}else{''};$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
@@ -143,8 +145,8 @@ function Inspect-SentinelMcpJson([System.IO.FileInfo]$file,[string]$text) {
     foreach($arg in @($cfg.args)){if(([string]$arg) -in @('/','C:\','$HOME','~') -or ([string]$arg) -match '^[A-Za-z]:\\Users\\'){$script:findings += @{kind='broad_filesystem_scope';severity='high';path=$safePath;message="MCP $name 请求宽泛文件范围"};break}}
     if($null -ne $cfg.env -and $cfg.env -isnot [PSCustomObject] -and $cfg.env -isnot [hashtable]){$script:findings += @{kind='invalid_mcp_environment';severity='high';path=$safePath;message="MCP $name 的 env 必须是对象"}}
     else{foreach($variable in @($cfg.env.PSObject.Properties)){if($variable.Name -match 'TOKEN|SECRET|PASSWORD|API_KEY' -and ([string]$variable.Value) -notmatch '^\$\{?[A-Z0-9_]+\}?$'){$script:findings += @{kind='literal_mcp_secret';severity='critical';path=$safePath;message="MCP $name 包含明文敏感环境变量: $($variable.Name)";evidence='[REDACTED]'}}}}
-    $url=[string]$cfg.url; if(-not $url){$url=[string]$cfg.serverUrl}
-    $transport=[string]$cfg.transport;if(-not $transport){if($url.StartsWith('https://')){$transport='https'}elseif($url.StartsWith('http://')){$transport='http'}elseif($command){$transport='stdio'}else{$transport='unknown'}}
+    $url=[string]$cfg.url; if(-not $url){$url=[string]$cfg.httpUrl};if(-not $url){$url=[string]$cfg.serverUrl}
+    $transport=[string]$cfg.transport;if(-not $transport){$transport=[string]$cfg.type};if($transport -eq 'local'){$transport='stdio'}elseif($transport -eq 'remote'){$transport=if($url.StartsWith('https://')){'https'}else{'http'}};if(-not $transport){if($url.StartsWith('https://')){$transport='https'}elseif($url.StartsWith('http://')){$transport='http'}elseif($command){$transport='stdio'}else{$transport='unknown'}}
     if($command -and $url){$script:findings += @{kind='ambiguous_mcp_transport';severity='high';path=$safePath;message="MCP $name 同时配置本地命令和远程 URL"}}
     if(($policy.PSObject.Properties.Name -contains 'allowed_mcp_transports') -and $transport -notin @($policy.allowed_mcp_transports)){$script:findings += @{kind='unapproved_mcp_transport';severity='high';path=$safePath;message="MCP $name 使用未批准传输: $transport"}}
     if($url){
@@ -221,9 +223,11 @@ $agentMarkers = @{
   codex=@('.codex\config.toml','AppData\Roaming\npm\codex.cmd')
   claude_code=@('.claude.json','.claude\settings.json','AppData\Roaming\npm\claude.cmd')
   windsurf=@('.codeium\windsurf\mcp_config.json','AppData\Roaming\Windsurf\User\settings.json','AppData\Local\Programs\Windsurf\Windsurf.exe')
+  gemini_cli=@('.gemini\settings.json','.gemini\GEMINI.md','AppData\Roaming\npm\gemini.cmd')
+  github_copilot_cli=@('.copilot\config.json','.copilot\settings.json','.copilot\mcp-config.json','AppData\Roaming\npm\copilot.cmd')
 }
 foreach ($home in $userHomes) {
-  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf')) { $candidate=Join-Path $home.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
+  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf','.gemini','.copilot')) { $candidate=Join-Path $home.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
   foreach ($agent in $agentMarkers.Keys) {
     foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $home.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-SentinelPath $marker);scope='user';detected_by='filesystem_marker'};break} }
   }
@@ -233,6 +237,8 @@ $systemMarkers = @{
   codex=@("$env:ProgramFiles\nodejs\codex.cmd")
   claude_code=@("$env:ProgramFiles\nodejs\claude.cmd")
   windsurf=@("$env:LOCALAPPDATA\Programs\Windsurf\Windsurf.exe","$env:ProgramFiles\Windsurf\Windsurf.exe")
+  gemini_cli=@("$env:APPDATA\npm\gemini.cmd","$env:ProgramFiles\nodejs\gemini.cmd")
+  github_copilot_cli=@("$env:APPDATA\npm\copilot.cmd","$env:ProgramFiles\nodejs\copilot.cmd")
 }
 foreach($agent in $systemMarkers.Keys){foreach($marker in $systemMarkers[$agent]){if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=$marker;scope='system';detected_by='filesystem_marker'};break}}}
 foreach($repo in Get-ManagedRepos) { Install-SentinelBaseline $repo; $roots += $repo; $inventory += @{type='managed_repository';path=(Protect-SentinelPath $repo)} }
@@ -258,7 +264,7 @@ foreach ($root in $roots) {
       foreach ($rule in $patterns) {
         if ($text -match $rule.Regex) { $findings += @{ kind=$rule.Kind; severity=$rule.Severity; path=(Protect-SentinelPath $_.FullName); message='Policy match' } }
       }
-      if ($_.Name -in @('mcp.json','mcp_config.json')) { Inspect-SentinelMcpJson $_ $text }
+      if ($_.Name -in @('mcp.json','mcp_config.json','mcp-config.json','.mcp.json') -or ($_.Name -eq 'settings.json' -and $_.Directory.Name -eq '.gemini')) { Inspect-SentinelMcpJson $_ $text }
       if ($_.Name -eq 'config.toml' -and $_.FullName -match '\\\.codex\\') { Inspect-SentinelMcpToml $_ $text }
       if ($_.Name -eq 'package.json' -or $_.Name -like 'requirements*.txt') { $inventory += @{type='dependency_manifest';path=(Protect-SentinelPath $_.FullName)}; Inspect-SentinelDependencies $_ $text }
     }
@@ -271,7 +277,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.30.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.31.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

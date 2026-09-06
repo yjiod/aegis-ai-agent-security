@@ -5,8 +5,8 @@ import argparse, hashlib, hmac, json, os, re, stat, sys, tempfile, time, urllib.
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 DEFAULT_POLICY=Path(__file__).with_name("sentinel-policy.json")
-AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json"]
-SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills"]
+AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json",".gemini/settings.json",".copilot/mcp-config.json"]
+SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills",".gemini/skills",".copilot/skills"]
 DEPENDENCY_MANIFESTS={"package.json","requirements.txt","requirements-dev.txt"}
 REPORT_INVENTORY_LIMIT=5000
 REPORT_FINDING_LIMIT=10000
@@ -38,12 +38,16 @@ AGENT_HOME_MARKERS={
     "codex":[".codex/config.toml",".local/bin/codex"],
     "claude_code":[".claude.json",".claude/settings.json",".local/bin/claude"],
     "windsurf":[".codeium/windsurf/mcp_config.json","Library/Application Support/Windsurf/User/settings.json",".config/Windsurf/User/settings.json"],
+    "gemini_cli":[".gemini/settings.json",".gemini/GEMINI.md",".local/bin/gemini"],
+    "github_copilot_cli":[".copilot/config.json",".copilot/settings.json",".copilot/mcp-config.json",".local/bin/copilot"],
 }
 AGENT_SYSTEM_MARKERS={
     "cursor":["/Applications/Cursor.app","/usr/local/bin/cursor","/opt/homebrew/bin/cursor"],
     "codex":["/usr/local/bin/codex","/opt/homebrew/bin/codex"],
     "claude_code":["/usr/local/bin/claude","/opt/homebrew/bin/claude"],
     "windsurf":["/Applications/Windsurf.app","/usr/local/bin/windsurf","/opt/homebrew/bin/windsurf"],
+    "gemini_cli":["/usr/local/bin/gemini","/opt/homebrew/bin/gemini"],
+    "github_copilot_cli":["/usr/local/bin/copilot","/opt/homebrew/bin/copilot"],
 }
 BASELINE=Path(__file__).with_name("sentinel-security-baseline.md")
 MANAGED_MARKER="<!-- sentinel-managed-baseline -->"
@@ -113,7 +117,9 @@ def scan_mcp_server(path,name,cfg,policy):
     out=[]; allowed=set(policy.get("allowed_mcp_servers",[])); allowed_commands=set(policy.get("allowed_mcp_commands",[])); allowed_paths={os.path.normcase(os.path.normpath(str(x))) for x in policy.get("allowed_mcp_command_paths",[])}; allowed_domains={x.lower().rstrip(".") for x in policy.get("allowed_mcp_domains",[])}; allowed_transports=set(policy.get("allowed_mcp_transports",[]))
     if "allowed_mcp_servers" in policy and name not in allowed: out.append(finding("unknown_mcp","medium",path,f"未在允许列表中的 MCP Server: {name}"))
     command=str(cfg.get("command","")).strip(); base=re.split(r"[\\/]",command)[-1]
-    url=str(cfg.get("url",cfg.get("serverUrl",""))).strip(); explicit=str(cfg.get("transport","")).lower()
+    url=str(cfg.get("url",cfg.get("httpUrl",cfg.get("serverUrl","")))).strip(); explicit=str(cfg.get("transport",cfg.get("type",""))).lower()
+    if explicit=="local": explicit="stdio"
+    if explicit=="remote": explicit="https" if url.startswith("https://") else "http"
     transport=explicit or ("https" if url.startswith("https://") else "http" if url.startswith("http://") else "stdio" if command else "unknown")
     if command and url: out.append(finding("ambiguous_mcp_transport","high",path,f"MCP {name} 同时配置本地命令和远程 URL"))
     if "allowed_mcp_transports" in policy and transport not in allowed_transports: out.append(finding("unapproved_mcp_transport","high",path,f"MCP {name} 使用未批准传输: {transport}"))
@@ -260,7 +266,8 @@ def scan(root,policy):
                 size=p.stat().st_size
                 if size<=max_file_bytes(policy):
                     text=p.read_text(errors="ignore"); findings.extend(scan_text(p,text,policy))
-                    if p.name in ["mcp.json","mcp_config.json","config.toml"]: findings.extend(scan_mcp_config(p,text,policy))
+                    normalized=p.as_posix()
+                    if p.name in ["mcp.json","mcp_config.json","mcp-config.json",".mcp.json","config.toml"] or normalized.endswith("/.gemini/settings.json"): findings.extend(scan_mcp_config(p,text,policy))
                     if p.name in DEPENDENCY_MANIFESTS: inventory.append({"type":"dependency_manifest","path":safe_path(p)}); findings.extend(scan_dependency_manifest(p,text))
                 else: findings.append(finding("oversized_file_skipped","medium",p,f"代码或配置文件超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
             except OSError: pass
@@ -286,7 +293,7 @@ def install_baseline(root):
         managed=MANAGED_MARKER+"\n"+data
         if not path.exists() or path.read_text(errors="ignore")!=managed:
             path.write_text(managed); changed.append(str(path))
-    for name in ["AGENTS.md","CLAUDE.md"]:
+    for name in ["AGENTS.md","CLAUDE.md","GEMINI.md"]:
         path=root/name; block=f"\n{MANAGED_MARKER}\n## 企业安全基线\n执行任何代码变更前，必须遵循 [.sentinel/SECURITY_BASELINE.md](.sentinel/SECURITY_BASELINE.md)。\n"
         if not safe_managed_target(root,path): continue
         current=path.read_text(errors="ignore") if path.exists() else ""
@@ -303,6 +310,8 @@ def install_user_baselines(homes=None):
         home=Path(home); targets=[]
         if (home/".codex").is_dir(): targets.append(home/".codex/AGENTS.md")
         if (home/".claude").is_dir() or (home/".claude.json").is_file(): targets.append(home/".claude/CLAUDE.md")
+        if (home/".gemini").is_dir(): targets.append(home/".gemini/GEMINI.md")
+        if (home/".copilot").is_dir(): targets.append(home/".copilot/copilot-instructions.md")
         for path in targets:
             if not safe_managed_target(home,path): continue
             path.parent.mkdir(parents=True,exist_ok=True); current=path.read_text(errors="ignore") if path.exists() else ""
@@ -342,7 +351,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.30.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.31.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -407,7 +416,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.30.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.31.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

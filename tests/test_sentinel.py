@@ -71,7 +71,7 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); (root/'AGENTS.md').write_text('# Existing\nkeep me')
             self.agent.install_baseline(root); self.agent.install_baseline(root)
-            text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists())
+            text=(root/'AGENTS.md').read_text(); self.assertIn('keep me',text); self.assertEqual(text.count(self.agent.MANAGED_MARKER),1); self.assertTrue((root/'.cursor/rules/sentinel-security.mdc').exists()); self.assertTrue((root/'GEMINI.md').exists())
     def test_baseline_write_rejects_symlink_escape(self):
         with tempfile.TemporaryDirectory() as d:
             base=Path(d); root=base/'repo'; outside=base/'outside'; root.mkdir(); outside.mkdir(); (root/'.sentinel').symlink_to(outside, target_is_directory=True)
@@ -82,17 +82,17 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(self.agent.install_user_baselines([user]),[]); self.assertEqual(agents.read_text(),'personal')
     def test_user_baseline_loads_only_for_installed_agents_and_updates_in_place(self):
         with tempfile.TemporaryDirectory() as d:
-            base=Path(d); active=base/'active'; untouched=base/'untouched'; (active/'.codex').mkdir(parents=True); untouched.mkdir()
+            base=Path(d); active=base/'active'; untouched=base/'untouched'; (active/'.codex').mkdir(parents=True); (active/'.gemini').mkdir(); (active/'.copilot').mkdir(); untouched.mkdir()
             target=active/'.codex/AGENTS.md'; target.write_text('# Personal rules\n')
             first=self.agent.install_user_baselines([active,untouched]); second=self.agent.install_user_baselines([active,untouched])
-            text=target.read_text(); self.assertEqual(first,[str(target)]); self.assertEqual(second,[])
+            text=target.read_text(); self.assertEqual(set(first),{str(target),str(active/'.gemini/GEMINI.md'),str(active/'.copilot/copilot-instructions.md')}); self.assertEqual(second,[])
             self.assertIn('Personal rules',text); self.assertEqual(text.count(self.agent.USER_BASELINE_START),1); self.assertFalse((untouched/'.codex').exists())
         windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); self.assertIn('function Sync-SentinelUserBaselines',windows); self.assertIn('Sync-SentinelUserBaselines $userHomes',windows); self.assertIn("kind='malformed_user_baseline_block'",windows); self.assertIn('baseline markers malformed',remediation)
         remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
-        self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('ReparsePoint',remediation)
+        self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('Test-Path $geminiDir',remediation); self.assertIn('Test-Path $copilotDir',remediation); self.assertIn('ReparsePoint',remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
         mac=(DOWNLOADS/'uninstall-sentinel-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-sentinel-windows.ps1').read_text()
-        for script in (mac,windows): self.assertIn('sentinel-managed-user-baseline:start',script); self.assertIn('sentinel-managed-user-baseline:end',script)
+        for script in (mac,windows): self.assertIn('sentinel-managed-user-baseline:start',script); self.assertIn('sentinel-managed-user-baseline:end',script); self.assertIn('GEMINI.md',script); self.assertIn('copilot-instructions.md',script)
         self.assertIn('[ ! -L "$file" ]',mac); self.assertIn('ReparsePoint',windows)
         self.assertIn('Repository rule files',mac); self.assertIn('Repository rule files',windows)
     def test_collector_contract(self):
@@ -239,7 +239,7 @@ class SentinelTests(unittest.TestCase):
             with patch.dict(os.environ,env,clear=True):
                 server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
                 try:
-                    now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.30.0','policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
+                    now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.31.0','policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
                     headers=self.agent.report_headers(body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=headers,method='POST')
                     with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,202)
                     mixed=self.agent.report_headers(body,token,old_secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=mixed,method='POST')
@@ -255,7 +255,7 @@ class SentinelTests(unittest.TestCase):
                     devices_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(devices_request,timeout=3) as response:
                         devices=json.load(response); self.assertTrue(devices['complete']); self.assertEqual(devices['devices'][0]['credential_generation'],'current'); self.assertGreaterEqual(devices['generated_at'],now)
-                    self.collector.store_report(server.db_path,b'other',{'device_id':'000000000000','agent_version':'0.30.0','policy_version':'4.8.0','summary':{'critical':0,'high':0}},now=now)
+                    self.collector.store_report(server.db_path,b'other',{'device_id':'000000000000','agent_version':'0.31.0','policy_version':'4.8.0','summary':{'critical':0,'high':0}},now=now)
                     limited_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?limit=1',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(limited_request,timeout=3) as response:
                         limited=json.load(response); self.assertFalse(limited['complete']); self.assertEqual(len(limited['devices']),1)
@@ -472,8 +472,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.30.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.30.0')
+        self.assertIn("agent_version='0.31.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.31.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -545,7 +545,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'sentinel.report/v1','agent_version':'0.30.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.31.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['SentinelReportValid']); self.assertTrue(parsed['SentinelReportingConfigured']); self.assertTrue(parsed['SentinelReportingHealthy'])
             upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingHealthy']); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
             reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingConfigured']); reporting.chmod(0o600)
@@ -670,9 +670,17 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             home=Path(d); (home/'.codex').mkdir(); (home/'.codex/config.toml').write_text('model="approved"')
             (home/'.claude').mkdir(); (home/'.claude/settings.json').write_text('{}')
+            (home/'.gemini').mkdir(); (home/'.gemini/settings.json').write_text('{}')
+            (home/'.copilot').mkdir(); (home/'.copilot/config.json').write_text('{}')
             found=self.agent.discover_agent_tools([home],{})
-            self.assertEqual({x['name'] for x in found},{'codex','claude_code'})
+            self.assertEqual({x['name'] for x in found},{'codex','claude_code','gemini_cli','github_copilot_cli'})
             self.assertTrue(all(x['detected_by']=='filesystem_marker' for x in found))
+    def test_gemini_and_copilot_mcp_formats_are_scanned(self):
+        gemini=Path('.gemini/settings.json'); findings=self.agent.scan_mcp_config(gemini,json.dumps({'mcpServers':{'remote':{'httpUrl':'https://unapproved.invalid/mcp'}}}),self.policy)
+        kinds={item['kind'] for item in findings}; self.assertIn('unapproved_mcp_domain',kinds); self.assertNotIn('incomplete_mcp_server',kinds)
+        copilot=Path('.copilot/mcp-config.json'); findings=self.agent.scan_mcp_config(copilot,json.dumps({'mcpServers':{'local':{'type':'local','command':'unapproved-command','args':[]}}}),self.policy)
+        kinds={item['kind'] for item in findings}; self.assertIn('unapproved_mcp_command',kinds); self.assertNotIn('unapproved_mcp_transport',kinds)
+        windows=(DOWNLOADS/'sentinel-windows.ps1').read_text(); self.assertIn('$cfg.httpUrl',windows); self.assertIn("$transport -eq 'local'",windows); self.assertIn("'.copilot'",windows); self.assertIn("'.gemini'",windows)
     def test_baseline_directory_alone_is_not_an_install_marker(self):
         with tempfile.TemporaryDirectory() as d:
             home=Path(d); (home/'.cursor/rules').mkdir(parents=True)

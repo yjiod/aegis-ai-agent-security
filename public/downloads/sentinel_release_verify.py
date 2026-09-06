@@ -95,6 +95,10 @@ def verify(downloads):
         if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
     for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid"):
         if directive not in python_agent: errors.append(f"missing_python_reporting_loader:{directive}")
+    for directive in ('"gemini_cli"','"github_copilot_cli"','".gemini/settings.json"','".copilot/mcp-config.json"','".gemini/GEMINI.md"','".copilot/copilot-instructions.md"','cfg.get("httpUrl"','".gemini/skills"','".copilot/skills"'):
+        if directive not in python_agent: errors.append(f"missing_python_agent_coverage:{directive}")
+    for directive in ("gemini_cli=@(","github_copilot_cli=@(",".gemini\\GEMINI.md","copilot-instructions.md","$cfg.httpUrl","'.gemini','.copilot'"):
+        if directive not in windows_agent: errors.append(f"missing_windows_agent_coverage:{directive}")
     for directive in ("def write_upload_status(path,url,now=None):","sentinel.upload-status/v1","write_private_atomic(path"):
         if directive not in python_agent: errors.append(f"missing_python_upload_receipt:{directive}")
     for directive in ("function Write-SentinelUploadStatus","sentinel.upload-status/v1","Write-SentinelUploadStatus $ReportUrl"):
