@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""Generate and rotate per-device Collector credentials without printing secrets."""
+import argparse, json, os, re, secrets, stat, tempfile
+from pathlib import Path
+
+SCHEMA="sentinel.device-credentials/v1"
+ENROLLMENT_SCHEMA="sentinel.device-enrollment/v1"
+
+def private_atomic(path,value,mode=0o600):
+    path=Path(path)
+    if path.is_symlink(): raise ValueError("output_symlink")
+    parent_existed=path.parent.exists(); path.parent.mkdir(parents=True,exist_ok=True); parent=path.parent.resolve(strict=True)
+    if not parent_existed: os.chmod(parent,0o700)
+    path=parent/path.name
+    fd,temp_name=tempfile.mkstemp(prefix="."+path.name+".",suffix=".tmp",dir=parent); temp=Path(temp_name)
+    try:
+        with os.fdopen(fd,"w",encoding="utf-8") as handle:
+            json.dump(value,handle,ensure_ascii=False,sort_keys=True,separators=(",",":")); handle.write("\n"); handle.flush(); os.fsync(handle.fileno())
+        os.chmod(temp,mode); os.replace(temp,path)
+    except Exception:
+        try: os.close(fd)
+        except OSError: pass
+        temp.unlink(missing_ok=True); raise
+    return path
+
+def valid_secret_list(values):
+    return isinstance(values,list) and 1<=len(values)<=5 and all(isinstance(item,str) and 32<=len(item)<=4096 for item in values) and len(values)==len(set(values))
+
+def load_manifest(path):
+    path=Path(path)
+    if not path.exists(): return {"schema":SCHEMA,"devices":{}}
+    if path.is_symlink(): raise ValueError("manifest_symlink")
+    info=path.stat()
+    if not stat.S_ISREG(info.st_mode) or info.st_mode&0o037: raise ValueError("manifest_permissions")
+    value=json.loads(path.read_text(encoding="utf-8")); devices=value.get("devices") if isinstance(value,dict) else None
+    if set(value)!={"schema","devices"} or value.get("schema")!=SCHEMA or not isinstance(devices,dict) or len(devices)>10000: raise ValueError("manifest_contract")
+    all_tokens=set(); all_signing=set()
+    for device_id,credential in devices.items():
+        if not re.fullmatch(r"[0-9a-f]{12}",device_id) or not isinstance(credential,dict) or set(credential)!={"tokens","signing_secrets"}: raise ValueError("manifest_contract")
+        tokens=credential["tokens"]; signing=credential["signing_secrets"]
+        if not valid_secret_list(tokens) or not valid_secret_list(signing) or set(tokens)&set(signing) or all_tokens.intersection(tokens) or all_signing.intersection(signing) or all_tokens.intersection(signing) or all_signing.intersection(tokens): raise ValueError("manifest_secrets")
+        all_tokens.update(tokens); all_signing.update(signing)
+    return value
+
+def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False):
+    if rotate and prune_old: raise ValueError("conflicting_operation")
+    ids=sorted(set(device_ids))
+    if not ids or any(not isinstance(item,str) or not re.fullmatch(r"[0-9a-f]{12}",item) for item in ids): raise ValueError("invalid_device_id")
+    manifest=load_manifest(output); devices=manifest["devices"]
+    if len(set(devices)|set(ids))>10000: raise ValueError("device_limit")
+    created=[]; rotated=[]; pruned=[]
+    for device_id in ids:
+        current=devices.get(device_id)
+        if current is None:
+            current=devices[device_id]={"tokens":[secrets.token_urlsafe(48)],"signing_secrets":[secrets.token_urlsafe(48)]}; created.append(device_id)
+        elif rotate:
+            current["tokens"]=[secrets.token_urlsafe(48),*current["tokens"][:1]]; current["signing_secrets"]=[secrets.token_urlsafe(48),*current["signing_secrets"][:1]]; rotated.append(device_id)
+        elif prune_old:
+            if len(current["tokens"])>1 or len(current["signing_secrets"])>1: pruned.append(device_id)
+            current["tokens"]=current["tokens"][:1]; current["signing_secrets"]=current["signing_secrets"][:1]
+    enrollment_dir=Path(enrollment_dir)
+    if enrollment_dir.is_symlink(): raise ValueError("enrollment_directory_symlink")
+    enrollment_dir.mkdir(parents=True,exist_ok=True); enrollment_dir=enrollment_dir.resolve(strict=True); os.chmod(enrollment_dir,0o700)
+    for device_id in ids:
+        credential=devices[device_id]
+        private_atomic(enrollment_dir/(device_id+".json"),{"schema":ENROLLMENT_SCHEMA,"device_id":device_id,"report_token":credential["tokens"][0],"signing_secret":credential["signing_secrets"][0]})
+    private_atomic(output,manifest)
+    return {"ok":True,"device_count":len(devices),"created":created,"rotated":rotated,"pruned":pruned,"secrets_printed":False}
+
+def main():
+    ap=argparse.ArgumentParser(); ap.add_argument("device_ids",nargs="+"); ap.add_argument("--output",required=True); ap.add_argument("--enrollment-dir",required=True); group=ap.add_mutually_exclusive_group(); group.add_argument("--rotate",action="store_true"); group.add_argument("--prune-old",action="store_true"); args=ap.parse_args()
+    result=provision(args.device_ids,args.output,args.enrollment_dir,args.rotate,args.prune_old); print(json.dumps(result,separators=(",",":")))
+
+if __name__=="__main__": main()

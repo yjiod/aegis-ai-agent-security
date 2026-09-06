@@ -141,3 +141,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.57.0 / Agent 0.29.0 / Collector 0.11 将 `report_id` 定义为本次 HTTP 原始请求体 SHA-256 的前 20 位。Agent 在发送前独立计算期望值，并以常量精确比较确认值；格式正确但不对应本次请求体的伪造回执同样失败。Collector 仍以规范化 JSON 摘要执行语义去重，因此相同报告采用不同空白格式重传时仍标记重复，但每次回执都绑定实际收到的字节。升级时必须先部署 Collector 0.11，再分批提升 Agent 0.29.0。
 
 0.58.0 / Agent 0.30.0 / Collector 0.12 增加逐设备身份边界。Agent 发送 `X-Sentinel-Device-ID`，并把该 ID 纳入 HMAC 输入；Collector 可通过 `SENTINEL_DEVICE_CREDENTIALS_FILE` 加载最多 10000 台设备的独立 Token/HMAC 轮换集合，先按头部选择凭据，再要求已验证报告中的 `device_id` 完全一致。凭据文件拒绝符号链接、组写/其他用户权限、额外字段、重复密钥、Token/HMAC 复用和无效设备 ID。分三阶段启用：先部署 Collector 0.12 且保持该变量为空，再滚动升级全部 Agent 0.30，最后为每台设备生成独立凭据、以 `root:sentinel` 0640 安装清单并设置变量。启用清单后，旧 Agent、未知设备、跨设备凭据及身份错配均返回 401；管理查询仍使用独立的全局 Collector Token。
+
+0.59.0 提供离线 `sentinel_device_credentials.py`。以受管终端的 12 位 `device_id` 列表运行，并同时指定服务端清单和独立 enrollment 目录；工具使用系统 CSPRNG 生成每台设备互不复用的 Token/HMAC，原子写入 0600 文件，标准输出只含设备 ID 与计数，不含密钥。`--rotate` 生成新凭据并只保留上一代作为重叠窗口，先准备 endpoint enrollment 文件、最后切换服务端清单；完成 Intune 受保护变量分发并确认新凭据活跃后，使用 `--prune-old` 删除旧代。部署服务端清单时再设置 `root:sentinel` 0640；enrollment 目录属于敏感暂存物，导入 Intune 后应按企业密钥介质流程销毁，不得提交 Git、工单或聊天。

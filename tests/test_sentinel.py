@@ -11,7 +11,7 @@ def vendor_report(level='normal'):
     return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -232,6 +232,20 @@ class SentinelTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'device_credentials_permissions'): self.collector.device_credentials(credentials_path)
             credentials_path.chmod(0o600); credentials_path.write_text(json.dumps({'schema':'sentinel.device-credentials/v1','devices':{device_id:{'tokens':[token],'signing_secrets':[secret]},'000000000000':{'tokens':[token],'signing_secrets':['x'*32]}}}))
             with self.assertRaisesRegex(ValueError,'device_credentials_not_independent'): self.collector.device_credentials(credentials_path)
+    def test_device_credential_provisioning_is_private_atomic_and_rotation_safe(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); manifest=root/'server/devices.json'; enrollments=root/'enrollments'; ids=['abcdef123456','000000000000']
+            result=self.credentials.provision(ids,manifest,enrollments); self.assertEqual(result['created'],sorted(ids)); self.assertFalse(result['secrets_printed']); self.assertEqual(manifest.stat().st_mode&0o777,0o600)
+            first=json.loads(manifest.read_text())
+            token=first['devices'][ids[0]]['tokens'][0]; secret=first['devices'][ids[0]]['signing_secrets'][0]; self.assertNotIn(token,json.dumps(result)); self.assertNotEqual(token,secret)
+            for device_id in ids:
+                enrollment=enrollments/(device_id+'.json'); self.assertEqual(enrollment.stat().st_mode&0o777,0o600); value=json.loads(enrollment.read_text()); self.assertEqual(value['report_token'],first['devices'][device_id]['tokens'][0])
+            unchanged=self.credentials.provision(ids,manifest,enrollments); self.assertEqual(unchanged['created'],[]); self.assertEqual(json.loads(manifest.read_text()),first)
+            rotated=self.credentials.provision([ids[0]],manifest,enrollments,rotate=True); self.assertEqual(rotated['rotated'],[ids[0]]); second=json.loads(manifest.read_text()); self.assertEqual(second['devices'][ids[0]]['tokens'][1],token); self.assertNotEqual(second['devices'][ids[0]]['tokens'][0],token)
+            self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True); third=json.loads(manifest.read_text()); self.assertEqual(len(third['devices'][ids[0]]['tokens']),1); self.assertEqual(json.loads((enrollments/(ids[0]+'.json')).read_text())['report_token'],third['devices'][ids[0]]['tokens'][0])
+            bad=root/'bad'; bad.symlink_to(enrollments,target_is_directory=True); untouched=root/'untouched.json'
+            with self.assertRaisesRegex(ValueError,'enrollment_directory_symlink'): self.credentials.provision(['111111111111'],untouched,bad)
+            self.assertFalse(untouched.exists())
     def test_endpoint_requires_strict_bounded_collector_acknowledgement(self):
         report=vendor_report(); expected=hashlib.sha256(json.dumps(report,ensure_ascii=False).encode()).hexdigest()[:20]; valid={'accepted':True,'duplicate':False,'report_id':expected,'severity':'normal'}
         class Response:

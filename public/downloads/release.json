@@ -1,8 +1,9 @@
 {
-  "release": "0.58.0",
+  "release": "0.59.0",
   "channel": "pilot",
-  "published_at": "2026-09-07T08:00:00+08:00",
+  "published_at": "2026-09-07T10:00:00+08:00",
   "features": [
+    "offline_device_credential_provisioner", "private_atomic_enrollment_artifacts", "two_generation_credential_rotation", "safe_old_credential_pruning", "no_secret_stdout",
     "cross_platform_agent_0_30", "collector_0_12", "device_bound_hmac", "per_device_credential_allowlist", "device_identity_mismatch_rejection", "phased_identity_rollout",
     "cross_platform_agent_0_29", "collector_0_11", "request_body_receipt_binding", "raw_report_digest_acknowledgement", "forged_acknowledgement_rejection",
     "cross_platform_agent_0_28", "strict_collector_acknowledgement", "bounded_acknowledgement_body", "acknowledgement_report_id_validation", "false_2xx_health_prevention",
