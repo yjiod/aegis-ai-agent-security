@@ -43,7 +43,7 @@ export default function BaselinePage() {
         </span>
       </div>
 
-      <div className="page-head">
+      <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">安全能力 / 编码基线</p>
           <h1>安全编码规范基线</h1>
@@ -77,7 +77,7 @@ export default function BaselinePage() {
         </div>
       )}
 
-      <div className="baseline-banner">
+      <div className="baseline-banner animate-entrance animate-entrance-1">
         <div>
           <h2>企业 AI Coding 安全基线 v4.8</h2>
           <p>规则应用范围与合规率为界面样例</p>
@@ -88,8 +88,11 @@ export default function BaselinePage() {
       </div>
 
       <div className="policy-grid">
-        {coreRules.map((rule) => (
-          <article className="panel policy-card" key={rule[0]}>
+        {coreRules.map((rule, i) => (
+          <article
+            className={`panel policy-card animate-entrance animate-entrance-${i + 2}`}
+            key={rule[0]}
+          >
             <span>{rule[0]}</span>
             <h3>{rule[1]}</h3>
             <div>

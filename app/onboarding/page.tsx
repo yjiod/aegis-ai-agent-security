@@ -70,7 +70,7 @@ export default function OnboardingPage() {
         </span>
       </div>
 
-      <div className="page-head">
+      <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">接入中心 / 部署编排</p>
           <h1>接入中心</h1>
@@ -104,7 +104,7 @@ export default function OnboardingPage() {
         </div>
       )}
 
-      <div className="baseline-banner">
+      <div className="baseline-banner animate-entrance animate-entrance-1">
         <div>
           <h2>Aegis Endpoint Agent 0.30.0</h2>
           <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
@@ -127,8 +127,11 @@ export default function OnboardingPage() {
         </div>
 
         <div className="control-planes">
-          {controlPlanes.map((plane) => (
-            <article key={plane.name}>
+          {controlPlanes.map((plane, i) => (
+            <article
+              key={plane.name}
+              className={`animate-entrance animate-entrance-${i + 2}`}
+            >
               <b>{plane.name}</b>
               <span>{plane.role}</span>
               <p>{plane.desc}</p>
@@ -137,8 +140,12 @@ export default function OnboardingPage() {
         </div>
 
         <ol>
-          {orchestrationSteps.map((step) => (
-            <li key={step.title}>
+          {orchestrationSteps.map((step, i) => (
+            <li
+              key={step.title}
+              className="animate-row-entrance"
+              style={{ animationDelay: `${i * 30 + 200}ms` }}
+            >
               <b>{step.title}</b>
               <span>{step.desc}</span>
             </li>
