@@ -75,11 +75,67 @@
     0 4px 14px rgba(0, 0, 0, 0.3);
   --shadow-overlay: 0 24px 64px rgba(0, 0, 0, 0.55), 0 4px 16px rgba(0, 0, 0, 0.35);
 
-  /* motion */
+  /* motion — Corporate personality (confirmed 2026-09-06) */
+  --motion-easing: cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-quick: 150ms;
+  --motion-standard: 280ms;
+  --motion-slow: 420ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --dur-fast: 0.15s;
   --dur: 0.2s;
   --dur-slow: 0.35s;
+}
+
+/* ---------- 1b. Motion entrance utilities ----------------- */
+@keyframes entrance-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes entrance-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes entrance-scale-dot {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+@keyframes shimmer-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.animate-entrance {
+  animation: entrance-fade-up var(--motion-standard) var(--motion-easing) both;
+}
+
+.animate-entrance-1 { animation-delay: 0ms; }
+.animate-entrance-2 { animation-delay: 60ms; }
+.animate-entrance-3 { animation-delay: 120ms; }
+.animate-entrance-4 { animation-delay: 180ms; }
+.animate-entrance-5 { animation-delay: 240ms; }
+.animate-entrance-6 { animation-delay: 300ms; }
+.animate-entrance-7 { animation-delay: 360ms; }
+
+.animate-row-entrance {
+  animation: entrance-fade-in var(--motion-quick) ease-out both;
+}
+
+.animate-dot-pop {
+  animation: entrance-scale-dot 120ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-entrance,
+  .animate-row-entrance,
+  .animate-dot-pop {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* ---------- 2. Base / reset / body texture ---------------- */
