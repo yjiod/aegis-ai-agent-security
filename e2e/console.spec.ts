@@ -284,6 +284,9 @@ test.describe('policies page', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/policies');
     await expect(page.locator('main h1')).toHaveText('终端安全策略');
+    // Wait for React hydration — 'use client' components need JS bundle loaded
+    // before onClick handlers are attached.
+    await page.waitForLoadState('networkidle');
   });
 
   test('renders the policy switch toggles', async ({ page }) => {

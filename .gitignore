@@ -12,6 +12,7 @@
 /coverage
 /playwright-report/
 /test-results/
+# reserved for a future migration off the dev-only /catalog page
 /storybook-static/
 
 # next.js
