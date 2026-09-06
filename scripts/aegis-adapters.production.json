@@ -1,0 +1,34 @@
+{
+  "allowed_hosts": [
+    "edrscenter.transsion.com"
+  ],
+  "sangfor": {
+    "enabled": true,
+    "mode": "webhook",
+    "url": "https://edrscenter.transsion.com/api/edr/open/v1/event/custom",
+    "token_env": "SANGFOR_EDR_TOKEN",
+    "actions": {
+      "critical": "isolate_pending_approval",
+      "high": "alert",
+      "medium": "observe",
+      "low": "observe",
+      "normal": "observe"
+    }
+  },
+  "leagsoft": {
+    "enabled": false,
+    "mode": "webhook",
+    "url": "",
+    "token_env": "LEAGSOFT_TOKEN",
+    "compliance": {
+      "max_policy_age_hours": 24,
+      "critical_allowed": 0
+    }
+  },
+  "security_webhook": {
+    "enabled": false,
+    "mode": "webhook",
+    "url": "",
+    "secret_env": "AEGIS_WEBHOOK_SECRET"
+  }
+}
