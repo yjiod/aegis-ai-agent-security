@@ -25,6 +25,10 @@ BUNDLE_FILES=(
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def verify(downloads):
     downloads=Path(downloads); errors=[]
+    for script in downloads.glob("*.ps1"):
+        try: content=script.read_bytes()
+        except OSError as exc: errors.append(f"invalid_powershell_encoding:{script.name}:{type(exc).__name__}"); continue
+        if any(byte>=128 for byte in content) and not content.startswith(b"\xef\xbb\xbf"): errors.append(f"powershell_5_1_utf8_bom_missing:{script.name}")
     try: release=json.loads((downloads/"release.json").read_text())
     except (OSError,ValueError) as exc: return [f"invalid_release_json:{type(exc).__name__}"]
     if not re.fullmatch(r"\d+\.\d+\.\d+",str(release.get("release",""))): errors.append("invalid_release_version")

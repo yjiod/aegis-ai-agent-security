@@ -1,4 +1,4 @@
-param([string]$Output = "$env:ProgramData\SentinelAgent\reports\latest.json",[string]$ReportUrl = $env:SENTINEL_REPORT_URL,[string]$ProtectedConfig = "$env:ProgramData\SentinelAgent\reporting.dpapi")
+﻿param([string]$Output = "$env:ProgramData\SentinelAgent\reports\latest.json",[string]$ReportUrl = $env:SENTINEL_REPORT_URL,[string]$ProtectedConfig = "$env:ProgramData\SentinelAgent\reporting.dpapi")
 $ErrorActionPreference = 'SilentlyContinue'
 $reportConfigInvalid=$false
 if(Test-Path $ProtectedConfig){
