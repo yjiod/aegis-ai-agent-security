@@ -11,7 +11,7 @@ STAGE_DIR="$INSTALL_DIR/.stage.$$"
 mkdir -m 700 "$STAGE_DIR"
 trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 2>/dev/null || true' EXIT HUP INT TERM
 for name in sentinel_agent.py sentinel-policy.json sentinel-security-baseline.md; do curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
-echo "9ed7e38f656d2641dc725747a971411525673721fef20cb405595024679cb5d3  $STAGE_DIR/sentinel_agent.py" | shasum -a 256 -c -
+echo "071eb7881c0dab474eb92e74ffd090dc6f49032e466991b78cbeeddcf8fea13b  $STAGE_DIR/sentinel_agent.py" | shasum -a 256 -c -
 echo "0f87d2ecdc801505d825c647ef8eced290bc9ba9e0bd17b4abe9b6a7a4d14423  $STAGE_DIR/sentinel-policy.json" | shasum -a 256 -c -
 echo "e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e  $STAGE_DIR/sentinel-security-baseline.md" | shasum -a 256 -c -
 CURRENT_COMPLETE=1

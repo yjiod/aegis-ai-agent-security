@@ -1,8 +1,9 @@
 {
-  "release": "0.57.0",
+  "release": "0.58.0",
   "channel": "pilot",
-  "published_at": "2026-09-07T06:00:00+08:00",
+  "published_at": "2026-09-07T08:00:00+08:00",
   "features": [
+    "cross_platform_agent_0_30", "collector_0_12", "device_bound_hmac", "per_device_credential_allowlist", "device_identity_mismatch_rejection", "phased_identity_rollout",
     "cross_platform_agent_0_29", "collector_0_11", "request_body_receipt_binding", "raw_report_digest_acknowledgement", "forged_acknowledgement_rejection",
     "cross_platform_agent_0_28", "strict_collector_acknowledgement", "bounded_acknowledgement_body", "acknowledgement_report_id_validation", "false_2xx_health_prevention",
     "cross_platform_agent_0_27", "authenticated_upload_receipt", "collector_host_receipt_binding", "intune_reporting_health_compliance", "stale_upload_detection", "failed_upload_health_isolation",

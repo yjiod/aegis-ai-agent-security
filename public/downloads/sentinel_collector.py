@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Minimal report collector reference. Put behind enterprise TLS/reverse proxy."""
-import argparse, hashlib, hmac, json, os, sqlite3, threading, time
+import argparse, hashlib, hmac, json, os, re, sqlite3, stat, threading, time
 from collections import deque
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 @contextmanager
 def db_open(path):
@@ -52,7 +53,7 @@ def valid_report(d,now=None):
         counts[finding["severity"]]+=1
     return counts==summary
 def valid_signature(headers,body,now=None,secret=None,max_skew=300):
-    secrets=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS") if secret is None else ([secret] if secret else [])
+    secrets=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS") if secret is None else (secret if isinstance(secret,list) else ([secret] if secret else []))
     if not secrets: return allow_unsigned_reports()
     def header(name): return headers.get(name) or headers.get(name.lower())
     timestamp=header("X-Sentinel-Timestamp"); supplied=header("X-Sentinel-Signature") or ""
@@ -61,8 +62,9 @@ def valid_signature(headers,body,now=None,secret=None,max_skew=300):
     now=int(time.time()) if now is None else now
     if abs(now-request_time)>max_skew: return False
     matched=False
+    device_id=header("X-Sentinel-Device-ID") or ""; prefix=timestamp.encode()+b"."+(device_id.encode()+b"." if device_id else b"")
     for candidate in secrets:
-        expected="sha256="+hmac.new(candidate.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); matched |= hmac.compare_digest(expected,supplied)
+        expected="sha256="+hmac.new(candidate.encode(),prefix+body,hashlib.sha256).hexdigest(); matched |= hmac.compare_digest(expected,supplied)
     return matched
 def secret_values(single_name,multiple_name,env=None):
     env=os.environ if env is None else env; raw=env.get(multiple_name,"")
@@ -76,6 +78,23 @@ def secret_values(single_name,multiple_name,env=None):
 def allow_unsigned_reports(value=None):
     raw=os.getenv("SENTINEL_ALLOW_UNSIGNED_REPORTS","") if value is None else value
     return str(raw).strip().lower() in {"1","true","yes"}
+def device_credentials(path=None):
+    path=os.getenv("SENTINEL_DEVICE_CREDENTIALS_FILE","") if path is None else path
+    if not path: return {}
+    source=Path(path)
+    if source.is_symlink(): raise ValueError("device_credentials_symlink")
+    info=source.stat()
+    if not stat.S_ISREG(info.st_mode) or info.st_mode&0o026 or info.st_uid not in {0,os.geteuid()}: raise ValueError("device_credentials_permissions")
+    value=json.loads(source.read_text(encoding="utf-8")); devices=value.get("devices") if isinstance(value,dict) else None
+    if set(value)!={"schema","devices"} or value.get("schema")!="sentinel.device-credentials/v1" or not isinstance(devices,dict) or not 1<=len(devices)<=10000: raise ValueError("device_credentials_contract")
+    normalized={}; all_tokens=set(); all_signing=set()
+    for device_id,credential in devices.items():
+        if not isinstance(device_id,str) or not re.fullmatch(r"[0-9a-f]{12}",device_id) or not isinstance(credential,dict) or set(credential)!={"tokens","signing_secrets"}: raise ValueError("device_credentials_contract")
+        tokens=credential.get("tokens"); signing=credential.get("signing_secrets")
+        if any(not isinstance(values,list) or not 1<=len(values)<=5 or any(not isinstance(item,str) or not 32<=len(item)<=4096 for item in values) or len(values)!=len(set(values)) for values in (tokens,signing)) or set(tokens)&set(signing): raise ValueError("device_credentials_secrets")
+        if all_tokens.intersection(tokens) or all_signing.intersection(signing) or all_tokens.intersection(signing) or all_signing.intersection(tokens): raise ValueError("device_credentials_not_independent")
+        all_tokens.update(tokens); all_signing.update(signing); normalized[device_id]={"tokens":tokens,"signing_secrets":signing}
+    return normalized
 def runtime_secret_errors(env=None):
     env=os.environ if env is None else env
     tokens=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS",env)
@@ -85,7 +104,14 @@ def runtime_secret_errors(env=None):
     if any(len(value)<32 for value in tokens): errors.append("collector_token_too_short")
     if len(tokens)!=len(set(tokens)): errors.append("collector_token_duplicate")
     unsigned=str(env.get("SENTINEL_ALLOW_UNSIGNED_REPORTS","")).strip().lower() in {"1","true","yes"}
-    if not signing and not unsigned: errors.append("signing_secret_missing_or_invalid")
+    credentials_path=env.get("SENTINEL_DEVICE_CREDENTIALS_FILE","")
+    credentials={}
+    if credentials_path:
+        try: credentials=device_credentials(credentials_path)
+        except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): errors.append("device_credentials_missing_or_invalid")
+        device_secrets={item for credential in credentials.values() for values in credential.values() for item in values}
+        if set(tokens)&device_secrets or set(signing)&device_secrets: errors.append("global_and_device_secret_reused")
+    if not signing and not unsigned and not credentials_path: errors.append("signing_secret_missing_or_invalid")
     if any(len(value)<32 for value in signing): errors.append("signing_secret_too_short")
     if len(signing)!=len(set(signing)): errors.append("signing_secret_duplicate")
     if set(tokens)&set(signing): errors.append("authentication_and_signing_secret_reused")
@@ -154,7 +180,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.29.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.30.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.8.0")
     for _,severity,agent,policy in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1
         if not agent or not policy: versions["unknown"]+=1
@@ -165,7 +191,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.11"
+    server_version="SentinelCollector/0.12"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -180,6 +206,16 @@ class Handler(BaseHTTPRequestHandler):
         expected=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS"); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
         for candidate in expected: matched |= hmac.compare_digest(candidate,supplied)
         return bool(expected) and matched
+    def report_authentication(self):
+        path=os.getenv("SENTINEL_DEVICE_CREDENTIALS_FILE","")
+        if not path: return (self.authorized(),None)
+        try: credentials=device_credentials(path)
+        except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): return (False,None)
+        device_id=self.headers.get("X-Sentinel-Device-ID",""); credential=credentials.get(device_id)
+        if not credential: return (False,None)
+        supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
+        for candidate in credential["tokens"]: matched |= hmac.compare_digest(candidate,supplied)
+        return (matched,(device_id,credential["signing_secrets"]))
     def do_GET(self):
         if self.path=="/health":
             try:
@@ -206,15 +242,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path!="/v1/reports": return self.reply(404,{"error":"not_found"})
         if self.rate_limited(): return
-        if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
+        authenticated,binding=self.report_authentication()
+        if not authenticated: return self.reply(401,{"error":"unauthorized"})
         try: length=int(self.headers.get("Content-Length","0"))
         except ValueError: return self.reply(400,{"error":"invalid_size"})
         if length<2 or length>2_000_000: return self.reply(413,{"error":"invalid_size"})
         body=self.rfile.read(length)
-        if not valid_signature(self.headers,body): return self.reply(401,{"error":"invalid_signature"})
+        if not valid_signature(self.headers,body,secret=binding[1] if binding else None): return self.reply(401,{"error":"invalid_signature"})
         try: report=json.loads(body)
         except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError): return self.reply(400,{"error":"invalid_json"})
         if not valid_report(report): return self.reply(400,{"error":"invalid_report"})
+        if binding and report["device_id"]!=binding[0]: return self.reply(401,{"error":"device_identity_mismatch"})
         try: result=store_report(self.server.db_path,body,report)
         except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(200 if result["duplicate"] else 202,result)
