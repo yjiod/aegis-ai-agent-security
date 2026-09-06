@@ -1,4 +1,4 @@
-import hashlib, importlib.util, json, os, shutil, sqlite3, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
+import hashlib, importlib.util, json, os, shutil, sqlite3, stat, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -241,7 +241,7 @@ class SentinelTests(unittest.TestCase):
             for device_id in ids:
                 enrollment=enrollments/(device_id+'.json'); self.assertEqual(enrollment.stat().st_mode&0o777,0o600); value=json.loads(enrollment.read_text()); self.assertEqual(value['report_token'],first['devices'][device_id]['tokens'][0])
             unchanged=self.credentials.provision(ids,manifest,enrollments); self.assertEqual(unchanged['created'],[]); self.assertEqual(json.loads(manifest.read_text()),first)
-            rotated=self.credentials.provision([ids[0]],manifest,enrollments,rotate=True); self.assertEqual(rotated['rotated'],[ids[0]]); second=json.loads(manifest.read_text()); self.assertEqual(second['devices'][ids[0]]['tokens'][1],token); self.assertNotEqual(second['devices'][ids[0]]['tokens'][0],token)
+            manifest.chmod(0o640); before=manifest.stat(); rotated=self.credentials.provision([ids[0]],manifest,enrollments,rotate=True); after=manifest.stat(); self.assertEqual((stat.S_IMODE(after.st_mode),after.st_uid,after.st_gid),(0o640,before.st_uid,before.st_gid)); self.assertEqual(rotated['rotated'],[ids[0]]); second=json.loads(manifest.read_text()); self.assertEqual(second['devices'][ids[0]]['tokens'][1],token); self.assertNotEqual(second['devices'][ids[0]]['tokens'][0],token)
             self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True); third=json.loads(manifest.read_text()); self.assertEqual(len(third['devices'][ids[0]]['tokens']),1); self.assertEqual(json.loads((enrollments/(ids[0]+'.json')).read_text())['report_token'],third['devices'][ids[0]]['tokens'][0])
             bad=root/'bad'; bad.symlink_to(enrollments,target_is_directory=True); untouched=root/'untouched.json'
             with self.assertRaisesRegex(ValueError,'enrollment_directory_symlink'): self.credentials.provision(['111111111111'],untouched,bad)
