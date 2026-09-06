@@ -40,7 +40,7 @@ export default function PoliciesPage() {
         </span>
       </div>
 
-      <div className="page-head">
+      <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">管理 / 策略配置</p>
           <h1>终端安全策略</h1>
@@ -69,7 +69,11 @@ export default function PoliciesPage() {
           </div>
         </div>
         {policies.map((policy, index) => (
-          <div className="setting-row" key={policy.name}>
+          <div
+            className="setting-row animate-row-entrance"
+            key={policy.name}
+            style={{ animationDelay: `${index * 30 + 200}ms` }}
+          >
             <div>
               <strong>{policy.name}</strong>
               <span>{policy.desc}</span>

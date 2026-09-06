@@ -109,7 +109,7 @@ export default function ConsoleShell({
 
   return (
     <CollectorProvider value={{ fleet, collectorState }}>
-      <div className="min-h-screen bg-[#07110f] text-[#eaf7f2]">
+      <div className="min-h-screen bg-[var(--background)] text-[color:var(--foreground)]">
         <header className="topbar">
           <div className="brand">
             <span className="brandmark">
