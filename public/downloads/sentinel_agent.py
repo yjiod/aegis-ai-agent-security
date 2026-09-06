@@ -342,7 +342,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.27.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.28.0"}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+body
@@ -352,7 +352,14 @@ def post_report(url,token,report,signing_secret=None):
     if not url: return "disabled"
     body=json.dumps(report,ensure_ascii=False).encode(); headers=report_headers(body,token,os.getenv("SENTINEL_REPORT_SIGNING_SECRET","") if signing_secret is None else signing_secret)
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
-    with urllib.request.urlopen(request,timeout=15) as response: return str(response.status)
+    with urllib.request.urlopen(request,timeout=15) as response:
+        if response.status not in {200,202}: raise OSError("collector_delivery_not_accepted")
+        raw=response.read(4097)
+    if len(raw)>4096: raise OSError("collector_ack_too_large")
+    try: ack=json.loads(raw)
+    except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError) as exc: raise OSError("collector_ack_invalid_json") from exc
+    if not isinstance(ack,dict) or set(ack)!={"accepted","duplicate","report_id","severity"} or ack.get("accepted") is not True or type(ack.get("duplicate")) is not bool or not isinstance(ack.get("report_id"),str) or not re.fullmatch(r"[0-9a-f]{20}",ack["report_id"]) or ack.get("severity") not in {"critical","high","normal"}: raise OSError("collector_ack_invalid_contract")
+    return ack
 def spool_limit(value=None):
     raw=os.getenv("SENTINEL_SPOOL_MAX_REPORTS","500") if value is None else value
     try: return min(max(int(raw),10),10000)
@@ -396,7 +403,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.27.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.28.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

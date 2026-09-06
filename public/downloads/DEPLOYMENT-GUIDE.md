@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；默认要求 Agent 0.27.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；默认要求 Agent 0.28.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -135,3 +135,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.54.0 将 `SentinelReportingConfigured` 纳入 Windows 与 macOS 的 Intune 自定义合规。Windows 发现脚本以 SYSTEM 实际执行 DPAPI 解密并重新验证 URL、字段集合和密钥边界；macOS 发现脚本验证 root 所有权、普通文件、0600 权限及相同契约。仅存在文件不能证明合规，复制其他设备的 DPAPI 文件、宽权限文件、损坏 JSON 或不安全 URL 均返回 false。生产分配顺序应先下发受保护上报配置，再启用这条合规规则，避免部署竞态造成短暂误报。
 
 0.55.0 / Agent 0.27.0 在 Collector 返回成功后原子写入无密钥的 `sentinel.upload-status/v1` 回执，仅包含成功时间和 Collector 主机。网络失败或本地排队不会刷新回执。`SentinelReportingHealthy` 要求回执不超过 24 小时，且主机必须与当前受保护配置一致；旧 Collector 的成功记录不能掩盖配置切换后的故障。回执只证明最近一次 HTTP 接受，Collector 仍以签名验证、报告契约和服务端设备摘要作为最终事实源。
+
+0.56.0 / Agent 0.28.0 要求 Collector 的 200/202 响应同时满足严格确认契约：字段必须恰好为 `accepted`、`duplicate`、20 位十六进制 `report_id` 和受限 `severity`，响应体不得超过 4 KiB。空 200、HTML 登录页、反向代理占位响应、附加字段或伪造报告 ID 都按上传失败处理，不刷新健康回执，并进入原有离线队列。该约束要求中间代理原样转发 Collector JSON，不得用统一成功页替换响应。

@@ -55,7 +55,13 @@ function Send-SentinelReport([string]$json,[string]$url) {
     $hmac=[System.Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($env:SENTINEL_REPORT_SIGNING_SECRET));$signature=([BitConverter]::ToString($hmac.ComputeHash($signed))).Replace('-','').ToLower();$hmac.Dispose()
     $headers['X-Sentinel-Timestamp']=$timestamp;$headers['X-Sentinel-Signature']='sha256='+$signature
   }
-  Invoke-RestMethod -Uri $url -Method Post -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 15|Out-Null
+  $response=Invoke-WebRequest -UseBasicParsing -Uri $url -Method Post -Headers $headers -ContentType 'application/json; charset=utf-8' -Body $bytes -TimeoutSec 15
+  $ackBytes=[Text.Encoding]::UTF8.GetByteCount([string]$response.Content)
+  if($response.StatusCode -notin @(200,202) -or $ackBytes -gt 4096){throw 'Collector acknowledgement contract is invalid'}
+  try{$ack=([string]$response.Content)|ConvertFrom-Json}catch{throw 'Collector acknowledgement contract is invalid'}
+  $names=@($ack.PSObject.Properties.Name|Sort-Object)
+  if(($names -join ',') -cne 'accepted,duplicate,report_id,severity' -or $ack.accepted -isnot [bool] -or -not $ack.accepted -or $ack.duplicate -isnot [bool] -or ([string]$ack.report_id) -notmatch '^[a-f0-9]{20}$' -or $ack.severity -notin @('critical','high','normal')){throw 'Collector acknowledgement contract is invalid'}
+  return $ack
 }
 function Write-SentinelUploadStatus([string]$url){
   $uri=[Uri]$url;$status=@{schema='sentinel.upload-status/v1';status='accepted';last_success=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();collector_host=$uri.DnsSafeHost.ToLower()}|ConvertTo-Json -Compress
@@ -261,7 +267,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.27.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.28.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
@@ -271,9 +277,9 @@ if($ReportUrl){
   try{
     foreach($queued in @(Get-ChildItem $spool -Filter '*.json' -File|Sort-Object Name|Select-Object -First 50)){
       try{$queuedJson=Get-Content $queued.FullName -Raw;$null=$queuedJson|ConvertFrom-Json}catch{Move-Item $queued.FullName ($queued.FullName+'.'+[Guid]::NewGuid().ToString('N')+'.invalid') -Force;continue}
-      try{Send-SentinelReport $queuedJson $ReportUrl;Remove-Item $queued.FullName -Force}catch{break}
+      try{$null=Send-SentinelReport $queuedJson $ReportUrl;Remove-Item $queued.FullName -Force}catch{break}
     }
-    Send-SentinelReport $reportJson $ReportUrl;Write-SentinelUploadStatus $ReportUrl
+    $null=Send-SentinelReport $reportJson $ReportUrl;Write-SentinelUploadStatus $ReportUrl
   }catch{
     $queue=Join-Path $spool ($report.scanned_at.ToString()+'-'+$report.device_id+'-'+[Guid]::NewGuid().ToString('N')+'.json');$reportJson|Set-Content -Encoding UTF8 $queue
     Get-ChildItem $spool -Filter '*.json' -File|Sort-Object LastWriteTimeUtc -Descending|Select-Object -Skip 500|Remove-Item -Force
