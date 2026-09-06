@@ -1,5 +1,5 @@
 {
-  "schema": "sentinel.policy/v1",
+  "schema": "aegis.policy/v1",
   "version": "4.8.0",
   "updated_at": "2026-09-06T11:30:00+08:00",
   "limits": {"project_files": 10000, "max_file_bytes": 1000000, "inventory_items": 5000, "findings": 10000},

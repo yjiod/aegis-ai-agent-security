@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Sentinel endpoint scanner prototype. Standard-library only; read-only by default."""
+"""Aegis endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
 import argparse, hashlib, hmac, json, os, re, stat, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
-DEFAULT_POLICY=Path(__file__).with_name("sentinel-policy.json")
+DEFAULT_POLICY=Path(__file__).with_name("aegis-policy.json")
 AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json"]
 SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills"]
 DEPENDENCY_MANIFESTS={"package.json","requirements.txt","requirements-dev.txt"}
@@ -15,7 +15,7 @@ def max_file_bytes(policy):
     try: return min(max(int(raw),65_536),10_000_000)
     except (TypeError,ValueError): return 1_000_000
 def validate_policy(data):
-    if not isinstance(data,dict) or data.get("schema")!="sentinel.policy/v1" or not isinstance(data.get("version"),str) or not data["version"]: raise ValueError("invalid_policy_contract")
+    if not isinstance(data,dict) or data.get("schema")!="aegis.policy/v1" or not isinstance(data.get("version"),str) or not data["version"]: raise ValueError("invalid_policy_contract")
     if not isinstance(data.get("limits",{}),dict) or not isinstance(data.get("enforcement",{}),dict): raise ValueError("invalid_policy_objects")
     string_lists=("allowed_skills","allowed_mcp_transports","allowed_mcp_servers","allowed_mcp_commands","allowed_mcp_command_paths","allowed_mcp_domains","blocked_commands","secret_patterns","skill_rules","mcp_rules","code_rules")
     for key in string_lists:
@@ -45,10 +45,10 @@ AGENT_SYSTEM_MARKERS={
     "claude_code":["/usr/local/bin/claude","/opt/homebrew/bin/claude"],
     "windsurf":["/Applications/Windsurf.app","/usr/local/bin/windsurf","/opt/homebrew/bin/windsurf"],
 }
-BASELINE=Path(__file__).with_name("sentinel-security-baseline.md")
-MANAGED_MARKER="<!-- sentinel-managed-baseline -->"
-USER_BASELINE_START="<!-- sentinel-managed-user-baseline:start -->"
-USER_BASELINE_END="<!-- sentinel-managed-user-baseline:end -->"
+BASELINE=Path(__file__).with_name("aegis-security-baseline.md")
+MANAGED_MARKER="<!-- aegis-managed-baseline -->"
+USER_BASELINE_START="<!-- aegis-managed-user-baseline:start -->"
+USER_BASELINE_END="<!-- aegis-managed-user-baseline:end -->"
 def safe_path(path):
     value=str(path)
     for home in managed_homes():
@@ -278,7 +278,7 @@ def install_baseline(root):
     """Install additive, clearly-marked rules without replacing repository guidance."""
     root=Path(root).resolve()
     content=BASELINE.read_text()
-    targets=[(root/".cursor/rules/sentinel-security.mdc","---\ndescription: 企业安全编码基线\nalwaysApply: true\n---\n"+content),(root/".windsurf/rules/sentinel-security.md",content)]
+    targets=[(root/".cursor/rules/aegis-security.mdc","---\ndescription: 企业安全编码基线\nalwaysApply: true\n---\n"+content),(root/".windsurf/rules/aegis-security.md",content)]
     changed=[]
     for path,data in targets:
         if not safe_managed_target(root,path): continue
@@ -287,11 +287,11 @@ def install_baseline(root):
         if not path.exists() or path.read_text(errors="ignore")!=managed:
             path.write_text(managed); changed.append(str(path))
     for name in ["AGENTS.md","CLAUDE.md"]:
-        path=root/name; block=f"\n{MANAGED_MARKER}\n## 企业安全基线\n执行任何代码变更前，必须遵循 [.sentinel/SECURITY_BASELINE.md](.sentinel/SECURITY_BASELINE.md)。\n"
+        path=root/name; block=f"\n{MANAGED_MARKER}\n## 企业安全基线\n执行任何代码变更前，必须遵循 [.aegis/SECURITY_BASELINE.md](.aegis/SECURITY_BASELINE.md)。\n"
         if not safe_managed_target(root,path): continue
         current=path.read_text(errors="ignore") if path.exists() else ""
         if MANAGED_MARKER not in current: path.write_text(current.rstrip()+block); changed.append(str(path))
-    shared=root/".sentinel/SECURITY_BASELINE.md"
+    shared=root/".aegis/SECURITY_BASELINE.md"
     if safe_managed_target(root,shared): shared.parent.mkdir(parents=True,exist_ok=True); shared.write_text(MANAGED_MARKER+"\n"+content)
     return changed
 def install_user_baselines(homes=None):
@@ -335,25 +335,25 @@ def load_reporting_config(path):
     if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077: raise ValueError("reporting_config_permissions")
     if hasattr(os,"geteuid") and info.st_uid not in {0,os.geteuid()}: raise ValueError("reporting_config_owner")
     value=json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value,dict) or set(value)!={"schema","report_url","report_token","signing_secret"} or value.get("schema")!="sentinel.reporting/v1": raise ValueError("reporting_config_contract")
+    if not isinstance(value,dict) or set(value)!={"schema","report_url","report_token","signing_secret"} or value.get("schema")!="aegis.reporting/v1": raise ValueError("reporting_config_contract")
     parsed=urlsplit(value.get("report_url",""))
     if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or len(value["report_url"])>2048: raise ValueError("reporting_config_url")
     token=value.get("report_token"); secret=value.get("signing_secret")
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.30.0"}
+    headers={"Content-Type":"application/json","User-Agent":"AegisAgent/0.30.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
-        headers["X-Sentinel-Device-ID"]=device_id
+        headers["X-Aegis-Device-ID"]=device_id
     if secret:
         timestamp=str(int(time.time()) if now is None else now); signed=timestamp.encode()+b"."+(device_id.encode()+b"." if device_id else b"")+body
-        headers["X-Sentinel-Timestamp"]=timestamp; headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),signed,hashlib.sha256).hexdigest()
+        headers["X-Aegis-Timestamp"]=timestamp; headers["X-Aegis-Signature"]="sha256="+hmac.new(secret.encode(),signed,hashlib.sha256).hexdigest()
     return headers
 def post_report(url,token,report,signing_secret=None):
     if not url: return "disabled"
-    body=json.dumps(report,ensure_ascii=False).encode(); headers=report_headers(body,token,os.getenv("SENTINEL_REPORT_SIGNING_SECRET","") if signing_secret is None else signing_secret,device_id=report.get("device_id","") if isinstance(report,dict) else "")
+    body=json.dumps(report,ensure_ascii=False).encode(); headers=report_headers(body,token,os.getenv("AEGIS_REPORT_SIGNING_SECRET","") if signing_secret is None else signing_secret,device_id=report.get("device_id","") if isinstance(report,dict) else "")
     request=urllib.request.Request(url,data=body,headers=headers,method="POST")
     with urllib.request.urlopen(request,timeout=15) as response:
         if response.status not in {200,202}: raise OSError("collector_delivery_not_accepted")
@@ -365,7 +365,7 @@ def post_report(url,token,report,signing_secret=None):
     if not isinstance(ack,dict) or set(ack)!={"accepted","duplicate","report_id","severity"} or ack.get("accepted") is not True or type(ack.get("duplicate")) is not bool or ack.get("report_id")!=expected_report_id or ack.get("severity") not in {"critical","high","normal"}: raise OSError("collector_ack_invalid_contract")
     return ack
 def spool_limit(value=None):
-    raw=os.getenv("SENTINEL_SPOOL_MAX_REPORTS","500") if value is None else value
+    raw=os.getenv("AEGIS_SPOOL_MAX_REPORTS","500") if value is None else value
     try: return min(max(int(raw),10),10000)
     except (TypeError,ValueError): return 500
 def write_private_atomic(path,data):
@@ -399,7 +399,7 @@ def flush_spool(spool,url,token,signing_secret=None):
 def write_upload_status(path,url,now=None):
     host=urlsplit(url).hostname
     if not host: raise ValueError("invalid_upload_status_host")
-    value={"schema":"sentinel.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
+    value={"schema":"aegis.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
@@ -407,18 +407,18 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.30.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":"0.30.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
 def main():
-    ap=argparse.ArgumentParser(description="Sentinel AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("SENTINEL_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("SENTINEL_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_SPOOL_DIR","")); args=ap.parse_args()
+    ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); args=ap.parse_args()
     if not args.report_config:
         candidate=Path(__file__).with_name("reporting.json")
         if candidate.is_file(): args.report_config=str(candidate)
     policy,policy_error=reload_policy(args.policy); root=Path(args.scan_path).resolve()
-    if policy_error or policy is None: raise SystemExit("valid Sentinel policy is required")
+    if policy_error or policy is None: raise SystemExit("valid Aegis policy is required")
     reporting=None; reporting_error=False
     if args.report_config:
         try: reporting=load_reporting_config(args.report_config); args.report_url=reporting["report_url"]
@@ -434,7 +434,7 @@ def main():
             add_report_finding(report,finding("reporting_config_invalid","high",args.report_config,"受保护上报配置权限、所有者或契约无效；本轮拒绝上报")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if args.output: write_private_atomic(args.output,data)
         if args.report_url:
-            token=reporting["report_token"] if reporting else os.getenv("SENTINEL_REPORT_TOKEN",""); signing=reporting["signing_secret"] if reporting else None; spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".sentinel-agent/spool")
+            token=reporting["report_token"] if reporting else os.getenv("AEGIS_REPORT_TOKEN",""); signing=reporting["signing_secret"] if reporting else None; spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".aegis-agent/spool")
             status_path=(Path(args.output).parent if args.output else spool.parent)/"upload-status.json"
             try: flush_spool(spool,args.report_url,token,signing); post_report(args.report_url,token,report,signing); write_upload_status(status_path,args.report_url)
             except Exception as exc: queue_report(spool,report); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)

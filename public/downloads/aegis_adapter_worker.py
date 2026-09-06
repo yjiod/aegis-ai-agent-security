@@ -5,22 +5,22 @@ from contextlib import contextmanager
 from pathlib import Path
 
 def load_adapter(path=None):
-    path=Path(path or Path(__file__).with_name("sentinel_adapter.py"))
-    spec=importlib.util.spec_from_file_location("sentinel_adapter_runtime",path)
+    path=Path(path or Path(__file__).with_name("aegis_adapter.py"))
+    spec=importlib.util.spec_from_file_location("aegis_adapter_runtime",path)
     module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module); return module
 
 def retention_days(value=None):
-    raw=os.getenv("SENTINEL_ADAPTER_DISPATCH_RETENTION_DAYS","90") if value is None else value
+    raw=os.getenv("AEGIS_ADAPTER_DISPATCH_RETENTION_DAYS","90") if value is None else value
     try: return min(max(int(raw),1),3650)
     except (TypeError,ValueError): return 90
 
 def batch_size(value=None):
-    raw=os.getenv("SENTINEL_ADAPTER_BATCH_SIZE","50") if value is None else value
+    raw=os.getenv("AEGIS_ADAPTER_BATCH_SIZE","50") if value is None else value
     try: return min(max(int(raw),1),500)
     except (TypeError,ValueError): return 50
 
 def poll_seconds(value=None):
-    raw=os.getenv("SENTINEL_ADAPTER_POLL_SECONDS","10") if value is None else value
+    raw=os.getenv("AEGIS_ADAPTER_POLL_SECONDS","10") if value is None else value
     try: return min(max(float(raw),1),3600)
     except (TypeError,ValueError): return 10
 
@@ -75,7 +75,7 @@ def dispatch_once(db_path,config,spool,adapter=None,sender=None,limit=None,now=N
     return completed
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--db",default="/var/lib/sentinel/sentinel.db"); ap.add_argument("--config",default="/etc/sentinel/adapters.json"); ap.add_argument("--spool",default="/var/lib/sentinel/adapter-spool"); ap.add_argument("--once",action="store_true"); args=ap.parse_args()
+    ap=argparse.ArgumentParser(); ap.add_argument("--db",default="/var/lib/aegis/aegis.db"); ap.add_argument("--config",default="/etc/aegis/adapters.json"); ap.add_argument("--spool",default="/var/lib/aegis/adapter-spool"); ap.add_argument("--once",action="store_true"); args=ap.parse_args()
     adapter=load_adapter()
     try: config=json.loads(Path(args.config).read_text()); preflight(config,adapter)
     except (OSError,ValueError,TypeError,RecursionError) as exc: raise SystemExit("invalid adapter worker configuration: "+str(exc))
