@@ -210,6 +210,28 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(self.collector.valid_signature(headers,body+b'x',now=1001,secret='signing-secret'))
         self.assertFalse(self.collector.valid_signature(headers,body,now=1301,secret='signing-secret'))
         self.assertEqual(headers['Authorization'],'Bearer bearer'); self.assertTrue(headers['X-Sentinel-Signature'].startswith('sha256='))
+        bound=self.agent.report_headers(body,'bearer','signing-secret',now=1000,device_id='abcdef123456'); self.assertTrue(self.collector.valid_signature(bound,body,now=1001,secret='signing-secret')); self.assertFalse(self.collector.valid_signature({**bound,'X-Sentinel-Device-ID':'000000000000'},body,now=1001,secret='signing-secret'))
+    def test_collector_binds_device_identity_to_independent_credentials(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); credentials_path=root/'devices.json'; device_id='abcdef123456'; token='t'*32; secret='s'*32; admin='a'*32
+            credentials_path.write_text(json.dumps({'schema':'sentinel.device-credentials/v1','devices':{device_id:{'tokens':[token],'signing_secrets':[secret]}}})); credentials_path.chmod(0o600)
+            self.assertEqual(set(self.collector.device_credentials(credentials_path)),{device_id})
+            env={'SENTINEL_COLLECTOR_TOKEN':admin,'SENTINEL_DEVICE_CREDENTIALS_FILE':str(credentials_path)}
+            self.assertEqual(self.collector.runtime_secret_errors(env),[])
+            with patch.dict(os.environ,env,clear=True):
+                server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+                try:
+                    now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.30.0','policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
+                    headers=self.agent.report_headers(body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=headers,method='POST')
+                    with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,202)
+                    wrong={**report,'device_id':'000000000000'}; wrong_body=json.dumps(wrong).encode(); headers=self.agent.report_headers(wrong_body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=wrong_body,headers=headers,method='POST')
+                    with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(request,timeout=3)
+                    self.assertEqual(error.exception.code,401); error.exception.close()
+                finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
+            credentials_path.chmod(0o644)
+            with self.assertRaisesRegex(ValueError,'device_credentials_permissions'): self.collector.device_credentials(credentials_path)
+            credentials_path.chmod(0o600); credentials_path.write_text(json.dumps({'schema':'sentinel.device-credentials/v1','devices':{device_id:{'tokens':[token],'signing_secrets':[secret]},'000000000000':{'tokens':[token],'signing_secrets':['x'*32]}}}))
+            with self.assertRaisesRegex(ValueError,'device_credentials_not_independent'): self.collector.device_credentials(credentials_path)
     def test_endpoint_requires_strict_bounded_collector_acknowledgement(self):
         report=vendor_report(); expected=hashlib.sha256(json.dumps(report,ensure_ascii=False).encode()).hexdigest()[:20]; valid={'accepted':True,'duplicate':False,'report_id':expected,'severity':'normal'}
         class Response:
@@ -391,8 +413,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.29.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.29.0')
+        self.assertIn("agent_version='0.30.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.30.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -464,7 +486,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'sentinel.report/v1','agent_version':'0.29.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.30.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['SentinelReportValid']); self.assertTrue(parsed['SentinelReportingConfigured']); self.assertTrue(parsed['SentinelReportingHealthy'])
             upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingHealthy']); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
             reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingConfigured']); reporting.chmod(0o600)

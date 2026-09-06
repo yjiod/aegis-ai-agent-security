@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -71,6 +71,7 @@ def verify(downloads):
     for secret_name in ("SENTINEL_COLLECTOR_TOKEN","SENTINEL_REPORT_SIGNING_SECRET"):
         if not re.search(rf"(?m)^{secret_name}=$",env_example): errors.append(f"collector_example_secret_not_empty:{secret_name}")
     if "SENTINEL_ALLOW_UNSIGNED_REPORTS=false" not in env_example: errors.append("collector_unsigned_mode_not_disabled")
+    if not re.search(r"(?m)^SENTINEL_DEVICE_CREDENTIALS_FILE=$",env_example): errors.append("device_credentials_path_not_empty")
     try: nginx=(downloads/"sentinel-collector.nginx.conf").read_text()
     except OSError as exc: errors.append(f"invalid_collector_nginx:{type(exc).__name__}"); nginx=""
     for directive in ("listen 443 ssl", "ssl_protocols TLSv1.2 TLSv1.3", "client_max_body_size 2m", "limit_req zone=sentinel_reports", "proxy_pass http://127.0.0.1:8788"):
@@ -106,6 +107,11 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
     for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
+    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID"):
+        if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
+    try: device_example=json.loads((downloads/"sentinel-device-credentials.example.json").read_text())
+    except (OSError,ValueError) as exc: errors.append(f"invalid_device_credentials_example:{type(exc).__name__}"); device_example={}
+    if device_example!={"schema":"sentinel.device-credentials/v1","devices":{"0123456789ab":{"tokens":[""],"signing_secrets":[""]}}}: errors.append("unsafe_device_credentials_example")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:

@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.11 默认要求 Agent 0.29.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.12 默认要求 Agent 0.30.0、策略 4.8.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -139,3 +139,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.56.0 / Agent 0.28.0 要求 Collector 的 200/202 响应同时满足严格确认契约：字段必须恰好为 `accepted`、`duplicate`、20 位十六进制 `report_id` 和受限 `severity`，响应体不得超过 4 KiB。空 200、HTML 登录页、反向代理占位响应、附加字段或伪造报告 ID 都按上传失败处理，不刷新健康回执，并进入原有离线队列。该约束要求中间代理原样转发 Collector JSON，不得用统一成功页替换响应。
 
 0.57.0 / Agent 0.29.0 / Collector 0.11 将 `report_id` 定义为本次 HTTP 原始请求体 SHA-256 的前 20 位。Agent 在发送前独立计算期望值，并以常量精确比较确认值；格式正确但不对应本次请求体的伪造回执同样失败。Collector 仍以规范化 JSON 摘要执行语义去重，因此相同报告采用不同空白格式重传时仍标记重复，但每次回执都绑定实际收到的字节。升级时必须先部署 Collector 0.11，再分批提升 Agent 0.29.0。
+
+0.58.0 / Agent 0.30.0 / Collector 0.12 增加逐设备身份边界。Agent 发送 `X-Sentinel-Device-ID`，并把该 ID 纳入 HMAC 输入；Collector 可通过 `SENTINEL_DEVICE_CREDENTIALS_FILE` 加载最多 10000 台设备的独立 Token/HMAC 轮换集合，先按头部选择凭据，再要求已验证报告中的 `device_id` 完全一致。凭据文件拒绝符号链接、组写/其他用户权限、额外字段、重复密钥、Token/HMAC 复用和无效设备 ID。分三阶段启用：先部署 Collector 0.12 且保持该变量为空，再滚动升级全部 Agent 0.30，最后为每台设备生成独立凭据、以 `root:sentinel` 0640 安装清单并设置变量。启用清单后，旧 Agent、未知设备、跨设备凭据及身份错配均返回 401；管理查询仍使用独立的全局 Collector Token。
