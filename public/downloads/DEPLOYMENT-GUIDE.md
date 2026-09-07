@@ -223,3 +223,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.98.0 提供 `sentinel_intune_evidence.py`，从十五分钟内的 Intune 设备导出和 Collector 完整 `/v1/devices?limit=10000` 导出计算 v3 数量。工具验证设备 ID 唯一性、分配/合规/失败集合关系、Collector 完整标记及 24 小时活跃上报，只输出聚合数量并自动绑定当前发行版本与清单摘要，不把设备 ID 带入晋级证据。操作者仍需在基础证据中填写入环时间、只读探针、回滚和签名结论，然后用生成结果运行晋级预检。
 
 0.99.0 提供 `sentinel_intune_graph_normalize.py`，将 Microsoft Graph 的受管设备 `id`/`complianceState`、环分配 ID、应用 `deviceId`/`installState` 和已分配终端的 Sentinel ID 绑定表归一化为 `sentinel.intune-export/v2`。归一化器严格限制字段、枚举、数量与一对一绑定，要求每台已分配设备都有安装状态和唯一绑定；输出删除 Graph 设备 ID，并以全量设备计数替代不必要的全量标识列表。随后把输出交给 `sentinel_intune_evidence.py` 与 Collector 设备导出联接。Graph 数据获取应使用只读 `DeviceManagementManagedDevices.Read.All` 和 `DeviceManagementApps.Read.All` 权限，在受控工作目录离线处理；不得导出设备名、UPN、邮件、序列号或硬件标识。
+
+1.0.0 提供 `sentinel_vendor_probe.py`，用于深信服 EDR 或联软预生产接收端的非破坏性协议验收。默认只生成不发网的合成正常态载荷摘要；显式加入 `--live` 后才向配置中的精确 HTTPS 端点连续发送两份字节完全一致的载荷，并验证两个 2xx 响应。深信服探针强制把动作覆盖为 `observe`，联软只发送正常合规姿态，不能触发隔离、查杀、封禁或准入阻断。输出仅含端点、载荷摘要、幂等键、状态码和结果，不含令牌、原始载荷或终端身份。该探针证明传输和重复请求接受能力，但不能替代厂商对字段映射、失败重试及安全动作语义的人工验收；完成探针后仍需填写并通过 `sentinel_vendor_preflight.py`。

@@ -16,7 +16,7 @@ BUNDLE_FILES=(
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
     "uninstall-sentinel-windows.ps1","uninstall-sentinel-macos.sh","CHECKSUMS.sha256","release.json","sentinel_adapter.py",
-    "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
+    "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py","sentinel_vendor_probe.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
     "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","sentinel_intune_graph_normalize.py","intune-rollout-evidence.example.json","intune-device-export.example.json","intune-graph-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
@@ -111,6 +111,10 @@ def verify(downloads):
     if graph_example!={"schema":"sentinel.intune-graph-export/v1","generated_at":0,"current_ring":"lab","managed_devices":[],"assigned_device_ids":[],"install_states":[],"bindings":[]}: errors.append("unsafe_intune_graph_example")
     for directive in ('MAX_GRAPH_EXPORT_BYTES=2_000_000','sentinel.intune-graph-export/v1','COMPLIANCE_STATES','INSTALL_STATES','set(mapping)!=set(assigned)','incomplete_assigned_device_evidence','sentinel.intune-export/v2','fleet_total_devices'):
         if directive not in graph_normalizer: errors.append(f"unsafe_intune_graph_normalizer:{directive}")
+    try: vendor_probe=(downloads/"sentinel_vendor_probe.py").read_text()
+    except OSError as exc: errors.append(f"invalid_vendor_probe:{type(exc).__name__}"); vendor_probe=""
+    for directive in ('sentinel.vendor-probe/v1','--live','probe_target["actions"]={"normal":"observe"}','adapter.validate_target','adapter.valid_payload','payload_sha256','idempotency_key','secrets_embedded','for _ in range(2)'):
+        if directive not in vendor_probe: errors.append(f"unsafe_vendor_probe:{directive}")
     try: windows_remediation=(downloads/"intune-windows-remediate.ps1").read_text(); windows_detection=(downloads/"intune-windows-detect.ps1").read_text(); windows_compliance=(downloads/"intune-compliance-discovery.ps1").read_text(); macos_install=(downloads/"intune-macos-install.sh").read_text(); macos_compliance=(downloads/"intune-macos-compliance.sh").read_text()
     except OSError as exc: errors.append(f"invalid_endpoint_schedule:{type(exc).__name__}"); windows_remediation=windows_detection=windows_compliance=macos_install=macos_compliance=""
     for directive in ('New-ScheduledTaskTrigger -AtStartup',"Delay = 'PT2M'",'New-TimeSpan -Hours 1','-StartWhenAvailable','-MultipleInstances IgnoreNew','-ExecutionTimeLimit (New-TimeSpan -Minutes 30)','-RestartCount 3'):

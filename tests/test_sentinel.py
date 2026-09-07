@@ -11,7 +11,7 @@ def vendor_report(level='normal'):
     return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.intune_graph=load('intune_graph','sentinel_intune_graph_normalize.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); sys.modules['sentinel_adapter']=self.adapter; self.vendor_probe=load('vendor_probe','sentinel_vendor_probe.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.intune_graph=load('intune_graph','sentinel_intune_graph_normalize.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -24,7 +24,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
@@ -103,6 +103,13 @@ class SentinelTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'invalid_collector_device'): self.intune_evidence.build(DOWNLOADS,base,result,collector,2_000_000_000)
         snapshot['bindings']=[]
         with self.assertRaisesRegex(ValueError,'incomplete_assigned_device_evidence'): self.intune_graph.normalize(snapshot)
+    def test_vendor_probe_is_non_destructive_secret_free_and_opt_in_live(self):
+        config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'mode':'webhook','url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN','actions':{'normal':'block_pending_approval'}}}
+        sent=[]
+        def sender(url,payload,token='',secret=''): sent.append((url,payload,token,secret)); return 202
+        dry=self.vendor_probe.run_probe(config,'sangfor',False,sender,1000); self.assertEqual(sent,[]); self.assertEqual(dry['safe_action'],'observe'); self.assertFalse(dry['live']); self.assertEqual(dry['statuses'],[]); self.assertFalse(dry['secrets_embedded'])
+        with patch.dict(os.environ,{'SANGFOR_TOKEN':'a-private-token'}): live=self.vendor_probe.run_probe(config,'sangfor',True,sender,1000)
+        self.assertEqual(len(sent),2); self.assertTrue(all(item[1]['recommended_action']=='observe' for item in sent)); self.assertEqual(live['payload_sha256'],live['idempotency_key']); self.assertEqual(live['statuses'],[202,202]); self.assertTrue(live['idempotent_replay_accepted']); self.assertNotIn('a-private-token',json.dumps(live))
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)
