@@ -1,8 +1,9 @@
 {
-  "release": "0.84.0",
+  "release": "0.85.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T18:00:00+08:00",
+  "published_at": "2026-09-08T19:00:00+08:00",
   "features": [
+    "adapter_0_10", "leagsoft_report_freshness_enforcement", "leagsoft_stale_policy_fail_closed", "leagsoft_future_clock_rejection", "deterministic_vendor_dispatch_time", "strict_vendor_timestamp_type", "generated_vendor_payload_validation",
     "native_macos_end_to_end_agent_chain", "native_macos_codex_discovery_evidence", "native_macos_user_baseline_load_evidence", "native_macos_repository_baseline_load_evidence", "native_macos_skill_scanner_evidence", "native_macos_mcp_scanner_evidence", "native_macos_code_quality_scanner_evidence",
     "cross_platform_agent_0_35", "windows_home_constant_collision_fix", "windows_multi_user_discovery_repair", "windows_user_baseline_sync_repair", "windows_path_redaction_repair", "windows_agent_end_to_end_ci", "native_codex_discovery_evidence", "native_codex_baseline_load_evidence", "native_windows_secret_blocking", "native_windows_secret_redaction",
     "native_macos_installer_execution_ci", "native_macos_agent_execution_ci", "isolated_macos_home", "macos_private_report_mode_gate", "macos_secret_redaction_runtime_gate",

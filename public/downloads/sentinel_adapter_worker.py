@@ -40,7 +40,7 @@ def preflight(config,adapter,acceptance=None,now=None):
             for action in target.get("actions",{}).values():
                 if action not in adapter.SAFE_ACTIONS: raise ValueError(f"unsafe_sangfor_action:{action}")
     if not enabled: raise ValueError("no_enabled_adapters")
-    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.9",now=now)
+    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.10",now=now)
     if blockers: raise ValueError("vendor_acceptance_failed:"+",".join(blockers))
 
 @contextmanager
@@ -70,7 +70,7 @@ def dispatch_once(db_path,config,spool,adapter=None,sender=None,limit=None,now=N
             with open_db(db_path) as db:
                 db.execute("INSERT OR IGNORE INTO adapter_dispatches(report_id,report_hash,processed_at,result) VALUES(?,?,?,?)",(report_id,report_hash[:64],now,encoded)); db.commit()
             completed.append({"report_id":report_id,"result":"rejected_invalid_stored_report"}); continue
-        outputs=adapter.process(report,config,spool_dir=spool,sender=sender or adapter.send)
+        outputs=adapter.process(report,config,spool_dir=spool,sender=sender or adapter.send,now=now)
         accepted=bool(outputs) and all(item.get("result") in {"sent","queued"} for item in outputs)
         summary=result_summary(outputs)
         if not accepted: completed.append({"report_id":report_id,"result":"retained","outputs":summary}); continue

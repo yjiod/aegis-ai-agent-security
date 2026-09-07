@@ -709,18 +709,25 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
         self.assertFalse(outputs[1]['payload']['compliant'])
     def test_vendor_contract_and_configuration_are_fail_closed(self):
-        contract=json.loads((DOWNLOADS/'sentinel-vendor-contracts.json').read_text()); self.assertEqual(contract['adapter_version'],'0.9'); self.assertFalse(contract['secrets_embedded']); self.assertFalse(contract['sangfor']['direct_destructive_actions_allowed'])
+        contract=json.loads((DOWNLOADS/'sentinel-vendor-contracts.json').read_text()); self.assertEqual(contract['adapter_version'],'0.10'); self.assertFalse(contract['secrets_embedded']); self.assertFalse(contract['sangfor']['direct_destructive_actions_allowed'])
         self.assertEqual(contract['sangfor']['safe_actions'],sorted(self.adapter.SAFE_ACTIONS,key=lambda value:['observe','alert','isolate_pending_approval','block_pending_approval'].index(value)))
         target={'allowed_hosts':['leag.invalid'],'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
         with self.assertRaisesRegex(ValueError,'invalid_leagsoft_compliance'): self.adapter.validate_config(target)
         for compliance in ({'max_policy_age_hours':0,'critical_allowed':0},{'max_policy_age_hours':24,'critical_allowed':1},{'max_policy_age_hours':True,'critical_allowed':0}):
             with self.assertRaisesRegex(ValueError,'invalid_leagsoft_compliance'): self.adapter.validate_config({**target,'leagsoft':{**target['leagsoft'],'compliance':compliance}})
         valid={**target,'leagsoft':{**target['leagsoft'],'compliance':{'max_policy_age_hours':24,'critical_allowed':0}}}; self.assertEqual(self.adapter.validate_config(valid),valid)
+        current={**vendor_report(),'scanned_at':2_000_000_000}; current_posture=self.adapter.leagsoft_posture(current,valid['leagsoft'],now=2_000_000_300)
+        stale=self.adapter.leagsoft_posture({**current,'scanned_at':2_000_000_000-24*3600-1},valid['leagsoft'],now=2_000_000_000)
+        future=self.adapter.leagsoft_posture({**current,'scanned_at':2_000_000_301},valid['leagsoft'],now=2_000_000_000)
+        self.assertTrue(current_posture['compliant']); self.assertEqual(current_posture['reason'],'policy_pass')
+        for posture in (stale,future): self.assertFalse(posture['compliant']); self.assertEqual(posture['reason'],'stale_policy'); self.assertTrue(self.adapter.valid_payload('leagsoft',posture))
+        self.assertFalse(self.adapter.valid_report({**current,'scanned_at':True}))
+        with patch.object(self.adapter,'leagsoft_posture',return_value={'malformed':True}): self.assertEqual(self.adapter.process(current,valid,dry_run=True,now=2_000_000_000)[0]['error'],'invalid_adapter_payload:leagsoft')
     def test_vendor_production_enablement_requires_current_exact_acceptance(self):
         now=2_000_000_000; url='https://edr.invalid/events'
         config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':url,'token_env':'SANGFOR_TOKEN','actions':{'high':'alert'}}}
         item={'product_version':'aCloud EDR verified build','api_document_id':'vendor-api-42','endpoint_url':url,'auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'security-owner'}
-        evidence={'schema':'sentinel.vendor-acceptance/v1','generated_at':now,'adapter_version':'0.9','vendors':{'sangfor':item},'secrets_embedded':False}
+        evidence={'schema':'sentinel.vendor-acceptance/v1','generated_at':now,'adapter_version':'0.10','vendors':{'sangfor':item},'secrets_embedded':False}
         self.assertEqual(self.vendor_preflight.evaluate(config,evidence,now=now),[])
         with patch.dict(os.environ,{'SANGFOR_TOKEN':'test'}): self.worker.preflight(config,self.adapter,evidence,now)
         self.assertIn('vendor_endpoint_not_accepted:sangfor',self.vendor_preflight.evaluate(config,{**evidence,'vendors':{'sangfor':{**item,'endpoint_url':'https://other.invalid/events'}}},now=now))
@@ -739,14 +746,14 @@ class SentinelTests(unittest.TestCase):
         with patch.object(self.adapter.urllib.request,'urlopen',side_effect=lambda request,timeout: captured.append((request,timeout)) or Response()):
             self.assertEqual(self.adapter.send('https://edr.invalid/events',payload,token='secret'),202)
         request,timeout=captured[0]; body=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
-        self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(request.get_header('User-agent'),'SentinelAdapter/0.9'); self.assertEqual(timeout,15)
+        self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(request.get_header('User-agent'),'SentinelAdapter/0.10'); self.assertEqual(timeout,15)
     def test_adapter_worker_dispatches_each_collector_report_once(self):
         config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN','compliance':{'max_policy_age_hours':24,'critical_allowed':0}}}
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l'}):
             root=Path(d); db=root/'sentinel.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             sent=[]; sender=lambda url,payload,token='',secret='': sent.append((url,payload,token,secret)) or 202
             gate={'product_version':'test','api_document_id':'test-contract','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test'}
-            accepted={'schema':'sentinel.vendor-acceptance/v1','generated_at':101,'adapter_version':'0.9','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events'},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture'}},'secrets_embedded':False}
+            accepted={'schema':'sentinel.vendor-acceptance/v1','generated_at':101,'adapter_version':'0.10','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events'},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture'}},'secrets_embedded':False}
             first=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=101,acceptance=accepted); second=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=102,acceptance=accepted)
             self.assertEqual(first[0]['result'],'dispatched'); self.assertEqual(second,[]); self.assertEqual(len(sent),2)
             connection=sqlite3.connect(db)

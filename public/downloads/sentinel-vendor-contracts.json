@@ -1,6 +1,6 @@
 {
   "schema": "sentinel.vendor-contracts/v1",
-  "adapter_version": "0.9",
+  "adapter_version": "0.10",
   "production_enablement": {
     "evidence_schema": "sentinel.vendor-acceptance/v1",
     "maximum_evidence_age_seconds": 604800,
@@ -35,8 +35,9 @@
     "required": ["source", "device_id", "compliant", "risk_level", "policy_version", "last_scan", "reason"],
     "constants": {"source": "sentinel"},
     "risk_level": ["critical", "high", "medium", "low", "normal"],
-    "compliant_when": "risk_level not in [critical, high]",
-    "reason": ["policy_pass", "critical_or_high_finding"],
+    "compliant_when": "risk_level not in [critical, high] and last_scan is within max_policy_age_hours and no more than 300 seconds in the future",
+    "reason": ["policy_pass", "critical_or_high_finding", "stale_policy"],
+    "future_clock_tolerance_seconds": 300,
     "compliance_configuration": {"max_policy_age_hours_min": 1, "max_policy_age_hours_max": 168, "critical_allowed": 0}
   },
   "security_webhook": {"payload_ref": "sentinel-report.schema.json"},
