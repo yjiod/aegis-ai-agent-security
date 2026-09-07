@@ -1,0 +1,9 @@
+{
+  "schema": "sentinel.intune-graph-export/v1",
+  "generated_at": 0,
+  "current_ring": "lab",
+  "managed_devices": [],
+  "assigned_device_ids": [],
+  "install_states": [],
+  "bindings": []
+}

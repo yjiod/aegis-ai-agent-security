@@ -562,6 +562,7 @@ function DetailPanel({
                 <a href="/downloads/intune-rollout-evidence.example.json" download>Intune 晋级证据模板</a>
                 <a href="/downloads/sentinel_intune_preflight.py" download>Intune 晋级预检</a>
                 <a href="/downloads/sentinel_intune_evidence.py" download>Intune 证据生成器</a>
+                <a href="/downloads/sentinel_intune_graph_normalize.py" download>Graph 导出归一化器</a>
               </div>
               <p className="safety-note"><LockKeyhole size={15}/>部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。</p>
             </div>

@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","intune-rollout-evidence.example.json","intune-device-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","sentinel_intune_graph_normalize.py","intune-rollout-evidence.example.json","intune-device-export.example.json","intune-graph-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -104,8 +104,13 @@ def verify(downloads):
     try: evidence_generator=(downloads/"sentinel_intune_evidence.py").read_text(); intune_export=json.loads((downloads/"intune-device-export.example.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_intune_evidence_generator:{type(exc).__name__}"); evidence_generator=""; intune_export={}
     if intune_export!={"schema":"sentinel.intune-export/v1","generated_at":0,"current_ring":"lab","fleet_device_ids":[],"assigned_device_ids":[],"compliant_device_ids":[],"installation_failed_device_ids":[]}: errors.append("unsafe_intune_export_example")
-    for directive in ('MAX_SNAPSHOT_BYTES=2_000_000','snapshot_not_current','collector.get("complete") is not True','invalid_intune_device_relationship','now-last_seen<=86400','manifest_sha256=hashlib.sha256(manifest).hexdigest()','fleet_total_devices=len(fleet)','reporting_devices=len(reporting)'):
+    for directive in ('MAX_SNAPSHOT_BYTES=2_000_000','snapshot_not_current','collector.get("complete") is not True','invalid_intune_device_relationship','now-last_seen<=86400','manifest_sha256=hashlib.sha256(manifest).hexdigest()','fleet_total_devices=fleet_total','sentinel.intune-export/v2','device_id in collector_ids','credential_generation','report_count<1','reporting_devices=len(reporting)'):
         if directive not in evidence_generator: errors.append(f"unsafe_intune_evidence_generator:{directive}")
+    try: graph_normalizer=(downloads/"sentinel_intune_graph_normalize.py").read_text(); graph_example=json.loads((downloads/"intune-graph-export.example.json").read_text())
+    except (OSError,ValueError) as exc: errors.append(f"invalid_intune_graph_normalizer:{type(exc).__name__}"); graph_normalizer=""; graph_example={}
+    if graph_example!={"schema":"sentinel.intune-graph-export/v1","generated_at":0,"current_ring":"lab","managed_devices":[],"assigned_device_ids":[],"install_states":[],"bindings":[]}: errors.append("unsafe_intune_graph_example")
+    for directive in ('MAX_GRAPH_EXPORT_BYTES=2_000_000','sentinel.intune-graph-export/v1','COMPLIANCE_STATES','INSTALL_STATES','set(mapping)!=set(assigned)','incomplete_assigned_device_evidence','sentinel.intune-export/v2','fleet_total_devices'):
+        if directive not in graph_normalizer: errors.append(f"unsafe_intune_graph_normalizer:{directive}")
     try: windows_remediation=(downloads/"intune-windows-remediate.ps1").read_text(); windows_detection=(downloads/"intune-windows-detect.ps1").read_text(); windows_compliance=(downloads/"intune-compliance-discovery.ps1").read_text(); macos_install=(downloads/"intune-macos-install.sh").read_text(); macos_compliance=(downloads/"intune-macos-compliance.sh").read_text()
     except OSError as exc: errors.append(f"invalid_endpoint_schedule:{type(exc).__name__}"); windows_remediation=windows_detection=windows_compliance=macos_install=macos_compliance=""
     for directive in ('New-ScheduledTaskTrigger -AtStartup',"Delay = 'PT2M'",'New-TimeSpan -Hours 1','-StartWhenAvailable','-MultipleInstances IgnoreNew','-ExecutionTimeLimit (New-TimeSpan -Minutes 30)','-RestartCount 3'):
