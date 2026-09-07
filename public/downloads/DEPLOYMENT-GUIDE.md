@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.17 默认要求 Agent 0.34.0、策略 4.9.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.17 默认要求 Agent 0.35.0、策略 4.9.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -190,4 +190,4 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 0.82.0 / Agent 0.34.0 / Policy 4.9.0 将 macOS 发布门禁从 Shell 语法检查扩展到真实安装和扫描。GitHub macOS runner 使用隔离的 HOME、安装目录和项目目录，从本地发行源执行哈希固定安装，随后验证干净报告契约与 0600 权限；再注入测试密钥，确认 Agent 返回阻断状态且报告只保留脱敏证据。测试不会读取或修改 runner 的真实用户 Agent 配置。
 
-0.83.0 / Agent 0.34.0 / Policy 4.9.0 在 Windows PowerShell 5.1 原生门禁中加入完整终端链路。一次性合成 Windows 用户目录内放置 Codex 文件系统标记和测试密钥后，Agent 必须自动发现 Codex、写入并证明用户级基线为 `managed`、产生阻断级密钥发现，同时保证报告不包含测试密钥原文；测试结束仅删除带随机 `sentinel-ci-` 前缀的精确目录。该门禁证明发现、基线加载、扫描、报告与退出状态在 Windows 上能串联运行。
+0.83.0 / Agent 0.35.0 / Policy 4.9.0 在 Windows PowerShell 5.1 原生门禁中加入完整终端链路。门禁发现并修复了 PowerShell 大小写不敏感导致循环变量 `$home` 与只读系统变量 `$HOME` 冲突的问题；该缺陷会在存在真实用户时跳过发现、用户基线同步和路径脱敏。修复后使用 `$userHome`/`$userHomePath`，离线验证器禁止回归。一次性合成 Windows 用户目录内放置 Codex 标记和测试密钥，必须得到发现、`managed` 基线、阻断发现及无密钥原文报告证据；测试结束仅删除带随机 `sentinel-ci-` 前缀的精确目录。

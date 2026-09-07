@@ -78,7 +78,7 @@ function Write-SentinelUploadStatus([string]$url){
   try{$status|Set-Content -Encoding UTF8 $temp;Move-Item $temp $path -Force}finally{Remove-Item $temp -Force -ErrorAction SilentlyContinue}
 }
 function Protect-SentinelPath([string]$path) {
-  foreach ($home in $userHomes) { if ($path.StartsWith($home.FullName,[StringComparison]::OrdinalIgnoreCase)) { return '~' + $path.Substring($home.FullName.Length) } }
+  foreach ($userHome in $userHomes) { if ($path.StartsWith($userHome.FullName,[StringComparison]::OrdinalIgnoreCase)) { return '~' + $path.Substring($userHome.FullName.Length) } }
   return $path
 }
 function Test-SentinelMcpInvocation([string]$command,[object[]]$args) {
@@ -118,14 +118,14 @@ function Install-SentinelBaseline([string]$repo) {
 function Sync-SentinelUserBaselines([object[]]$homes) {
   if(-not (Test-Path $baselinePath)){return}
   $content=(Get-Content $baselinePath -Raw).TrimEnd();$start='<!-- sentinel-managed-user-baseline:start -->';$end='<!-- sentinel-managed-user-baseline:end -->';$block=$start+"`n"+$content+"`n"+$end
-  foreach($home in $homes){
-    $targets=@();$codex=Join-Path $home.FullName '.codex';$claude=Join-Path $home.FullName '.claude';$gemini=Join-Path $home.FullName '.gemini';$copilot=Join-Path $home.FullName '.copilot'
+  foreach($userHome in $homes){
+    $targets=@();$codex=Join-Path $userHome.FullName '.codex';$claude=Join-Path $userHome.FullName '.claude';$gemini=Join-Path $userHome.FullName '.gemini';$copilot=Join-Path $userHome.FullName '.copilot'
     if((Test-Path $codex) -and -not ((Get-Item $codex -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $codex 'AGENTS.md'}
-    if(((Test-Path $claude) -and -not ((Get-Item $claude -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) -or (Test-Path (Join-Path $home.FullName '.claude.json'))){$targets+=Join-Path $claude 'CLAUDE.md'}
+    if(((Test-Path $claude) -and -not ((Get-Item $claude -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) -or (Test-Path (Join-Path $userHome.FullName '.claude.json'))){$targets+=Join-Path $claude 'CLAUDE.md'}
     if((Test-Path $gemini) -and -not ((Get-Item $gemini -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $gemini 'GEMINI.md'}
     if((Test-Path $copilot) -and -not ((Get-Item $copilot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $copilot 'copilot-instructions.md'}
     foreach($target in $targets){
-      if(-not (Test-SentinelSafeTarget $home.FullName $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target)|Out-Null;if(-not (Test-SentinelSafeTarget $home.FullName $target)){continue}
+      if(-not (Test-SentinelSafeTarget $userHome.FullName $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target)|Out-Null;if(-not (Test-SentinelSafeTarget $userHome.FullName $target)){continue}
       $existing=if(Test-Path $target){Get-Content $target -Raw}else{''};$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
       if($existing.Contains($start) -xor $existing.Contains($end)){$script:findings+=@{kind='malformed_user_baseline_block';severity='high';path=(Protect-SentinelPath $target);message='用户级安全基线托管标记不完整，已停止自动修改'};continue}
       if($existing.Contains($start)){$updated=[regex]::Replace($existing,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match)$block},[System.Text.RegularExpressions.RegexOptions]::Singleline)}else{$updated=$existing.TrimEnd()+$(if($existing.Trim()){"`n`n"}else{''})+$block+"`n"}
@@ -133,10 +133,10 @@ function Sync-SentinelUserBaselines([object[]]$homes) {
     }
   }
 }
-function Get-SentinelUserBaselineStatus([string]$home,[string]$agent) {
+function Get-SentinelUserBaselineStatus([string]$userHomePath,[string]$agent) {
   $relative=switch($agent){'codex'{'.codex\AGENTS.md'}'claude_code'{'.claude\CLAUDE.md'}'gemini_cli'{'.gemini\GEMINI.md'}'github_copilot_cli'{'.copilot\copilot-instructions.md'}default{return $null}}
-  $target=Join-Path $home $relative
-  if(-not (Test-SentinelSafeTarget $home $target)){return @{path=$target;status='unsafe'}}
+  $target=Join-Path $userHomePath $relative
+  if(-not (Test-SentinelSafeTarget $userHomePath $target)){return @{path=$target;status='unsafe'}}
   if(-not (Test-Path $target -PathType Leaf)){return @{path=$target;status='missing'}}
   try{
     $text=Get-Content $target -Raw;$start='<!-- sentinel-managed-user-baseline:start -->';$end='<!-- sentinel-managed-user-baseline:end -->';$expected=(Get-Content $baselinePath -Raw).TrimEnd()
@@ -243,10 +243,10 @@ $agentMarkers = @{
   gemini_cli=@('.gemini\settings.json','.gemini\GEMINI.md','AppData\Roaming\npm\gemini.cmd')
   github_copilot_cli=@('.copilot\config.json','.copilot\settings.json','.copilot\mcp-config.json','AppData\Roaming\npm\copilot.cmd')
 }
-foreach ($home in $userHomes) {
-  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf','.gemini','.copilot')) { $candidate=Join-Path $home.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
+foreach ($userHome in $userHomes) {
+  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf','.gemini','.copilot')) { $candidate=Join-Path $userHome.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
   foreach ($agent in $agentMarkers.Keys) {
-    foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $home.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-SentinelPath $marker);scope='user';detected_by='filesystem_marker'};$baseline=Get-SentinelUserBaselineStatus $home.FullName $agent;if($baseline){$inventory += @{type='agent_baseline';name=$agent;status=$baseline.status;scope='user'};if($baseline.status -ne 'managed'){$findings += @{kind='agent_baseline_not_loaded';severity='high';path=(Protect-SentinelPath $baseline.path);message="$agent 已发现但企业安全基线未处于受管状态";evidence=$baseline.status}}};break} }
+    foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $userHome.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-SentinelPath $marker);scope='user';detected_by='filesystem_marker'};$baseline=Get-SentinelUserBaselineStatus $userHome.FullName $agent;if($baseline){$inventory += @{type='agent_baseline';name=$agent;status=$baseline.status;scope='user'};if($baseline.status -ne 'managed'){$findings += @{kind='agent_baseline_not_loaded';severity='high';path=(Protect-SentinelPath $baseline.path);message="$agent 已发现但企业安全基线未处于受管状态";evidence=$baseline.status}}};break} }
   }
 }
 $systemMarkers = @{
@@ -295,7 +295,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.34.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.35.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

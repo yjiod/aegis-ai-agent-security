@@ -12,7 +12,7 @@ mkdir -p "$PROJECT" "$TEST_HOME"
 
 SENTINEL_BASE_URL="file://$SOURCE" SENTINEL_INSTALL_DIR="$INSTALL" /bin/sh "$SOURCE/install-sentinel.sh"
 HOME="$TEST_HOME" python3 "$INSTALL/sentinel_agent.py" "$PROJECT" --policy "$INSTALL/sentinel-policy.json" --output "$REPORT" >/dev/null
-python3 -c 'import json,os,stat,sys; p=sys.argv[1]; r=json.load(open(p)); assert r["schema"]=="sentinel.report/v1" and r["agent_version"]=="0.34.0" and r["policy_version"]=="4.9.0"; assert r["summary"]["critical"]==0 and r["summary"]["high"]==0; assert stat.S_IMODE(os.stat(p).st_mode)==0o600' "$REPORT"
+python3 -c 'import json,os,stat,sys; p=sys.argv[1]; r=json.load(open(p)); assert r["schema"]=="sentinel.report/v1" and r["agent_version"]=="0.35.0" and r["policy_version"]=="4.9.0"; assert r["summary"]["critical"]==0 and r["summary"]["high"]==0; assert stat.S_IMODE(os.stat(p).st_mode)==0o600' "$REPORT"
 
 SECRET='sk-abcdefghijklmnopqrstuvwxyz123456'
 printf '%s\n' "token=\"$SECRET\"" > "$PROJECT/app.py"
