@@ -4,9 +4,9 @@ $source = Join-Path $root 'public\downloads'
 $sandbox = Join-Path $env:RUNNER_TEMP ('sentinel-windows-smoke-' + [Guid]::NewGuid().ToString('N'))
 $programData = Join-Path $sandbox 'ProgramData'
 $install = Join-Path $programData 'SentinelAgent'
-$users = Join-Path $sandbox 'Users'
+$users = 'C:\Users'
 $output = Join-Path $sandbox 'reports\latest.json'
-New-Item -ItemType Directory -Force -Path $install,$users | Out-Null
+New-Item -ItemType Directory -Force -Path $install | Out-Null
 Copy-Item (Join-Path $source 'sentinel-windows.ps1') $install
 Copy-Item (Join-Path $source 'sentinel-policy.json') $install
 Copy-Item (Join-Path $source 'sentinel-security-baseline.md') $install
@@ -34,7 +34,7 @@ try {
   if ($report.schema -cne 'sentinel.report/v1' -or $report.agent_version -cne '0.34.0' -or $report.policy_version -cne '4.9.0') { throw 'clean report contract mismatch' }
   if ($report.summary.critical -ne 0 -or $report.summary.high -ne 0) { throw 'clean report unexpectedly contains blocking findings' }
 
-  $testHome = Join-Path $users 'sentinel-test-user'
+  $testHome = Join-Path $users ('sentinel-ci-' + [Guid]::NewGuid().ToString('N'))
   $codex = Join-Path $testHome '.codex'
   New-Item -ItemType Directory -Force -Path $codex | Out-Null
   Set-Content -Encoding UTF8 (Join-Path $codex 'config.toml') '# Sentinel native discovery marker'
@@ -59,5 +59,6 @@ try {
   if ($report.policy_version -cne 'invalid' -or @($report.findings | Where-Object kind -eq 'policy_load_failed').Count -ne 1) { throw 'invalid policy finding contract mismatch' }
 } finally {
   $env:ProgramData = $previousProgramData
+  if ($testHome -and $testHome.StartsWith('C:\Users\sentinel-ci-', [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $testHome -Recurse -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
 }
