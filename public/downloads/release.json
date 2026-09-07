@@ -1,8 +1,9 @@
 {
-  "release": "0.93.0",
+  "release": "0.94.0",
   "channel": "pilot",
   "published_at": "2026-09-08T23:00:00+08:00",
   "features": [
+    "bounded_intune_preflight_inputs", "descriptor_bound_intune_evidence", "nofollow_intune_manifest", "bounded_intune_artifact_hashing", "intune_artifact_path_confinement", "intune_input_swap_race_rejection",
     "adapter_0_18", "descriptor_bound_vendor_json_inputs", "nofollow_vendor_config_reads", "inode_bound_acceptance_reads", "bounded_report_descriptor_reads", "input_swap_race_rejection",
     "adapter_0_17", "unified_vendor_spool_directory_gate", "owner_bound_vendor_spool", "private_vendor_spool_mode", "flush_only_directory_validation", "symlink_spool_replay_rejection",
     "adapter_0_16", "nofollow_vendor_queue_reads", "inode_bound_vendor_queue_reads", "symlink_queue_event_rejection", "bounded_descriptor_queue_reads", "safe_nonregular_queue_cleanup",

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline, secret-free Intune rollout promotion preflight."""
-import argparse, hashlib, json, sys, time
+import argparse, hashlib, json, os, stat, sys, time
 from pathlib import Path
 
 RINGS=("lab","pilot","broad","production")
@@ -10,14 +10,32 @@ EVIDENCE_FIELDS={
     "rollback_tested_in_ring","critical_findings","reporting_healthy_since",
     "production_signature_verified",
 }
+MAX_INTUNE_EVIDENCE_BYTES=65_536
+MAX_INTUNE_MANIFEST_BYTES=262_144
+MAX_INTUNE_ARTIFACT_BYTES=2_000_000
 
-def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+def read_bytes_bounded(path,max_bytes):
+    path=Path(path); before=path.lstat()
+    if not stat.S_ISREG(before.st_mode): raise ValueError("unsafe_intune_input")
+    if before.st_size>max_bytes: raise ValueError("oversized_intune_input")
+    fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
+    try:
+        opened=os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino): raise ValueError("unsafe_intune_input")
+        if opened.st_size>max_bytes: raise ValueError("oversized_intune_input")
+        with os.fdopen(fd,"rb") as handle: fd=-1; raw=handle.read(max_bytes+1)
+    finally:
+        if fd>=0: os.close(fd)
+    if len(raw)>max_bytes: raise ValueError("oversized_intune_input")
+    return raw
+def read_json_bounded(path,max_bytes): return json.loads(read_bytes_bounded(path,max_bytes).decode("utf-8"))
+def digest(path): return hashlib.sha256(read_bytes_bounded(path,MAX_INTUNE_ARTIFACT_BYTES)).hexdigest()
 
 def evaluate(downloads,evidence,target_ring,now=None):
     downloads=Path(downloads); now=int(time.time() if now is None else now); blockers=[]
     if target_ring not in RINGS: return ["invalid_target_ring"]
-    try: manifest=json.loads((downloads/"intune-deployment-manifest.json").read_text())
-    except (OSError,ValueError) as exc: return [f"invalid_intune_manifest:{type(exc).__name__}"]
+    try: manifest=read_json_bounded(downloads/"intune-deployment-manifest.json",MAX_INTUNE_MANIFEST_BYTES)
+    except (OSError,ValueError,UnicodeError,json.JSONDecodeError) as exc: return [f"invalid_intune_manifest:{type(exc).__name__}"]
     if not isinstance(evidence,dict) or set(evidence)!=EVIDENCE_FIELDS: blockers.append("invalid_evidence_contract"); return blockers
     if evidence.get("schema")!="sentinel.intune-evidence/v1": blockers.append("invalid_evidence_schema")
     generated=evidence.get("generated_at")
@@ -34,9 +52,13 @@ def evaluate(downloads,evidence,target_ring,now=None):
     if not isinstance(artifacts,dict): blockers.append("invalid_artifact_manifest")
     else:
         for item in artifacts.values():
-            if not isinstance(item,dict): blockers.append("invalid_artifact_manifest"); continue
-            name=item.get("file",""); path=downloads/name
-            if not path.is_file() or item.get("sha256")!=digest(path): blockers.append(f"artifact_digest_mismatch:{name}")
+            if not isinstance(item,dict) or set(item)!={"file","sha256"}: blockers.append("invalid_artifact_manifest"); continue
+            name=item.get("file","")
+            if not isinstance(name,str) or not 1<=len(name)<=128 or Path(name).name!=name: blockers.append("invalid_artifact_manifest"); continue
+            path=downloads/name
+            try: matches=isinstance(item.get("sha256"),str) and item["sha256"]==digest(path)
+            except (OSError,ValueError): matches=False
+            if not matches: blockers.append(f"artifact_digest_mismatch:{name}")
     for field in ("collector_probe_read_only_passed","release_verifier_passed","reporting_credentials_delivered_out_of_band"):
         if evidence.get(field) is not True: blockers.append(f"gate_failed:{field}")
     critical=evidence.get("critical_findings")
@@ -58,8 +80,8 @@ def main():
     parser.add_argument("--evidence",required=True)
     parser.add_argument("--target-ring",required=True,choices=RINGS)
     args=parser.parse_args()
-    try: evidence=json.loads(Path(args.evidence).read_text())
-    except (OSError,ValueError) as exc:
+    try: evidence=read_json_bounded(args.evidence,MAX_INTUNE_EVIDENCE_BYTES)
+    except (OSError,ValueError,UnicodeError,json.JSONDecodeError) as exc:
         print(json.dumps({"ok":False,"target_ring":args.target_ring,"blockers":[f"invalid_evidence:{type(exc).__name__}"]},separators=(",",":"))); return 1
     blockers=evaluate(args.downloads,evidence,args.target_ring)
     print(json.dumps({"ok":not blockers,"target_ring":args.target_ring,"blockers":blockers},separators=(",",":")))

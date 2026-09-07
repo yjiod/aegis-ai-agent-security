@@ -66,6 +66,16 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'intune-windows-detect.ps1').write_text('# drift')
             self.assertIn('artifact_digest_mismatch:intune-windows-detect.ps1',self.preflight.evaluate(copy,{**evidence,'generated_at':now},'broad',now))
+            manifest=json.loads((copy/'intune-deployment-manifest.json').read_text()); first=next(iter(manifest['artifacts'].values())); first['file']='../outside'; first['sha256']=hashlib.sha256(b'outside').hexdigest(); (Path(d)/'outside').write_bytes(b'outside'); (copy/'intune-deployment-manifest.json').write_text(json.dumps(manifest))
+            self.assertIn('invalid_artifact_manifest',self.preflight.evaluate(copy,{**evidence,'generated_at':now},'broad',now))
+            safe=Path(d)/'safe.json'; safe.write_text('{}'); linked=Path(d)/'linked.json'; linked.symlink_to(safe)
+            with self.assertRaisesRegex(ValueError,'unsafe_intune_input'): self.preflight.read_json_bounded(linked,100)
+            oversized=Path(d)/'oversized.json'; oversized.write_bytes(b'x'*101)
+            with self.assertRaisesRegex(ValueError,'oversized_intune_input'): self.preflight.read_json_bounded(oversized,100)
+            replacement=Path(d)/'replacement.json'; replacement.write_text('{"swapped":true}'); original_open=self.preflight.os.open
+            def swap_then_open(path,flags): os.replace(replacement,path); return original_open(path,flags)
+            with patch.object(self.preflight.os,'open',side_effect=swap_then_open):
+                with self.assertRaisesRegex(ValueError,'unsafe_intune_input'): self.preflight.read_json_bounded(safe,100)
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)
