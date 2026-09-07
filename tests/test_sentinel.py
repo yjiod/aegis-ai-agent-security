@@ -59,6 +59,10 @@ class SentinelTests(unittest.TestCase):
         evidence.update(rollback_tested_in_ring=True,current_ring='broad',current_ring_entered_at=now-72*3600)
         self.assertIn('gate_failed:production_signature',self.preflight.evaluate(DOWNLOADS,evidence,'production',now))
         self.assertIn('invalid_ring_promotion',self.preflight.evaluate(DOWNLOADS,{**evidence,'current_ring':'lab'},'production',now))
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); manifest=json.loads((copy/'intune-deployment-manifest.json').read_text()); manifest['rollout_rings'][0]['minimum_observation_hours']=1; (copy/'intune-deployment-manifest.json').write_text(json.dumps(manifest))
+            shortened={**evidence,'current_ring':'lab','current_ring_entered_at':now-3600}
+            self.assertEqual(self.preflight.evaluate(copy,shortened,'pilot',now),['invalid_intune_manifest_contract'])
     def test_intune_preflight_fails_closed_on_stale_evidence_and_digest_drift(self):
         now=2_000_000_000
         evidence={'schema':'sentinel.intune-evidence/v1','generated_at':now-86401,'current_ring':'pilot','current_ring_entered_at':now-48*3600,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':True,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}

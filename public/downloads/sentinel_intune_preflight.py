@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline, secret-free Intune rollout promotion preflight."""
-import argparse, hashlib, json, os, stat, sys, time
+import argparse, hashlib, json, os, re, stat, sys, time
 from pathlib import Path
 
 RINGS=("lab","pilot","broad","production")
@@ -13,6 +13,11 @@ EVIDENCE_FIELDS={
 MAX_INTUNE_EVIDENCE_BYTES=65_536
 MAX_INTUNE_MANIFEST_BYTES=262_144
 MAX_INTUNE_ARTIFACT_BYTES=2_000_000
+EXPECTED_ARTIFACT_ROLES={"windows_detection","windows_remediation","windows_compliance_discovery","windows_compliance_rules","windows_reporting_configuration","windows_rollback","windows_uninstall","macos_install","macos_compliance_discovery","macos_compliance_rules","macos_reporting_configuration","macos_rollback","macos_uninstall"}
+EXPECTED_DEPLOYMENT_ORDER=["collector_and_tls","reporting_credentials","endpoint_installation","reporting_configuration","custom_compliance","conditional_access"]
+EXPECTED_ROLLOUT_RINGS=[{"name":"lab","maximum_percent":1,"minimum_observation_hours":24},{"name":"pilot","maximum_percent":5,"minimum_observation_hours":48},{"name":"broad","maximum_percent":25,"minimum_observation_hours":72},{"name":"production","maximum_percent":100,"minimum_observation_hours":168}]
+EXPECTED_GATES=["collector_probe_read_only_passed","release_verifier_passed","reporting_credentials_delivered_out_of_band","rollback_tested_in_ring","no_critical_findings","reporting_healthy_24h"]
+SIGNABLE_FILES={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","sentinel-configure-windows.ps1","rollback-sentinel-windows.ps1","uninstall-sentinel-windows.ps1"}
 
 def read_bytes_bounded(path,max_bytes):
     path=Path(path); before=path.lstat()
@@ -30,12 +35,26 @@ def read_bytes_bounded(path,max_bytes):
     return raw
 def read_json_bounded(path,max_bytes): return json.loads(read_bytes_bounded(path,max_bytes).decode("utf-8"))
 def digest(path): return hashlib.sha256(read_bytes_bounded(path,MAX_INTUNE_ARTIFACT_BYTES)).hexdigest()
+def valid_manifest_contract(manifest):
+    if not isinstance(manifest,dict) or manifest.get("schema")!="sentinel.intune-deployment/v1" or manifest.get("secrets_embedded") is not False: return False
+    execution=manifest.get("execution"); state=execution.get("script_signature_state") if isinstance(execution,dict) else None
+    expected_execution={"windows_run_as":"system","windows_run_as_32_bit":False,"macos_run_as":"root","macos_hide_notifications":True,"script_signature_state":state,"production_signature_required":True}
+    if state not in {"pilot_unsigned","production_signed"} or execution!=expected_execution: return False
+    expected_root={"schema","execution","artifacts","deployment_order","rollout_rings","gates","secrets_embedded"}|({"signing"} if state=="production_signed" else set())
+    artifacts=manifest.get("artifacts")
+    if set(manifest)!=expected_root or not isinstance(artifacts,dict) or set(artifacts)!=EXPECTED_ARTIFACT_ROLES: return False
+    if manifest.get("deployment_order")!=EXPECTED_DEPLOYMENT_ORDER or manifest.get("rollout_rings")!=EXPECTED_ROLLOUT_RINGS or manifest.get("gates")!=EXPECTED_GATES: return False
+    signing=manifest.get("signing")
+    if state=="pilot_unsigned": return signing is None
+    verified=signing.get("verified_files") if isinstance(signing,dict) else None
+    return isinstance(signing,dict) and set(signing)=={"certificate_thumbprint","timestamp_server","signed_at","verified_files"} and isinstance(signing.get("certificate_thumbprint"),str) and bool(re.fullmatch(r"[0-9a-f]{40}",signing["certificate_thumbprint"])) and isinstance(signing.get("timestamp_server"),str) and signing["timestamp_server"].startswith("https://") and isinstance(signing.get("signed_at"),int) and not isinstance(signing["signed_at"],bool) and isinstance(verified,list) and set(verified)==SIGNABLE_FILES and len(verified)==len(SIGNABLE_FILES)
 
 def evaluate(downloads,evidence,target_ring,now=None):
     downloads=Path(downloads); now=int(time.time() if now is None else now); blockers=[]
     if target_ring not in RINGS: return ["invalid_target_ring"]
     try: manifest=read_json_bounded(downloads/"intune-deployment-manifest.json",MAX_INTUNE_MANIFEST_BYTES)
     except (OSError,ValueError,UnicodeError,json.JSONDecodeError) as exc: return [f"invalid_intune_manifest:{type(exc).__name__}"]
+    if not valid_manifest_contract(manifest): return ["invalid_intune_manifest_contract"]
     if not isinstance(evidence,dict) or set(evidence)!=EVIDENCE_FIELDS: blockers.append("invalid_evidence_contract"); return blockers
     if evidence.get("schema")!="sentinel.intune-evidence/v1": blockers.append("invalid_evidence_schema")
     generated=evidence.get("generated_at")
