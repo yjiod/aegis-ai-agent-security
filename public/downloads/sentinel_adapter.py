@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fail-safe vendor boundary for Sangfor EDR and Leagsoft. Disabled by default."""
-import argparse, hashlib, hmac, json, os, re, tempfile, time, urllib.request
+import argparse, hashlib, hmac, json, os, re, stat, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
@@ -107,7 +107,7 @@ def validate_target(name,target,config,dry_run=False):
 def send(url,payload,token="",secret=""):
     body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode()
     if len(body)>MAX_VENDOR_PAYLOAD_BYTES: raise ValueError("adapter_payload_too_large")
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.15","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.16","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
@@ -126,7 +126,7 @@ def queue_delivery(spool,name,payload,limit=None):
     spool.mkdir(mode=0o700,parents=True,exist_ok=True)
     if spool.is_symlink() or not spool.is_dir(): raise OSError("adapter_spool_unsafe")
     os.chmod(spool,0o700)
-    files=sorted(spool.glob("*.json"),key=lambda item:(item.stat().st_mtime_ns,item.name)); keep=spool_limit(limit)
+    files=sorted(spool.glob("*.json"),key=lambda item:item.name); keep=spool_limit(limit)
     if len(files)>=keep: raise OSError("adapter_spool_full")
     body=json.dumps({"adapter":name,"queued_at":int(time.time()),"payload":payload},ensure_ascii=False,separators=(",",":")); digest=hashlib.sha256(body.encode()).hexdigest()[:16]
     path=spool/f"{int(time.time())}-{time.time_ns()}-{digest}.json"; fd,temp_name=tempfile.mkstemp(prefix=".sentinel-adapter-",suffix=".tmp",dir=spool); temp=Path(temp_name)
@@ -142,19 +142,32 @@ def queue_delivery(spool,name,payload,limit=None):
         if fd>=0: os.close(fd)
         if temp.exists(): temp.unlink()
 def quarantine(path,spool,keep=20):
-    invalid=path.with_name(path.name+f".{time.time_ns()}.invalid"); path.rename(invalid); os.chmod(invalid,0o600)
-    files=sorted(spool.glob("*.invalid"),key=lambda item:(item.stat().st_mtime_ns,item.name))
+    invalid=path.with_name(path.name+f".{time.time_ns()}.invalid"); path.rename(invalid)
+    if not stat.S_ISREG(invalid.lstat().st_mode): invalid.unlink(); return invalid.with_name(invalid.name+".unsafe-removed")
+    os.chmod(invalid,0o600)
+    files=sorted(spool.glob("*.invalid"),key=lambda item:item.name)
     for expired in files[:-keep]: expired.unlink()
     return invalid
+def read_queued_event(path):
+    before=path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_size>MAX_VENDOR_QUEUE_FILE_BYTES: raise ValueError("unsafe_or_oversized_queued_event")
+    fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
+    try:
+        opened=os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino) or opened.st_size>MAX_VENDOR_QUEUE_FILE_BYTES: raise ValueError("unsafe_or_oversized_queued_event")
+        with os.fdopen(fd,"rb") as handle: fd=-1; raw=handle.read(MAX_VENDOR_QUEUE_FILE_BYTES+1)
+    finally:
+        if fd>=0: os.close(fd)
+    if len(raw)>MAX_VENDOR_QUEUE_FILE_BYTES: raise ValueError("unsafe_or_oversized_queued_event")
+    return json.loads(raw.decode("utf-8"))
 def flush_spool(config,spool,sender=send,limit=50):
     try: validate_config(config)
     except ValueError as exc: return [{"adapter":"boundary","result":"rejected","error":str(exc)}]
     if not spool.exists(): return []
     results=[]
-    for path in sorted(spool.glob("*.json"))[:limit]:
+    for path in sorted(spool.glob("*.json"),key=lambda item:item.name)[:limit]:
         try:
-            if path.stat().st_size>MAX_VENDOR_QUEUE_FILE_BYTES: raise ValueError("oversized_queued_event")
-            item=json.loads(path.read_text()); name=item["adapter"]
+            item=read_queued_event(path); name=item["adapter"]
             if name not in ADAPTERS or set(item)!={"adapter","queued_at","payload"} or not valid_payload(name,item["payload"]): raise ValueError("invalid_queued_event")
         except (OSError,json.JSONDecodeError,UnicodeDecodeError,RecursionError,TypeError,KeyError,ValueError) as exc:
             invalid=quarantine(path,spool); results.append({"adapter":path.name,"result":"quarantined","queue_id":invalid.name,"error":type(exc).__name__}); continue

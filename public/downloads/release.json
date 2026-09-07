@@ -1,8 +1,9 @@
 {
-  "release": "0.90.0",
+  "release": "0.91.0",
   "channel": "pilot",
   "published_at": "2026-09-08T23:00:00+08:00",
   "features": [
+    "adapter_0_16", "nofollow_vendor_queue_reads", "inode_bound_vendor_queue_reads", "symlink_queue_event_rejection", "bounded_descriptor_queue_reads", "safe_nonregular_queue_cleanup",
     "adapter_0_15", "bounded_worker_database_reads", "stored_report_digest_verification", "tampered_database_report_rejection", "oversized_database_report_rejection",
     "adapter_0_14", "bounded_adapter_local_inputs", "bounded_vendor_acceptance_inputs", "strict_utf8_vendor_inputs", "symlink_safe_vendor_input_files",
     "adapter_0_13", "bounded_vendor_payload_bytes", "collector_adapter_size_parity", "preparse_vendor_queue_size_gate", "oversized_vendor_queue_quarantine",

@@ -1,6 +1,6 @@
 {
   "schema": "sentinel.vendor-contracts/v1",
-  "adapter_version": "0.15",
+  "adapter_version": "0.16",
   "production_enablement": {
     "evidence_schema": "sentinel.vendor-acceptance/v1",
     "maximum_evidence_age_seconds": 604800,
@@ -23,7 +23,9 @@
     "silent_eviction_allowed": false,
     "credentials_stored": false,
     "write_semantics": "private_fsync_atomic_replace_directory_fsync",
+    "read_semantics": "nofollow_regular_file_inode_bound_bounded_read",
     "symlink_directory_allowed": false,
+    "symlink_event_allowed": false,
     "maximum_queue_file_bytes": 2100000
   },
   "local_inputs": {
