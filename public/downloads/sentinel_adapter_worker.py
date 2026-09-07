@@ -40,7 +40,7 @@ def preflight(config,adapter,acceptance=None,now=None):
             for action in target.get("actions",{}).values():
                 if action not in adapter.SAFE_ACTIONS: raise ValueError(f"unsafe_sangfor_action:{action}")
     if not enabled: raise ValueError("no_enabled_adapters")
-    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.16",now=now)
+    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.17",now=now)
     if blockers: raise ValueError("vendor_acceptance_failed:"+",".join(blockers))
 
 @contextmanager
