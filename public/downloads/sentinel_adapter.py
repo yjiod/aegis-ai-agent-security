@@ -88,7 +88,7 @@ def validate_target(name,target,config,dry_run=False):
     env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
     if not dry_run and (not env_name or not os.getenv(env_name,"")): raise ValueError(f"missing_adapter_credential:{name}")
 def send(url,payload,token="",secret=""):
-    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.10","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.11","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
@@ -104,10 +104,10 @@ def spool_limit(value=None):
     except (TypeError,ValueError): return 500
 def queue_delivery(spool,name,payload,limit=None):
     spool.mkdir(mode=0o700,parents=True,exist_ok=True); os.chmod(spool,0o700)
+    files=sorted(spool.glob("*.json"),key=lambda item:(item.stat().st_mtime_ns,item.name)); keep=spool_limit(limit)
+    if len(files)>=keep: raise OSError("adapter_spool_full")
     body=json.dumps({"adapter":name,"queued_at":int(time.time()),"payload":payload},ensure_ascii=False,separators=(",",":")); digest=hashlib.sha256(body.encode()).hexdigest()[:16]
     path=spool/f"{int(time.time())}-{time.time_ns()}-{digest}.json"; path.write_text(body); os.chmod(path,0o600)
-    files=sorted(spool.glob("*.json"),key=lambda item:(item.stat().st_mtime_ns,item.name)); keep=spool_limit(limit)
-    for expired in files[:-keep]: expired.unlink()
     return path
 def quarantine(path,spool,keep=20):
     invalid=path.with_name(path.name+f".{time.time_ns()}.invalid"); path.rename(invalid); os.chmod(invalid,0o600)
@@ -148,7 +148,10 @@ def process(report,config,dry_run=False,spool_dir=None,sender=send,now=None):
             outputs.append({"adapter":name,"result":"rejected","error":str(exc)})
         except Exception as exc:
             if payload is None: outputs.append({"adapter":name,"result":"rejected","error":"payload_build_failed"}); continue
-            path=queue_delivery(spool,name,payload); outputs.append({"adapter":name,"result":"queued","queue_id":path.name,"error":type(exc).__name__})
+            try:
+                path=queue_delivery(spool,name,payload); outputs.append({"adapter":name,"result":"queued","queue_id":path.name,"error":type(exc).__name__})
+            except OSError as queue_error:
+                outputs.append({"adapter":name,"result":"retained","error":"adapter_spool_full" if str(queue_error)=="adapter_spool_full" else "adapter_spool_write_failed"})
     return outputs
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("report",nargs="?"); ap.add_argument("--config",default=str(Path(__file__).with_name("sentinel-adapters.json"))); ap.add_argument("--dry-run",action="store_true"); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_ADAPTER_SPOOL","")); ap.add_argument("--flush-only",action="store_true"); args=ap.parse_args()

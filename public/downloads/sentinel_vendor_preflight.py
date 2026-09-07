@@ -12,7 +12,7 @@ VENDOR_FIELDS={
     "safe_action_mapping_verified","dry_run_payload_approved","approved_by",
 }
 
-def evaluate(config,evidence,adapter_version="0.10",now=None,max_age_seconds=604800):
+def evaluate(config,evidence,adapter_version="0.11",now=None,max_age_seconds=604800):
     now=int(time.time() if now is None else now); blockers=[]
     if not isinstance(config,dict): return ["invalid_adapter_config"]
     if not any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in VENDORS): return []
@@ -44,7 +44,7 @@ def evaluate(config,evidence,adapter_version="0.10",now=None,max_age_seconds=604
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--config",required=True); parser.add_argument("--evidence",required=True)
-    parser.add_argument("--adapter-version",default="0.10")
+    parser.add_argument("--adapter-version",default="0.11")
     args=parser.parse_args()
     try:
         config=json.loads(Path(args.config).read_text()); evidence=json.loads(Path(args.evidence).read_text())
