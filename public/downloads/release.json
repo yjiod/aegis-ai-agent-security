@@ -1,8 +1,9 @@
 {
-  "release": "0.89.0",
+  "release": "0.90.0",
   "channel": "pilot",
   "published_at": "2026-09-08T23:00:00+08:00",
   "features": [
+    "adapter_0_15", "bounded_worker_database_reads", "stored_report_digest_verification", "tampered_database_report_rejection", "oversized_database_report_rejection",
     "adapter_0_14", "bounded_adapter_local_inputs", "bounded_vendor_acceptance_inputs", "strict_utf8_vendor_inputs", "symlink_safe_vendor_input_files",
     "adapter_0_13", "bounded_vendor_payload_bytes", "collector_adapter_size_parity", "preparse_vendor_queue_size_gate", "oversized_vendor_queue_quarantine",
     "adapter_0_12", "atomic_vendor_spool_write", "fsynced_vendor_queue_files", "durable_vendor_queue_directory_entry", "symlink_safe_vendor_spool",

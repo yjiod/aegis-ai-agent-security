@@ -107,7 +107,7 @@ def validate_target(name,target,config,dry_run=False):
 def send(url,payload,token="",secret=""):
     body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode()
     if len(body)>MAX_VENDOR_PAYLOAD_BYTES: raise ValueError("adapter_payload_too_large")
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.14","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.15","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp

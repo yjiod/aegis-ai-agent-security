@@ -1,6 +1,6 @@
 {
   "schema": "sentinel.vendor-contracts/v1",
-  "adapter_version": "0.14",
+  "adapter_version": "0.15",
   "production_enablement": {
     "evidence_schema": "sentinel.vendor-acceptance/v1",
     "maximum_evidence_age_seconds": 604800,

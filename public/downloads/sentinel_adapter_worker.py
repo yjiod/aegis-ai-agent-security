@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Dispatch accepted collector reports through the fail-safe vendor adapter."""
-import argparse, importlib.util, json, os, sqlite3, time
+import argparse, hashlib, hmac, importlib.util, json, os, re, sqlite3, time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -40,7 +40,7 @@ def preflight(config,adapter,acceptance=None,now=None):
             for action in target.get("actions",{}).values():
                 if action not in adapter.SAFE_ACTIONS: raise ValueError(f"unsafe_sangfor_action:{action}")
     if not enabled: raise ValueError("no_enabled_adapters")
-    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.14",now=now)
+    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.15",now=now)
     if blockers: raise ValueError("vendor_acceptance_failed:"+",".join(blockers))
 
 @contextmanager
@@ -56,20 +56,33 @@ def result_summary(outputs):
     allowed=("adapter","result","status","queue_id","error")
     return [{key:item[key] for key in allowed if key in item} for item in outputs]
 
+def record_rejection(db_path,report_id,report_hash,now,result):
+    encoded=json.dumps([{"adapter":"boundary","result":result}],separators=(",",":"))
+    with open_db(db_path) as db:
+        db.execute("INSERT OR IGNORE INTO adapter_dispatches(report_id,report_hash,processed_at,result) VALUES(?,?,?,?)",(report_id,str(report_hash)[:64],now,encoded)); db.commit()
+    return {"report_id":report_id,"result":result}
+
 def dispatch_once(db_path,config,spool,adapter=None,sender=None,limit=None,now=None,acceptance=None):
     adapter=adapter or load_adapter(); now=int(time.time()) if now is None else int(now); preflight(config,adapter,acceptance,now)
     spool=Path(spool); adapter.flush_spool(config,spool,sender=sender or adapter.send)
     with open_db(db_path) as db:
         db.execute("DELETE FROM adapter_dispatches WHERE processed_at < ? AND report_id NOT IN (SELECT id FROM reports)",(now-retention_days()*86400,)); db.commit()
-        rows=db.execute("SELECT r.id,COALESCE(r.report_hash,''),r.body FROM reports r LEFT JOIN adapter_dispatches d ON d.report_id=r.id WHERE d.report_id IS NULL ORDER BY r.id LIMIT ?",(batch_size(limit),)).fetchall()
+        rows=db.execute("SELECT r.id,COALESCE(r.report_hash,''),length(CAST(r.body AS BLOB)) FROM reports r LEFT JOIN adapter_dispatches d ON d.report_id=r.id WHERE d.report_id IS NULL ORDER BY r.id LIMIT ?",(batch_size(limit),)).fetchall()
     completed=[]
-    for report_id,report_hash,body in rows:
-        try: report=json.loads(body)
+    for report_id,report_hash,body_bytes in rows:
+        if isinstance(body_bytes,bool) or not isinstance(body_bytes,int) or body_bytes<0 or body_bytes>adapter.MAX_VENDOR_PAYLOAD_BYTES:
+            completed.append(record_rejection(db_path,report_id,report_hash,now,"rejected_oversized_stored_report")); continue
+        with open_db(db_path) as db: stored=db.execute("SELECT body FROM reports WHERE id=?",(report_id,)).fetchone()
+        if not stored or not isinstance(stored[0],str):
+            completed.append(record_rejection(db_path,report_id,report_hash,now,"rejected_invalid_stored_report")); continue
+        raw=stored[0].encode("utf-8")
+        if len(raw)>adapter.MAX_VENDOR_PAYLOAD_BYTES:
+            completed.append(record_rejection(db_path,report_id,report_hash,now,"rejected_oversized_stored_report")); continue
+        if not isinstance(report_hash,str) or not re.fullmatch(r"[0-9a-f]{64}",report_hash) or not hmac.compare_digest(hashlib.sha256(raw).hexdigest(),report_hash):
+            completed.append(record_rejection(db_path,report_id,report_hash,now,"rejected_stored_report_digest_mismatch")); continue
+        try: report=json.loads(stored[0])
         except (TypeError,ValueError,RecursionError):
-            encoded='[{"adapter":"boundary","result":"rejected_invalid_stored_report"}]'
-            with open_db(db_path) as db:
-                db.execute("INSERT OR IGNORE INTO adapter_dispatches(report_id,report_hash,processed_at,result) VALUES(?,?,?,?)",(report_id,report_hash[:64],now,encoded)); db.commit()
-            completed.append({"report_id":report_id,"result":"rejected_invalid_stored_report"}); continue
+            completed.append(record_rejection(db_path,report_id,report_hash,now,"rejected_invalid_stored_report")); continue
         outputs=adapter.process(report,config,spool_dir=spool,sender=sender or adapter.send,now=now)
         accepted=bool(outputs) and all(item.get("result") in {"sent","queued"} for item in outputs)
         summary=result_summary(outputs)

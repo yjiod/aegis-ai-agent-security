@@ -709,7 +709,7 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
         self.assertFalse(outputs[1]['payload']['compliant'])
     def test_vendor_contract_and_configuration_are_fail_closed(self):
-        contract=json.loads((DOWNLOADS/'sentinel-vendor-contracts.json').read_text()); self.assertEqual(contract['adapter_version'],'0.14'); self.assertFalse(contract['secrets_embedded']); self.assertFalse(contract['sangfor']['direct_destructive_actions_allowed'])
+        contract=json.loads((DOWNLOADS/'sentinel-vendor-contracts.json').read_text()); self.assertEqual(contract['adapter_version'],'0.15'); self.assertFalse(contract['secrets_embedded']); self.assertFalse(contract['sangfor']['direct_destructive_actions_allowed'])
         self.assertEqual(contract['delivery_queue']['overflow_behavior'],'retain_source_report_and_retry'); self.assertFalse(contract['delivery_queue']['silent_eviction_allowed'])
         self.assertEqual(contract['delivery_queue']['write_semantics'],'private_fsync_atomic_replace_directory_fsync'); self.assertFalse(contract['delivery_queue']['symlink_directory_allowed'])
         self.assertEqual(contract['transport']['maximum_payload_bytes'],2_000_000); self.assertEqual(contract['delivery_queue']['maximum_queue_file_bytes'],2_100_000)
@@ -740,7 +740,7 @@ class SentinelTests(unittest.TestCase):
         now=2_000_000_000; url='https://edr.invalid/events'
         config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':url,'token_env':'SANGFOR_TOKEN','actions':{'high':'alert'}}}
         item={'product_version':'aCloud EDR verified build','api_document_id':'vendor-api-42','endpoint_url':url,'auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'security-owner'}
-        evidence={'schema':'sentinel.vendor-acceptance/v1','generated_at':now,'adapter_version':'0.14','vendors':{'sangfor':item},'secrets_embedded':False}
+        evidence={'schema':'sentinel.vendor-acceptance/v1','generated_at':now,'adapter_version':'0.15','vendors':{'sangfor':item},'secrets_embedded':False}
         self.assertEqual(self.vendor_preflight.evaluate(config,evidence,now=now),[])
         with patch.dict(os.environ,{'SANGFOR_TOKEN':'test'}): self.worker.preflight(config,self.adapter,evidence,now)
         self.assertIn('vendor_endpoint_not_accepted:sangfor',self.vendor_preflight.evaluate(config,{**evidence,'vendors':{'sangfor':{**item,'endpoint_url':'https://other.invalid/events'}}},now=now))
@@ -759,7 +759,7 @@ class SentinelTests(unittest.TestCase):
         with patch.object(self.adapter.urllib.request,'urlopen',side_effect=lambda request,timeout: captured.append((request,timeout)) or Response()):
             self.assertEqual(self.adapter.send('https://edr.invalid/events',payload,token='secret'),202)
         request,timeout=captured[0]; body=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
-        self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(request.get_header('User-agent'),'SentinelAdapter/0.14'); self.assertEqual(timeout,15)
+        self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(request.get_header('User-agent'),'SentinelAdapter/0.15'); self.assertEqual(timeout,15)
         with self.assertRaisesRegex(ValueError,'adapter_payload_too_large'): self.adapter.send('https://edr.invalid/events',{'blob':'x'*2_000_000},token='secret')
     def test_adapter_worker_dispatches_each_collector_report_once(self):
         config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN','compliance':{'max_policy_age_hours':24,'critical_allowed':0}}}
@@ -767,13 +767,33 @@ class SentinelTests(unittest.TestCase):
             root=Path(d); db=root/'sentinel.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             sent=[]; sender=lambda url,payload,token='',secret='': sent.append((url,payload,token,secret)) or 202
             gate={'product_version':'test','api_document_id':'test-contract','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test'}
-            accepted={'schema':'sentinel.vendor-acceptance/v1','generated_at':101,'adapter_version':'0.14','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events'},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture'}},'secrets_embedded':False}
+            accepted={'schema':'sentinel.vendor-acceptance/v1','generated_at':101,'adapter_version':'0.15','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events'},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture'}},'secrets_embedded':False}
             first=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=101,acceptance=accepted); second=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=102,acceptance=accepted)
             self.assertEqual(first[0]['result'],'dispatched'); self.assertEqual(second,[]); self.assertEqual(len(sent),2)
             connection=sqlite3.connect(db)
             try: stored=connection.execute('SELECT result FROM adapter_dispatches').fetchone()[0]
             finally: connection.close()
             self.assertNotIn('payload',stored); self.assertNotIn(report['device_id'],stored)
+    def test_adapter_worker_bounds_and_authenticates_stored_report_reads(self):
+        config={'allowed_hosts':['soc.invalid'],'security_webhook':{'enabled':True,'url':'https://soc.invalid/hook','secret_env':'SENTINEL_WEBHOOK_SECRET'}}
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SENTINEL_WEBHOOK_SECRET':'s'}):
+            root=Path(d); db=root/'sentinel.db'; report=vendor_report('normal'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
+            connection=sqlite3.connect(db)
+            try:
+                first_id=connection.execute('SELECT id FROM reports').fetchone()[0]
+                tampered={**report,'policy_version':'tampered'}
+                connection.execute('UPDATE reports SET body=? WHERE id=?',(json.dumps(tampered,ensure_ascii=False,sort_keys=True,separators=(",",":")),first_id))
+                connection.execute('INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)',('a'*64,'device-large',101,'normal','x'*(self.adapter.MAX_VENDOR_PAYLOAD_BYTES+1)))
+                connection.commit()
+            finally: connection.close()
+            sent=[]; results=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=lambda *args,**kwargs:sent.append(args) or 202,now=102)
+            self.assertEqual([item['result'] for item in results],['rejected_stored_report_digest_mismatch','rejected_oversized_stored_report']); self.assertEqual(sent,[])
+            connection=sqlite3.connect(db)
+            try: stored=[row[0] for row in connection.execute('SELECT result FROM adapter_dispatches ORDER BY report_id')]
+            finally: connection.close()
+            self.assertTrue(all('device-' not in item and 'payload' not in item for item in stored))
+        worker_source=(DOWNLOADS/'sentinel_adapter_worker.py').read_text()
+        self.assertIn('length(CAST(r.body AS BLOB))',worker_source); self.assertNotIn("COALESCE(r.report_hash,''),r.body",worker_source)
     def test_vendor_adapter_rejects_unsafe_actions_and_targets(self):
         report=vendor_report('critical')
         unsafe={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid','actions':{'critical':'isolate'}}}
@@ -818,7 +838,7 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(retained[0]['result'],'retained'); self.assertEqual(retained[0]['error'],'adapter_spool_full')
             db=spool/'reports.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             gate={'product_version':'test','api_document_id':'test-contract','endpoint_url':'https://edr.invalid/events','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test'}
-            acceptance={'schema':'sentinel.vendor-acceptance/v1','generated_at':101,'adapter_version':'0.14','vendors':{'sangfor':gate},'secrets_embedded':False}
+            acceptance={'schema':'sentinel.vendor-acceptance/v1','generated_at':101,'adapter_version':'0.15','vendors':{'sangfor':gate},'secrets_embedded':False}
             dispatch=self.worker.dispatch_once(db,config,spool,adapter=self.adapter,sender=lambda *args,**kwargs:500,now=101,acceptance=acceptance)
             self.assertEqual(dispatch[0]['result'],'retained')
             with sqlite3.connect(db) as connection: self.assertEqual(connection.execute('SELECT COUNT(*) FROM adapter_dispatches').fetchone()[0],0)
