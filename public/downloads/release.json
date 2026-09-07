@@ -1,8 +1,9 @@
 {
-  "release": "0.97.0",
+  "release": "0.98.0",
   "channel": "pilot",
   "published_at": "2026-09-08T23:00:00+08:00",
   "features": [
+    "derived_intune_evidence", "intune_snapshot_contract", "collector_device_export_join", "privacy_minimized_rollout_counts", "fresh_complete_snapshot_gate", "device_relationship_validation",
     "intune_evidence_v3", "measured_ring_assignment_scope", "measured_reporting_coverage", "measured_compliance_coverage", "bounded_installation_failure_rate", "small_fleet_ring_floor",
     "intune_evidence_v2", "release_bound_intune_evidence", "manifest_digest_bound_evidence", "cross_release_evidence_replay_rejection", "constant_time_manifest_binding",
     "immutable_intune_governance_contract", "fixed_intune_rollout_windows", "fixed_intune_ring_percentages", "fixed_intune_deployment_order", "fixed_intune_promotion_gates", "strict_signed_manifest_metadata",

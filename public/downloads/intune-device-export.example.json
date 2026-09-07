@@ -1,0 +1,9 @@
+{
+  "schema": "sentinel.intune-export/v1",
+  "generated_at": 0,
+  "current_ring": "lab",
+  "fleet_device_ids": [],
+  "assigned_device_ids": [],
+  "compliant_device_ids": [],
+  "installation_failed_device_ids": []
+}

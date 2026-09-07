@@ -1,4 +1,4 @@
-import hashlib, importlib.util, json, os, shutil, sqlite3, stat, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
+import hashlib, importlib.util, json, os, shutil, sqlite3, stat, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request, zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +11,7 @@ def vendor_report(level='normal'):
     return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -24,7 +24,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
@@ -86,6 +86,14 @@ class SentinelTests(unittest.TestCase):
             def swap_then_open(path,flags): os.replace(replacement,path); return original_open(path,flags)
             with patch.object(self.preflight.os,'open',side_effect=swap_then_open):
                 with self.assertRaisesRegex(ValueError,'unsafe_intune_input'): self.preflight.read_json_bounded(safe,100)
+    def test_intune_evidence_generator_derives_counts_without_device_ids(self):
+        now=2_000_000_000; base=json.loads((DOWNLOADS/'intune-rollout-evidence.example.json').read_text()); base.update(current_ring_entered_at=now-86400,collector_probe_read_only_passed=True,release_verifier_passed=True,reporting_credentials_delivered_out_of_band=True)
+        fleet=[f'device-{index:04d}' for index in range(1000)]; assigned=fleet[:10]
+        intune={'schema':'sentinel.intune-export/v1','generated_at':now,'current_ring':'lab','fleet_device_ids':fleet,'assigned_device_ids':assigned,'compliant_device_ids':assigned,'installation_failed_device_ids':[]}
+        collector={'generated_at':now,'complete':True,'devices':[{'device_id':item,'last_seen':now,'report_count':1,'credential_generation':'current'} for item in assigned]}
+        result=self.intune_evidence.build(DOWNLOADS,base,intune,collector,now); self.assertEqual((result['fleet_total_devices'],result['ring_assigned_devices'],result['reporting_devices'],result['compliant_devices'],result['installation_failures']),(1000,10,10,10,0)); self.assertFalse(any(item in json.dumps(result) for item in assigned)); self.assertEqual(self.preflight.evaluate(DOWNLOADS,result,'pilot',now),[])
+        collector['complete']=False
+        with self.assertRaisesRegex(ValueError,'invalid_collector_export'): self.intune_evidence.build(DOWNLOADS,base,intune,collector,now)
     def test_policy_hot_reload_keeps_last_known_good_on_invalid_update(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'policy.json'; path.write_text(json.dumps(self.policy)); loaded,failed=self.agent.reload_policy(path)
