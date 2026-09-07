@@ -38,8 +38,8 @@ try {
   $secret = 'sk-abcdefghijklmnopqrstuvwxyz123456'
   Set-Content -Encoding UTF8 (Join-Path $codex 'source.py') ('token="' + $secret + '"')
   $result = Invoke-SentinelAgent
-  if ($result.ExitCode -ne 2) { Write-Error "secret scan did not block; exit code $($result.ExitCode): $($result.Output)" }
-  $reportText = Get-Content $output -Raw
+  $reportText = if(Test-Path $output){Get-Content $output -Raw}else{'[report missing]'}
+  if ($result.ExitCode -ne 2) { Write-Error "secret scan did not block; exit code $($result.ExitCode): $($result.Output); report=$reportText" }
   $report = $reportText | ConvertFrom-Json
   if (@($report.inventory | Where-Object { $_.type -eq 'ai_agent' -and $_.name -eq 'codex' }).Count -ne 1) { throw 'Codex discovery evidence is missing' }
   if (@($report.inventory | Where-Object { $_.type -eq 'agent_baseline' -and $_.name -eq 'codex' -and $_.status -eq 'managed' }).Count -ne 1) { throw 'Codex managed baseline evidence is missing' }
