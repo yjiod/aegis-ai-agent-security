@@ -15,8 +15,11 @@ $previousProgramData = $env:ProgramData
 function Invoke-SentinelAgent([switch]$Diagnostics) {
   $stdout = Join-Path $sandbox 'agent.stdout.log'
   $stderr = Join-Path $sandbox 'agent.stderr.log'
-  $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"' + $agent + '"'),'-Output',('"' + $output + '"'),'-ManagedUsersRoot',('"' + $users + '"'))
-  if ($Diagnostics) { $arguments += '-Diagnostics' }
+  $command = "& '$($agent.Replace("'","''"))' -Output '$($output.Replace("'","''"))' -ManagedUsersRoot '$($users.Replace("'","''"))'"
+  if ($Diagnostics) { $command += ' -Diagnostics' }
+  $command += '; exit $LASTEXITCODE'
+  $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+  $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$encodedCommand)
   $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList $arguments -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
   $messages = @()
   if (Test-Path $stdout) { $messages += Get-Content $stdout -Raw }

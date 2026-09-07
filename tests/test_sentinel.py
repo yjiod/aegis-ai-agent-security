@@ -34,7 +34,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('tests/windows-agent-smoke.ps1',workflow)
         self.assertIn('tests/macos-agent-smoke.sh',workflow)
         smoke=(ROOT/'tests/windows-agent-smoke.ps1').read_text()
-        for directive in ('Start-Process -FilePath',"'-NoProfile'","'-ManagedUsersRoot'",'RedirectStandardError',"agent_version -cne '0.34.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)'):
+        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.34.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)'):
             self.assertIn(directive,smoke)
         mac_smoke=(ROOT/'tests/macos-agent-smoke.sh').read_text()
         for directive in ('SENTINEL_BASE_URL="file://$SOURCE"','install-sentinel.sh','sentinel_agent.py','stat.S_IMODE','hardcoded_secret','secret not in open'):
