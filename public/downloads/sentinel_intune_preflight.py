@@ -6,6 +6,7 @@ from pathlib import Path
 RINGS=("lab","pilot","broad","production")
 EVIDENCE_FIELDS={
     "schema","release_version","manifest_sha256","generated_at","current_ring","current_ring_entered_at","collector_probe_read_only_passed",
+    "fleet_total_devices","ring_assigned_devices","reporting_devices","compliant_devices","installation_failures",
     "release_verifier_passed","reporting_credentials_delivered_out_of_band",
     "rollback_tested_in_ring","critical_findings","reporting_healthy_since",
     "production_signature_verified",
@@ -61,7 +62,7 @@ def evaluate(downloads,evidence,target_ring,now=None):
     release_version=release.get("release") if isinstance(release,dict) else None
     if not isinstance(release_version,str) or not re.fullmatch(r"\d+\.\d+\.\d+",release_version): return ["invalid_release_metadata"]
     if not isinstance(evidence,dict) or set(evidence)!=EVIDENCE_FIELDS: blockers.append("invalid_evidence_contract"); return blockers
-    if evidence.get("schema")!="sentinel.intune-evidence/v2": blockers.append("invalid_evidence_schema")
+    if evidence.get("schema")!="sentinel.intune-evidence/v3": blockers.append("invalid_evidence_schema")
     if evidence.get("release_version")!=release_version: blockers.append("evidence_release_version_mismatch")
     manifest_sha=evidence.get("manifest_sha256")
     if not isinstance(manifest_sha,str) or not re.fullmatch(r"[0-9a-f]{64}",manifest_sha) or not hmac.compare_digest(manifest_sha,hashlib.sha256(manifest_raw).hexdigest()): blockers.append("evidence_manifest_digest_mismatch")
@@ -75,6 +76,17 @@ def evaluate(downloads,evidence,target_ring,now=None):
         minimum=ring.get("minimum_observation_hours")
         if isinstance(entered,bool) or not isinstance(entered,int) or entered>now or isinstance(minimum,bool) or not isinstance(minimum,int) or minimum<1 or now-entered<minimum*3600:
             blockers.append("ring_observation_incomplete")
+    metrics=[evidence.get(name) for name in ("fleet_total_devices","ring_assigned_devices","reporting_devices","compliant_devices","installation_failures")]
+    if any(isinstance(value,bool) or not isinstance(value,int) or value<0 for value in metrics) or metrics[0]<1 or metrics[1]<1 or metrics[1]>metrics[0] or metrics[2]>metrics[1] or metrics[3]>metrics[2] or metrics[4]>metrics[1] or metrics[2]+metrics[4]>metrics[1]:
+        blockers.append("invalid_rollout_device_metrics")
+    else:
+        total,assigned,reporting,compliant,failures=metrics
+        if current in RINGS:
+            maximum=EXPECTED_ROLLOUT_RINGS[RINGS.index(current)]["maximum_percent"]
+            if assigned>max(1,total*maximum//100): blockers.append("gate_failed:ring_assignment_scope")
+        if reporting*100<assigned*95: blockers.append("gate_failed:reporting_coverage_95pct")
+        if compliant*100<assigned*95: blockers.append("gate_failed:compliance_coverage_95pct")
+        if failures*100>assigned*2: blockers.append("gate_failed:installation_failure_rate_2pct")
     artifacts=manifest.get("artifacts",{})
     if not isinstance(artifacts,dict): blockers.append("invalid_artifact_manifest")
     else:

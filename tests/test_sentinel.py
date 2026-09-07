@@ -53,11 +53,13 @@ class SentinelTests(unittest.TestCase):
     def test_intune_preflight_enforces_cumulative_promotion_gates(self):
         now=2_000_000_000
         release_version=json.loads((DOWNLOADS/'release.json').read_text())['release']; manifest_sha=hashlib.sha256((DOWNLOADS/'intune-deployment-manifest.json').read_bytes()).hexdigest()
-        evidence={'schema':'sentinel.intune-evidence/v2','release_version':release_version,'manifest_sha256':manifest_sha,'generated_at':now,'current_ring':'lab','current_ring_entered_at':now-86400,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':False,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
+        evidence={'schema':'sentinel.intune-evidence/v3','release_version':release_version,'manifest_sha256':manifest_sha,'generated_at':now,'current_ring':'lab','current_ring_entered_at':now-86400,'fleet_total_devices':1000,'ring_assigned_devices':10,'reporting_devices':10,'compliant_devices':10,'installation_failures':0,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':False,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
         self.assertEqual(self.preflight.evaluate(DOWNLOADS,evidence,'pilot',now),[])
-        evidence.update(current_ring='pilot',current_ring_entered_at=now-48*3600)
+        self.assertIn('gate_failed:ring_assignment_scope',self.preflight.evaluate(DOWNLOADS,{**evidence,'ring_assigned_devices':11,'reporting_devices':11,'compliant_devices':11},'pilot',now))
+        self.assertIn('gate_failed:reporting_coverage_95pct',self.preflight.evaluate(DOWNLOADS,{**evidence,'reporting_devices':9,'compliant_devices':9},'pilot',now))
+        evidence.update(current_ring='pilot',current_ring_entered_at=now-48*3600,ring_assigned_devices=50,reporting_devices=50,compliant_devices=50)
         self.assertIn('gate_failed:rollback_tested_in_ring',self.preflight.evaluate(DOWNLOADS,evidence,'broad',now))
-        evidence.update(rollback_tested_in_ring=True,current_ring='broad',current_ring_entered_at=now-72*3600)
+        evidence.update(rollback_tested_in_ring=True,current_ring='broad',current_ring_entered_at=now-72*3600,ring_assigned_devices=250,reporting_devices=250,compliant_devices=250)
         self.assertIn('gate_failed:production_signature',self.preflight.evaluate(DOWNLOADS,evidence,'production',now))
         self.assertIn('invalid_ring_promotion',self.preflight.evaluate(DOWNLOADS,{**evidence,'current_ring':'lab'},'production',now))
         with tempfile.TemporaryDirectory() as d:
@@ -67,7 +69,7 @@ class SentinelTests(unittest.TestCase):
     def test_intune_preflight_fails_closed_on_stale_evidence_and_digest_drift(self):
         now=2_000_000_000
         release_version=json.loads((DOWNLOADS/'release.json').read_text())['release']; manifest_sha=hashlib.sha256((DOWNLOADS/'intune-deployment-manifest.json').read_bytes()).hexdigest()
-        evidence={'schema':'sentinel.intune-evidence/v2','release_version':release_version,'manifest_sha256':manifest_sha,'generated_at':now-86401,'current_ring':'pilot','current_ring_entered_at':now-48*3600,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':True,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
+        evidence={'schema':'sentinel.intune-evidence/v3','release_version':release_version,'manifest_sha256':manifest_sha,'generated_at':now-86401,'current_ring':'pilot','current_ring_entered_at':now-48*3600,'fleet_total_devices':1000,'ring_assigned_devices':50,'reporting_devices':50,'compliant_devices':50,'installation_failures':0,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':True,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
         self.assertIn('evidence_not_current',self.preflight.evaluate(DOWNLOADS,evidence,'broad',now))
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'intune-windows-detect.ps1').write_text('# drift')
