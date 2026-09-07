@@ -52,7 +52,8 @@ class SentinelTests(unittest.TestCase):
         self.assertIn("'rollback-sentinel-windows.ps1'",script); self.assertIn("'uninstall-sentinel-windows.ps1'",script)
     def test_intune_preflight_enforces_cumulative_promotion_gates(self):
         now=2_000_000_000
-        evidence={'schema':'sentinel.intune-evidence/v1','generated_at':now,'current_ring':'lab','current_ring_entered_at':now-86400,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':False,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
+        release_version=json.loads((DOWNLOADS/'release.json').read_text())['release']; manifest_sha=hashlib.sha256((DOWNLOADS/'intune-deployment-manifest.json').read_bytes()).hexdigest()
+        evidence={'schema':'sentinel.intune-evidence/v2','release_version':release_version,'manifest_sha256':manifest_sha,'generated_at':now,'current_ring':'lab','current_ring_entered_at':now-86400,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':False,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
         self.assertEqual(self.preflight.evaluate(DOWNLOADS,evidence,'pilot',now),[])
         evidence.update(current_ring='pilot',current_ring_entered_at=now-48*3600)
         self.assertIn('gate_failed:rollback_tested_in_ring',self.preflight.evaluate(DOWNLOADS,evidence,'broad',now))
@@ -65,11 +66,14 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(self.preflight.evaluate(copy,shortened,'pilot',now),['invalid_intune_manifest_contract'])
     def test_intune_preflight_fails_closed_on_stale_evidence_and_digest_drift(self):
         now=2_000_000_000
-        evidence={'schema':'sentinel.intune-evidence/v1','generated_at':now-86401,'current_ring':'pilot','current_ring_entered_at':now-48*3600,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':True,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
+        release_version=json.loads((DOWNLOADS/'release.json').read_text())['release']; manifest_sha=hashlib.sha256((DOWNLOADS/'intune-deployment-manifest.json').read_bytes()).hexdigest()
+        evidence={'schema':'sentinel.intune-evidence/v2','release_version':release_version,'manifest_sha256':manifest_sha,'generated_at':now-86401,'current_ring':'pilot','current_ring_entered_at':now-48*3600,'collector_probe_read_only_passed':True,'release_verifier_passed':True,'reporting_credentials_delivered_out_of_band':True,'rollback_tested_in_ring':True,'critical_findings':0,'reporting_healthy_since':now-86400,'production_signature_verified':False}
         self.assertIn('evidence_not_current',self.preflight.evaluate(DOWNLOADS,evidence,'broad',now))
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'intune-windows-detect.ps1').write_text('# drift')
             self.assertIn('artifact_digest_mismatch:intune-windows-detect.ps1',self.preflight.evaluate(copy,{**evidence,'generated_at':now},'broad',now))
+            self.assertIn('evidence_release_version_mismatch',self.preflight.evaluate(copy,{**evidence,'generated_at':now,'release_version':'0.0.0'},'broad',now))
+            self.assertIn('evidence_manifest_digest_mismatch',self.preflight.evaluate(copy,{**evidence,'generated_at':now,'manifest_sha256':'0'*64},'broad',now))
             manifest=json.loads((copy/'intune-deployment-manifest.json').read_text()); first=next(iter(manifest['artifacts'].values())); first['file']='../outside'; first['sha256']=hashlib.sha256(b'outside').hexdigest(); (Path(d)/'outside').write_bytes(b'outside'); (copy/'intune-deployment-manifest.json').write_text(json.dumps(manifest))
             self.assertIn('invalid_artifact_manifest',self.preflight.evaluate(copy,{**evidence,'generated_at':now},'broad',now))
             safe=Path(d)/'safe.json'; safe.write_text('{}'); linked=Path(d)/'linked.json'; linked.symlink_to(safe)

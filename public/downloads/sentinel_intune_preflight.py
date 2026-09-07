@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Offline, secret-free Intune rollout promotion preflight."""
-import argparse, hashlib, json, os, re, stat, sys, time
+import argparse, hashlib, hmac, json, os, re, stat, sys, time
 from pathlib import Path
 
 RINGS=("lab","pilot","broad","production")
 EVIDENCE_FIELDS={
-    "schema","generated_at","current_ring","current_ring_entered_at","collector_probe_read_only_passed",
+    "schema","release_version","manifest_sha256","generated_at","current_ring","current_ring_entered_at","collector_probe_read_only_passed",
     "release_verifier_passed","reporting_credentials_delivered_out_of_band",
     "rollback_tested_in_ring","critical_findings","reporting_healthy_since",
     "production_signature_verified",
 }
 MAX_INTUNE_EVIDENCE_BYTES=65_536
 MAX_INTUNE_MANIFEST_BYTES=262_144
+MAX_INTUNE_RELEASE_BYTES=65_536
 MAX_INTUNE_ARTIFACT_BYTES=2_000_000
 EXPECTED_ARTIFACT_ROLES={"windows_detection","windows_remediation","windows_compliance_discovery","windows_compliance_rules","windows_reporting_configuration","windows_rollback","windows_uninstall","macos_install","macos_compliance_discovery","macos_compliance_rules","macos_reporting_configuration","macos_rollback","macos_uninstall"}
 EXPECTED_DEPLOYMENT_ORDER=["collector_and_tls","reporting_credentials","endpoint_installation","reporting_configuration","custom_compliance","conditional_access"]
@@ -52,11 +53,18 @@ def valid_manifest_contract(manifest):
 def evaluate(downloads,evidence,target_ring,now=None):
     downloads=Path(downloads); now=int(time.time() if now is None else now); blockers=[]
     if target_ring not in RINGS: return ["invalid_target_ring"]
-    try: manifest=read_json_bounded(downloads/"intune-deployment-manifest.json",MAX_INTUNE_MANIFEST_BYTES)
+    try:
+        manifest_raw=read_bytes_bounded(downloads/"intune-deployment-manifest.json",MAX_INTUNE_MANIFEST_BYTES); manifest=json.loads(manifest_raw.decode("utf-8"))
+        release=read_json_bounded(downloads/"release.json",MAX_INTUNE_RELEASE_BYTES)
     except (OSError,ValueError,UnicodeError,json.JSONDecodeError) as exc: return [f"invalid_intune_manifest:{type(exc).__name__}"]
     if not valid_manifest_contract(manifest): return ["invalid_intune_manifest_contract"]
+    release_version=release.get("release") if isinstance(release,dict) else None
+    if not isinstance(release_version,str) or not re.fullmatch(r"\d+\.\d+\.\d+",release_version): return ["invalid_release_metadata"]
     if not isinstance(evidence,dict) or set(evidence)!=EVIDENCE_FIELDS: blockers.append("invalid_evidence_contract"); return blockers
-    if evidence.get("schema")!="sentinel.intune-evidence/v1": blockers.append("invalid_evidence_schema")
+    if evidence.get("schema")!="sentinel.intune-evidence/v2": blockers.append("invalid_evidence_schema")
+    if evidence.get("release_version")!=release_version: blockers.append("evidence_release_version_mismatch")
+    manifest_sha=evidence.get("manifest_sha256")
+    if not isinstance(manifest_sha,str) or not re.fullmatch(r"[0-9a-f]{64}",manifest_sha) or not hmac.compare_digest(manifest_sha,hashlib.sha256(manifest_raw).hexdigest()): blockers.append("evidence_manifest_digest_mismatch")
     generated=evidence.get("generated_at")
     if isinstance(generated,bool) or not isinstance(generated,int) or generated>now+300 or now-generated>86400: blockers.append("evidence_not_current")
     current=evidence.get("current_ring")
