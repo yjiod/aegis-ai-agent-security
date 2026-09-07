@@ -1,6 +1,6 @@
 {
   "schema": "sentinel.vendor-contracts/v1",
-  "adapter_version": "0.11",
+  "adapter_version": "0.12",
   "production_enablement": {
     "evidence_schema": "sentinel.vendor-acceptance/v1",
     "maximum_evidence_age_seconds": 604800,
@@ -20,7 +20,9 @@
   "delivery_queue": {
     "overflow_behavior": "retain_source_report_and_retry",
     "silent_eviction_allowed": false,
-    "credentials_stored": false
+    "credentials_stored": false,
+    "write_semantics": "private_fsync_atomic_replace_directory_fsync",
+    "symlink_directory_allowed": false
   },
   "credential_boundaries": {
     "sangfor": {"header": "Authorization: Bearer <SANGFOR_* env>", "allowed_env_prefix": "SANGFOR_"},

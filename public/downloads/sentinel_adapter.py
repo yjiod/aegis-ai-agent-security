@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fail-safe vendor boundary for Sangfor EDR and Leagsoft. Disabled by default."""
-import argparse, hashlib, hmac, json, os, re, time, urllib.request
+import argparse, hashlib, hmac, json, os, re, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
@@ -88,7 +88,7 @@ def validate_target(name,target,config,dry_run=False):
     env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
     if not dry_run and (not env_name or not os.getenv(env_name,"")): raise ValueError(f"missing_adapter_credential:{name}")
 def send(url,payload,token="",secret=""):
-    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.11","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.12","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
@@ -103,12 +103,25 @@ def spool_limit(value=None):
     try: return min(max(int(raw),10),10000)
     except (TypeError,ValueError): return 500
 def queue_delivery(spool,name,payload,limit=None):
-    spool.mkdir(mode=0o700,parents=True,exist_ok=True); os.chmod(spool,0o700)
+    if spool.is_symlink(): raise OSError("adapter_spool_unsafe")
+    spool.mkdir(mode=0o700,parents=True,exist_ok=True)
+    if spool.is_symlink() or not spool.is_dir(): raise OSError("adapter_spool_unsafe")
+    os.chmod(spool,0o700)
     files=sorted(spool.glob("*.json"),key=lambda item:(item.stat().st_mtime_ns,item.name)); keep=spool_limit(limit)
     if len(files)>=keep: raise OSError("adapter_spool_full")
     body=json.dumps({"adapter":name,"queued_at":int(time.time()),"payload":payload},ensure_ascii=False,separators=(",",":")); digest=hashlib.sha256(body.encode()).hexdigest()[:16]
-    path=spool/f"{int(time.time())}-{time.time_ns()}-{digest}.json"; path.write_text(body); os.chmod(path,0o600)
-    return path
+    path=spool/f"{int(time.time())}-{time.time_ns()}-{digest}.json"; fd,temp_name=tempfile.mkstemp(prefix=".sentinel-adapter-",suffix=".tmp",dir=spool); temp=Path(temp_name)
+    try:
+        os.fchmod(fd,0o600)
+        with os.fdopen(fd,"w",encoding="utf-8") as handle: fd=-1; handle.write(body); handle.flush(); os.fsync(handle.fileno())
+        os.replace(temp,path)
+        directory_fd=os.open(spool,os.O_RDONLY)
+        try: os.fsync(directory_fd)
+        finally: os.close(directory_fd)
+        return path
+    finally:
+        if fd>=0: os.close(fd)
+        if temp.exists(): temp.unlink()
 def quarantine(path,spool,keep=20):
     invalid=path.with_name(path.name+f".{time.time_ns()}.invalid"); path.rename(invalid); os.chmod(invalid,0o600)
     files=sorted(spool.glob("*.invalid"),key=lambda item:(item.stat().st_mtime_ns,item.name))
@@ -151,7 +164,8 @@ def process(report,config,dry_run=False,spool_dir=None,sender=send,now=None):
             try:
                 path=queue_delivery(spool,name,payload); outputs.append({"adapter":name,"result":"queued","queue_id":path.name,"error":type(exc).__name__})
             except OSError as queue_error:
-                outputs.append({"adapter":name,"result":"retained","error":"adapter_spool_full" if str(queue_error)=="adapter_spool_full" else "adapter_spool_write_failed"})
+                error=str(queue_error) if str(queue_error) in {"adapter_spool_full","adapter_spool_unsafe"} else "adapter_spool_write_failed"
+                outputs.append({"adapter":name,"result":"retained","error":error})
     return outputs
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("report",nargs="?"); ap.add_argument("--config",default=str(Path(__file__).with_name("sentinel-adapters.json"))); ap.add_argument("--dry-run",action="store_true"); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_ADAPTER_SPOOL","")); ap.add_argument("--flush-only",action="store_true"); args=ap.parse_args()

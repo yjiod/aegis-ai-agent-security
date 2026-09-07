@@ -1,8 +1,9 @@
 {
-  "release": "0.86.0",
+  "release": "0.87.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T20:00:00+08:00",
+  "published_at": "2026-09-08T21:00:00+08:00",
   "features": [
+    "adapter_0_12", "atomic_vendor_spool_write", "fsynced_vendor_queue_files", "durable_vendor_queue_directory_entry", "symlink_safe_vendor_spool",
     "adapter_0_11", "lossless_vendor_spool_overflow", "source_report_retention_on_queue_full", "cross_vendor_failure_isolation_on_queue_full",
     "adapter_0_10", "leagsoft_report_freshness_enforcement", "leagsoft_stale_policy_fail_closed", "leagsoft_future_clock_rejection", "deterministic_vendor_dispatch_time", "strict_vendor_timestamp_type", "generated_vendor_payload_validation",
     "native_macos_end_to_end_agent_chain", "native_macos_codex_discovery_evidence", "native_macos_user_baseline_load_evidence", "native_macos_repository_baseline_load_evidence", "native_macos_skill_scanner_evidence", "native_macos_mcp_scanner_evidence", "native_macos_code_quality_scanner_evidence",
