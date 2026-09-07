@@ -13,9 +13,17 @@ MAX_VENDOR_ACCEPTANCE_BYTES=262_144
 
 def read_json_bounded(path,max_bytes):
     path=Path(path)
-    if path.is_symlink() or not path.is_file(): raise ValueError("unsafe_json_input")
-    if path.stat().st_size>max_bytes: raise ValueError("oversized_json_input")
-    raw=path.read_bytes()
+    before=path.lstat()
+    if not stat.S_ISREG(before.st_mode): raise ValueError("unsafe_json_input")
+    if before.st_size>max_bytes: raise ValueError("oversized_json_input")
+    fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
+    try:
+        opened=os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino): raise ValueError("unsafe_json_input")
+        if opened.st_size>max_bytes: raise ValueError("oversized_json_input")
+        with os.fdopen(fd,"rb") as handle: fd=-1; raw=handle.read(max_bytes+1)
+    finally:
+        if fd>=0: os.close(fd)
     if len(raw)>max_bytes: raise ValueError("oversized_json_input")
     return json.loads(raw.decode("utf-8"))
 TARGET_FIELDS={"sangfor":{"enabled","mode","url","token_env","actions"},"leagsoft":{"enabled","mode","url","token_env","compliance"},"security_webhook":{"enabled","mode","url","secret_env"}}
@@ -107,7 +115,7 @@ def validate_target(name,target,config,dry_run=False):
 def send(url,payload,token="",secret=""):
     body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode()
     if len(body)>MAX_VENDOR_PAYLOAD_BYTES: raise ValueError("adapter_payload_too_large")
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.17","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.18","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp

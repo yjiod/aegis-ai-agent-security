@@ -1,7 +1,7 @@
 {
   "schema": "sentinel.vendor-acceptance/v1",
   "generated_at": 0,
-  "adapter_version": "0.17",
+  "adapter_version": "0.18",
   "vendors": {
     "sangfor": {
       "product_version": "",

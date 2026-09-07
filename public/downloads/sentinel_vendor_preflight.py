@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Secret-free production enablement gate for Sangfor and Leagsoft adapters."""
-import argparse, json, sys, time
+import argparse, json, os, stat, sys, time
 from pathlib import Path
 
 SCHEMA="sentinel.vendor-acceptance/v1"
@@ -15,13 +15,21 @@ MAX_PREFLIGHT_INPUT_BYTES=262_144
 
 def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES):
     path=Path(path)
-    if path.is_symlink() or not path.is_file(): raise ValueError("unsafe_json_input")
-    if path.stat().st_size>max_bytes: raise ValueError("oversized_json_input")
-    raw=path.read_bytes()
+    before=path.lstat()
+    if not stat.S_ISREG(before.st_mode): raise ValueError("unsafe_json_input")
+    if before.st_size>max_bytes: raise ValueError("oversized_json_input")
+    fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
+    try:
+        opened=os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino): raise ValueError("unsafe_json_input")
+        if opened.st_size>max_bytes: raise ValueError("oversized_json_input")
+        with os.fdopen(fd,"rb") as handle: fd=-1; raw=handle.read(max_bytes+1)
+    finally:
+        if fd>=0: os.close(fd)
     if len(raw)>max_bytes: raise ValueError("oversized_json_input")
     return json.loads(raw.decode("utf-8"))
 
-def evaluate(config,evidence,adapter_version="0.17",now=None,max_age_seconds=604800):
+def evaluate(config,evidence,adapter_version="0.18",now=None,max_age_seconds=604800):
     now=int(time.time() if now is None else now); blockers=[]
     if not isinstance(config,dict): return ["invalid_adapter_config"]
     if not any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in VENDORS): return []
@@ -53,7 +61,7 @@ def evaluate(config,evidence,adapter_version="0.17",now=None,max_age_seconds=604
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--config",required=True); parser.add_argument("--evidence",required=True)
-    parser.add_argument("--adapter-version",default="0.17")
+    parser.add_argument("--adapter-version",default="0.18")
     args=parser.parse_args()
     try:
         config=read_json_bounded(args.config); evidence=read_json_bounded(args.evidence)

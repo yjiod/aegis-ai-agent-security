@@ -1,8 +1,9 @@
 {
-  "release": "0.92.0",
+  "release": "0.93.0",
   "channel": "pilot",
   "published_at": "2026-09-08T23:00:00+08:00",
   "features": [
+    "adapter_0_18", "descriptor_bound_vendor_json_inputs", "nofollow_vendor_config_reads", "inode_bound_acceptance_reads", "bounded_report_descriptor_reads", "input_swap_race_rejection",
     "adapter_0_17", "unified_vendor_spool_directory_gate", "owner_bound_vendor_spool", "private_vendor_spool_mode", "flush_only_directory_validation", "symlink_spool_replay_rejection",
     "adapter_0_16", "nofollow_vendor_queue_reads", "inode_bound_vendor_queue_reads", "symlink_queue_event_rejection", "bounded_descriptor_queue_reads", "safe_nonregular_queue_cleanup",
     "adapter_0_15", "bounded_worker_database_reads", "stored_report_digest_verification", "tampered_database_report_rejection", "oversized_database_report_rejection",
