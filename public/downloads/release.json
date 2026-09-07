@@ -1,8 +1,9 @@
 {
-  "release": "0.87.0",
+  "release": "0.88.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T21:00:00+08:00",
+  "published_at": "2026-09-08T22:00:00+08:00",
   "features": [
+    "adapter_0_13", "bounded_vendor_payload_bytes", "collector_adapter_size_parity", "preparse_vendor_queue_size_gate", "oversized_vendor_queue_quarantine",
     "adapter_0_12", "atomic_vendor_spool_write", "fsynced_vendor_queue_files", "durable_vendor_queue_directory_entry", "symlink_safe_vendor_spool",
     "adapter_0_11", "lossless_vendor_spool_overflow", "source_report_retention_on_queue_full", "cross_vendor_failure_isolation_on_queue_full",
     "adapter_0_10", "leagsoft_report_freshness_enforcement", "leagsoft_stale_policy_fail_closed", "leagsoft_future_clock_rejection", "deterministic_vendor_dispatch_time", "strict_vendor_timestamp_type", "generated_vendor_payload_validation",

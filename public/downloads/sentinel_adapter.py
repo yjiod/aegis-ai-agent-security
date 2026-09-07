@@ -6,6 +6,8 @@ from urllib.parse import parse_qsl, urlsplit
 
 SAFE_ACTIONS={"observe","alert","isolate_pending_approval","block_pending_approval"}
 ADAPTERS=("sangfor","leagsoft","security_webhook")
+MAX_VENDOR_PAYLOAD_BYTES=2_000_000
+MAX_VENDOR_QUEUE_FILE_BYTES=2_100_000
 TARGET_FIELDS={"sangfor":{"enabled","mode","url","token_env","actions"},"leagsoft":{"enabled","mode","url","token_env","compliance"},"security_webhook":{"enabled","mode","url","secret_env"}}
 CREDENTIAL_PREFIX={"sangfor":"SANGFOR_","leagsoft":"LEAGSOFT_","security_webhook":"SENTINEL_"}
 
@@ -49,10 +51,15 @@ def valid_report(report):
         if not 1<=len(item["kind"])<=128 or len(item["path"])>2048 or not 1<=len(item["message"])<=2048: return False
         if "evidence" in item and (not isinstance(item["evidence"],str) or len(item["evidence"])>512): return False
         counts[item["severity"]]+=1
-    return counts==summary
+    if counts!=summary: return False
+    try: return len(json.dumps(report,ensure_ascii=False,separators=(",",":")).encode())<=MAX_VENDOR_PAYLOAD_BYTES
+    except (TypeError,ValueError,RecursionError,UnicodeError): return False
 def valid_payload(name,payload):
     if name=="security_webhook": return valid_report(payload)
     if not isinstance(payload,dict): return False
+    try:
+        if len(json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode())>MAX_VENDOR_PAYLOAD_BYTES: return False
+    except (TypeError,ValueError,RecursionError,UnicodeError): return False
     fields={"sangfor":{"event_type","source","device_id","severity","recommended_action","finding_count","policy_version","occurred_at"},"leagsoft":{"source","device_id","compliant","risk_level","policy_version","last_scan","reason"}}
     if name not in fields or set(payload)!=fields[name]: return False
     if payload.get("source")!="sentinel" or not isinstance(payload.get("device_id"),str) or not 8<=len(payload["device_id"])<=128: return False
@@ -88,7 +95,9 @@ def validate_target(name,target,config,dry_run=False):
     env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
     if not dry_run and (not env_name or not os.getenv(env_name,"")): raise ValueError(f"missing_adapter_credential:{name}")
 def send(url,payload,token="",secret=""):
-    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode(); headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.12","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode()
+    if len(body)>MAX_VENDOR_PAYLOAD_BYTES: raise ValueError("adapter_payload_too_large")
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.13","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
@@ -134,6 +143,7 @@ def flush_spool(config,spool,sender=send,limit=50):
     results=[]
     for path in sorted(spool.glob("*.json"))[:limit]:
         try:
+            if path.stat().st_size>MAX_VENDOR_QUEUE_FILE_BYTES: raise ValueError("oversized_queued_event")
             item=json.loads(path.read_text()); name=item["adapter"]
             if name not in ADAPTERS or set(item)!={"adapter","queued_at","payload"} or not valid_payload(name,item["payload"]): raise ValueError("invalid_queued_event")
         except (OSError,json.JSONDecodeError,UnicodeDecodeError,RecursionError,TypeError,KeyError,ValueError) as exc:
