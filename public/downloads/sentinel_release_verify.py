@@ -151,14 +151,15 @@ def verify(downloads):
     try: adapter_text=(downloads/"sentinel_adapter.py").read_text()
     except OSError as exc: errors.append(f"invalid_adapter:{type(exc).__name__}"); adapter_text=""
     if '"Idempotency-Key":hashlib.sha256(body).hexdigest()' not in adapter_text: errors.append("missing_adapter_idempotency_key")
-    for directive in ('SentinelAdapter/0.13','MAX_VENDOR_PAYLOAD_BYTES=2_000_000','MAX_VENDOR_QUEUE_FILE_BYTES=2_100_000','adapter_payload_too_large','oversized_queued_event','action not in SAFE_ACTIONS','set(compliance)!={"max_policy_age_hours","critical_allowed"}','not 1<=age<=168','critical!=0','max_age=config["compliance"]["max_policy_age_hours"]*3600','last_scan>now+300','"stale_policy"','isinstance(report["scanned_at"],bool)','invalid_adapter_payload','if len(files)>=keep: raise OSError("adapter_spool_full")','"result":"retained"','spool.is_symlink()','tempfile.mkstemp','os.fchmod(fd,0o600)','os.fsync(handle.fileno())','os.replace(temp,path)','os.fsync(directory_fd)'):
+    for directive in ('SentinelAdapter/0.14','MAX_VENDOR_PAYLOAD_BYTES=2_000_000','MAX_VENDOR_QUEUE_FILE_BYTES=2_100_000','MAX_VENDOR_CONFIG_BYTES=65_536','MAX_VENDOR_ACCEPTANCE_BYTES=262_144','def read_json_bounded','path.is_symlink() or not path.is_file()','raw.decode("utf-8")','adapter_payload_too_large','oversized_queued_event','action not in SAFE_ACTIONS','set(compliance)!={"max_policy_age_hours","critical_allowed"}','not 1<=age<=168','critical!=0','max_age=config["compliance"]["max_policy_age_hours"]*3600','last_scan>now+300','"stale_policy"','isinstance(report["scanned_at"],bool)','invalid_adapter_payload','if len(files)>=keep: raise OSError("adapter_spool_full")','"result":"retained"','spool.is_symlink()','tempfile.mkstemp','os.fchmod(fd,0o600)','os.fsync(handle.fileno())','os.replace(temp,path)','os.fsync(directory_fd)'):
         if directive not in adapter_text: errors.append(f"missing_vendor_config_boundary:{directive}")
     try: vendor_contract=json.loads((downloads/"sentinel-vendor-contracts.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_vendor_contract:{type(exc).__name__}"); vendor_contract={}
-    if vendor_contract.get("schema")!="sentinel.vendor-contracts/v1" or vendor_contract.get("adapter_version")!="0.13" or vendor_contract.get("secrets_embedded") is not False: errors.append("vendor_contract_version_drift")
+    if vendor_contract.get("schema")!="sentinel.vendor-contracts/v1" or vendor_contract.get("adapter_version")!="0.14" or vendor_contract.get("secrets_embedded") is not False: errors.append("vendor_contract_version_drift")
     queue_contract=vendor_contract.get("delivery_queue",{})
     if queue_contract!={"overflow_behavior":"retain_source_report_and_retry","silent_eviction_allowed":False,"credentials_stored":False,"write_semantics":"private_fsync_atomic_replace_directory_fsync","symlink_directory_allowed":False,"maximum_queue_file_bytes":2100000}: errors.append("unsafe_vendor_queue_contract")
     if vendor_contract.get("transport",{}).get("maximum_payload_bytes")!=2000000: errors.append("unsafe_vendor_payload_limit")
+    if vendor_contract.get("local_inputs")!={"adapter_config_maximum_bytes":65536,"acceptance_evidence_maximum_bytes":262144,"report_maximum_bytes":2000000,"strict_utf8":True,"regular_file_required":True,"symlink_allowed":False}: errors.append("unsafe_vendor_local_inputs")
     transport=vendor_contract.get("transport",{}); boundaries=vendor_contract.get("credential_boundaries",{})
     if transport.get("scheme")!="https" or transport.get("timeout_seconds")!=15 or transport.get("idempotency_header")!="Idempotency-Key" or transport.get("credentials_in_url_allowed") is not False: errors.append("unsafe_vendor_transport_contract")
     if vendor_contract.get("sangfor",{}).get("safe_actions")!=["observe","alert","isolate_pending_approval","block_pending_approval"] or vendor_contract.get("sangfor",{}).get("direct_destructive_actions_allowed") is not False: errors.append("unsafe_sangfor_contract")
@@ -168,10 +169,10 @@ def verify(downloads):
     if enablement!={"evidence_schema":"sentinel.vendor-acceptance/v1","maximum_evidence_age_seconds":604800,"required_for":["sangfor","leagsoft"],"secrets_allowed":False}: errors.append("vendor_enablement_contract_drift")
     try: vendor_evidence=json.loads((downloads/"vendor-acceptance-evidence.example.json").read_text()); vendor_preflight=(downloads/"sentinel_vendor_preflight.py").read_text()
     except (OSError,ValueError) as exc: errors.append(f"invalid_vendor_preflight:{type(exc).__name__}"); vendor_evidence={}; vendor_preflight=""
-    if vendor_evidence.get("schema")!="sentinel.vendor-acceptance/v1" or vendor_evidence.get("adapter_version")!="0.13" or vendor_evidence.get("secrets_embedded") is not False: errors.append("unsafe_vendor_acceptance_example")
+    if vendor_evidence.get("schema")!="sentinel.vendor-acceptance/v1" or vendor_evidence.get("adapter_version")!="0.14" or vendor_evidence.get("secrets_embedded") is not False: errors.append("unsafe_vendor_acceptance_example")
     for directive in ('max_age_seconds=604800','vendor_endpoint_not_accepted','vendor_gate_failed','vendor_acceptance_must_be_secret_free','auth_scheme'):
         if directive not in vendor_preflight: errors.append(f"unsafe_vendor_preflight:{directive}")
-    for directive in ('--acceptance','vendor_acceptance_failed','adapter_version="0.13"','now=now'):
+    for directive in ('--acceptance','vendor_acceptance_failed','adapter_version="0.14"','now=now','adapter.read_json_bounded'):
         if directive not in worker: errors.append(f"missing_vendor_worker_gate:{directive}")
     try: windows_config=(downloads/"sentinel-configure-windows.ps1").read_text(); windows_agent=(downloads/"sentinel-windows.ps1").read_text(); mac_config=(downloads/"sentinel-configure-macos.sh").read_text(); python_agent=(downloads/"sentinel_agent.py").read_text()
     except OSError as exc: errors.append(f"invalid_endpoint_reporting_config:{type(exc).__name__}"); windows_config=windows_agent=mac_config=python_agent=""

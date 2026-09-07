@@ -1,6 +1,6 @@
 {
   "schema": "sentinel.vendor-contracts/v1",
-  "adapter_version": "0.13",
+  "adapter_version": "0.14",
   "production_enablement": {
     "evidence_schema": "sentinel.vendor-acceptance/v1",
     "maximum_evidence_age_seconds": 604800,
@@ -25,6 +25,14 @@
     "write_semantics": "private_fsync_atomic_replace_directory_fsync",
     "symlink_directory_allowed": false,
     "maximum_queue_file_bytes": 2100000
+  },
+  "local_inputs": {
+    "adapter_config_maximum_bytes": 65536,
+    "acceptance_evidence_maximum_bytes": 262144,
+    "report_maximum_bytes": 2000000,
+    "strict_utf8": true,
+    "regular_file_required": true,
+    "symlink_allowed": false
   },
   "credential_boundaries": {
     "sangfor": {"header": "Authorization: Bearer <SANGFOR_* env>", "allowed_env_prefix": "SANGFOR_"},

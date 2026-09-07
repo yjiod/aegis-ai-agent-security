@@ -8,6 +8,16 @@ SAFE_ACTIONS={"observe","alert","isolate_pending_approval","block_pending_approv
 ADAPTERS=("sangfor","leagsoft","security_webhook")
 MAX_VENDOR_PAYLOAD_BYTES=2_000_000
 MAX_VENDOR_QUEUE_FILE_BYTES=2_100_000
+MAX_VENDOR_CONFIG_BYTES=65_536
+MAX_VENDOR_ACCEPTANCE_BYTES=262_144
+
+def read_json_bounded(path,max_bytes):
+    path=Path(path)
+    if path.is_symlink() or not path.is_file(): raise ValueError("unsafe_json_input")
+    if path.stat().st_size>max_bytes: raise ValueError("oversized_json_input")
+    raw=path.read_bytes()
+    if len(raw)>max_bytes: raise ValueError("oversized_json_input")
+    return json.loads(raw.decode("utf-8"))
 TARGET_FIELDS={"sangfor":{"enabled","mode","url","token_env","actions"},"leagsoft":{"enabled","mode","url","token_env","compliance"},"security_webhook":{"enabled","mode","url","secret_env"}}
 CREDENTIAL_PREFIX={"sangfor":"SANGFOR_","leagsoft":"LEAGSOFT_","security_webhook":"SENTINEL_"}
 
@@ -97,7 +107,7 @@ def validate_target(name,target,config,dry_run=False):
 def send(url,payload,token="",secret=""):
     body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode()
     if len(body)>MAX_VENDOR_PAYLOAD_BYTES: raise ValueError("adapter_payload_too_large")
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.13","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.14","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
@@ -179,10 +189,12 @@ def process(report,config,dry_run=False,spool_dir=None,sender=send,now=None):
     return outputs
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("report",nargs="?"); ap.add_argument("--config",default=str(Path(__file__).with_name("sentinel-adapters.json"))); ap.add_argument("--dry-run",action="store_true"); ap.add_argument("--spool-dir",default=os.getenv("SENTINEL_ADAPTER_SPOOL","")); ap.add_argument("--flush-only",action="store_true"); args=ap.parse_args()
-    try: config=json.loads(Path(args.config).read_text()); validate_config(config)
-    except (OSError,ValueError,TypeError,RecursionError) as exc: raise SystemExit("invalid adapter configuration: "+type(exc).__name__)
+    try: config=read_json_bounded(args.config,MAX_VENDOR_CONFIG_BYTES); validate_config(config)
+    except (OSError,ValueError,TypeError,RecursionError,UnicodeError,json.JSONDecodeError) as exc: raise SystemExit("invalid adapter configuration: "+type(exc).__name__)
     spool=Path(args.spool_dir) if args.spool_dir else Path.home()/".sentinel-adapter/spool"
     if args.flush_only: print(json.dumps(flush_spool(config,spool),ensure_ascii=False,indent=2)); return
     if not args.report: ap.error("report is required unless --flush-only is used")
-    report=json.loads(Path(args.report).read_text()); print(json.dumps(process(report,config,args.dry_run,spool),ensure_ascii=False,indent=2))
+    try: report=read_json_bounded(args.report,MAX_VENDOR_PAYLOAD_BYTES)
+    except (OSError,ValueError,TypeError,RecursionError,UnicodeError,json.JSONDecodeError) as exc: raise SystemExit("invalid adapter report: "+type(exc).__name__)
+    print(json.dumps(process(report,config,args.dry_run,spool),ensure_ascii=False,indent=2))
 if __name__=="__main__": main()

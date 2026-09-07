@@ -40,7 +40,7 @@ def preflight(config,adapter,acceptance=None,now=None):
             for action in target.get("actions",{}).values():
                 if action not in adapter.SAFE_ACTIONS: raise ValueError(f"unsafe_sangfor_action:{action}")
     if not enabled: raise ValueError("no_enabled_adapters")
-    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.13",now=now)
+    blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.14",now=now)
     if blockers: raise ValueError("vendor_acceptance_failed:"+",".join(blockers))
 
 @contextmanager
@@ -85,11 +85,11 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--db",default="/var/lib/sentinel/sentinel.db"); ap.add_argument("--config",default="/etc/sentinel/adapters.json"); ap.add_argument("--acceptance",default="/etc/sentinel/vendor-acceptance.json"); ap.add_argument("--spool",default="/var/lib/sentinel/adapter-spool"); ap.add_argument("--once",action="store_true"); args=ap.parse_args()
     adapter=load_adapter()
     try:
-        config=json.loads(Path(args.config).read_text())
+        config=adapter.read_json_bounded(args.config,adapter.MAX_VENDOR_CONFIG_BYTES)
         needs_acceptance=any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in ("sangfor","leagsoft"))
-        acceptance=json.loads(Path(args.acceptance).read_text()) if needs_acceptance else None
+        acceptance=adapter.read_json_bounded(args.acceptance,adapter.MAX_VENDOR_ACCEPTANCE_BYTES) if needs_acceptance else None
         preflight(config,adapter,acceptance)
-    except (OSError,ValueError,TypeError,RecursionError) as exc: raise SystemExit("invalid adapter worker configuration: "+str(exc))
+    except (OSError,ValueError,TypeError,RecursionError,UnicodeError,json.JSONDecodeError) as exc: raise SystemExit("invalid adapter worker configuration: "+str(exc))
     while True:
         results=dispatch_once(args.db,config,args.spool,adapter=adapter,acceptance=acceptance)
         if args.once: print(json.dumps(results,ensure_ascii=False,indent=2)); return

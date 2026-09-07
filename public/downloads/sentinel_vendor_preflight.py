@@ -11,8 +11,17 @@ VENDOR_FIELDS={
     "field_mapping_approved","idempotency_verified","non_2xx_retry_verified",
     "safe_action_mapping_verified","dry_run_payload_approved","approved_by",
 }
+MAX_PREFLIGHT_INPUT_BYTES=262_144
 
-def evaluate(config,evidence,adapter_version="0.13",now=None,max_age_seconds=604800):
+def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES):
+    path=Path(path)
+    if path.is_symlink() or not path.is_file(): raise ValueError("unsafe_json_input")
+    if path.stat().st_size>max_bytes: raise ValueError("oversized_json_input")
+    raw=path.read_bytes()
+    if len(raw)>max_bytes: raise ValueError("oversized_json_input")
+    return json.loads(raw.decode("utf-8"))
+
+def evaluate(config,evidence,adapter_version="0.14",now=None,max_age_seconds=604800):
     now=int(time.time() if now is None else now); blockers=[]
     if not isinstance(config,dict): return ["invalid_adapter_config"]
     if not any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in VENDORS): return []
@@ -44,11 +53,11 @@ def evaluate(config,evidence,adapter_version="0.13",now=None,max_age_seconds=604
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--config",required=True); parser.add_argument("--evidence",required=True)
-    parser.add_argument("--adapter-version",default="0.13")
+    parser.add_argument("--adapter-version",default="0.14")
     args=parser.parse_args()
     try:
-        config=json.loads(Path(args.config).read_text()); evidence=json.loads(Path(args.evidence).read_text())
-    except (OSError,ValueError,TypeError,RecursionError) as exc:
+        config=read_json_bounded(args.config); evidence=read_json_bounded(args.evidence)
+    except (OSError,ValueError,TypeError,RecursionError,UnicodeError,json.JSONDecodeError) as exc:
         print(json.dumps({"ok":False,"blockers":[f"invalid_vendor_preflight_input:{type(exc).__name__}"]},separators=(",",":"))); return 1
     blockers=evaluate(config,evidence,args.adapter_version)
     print(json.dumps({"ok":not blockers,"blockers":blockers},ensure_ascii=False,separators=(",",":")))
