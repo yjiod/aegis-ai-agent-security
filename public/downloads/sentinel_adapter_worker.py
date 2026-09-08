@@ -43,6 +43,13 @@ def preflight(config,adapter,acceptance=None,now=None):
     blockers=load_vendor_preflight().evaluate(config,acceptance or {},adapter_version="0.18",now=now)
     if blockers: raise ValueError("vendor_acceptance_failed:"+",".join(blockers))
 
+def load_runtime_inputs(adapter,config_path,acceptance_path,now=None):
+    config=adapter.read_json_bounded(config_path,adapter.MAX_VENDOR_CONFIG_BYTES)
+    needs_acceptance=any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in ("sangfor","leagsoft"))
+    acceptance=adapter.read_json_bounded(acceptance_path,adapter.MAX_VENDOR_ACCEPTANCE_BYTES) if needs_acceptance else None
+    preflight(config,adapter,acceptance,now)
+    return config,acceptance
+
 @contextmanager
 def open_db(path):
     db=sqlite3.connect(path,timeout=5)
@@ -97,13 +104,9 @@ def dispatch_once(db_path,config,spool,adapter=None,sender=None,limit=None,now=N
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--db",default="/var/lib/sentinel/sentinel.db"); ap.add_argument("--config",default="/etc/sentinel/adapters.json"); ap.add_argument("--acceptance",default="/etc/sentinel/vendor-acceptance.json"); ap.add_argument("--spool",default="/var/lib/sentinel/adapter-spool"); ap.add_argument("--once",action="store_true"); args=ap.parse_args()
     adapter=load_adapter()
-    try:
-        config=adapter.read_json_bounded(args.config,adapter.MAX_VENDOR_CONFIG_BYTES)
-        needs_acceptance=any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in ("sangfor","leagsoft"))
-        acceptance=adapter.read_json_bounded(args.acceptance,adapter.MAX_VENDOR_ACCEPTANCE_BYTES) if needs_acceptance else None
-        preflight(config,adapter,acceptance)
-    except (OSError,ValueError,TypeError,RecursionError,UnicodeError,json.JSONDecodeError) as exc: raise SystemExit("invalid adapter worker configuration: "+str(exc))
     while True:
+        try: config,acceptance=load_runtime_inputs(adapter,args.config,args.acceptance)
+        except (OSError,ValueError,TypeError,RecursionError,UnicodeError,json.JSONDecodeError) as exc: raise SystemExit("invalid adapter worker configuration: "+str(exc))
         results=dispatch_once(args.db,config,args.spool,adapter=adapter,acceptance=acceptance)
         if args.once: print(json.dumps(results,ensure_ascii=False,indent=2)); return
         time.sleep(poll_seconds())

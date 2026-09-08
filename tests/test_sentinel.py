@@ -834,6 +834,20 @@ class SentinelTests(unittest.TestCase):
         request,timeout=captured[0]; body=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
         self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(request.get_header('User-agent'),'SentinelAdapter/0.18'); self.assertEqual(timeout,15)
         with self.assertRaisesRegex(ValueError,'adapter_payload_too_large'): self.adapter.send('https://edr.invalid/events',{'blob':'x'*2_000_000},token='secret')
+    def test_adapter_worker_reloads_signed_acceptance_each_batch(self):
+        now=2_000_000_000; url='https://edr.invalid/events'; config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':url,'token_env':'SANGFOR_TOKEN','actions':{'normal':'observe'}}}
+        item={'product_version':'test','api_document_id':'test-contract','endpoint_url':url,'auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test','probe':vendor_probe_receipt('sangfor',url,now)}
+        unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.18','vendors':{'sangfor':item},'secrets_embedded':False}; old_secret='old-acceptance-signing-secret-123'; new_secret='new-acceptance-signing-secret-456'
+        old=self.vendor_signer.sign(unsigned,old_secret,'old-key'); new=self.vendor_signer.sign(unsigned,new_secret,'new-key')
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); config_path=root/'adapters.json'; acceptance_path=root/'acceptance.json'; config_path.write_text(json.dumps(config)); acceptance_path.write_text(json.dumps(old))
+            keyring=json.dumps({'old-key':old_secret,'new-key':new_secret})
+            with patch.dict(os.environ,{'SANGFOR_TOKEN':'token','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS':keyring}):
+                _,first=self.worker.load_runtime_inputs(self.adapter,config_path,acceptance_path,now); self.assertEqual(first['integrity']['key_id'],'old-key')
+                replacement=root/'replacement.json'; replacement.write_text(json.dumps(new)); os.replace(replacement,acceptance_path)
+                _,second=self.worker.load_runtime_inputs(self.adapter,config_path,acceptance_path,now); self.assertEqual(second['integrity']['key_id'],'new-key')
+                second['vendors']['sangfor']['approved_by']='tampered'; replacement.write_text(json.dumps(second)); os.replace(replacement,acceptance_path)
+                with self.assertRaisesRegex(ValueError,'vendor_acceptance_signature_mismatch'): self.worker.load_runtime_inputs(self.adapter,config_path,acceptance_path,now)
     def test_adapter_worker_dispatches_each_collector_report_once(self):
         config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN','compliance':{'max_policy_age_hours':24,'critical_allowed':0}}}
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l'}):

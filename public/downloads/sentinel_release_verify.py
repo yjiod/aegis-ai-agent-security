@@ -158,7 +158,7 @@ def verify(downloads):
         if directive not in nginx: errors.append(f"unsafe_collector_nginx:{directive}")
     try: worker=(downloads/"sentinel_adapter_worker.py").read_text(); worker_service=(downloads/"sentinel-adapter-worker.service").read_text()
     except OSError as exc: errors.append(f"invalid_adapter_worker:{type(exc).__name__}"); worker=worker_service=""
-    for directive in ("adapter_dispatches","adapter.validate_target","result_summary(outputs)","INSERT OR IGNORE INTO adapter_dispatches"):
+    for directive in ("adapter_dispatches","adapter.validate_target","result_summary(outputs)","INSERT OR IGNORE INTO adapter_dispatches","def load_runtime_inputs","config,acceptance=load_runtime_inputs(adapter,args.config,args.acceptance)"):
         if directive not in worker: errors.append(f"unsafe_adapter_worker:{directive}")
     for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/adapter.env","--acceptance /etc/sentinel/vendor-acceptance.json","NoNewPrivileges=true","ProtectSystem=strict","CapabilityBoundingSet="):
         if directive not in worker_service: errors.append(f"unsafe_adapter_worker_service:{directive}")

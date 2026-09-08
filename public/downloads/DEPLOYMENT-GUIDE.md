@@ -231,3 +231,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 1.2.0 将生产验收升级为 `sentinel.vendor-acceptance/v3`，对完整的 v2 审批记录执行 HMAC-SHA256。审批工作站通过 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET` 注入至少 32 字符的独立密钥，运行 `sentinel_vendor_evidence_sign.py --evidence <v2.json> --key-id <轮换标识>` 生成带签名的 v3 文件。Adapter Worker 使用同名受保护环境变量逐批验签；缺少密钥、签名字段异常或审批内容被修改都会失败关闭。该密钥不得与厂商令牌、Webhook HMAC 或 Collector 报告密钥复用，也不得写入证据、Git、命令参数或日志。
 
 1.3.0 为厂商验收签名增加零停机密钥轮换。Worker 优先从 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS` 读取由 `key_id` 到密钥的 JSON 对象，严格接受 1–5 个唯一、至少 32 字符的值，并按证据中的 `key_id` 精确选键；无效 JSON、重复密钥、未知 key_id 或超限密钥环都会失败关闭。轮换时先加入新旧两把密钥，再用新 key_id 重签当前证据，确认 Worker 已加载并成功派发后删除旧键。旧的单值变量仅用于迁移兼容，稳定生产配置应使用密钥环。
+
+1.4.0 让 Adapter Worker 在每个派发批次重新读取配置和厂商验收证据，而不是仅在进程启动时缓存。读取继续使用大小上限、`O_NOFOLLOW`、普通文件和 inode/设备号绑定；新 key_id 的已签证据原子替换落盘后可在下一批次生效，无需重启 Worker。端点、动作、证据或签名出现漂移时，当前批次在读取 Collector 报告和发网前失败关闭，并由 systemd 的失败重启策略持续重试安全状态。
