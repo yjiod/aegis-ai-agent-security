@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `1.4.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.17`，Adapter `0.18`。
+当前发行：产品 `1.5.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.17`，Adapter `0.18`。
 
 ## 目录
 
@@ -33,3 +33,9 @@ python3 public/downloads/sentinel_release_verify.py public/downloads
 - [安全响应说明](SECURITY.md)
 
 真实 Intune、深信服 EDR、联软及 Collector 凭据不得提交到 Git。
+
+## 1.5 在线验签密钥轮换
+
+Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FILE`，因此可通过原子替换 `/etc/sentinel/vendor-acceptance-keys.json` 在线增加或移除验签密钥，无需重启进程。文件必须是普通文件、不得是符号链接，最大 64 KiB，所有者必须为 root 或服务用户；禁止其他用户访问，组仅可读且必须属于服务用户。推荐 `root:sentinel 0640`，内容是包含 1–5 个不同密钥的 JSON 对象。
+
+安全轮换顺序：先把新旧密钥同时写入临时文件并原子替换；用新 `key_id` 签署并原子替换验收证据；确认下一批次通过后再从密钥环移除旧密钥。环境变量密钥环只保留兼容用途，其内容变更仍需重启服务。

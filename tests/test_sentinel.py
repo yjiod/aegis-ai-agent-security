@@ -841,11 +841,15 @@ class SentinelTests(unittest.TestCase):
         old=self.vendor_signer.sign(unsigned,old_secret,'old-key'); new=self.vendor_signer.sign(unsigned,new_secret,'new-key')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); config_path=root/'adapters.json'; acceptance_path=root/'acceptance.json'; config_path.write_text(json.dumps(config)); acceptance_path.write_text(json.dumps(old))
-            keyring=json.dumps({'old-key':old_secret,'new-key':new_secret})
-            with patch.dict(os.environ,{'SANGFOR_TOKEN':'token','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS':keyring}):
+            keyring_path=root/'keys.json'; keyring_path.write_text(json.dumps({'old-key':old_secret})); keyring_path.chmod(0o600)
+            with patch.dict(os.environ,{'SANGFOR_TOKEN':'token','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FILE':str(keyring_path)}):
                 _,first=self.worker.load_runtime_inputs(self.adapter,config_path,acceptance_path,now); self.assertEqual(first['integrity']['key_id'],'old-key')
                 replacement=root/'replacement.json'; replacement.write_text(json.dumps(new)); os.replace(replacement,acceptance_path)
+                replacement_keys=root/'replacement-keys.json'; replacement_keys.write_text(json.dumps({'old-key':old_secret,'new-key':new_secret})); replacement_keys.chmod(0o600); os.replace(replacement_keys,keyring_path)
                 _,second=self.worker.load_runtime_inputs(self.adapter,config_path,acceptance_path,now); self.assertEqual(second['integrity']['key_id'],'new-key')
+                keyring_path.chmod(0o644)
+                with self.assertRaisesRegex(ValueError,'vendor_acceptance_failed:vendor_acceptance_signing_keys_invalid'): self.worker.load_runtime_inputs(self.adapter,config_path,acceptance_path,now)
+                keyring_path.chmod(0o600)
                 second['vendors']['sangfor']['approved_by']='tampered'; replacement.write_text(json.dumps(second)); os.replace(replacement,acceptance_path)
                 with self.assertRaisesRegex(ValueError,'vendor_acceptance_signature_mismatch'): self.worker.load_runtime_inputs(self.adapter,config_path,acceptance_path,now)
     def test_adapter_worker_dispatches_each_collector_report_once(self):

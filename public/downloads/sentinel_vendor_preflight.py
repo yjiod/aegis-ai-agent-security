@@ -17,6 +17,7 @@ VENDOR_FIELDS={
 PROBE_FIELDS={"schema","generated_at","adapter_version","vendor","endpoint_url","payload_sha256","idempotency_key","safe_action","live","statuses","idempotent_replay_accepted","secrets_embedded"}
 MAX_PREFLIGHT_INPUT_BYTES=262_144
 MAX_SIGNING_KEYS=5
+MAX_SIGNING_KEYS_BYTES=65_536
 
 def canonical_unsigned(evidence):
     unsigned={key:value for key,value in evidence.items() if key!="integrity"}; unsigned["schema"]=UNSIGNED_SCHEMA
@@ -29,7 +30,15 @@ def parse_signing_keys(raw):
     if any(not isinstance(key,str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}",key) or not isinstance(secret,str) or not 32<=len(secret)<=4096 for key,secret in keys.items()) or len(set(keys.values()))!=len(keys): raise ValueError("invalid_vendor_acceptance_signing_keys")
     return keys
 
-def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES):
+def load_signing_keys():
+    key_file=os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FILE","")
+    if key_file:
+        keys=read_json_bounded(key_file,MAX_SIGNING_KEYS_BYTES,private=True)
+        return parse_signing_keys(json.dumps(keys,separators=(",",":")))
+    raw=os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS","")
+    return parse_signing_keys(raw) if raw else None
+
+def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES,private=False):
     path=Path(path)
     before=path.lstat()
     if not stat.S_ISREG(before.st_mode): raise ValueError("unsafe_json_input")
@@ -39,6 +48,9 @@ def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES):
         opened=os.fstat(fd)
         if not stat.S_ISREG(opened.st_mode) or (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino): raise ValueError("unsafe_json_input")
         if opened.st_size>max_bytes: raise ValueError("oversized_json_input")
+        if private:
+            mode=stat.S_IMODE(opened.st_mode); allowed_gids={os.getegid(),*os.getgroups()}
+            if opened.st_uid not in {0,os.geteuid()} or mode&0o007 or mode&0o030 or (mode&0o040 and opened.st_gid not in allowed_gids): raise ValueError("unsafe_private_json_input")
         with os.fdopen(fd,"rb") as handle: fd=-1; raw=handle.read(max_bytes+1)
     finally:
         if fd>=0: os.close(fd)
@@ -58,8 +70,8 @@ def evaluate(config,evidence,adapter_version="0.18",now=None,max_age_seconds=604
         if signing_keys is not None: keys=signing_keys if isinstance(signing_keys,dict) else parse_signing_keys(signing_keys)
         elif signing_secret is not None: keys={key_id:signing_secret}
         else:
-            raw=os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS","")
-            keys=parse_signing_keys(raw) if raw else ({key_id:os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","")} if os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","") else {})
+            keys=load_signing_keys()
+            if keys is None: keys={key_id:os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","")} if os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","") else {}
         if not isinstance(keys,dict) or not 1<=len(keys)<=MAX_SIGNING_KEYS or any(not isinstance(key,str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}",key) or not isinstance(secret,str) or not 32<=len(secret)<=4096 for key,secret in keys.items()) or len(set(keys.values()))!=len(keys): raise ValueError("invalid_vendor_acceptance_signing_keys")
     except ValueError: keys={}; blockers.append("vendor_acceptance_signing_keys_invalid")
     secret=keys.get(key_id)
