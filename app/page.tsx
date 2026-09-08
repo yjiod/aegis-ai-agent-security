@@ -111,11 +111,13 @@ type FleetSummary = {
   agent_coverage: Record<'cursor'|'claude_code'|'codex'|'windsurf'|'gemini_cli'|'github_copilot_cli',{total:number;active:number}>;
   baseline_coverage: Record<'claude_code'|'codex'|'gemini_cli'|'github_copilot_cli',{total:number;managed:number}>;
 };
+type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy' };
 
 export default function Home() {
   const [toast, setToast] = useState('');
   const [detail, setDetail] = useState<DetailKey | null>(null);
   const [fleet, setFleet] = useState<FleetSummary | null>(null);
+  const [fleetDevices, setFleetDevices] = useState<FleetDevice[] | null>(null);
   const [collectorState, setCollectorState] = useState<'checking' | 'live' | 'demo'>('checking');
   function runScan() {
     setToast('当前为演示数据，尚未连接任务下发 API；未对任何终端执行操作。');
@@ -132,6 +134,13 @@ export default function Home() {
       .catch((error: unknown) => {
         if ((error as { name?: string })?.name !== 'AbortError') setCollectorState('demo');
       });
+    fetch('/api/devices', { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('collector unavailable');
+        const value=(await response.json()) as {connected?:boolean;devices?:FleetDevice[]};
+        if (!value.connected || !Array.isArray(value.devices)) throw new Error('collector disconnected');
+        setFleetDevices(value.devices);
+      }).catch(() => setFleetDevices(null));
     return () => controller.abort();
   }, []);
   const totalDevices=fleet?.total_devices ?? 312; const activeDevices=fleet?.active_devices ?? 284; const staleDevices=fleet?.stale_devices ?? 28;
@@ -247,7 +256,7 @@ export default function Home() {
           </div>
         </aside>
         <section className="workspace" id="overview">
-          <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>{fleet ? '混合只读模式' : '演示模式'}</strong>{fleet ? ' 顶部四项指标来自已验证的接收器摘要；终端明细、覆盖分布和风险事件仍为界面样例。' : ' 页面指标、设备和风险事件均为界面样例，不代表真实终端状态。请部署报告接收器并完成私有 API 接入后再用于运营判断。'}</span></div>
+          <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>{fleet ? '混合只读模式' : '演示模式'}</strong>{fleet ? ` 顶部指标来自接收器；终端明细${fleetDevices ? '也已连接真实只读数据' : '仍为界面样例'}，覆盖分布和风险事件仍为样例。` : ' 页面指标、设备和风险事件均为界面样例，不代表真实终端状态。请部署报告接收器并完成私有 API 接入后再用于运营判断。'}</span></div>
           <div className="page-head">
             <div>
               <p className="eyebrow">安全态势 / 演示数据</p>
@@ -446,6 +455,7 @@ export default function Home() {
           close={() => setDetail(null)}
           notify={setToast}
           fleet={fleet}
+          fleetDevices={fleetDevices}
         />
       )}
     </main>
@@ -482,11 +492,13 @@ function DetailPanel({
   close,
   notify,
   fleet,
+  fleetDevices,
 }: {
   view: DetailKey;
   close: () => void;
   notify: (s: string) => void;
   fleet: FleetSummary | null;
+  fleetDevices: FleetDevice[] | null;
 }) {
   const scanRows =
     view === 'skills'
@@ -619,7 +631,12 @@ function DetailPanel({
               </Button>
             </div>
             <DataTable
-              rows={[
+              rows={fleetDevices ? fleetDevices.map((device)=>[
+                device.device_id,
+                new Date(device.last_seen*1000).toLocaleString('zh-CN'),
+                `${device.report_count} 份报告`,
+                device.credential_generation==='current' ? '当前凭据' : device.credential_generation==='previous' ? '上一代凭据' : 'Legacy',
+              ]) : [
                 ['ENG-MBP-1032', '陈昊 · Cursor', 'v3.8', '受保护'],
                 ['MKT-LT-2841', '林妍 · Cursor', 'v3.7', '需处理'],
                 ['ENG-LT-0948', '周航 · Codex CLI', 'v3.8', '受保护'],
