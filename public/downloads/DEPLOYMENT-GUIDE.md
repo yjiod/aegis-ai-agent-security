@@ -245,3 +245,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 1.9.0 提供 `sentinel_vendor_keyring.py` 管理验收密钥环。使用 `--keyring <文件> --add-key-id <id>` 由系统 CSPRNG 创建至少 384 位随机密钥，安全原子写入且从不输出密钥；首次创建后按部署边界设置 `root:sentinel 0640`。退役使用 `--remove-key-id <旧 id> --acceptance <当前 v3.json>`，工具要求证据不超过七天、HMAC 有效且由将被保留的另一把密钥签署；正在使用的键、最后一把键、过期或伪造证据均不能推动删除。
 
 2.0.0 扩展私有控制台只读面。新增同源 `/api/devices`，服务端以现有 Collector 管理令牌请求 `/v1/devices?limit=200`；浏览器只收到设备哈希 ID、最近上报时间、报告数量和 current/previous/legacy 凭据代次。代理限制 256 KiB、5 秒超时和 15 分钟生成时效，拒绝额外字段、重复/非法设备 ID、错误枚举、未来时间及超量结果；响应与错误均 `no-store`。设备列表连接失败时独立回退为明确标识的样例，不影响已验证摘要。
+
+2.1.0 将控制台版本展示绑定到 `release.json.component_versions`。浏览器仅接受严格的产品 semver 以及 Endpoint Agent、策略、Collector、Adapter 四个版本字段，缺失、额外字段或非法格式不会进入界面状态；发行验证器同时固定这组版本与实际制品。由此基线页面不再保留手工维护的 v4.8 标签，当前展示与策略 4.9.0 一致。

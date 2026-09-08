@@ -32,6 +32,7 @@ def verify(downloads):
     try: release=json.loads((downloads/"release.json").read_text())
     except (OSError,ValueError) as exc: return [f"invalid_release_json:{type(exc).__name__}"]
     if not re.fullmatch(r"\d+\.\d+\.\d+",str(release.get("release",""))): errors.append("invalid_release_version")
+    if release.get("component_versions")!={"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.17","adapter":"0.18"}: errors.append("release_component_version_drift")
     try: policy=json.loads((downloads/"sentinel-policy.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_policy_json:{type(exc).__name__}"); policy={}
     patterns=policy.get("secret_patterns",[]) if isinstance(policy,dict) else []

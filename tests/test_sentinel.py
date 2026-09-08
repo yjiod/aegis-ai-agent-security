@@ -31,6 +31,7 @@ class SentinelTests(unittest.TestCase):
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
         devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
         self.assertIn("fetch('/api/devices'",page); self.assertIn('fleetDevices.map',page)
+        self.assertIn("fetch('/downloads/release.json'",page); self.assertIn('Object.keys(versions).length!==4',page); self.assertIn('releaseMetadata?.component_versions.policy',page); self.assertNotIn('v4.8',page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
         for directive in ('runs-on: ubuntu-latest','windows-powershell:','runs-on: windows-latest','shell: powershell','System.Management.Automation.Language.Parser','macos-shell:','runs-on: macos-latest','/bin/bash -n','/bin/sh -n','permissions:\n  contents: read'):

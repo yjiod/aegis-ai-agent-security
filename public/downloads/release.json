@@ -1,8 +1,10 @@
 {
-  "release": "2.0.0",
+  "release": "2.1.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T23:22:00+08:00",
+  "published_at": "2026-09-08T23:27:00+08:00",
+  "component_versions": {"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.17","adapter":"0.18"},
   "features": [
+    "release_metadata_driven_console", "component_version_drift_prevention", "strict_client_release_contract", "current_policy_ui_alignment",
     "live_read_only_device_console", "bounded_device_summary_proxy", "strict_device_response_contract", "fresh_device_snapshot_gate", "duplicate_device_rejection", "collector_token_server_only",
     "site_public_bytecode_cleanup", "pycache_free_site_archives", "bounded_prebuild_cleanup_root", "deployment_artifact_hygiene",
     "vendor_keyring_lifecycle_tool", "csprng_vendor_acceptance_keys", "secret_free_keyring_receipts", "evidence_gated_key_retirement", "retained_key_signature_requirement", "last_key_removal_rejection",

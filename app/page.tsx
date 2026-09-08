@@ -28,7 +28,7 @@ const modules = [
   {
     icon: ShieldCheck,
     title: '安全编码基线',
-    desc: '企业规则基线 · v4.8',
+    desc: '企业规则基线 · 已验证发行',
     status: '已打包',
     tone: 'green',
   },
@@ -112,12 +112,14 @@ type FleetSummary = {
   baseline_coverage: Record<'claude_code'|'codex'|'gemini_cli'|'github_copilot_cli',{total:number;managed:number}>;
 };
 type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy' };
+type ReleaseMetadata = { release:string; component_versions:{endpoint_agent:string;policy:string;collector:string;adapter:string} };
 
 export default function Home() {
   const [toast, setToast] = useState('');
   const [detail, setDetail] = useState<DetailKey | null>(null);
   const [fleet, setFleet] = useState<FleetSummary | null>(null);
   const [fleetDevices, setFleetDevices] = useState<FleetDevice[] | null>(null);
+  const [releaseMetadata, setReleaseMetadata] = useState<ReleaseMetadata | null>(null);
   const [collectorState, setCollectorState] = useState<'checking' | 'live' | 'demo'>('checking');
   function runScan() {
     setToast('当前为演示数据，尚未连接任务下发 API；未对任何终端执行操作。');
@@ -141,6 +143,14 @@ export default function Home() {
         if (!value.connected || !Array.isArray(value.devices)) throw new Error('collector disconnected');
         setFleetDevices(value.devices);
       }).catch(() => setFleetDevices(null));
+    fetch('/downloads/release.json', { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('release unavailable');
+        const value=(await response.json()) as Partial<ReleaseMetadata>; const versions=value.component_versions;
+        const semver=/^\d+\.\d+\.\d+$/; const component=/^\d+\.\d+(?:\.\d+)?$/;
+        if (!semver.test(value.release ?? '') || !versions || Object.keys(versions).length!==4 || !component.test(versions.endpoint_agent) || !component.test(versions.policy) || !component.test(versions.collector) || !component.test(versions.adapter)) throw new Error('release invalid');
+        setReleaseMetadata(value as ReleaseMetadata);
+      }).catch(() => setReleaseMetadata(null));
     return () => controller.abort();
   }, []);
   const totalDevices=fleet?.total_devices ?? 312; const activeDevices=fleet?.active_devices ?? 284; const staleDevices=fleet?.stale_devices ?? 28;
@@ -456,6 +466,7 @@ export default function Home() {
           notify={setToast}
           fleet={fleet}
           fleetDevices={fleetDevices}
+          releaseMetadata={releaseMetadata}
         />
       )}
     </main>
@@ -493,12 +504,14 @@ function DetailPanel({
   notify,
   fleet,
   fleetDevices,
+  releaseMetadata,
 }: {
   view: DetailKey;
   close: () => void;
   notify: (s: string) => void;
   fleet: FleetSummary | null;
   fleetDevices: FleetDevice[] | null;
+  releaseMetadata: ReleaseMetadata | null;
 }) {
   const scanRows =
     view === 'skills'
@@ -542,7 +555,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent 0.35.0</h2>
+                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.35.0'}</h2>
                 <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
@@ -679,7 +692,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>企业 AI Coding 安全基线 v4.8</h2>
+                <h2>企业 AI Coding 安全基线 v{releaseMetadata?.component_versions.policy ?? '4.9.0'}</h2>
                 <p>规则应用范围与合规率为界面样例</p>
               </div>
               <strong>
