@@ -3,7 +3,7 @@
 1. 更新代码、测试、部署文档和版本元数据。
 2. 重算四项运行时 SHA-256，更新全部哈希消费者。
 3. 按 `sentinel_release_verify.py` 的 `BUNDLE_FILES` 重建 `sentinel-enterprise-bundle.zip`。
-4. 执行 Python 测试、Shell/PowerShell 语法检查、前端构建、离线验证和 `git diff --check`。
+4. 执行 Python 测试、Shell/PowerShell 语法检查、前端构建、离线验证和 `git diff --check`。`npm run build` 会先定向移除 `public` 下未跟踪的 `__pycache__`/`.pyc`，避免本地语法检查产物进入 Sites 归档。
 5. 提交并推送 GitHub 私有仓库。
 6. 从同一提交生成 Sites 归档、保存版本、部署私有站点并轮询到成功。
 7. 记录提交 SHA、站点版本和 URL；再在 Intune 试点组更新并逐步扩大。

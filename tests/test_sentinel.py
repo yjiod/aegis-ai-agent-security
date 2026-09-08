@@ -646,6 +646,8 @@ class SentinelTests(unittest.TestCase):
         self.assertLess(windows.index('-TimeoutSec 120'),windows.index('Get-FileHash'))
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
+        package=json.loads((ROOT/'package.json').read_text()); self.assertEqual(package['scripts']['prebuild'],'node scripts/clean-public-bytecode.mjs')
+        cleaner=(ROOT/'scripts'/'clean-public-bytecode.mjs').read_text(); self.assertIn("entry.name === '__pycache__'",cleaner); self.assertIn("path.startsWith(`${publicRoot}/`)",cleaner); self.assertIn("/\\.py[co]$/",cleaner)
     def test_release_verifier_rejects_runtime_drift(self):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel_agent.py').write_text('# drift')

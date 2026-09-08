@@ -1,8 +1,9 @@
 {
-  "release": "1.9.0",
+  "release": "1.9.1",
   "channel": "pilot",
-  "published_at": "2026-09-08T23:09:00+08:00",
+  "published_at": "2026-09-08T23:14:00+08:00",
   "features": [
+    "site_public_bytecode_cleanup", "pycache_free_site_archives", "bounded_prebuild_cleanup_root", "deployment_artifact_hygiene",
     "vendor_keyring_lifecycle_tool", "csprng_vendor_acceptance_keys", "secret_free_keyring_receipts", "evidence_gated_key_retirement", "retained_key_signature_requirement", "last_key_removal_rejection",
     "metadata_preserving_vendor_acceptance_replace", "service_group_readability_preserved", "strict_existing_output_mode_gate", "existing_output_owner_gate", "safe_first_create_boundary",
     "private_atomic_vendor_acceptance_output", "fsynced_signing_evidence", "signing_output_symlink_rejection", "signing_directory_ownership_gate", "minimal_signing_receipt",
