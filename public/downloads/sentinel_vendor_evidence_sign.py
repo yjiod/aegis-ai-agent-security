@@ -18,12 +18,16 @@ def private_atomic_output(path,value):
     info=parent.stat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid not in {0,os.geteuid()} or stat.S_IMODE(info.st_mode)&0o022: raise ValueError("unsafe_signing_output_directory")
     if path.is_symlink(): raise ValueError("signing_output_symlink")
+    metadata=None
     if path.exists():
         existing=path.lstat()
-        if not stat.S_ISREG(existing.st_mode) or existing.st_uid not in {0,os.geteuid()}: raise ValueError("unsafe_signing_output")
+        mode=stat.S_IMODE(existing.st_mode); allowed_gids={os.getegid(),*os.getgroups()}
+        if not stat.S_ISREG(existing.st_mode) or existing.st_uid not in {0,os.geteuid()} or mode not in {0o600,0o640} or (existing.st_uid!=0 and mode&0o040 and existing.st_gid not in allowed_gids): raise ValueError("unsafe_signing_output")
+        metadata=(mode,existing.st_uid,existing.st_gid)
     fd,temp_name=tempfile.mkstemp(prefix="."+path.name+".",suffix=".tmp",dir=parent); temp=Path(temp_name)
     try:
-        os.fchmod(fd,0o600)
+        if metadata and (os.fstat(fd).st_uid,os.fstat(fd).st_gid)!=(metadata[1],metadata[2]): os.fchown(fd,metadata[1],metadata[2])
+        os.fchmod(fd,metadata[0] if metadata else 0o600)
         with os.fdopen(fd,"w",encoding="utf-8") as handle:
             fd=-1; json.dump(value,handle,ensure_ascii=False,sort_keys=True,separators=(",",":")); handle.write("\n"); handle.flush(); os.fsync(handle.fileno())
         os.replace(temp,path)

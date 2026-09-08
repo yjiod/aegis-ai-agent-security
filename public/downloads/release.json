@@ -1,8 +1,9 @@
 {
-  "release": "1.7.0",
+  "release": "1.8.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T22:57:00+08:00",
+  "published_at": "2026-09-08T23:05:00+08:00",
   "features": [
+    "metadata_preserving_vendor_acceptance_replace", "service_group_readability_preserved", "strict_existing_output_mode_gate", "existing_output_owner_gate", "safe_first_create_boundary",
     "private_atomic_vendor_acceptance_output", "fsynced_signing_evidence", "signing_output_symlink_rejection", "signing_directory_ownership_gate", "minimal_signing_receipt",
     "protected_offline_vendor_signing_keyring", "key_id_exact_offline_signing", "secret_free_signing_process_environment", "bounded_nofollow_signing_key_read", "offline_signing_key_permission_gate",
     "reloadable_vendor_keyring_file", "true_online_signing_key_addition", "bounded_keyring_file", "nofollow_keyring_reload", "atomic_keyring_rotation", "environment_rotation_boundary_documented",
