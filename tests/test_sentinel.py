@@ -9,6 +9,9 @@ def vendor_report(level='normal'):
     summary={name:0 for name in ('critical','high','medium','low')}; findings=[]
     if level!='normal': summary[level]=1; findings=[{'kind':'test','severity':level,'path':'x','message':'test'}]
     return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
+def vendor_probe_receipt(vendor,url,now):
+    digest='a'*64
+    return {'schema':'sentinel.vendor-probe/v1','generated_at':now,'adapter_version':'0.18','vendor':vendor,'endpoint_url':url,'payload_sha256':digest,'idempotency_key':digest,'safe_action':'observe' if vendor=='sangfor' else 'compliance_posture_only','live':True,'statuses':[202,202],'idempotent_replay_accepted':True,'secrets_embedded':False}
 
 class SentinelTests(unittest.TestCase):
     def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); sys.modules['sentinel_adapter']=self.adapter; self.vendor_probe=load('vendor_probe','sentinel_vendor_probe.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.intune_graph=load('intune_graph','sentinel_intune_graph_normalize.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
@@ -790,12 +793,16 @@ class SentinelTests(unittest.TestCase):
     def test_vendor_production_enablement_requires_current_exact_acceptance(self):
         now=2_000_000_000; url='https://edr.invalid/events'
         config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':url,'token_env':'SANGFOR_TOKEN','actions':{'high':'alert'}}}
-        item={'product_version':'aCloud EDR verified build','api_document_id':'vendor-api-42','endpoint_url':url,'auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'security-owner'}
-        evidence={'schema':'sentinel.vendor-acceptance/v1','generated_at':now,'adapter_version':'0.18','vendors':{'sangfor':item},'secrets_embedded':False}
+        item={'product_version':'aCloud EDR verified build','api_document_id':'vendor-api-42','endpoint_url':url,'auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'security-owner','probe':vendor_probe_receipt('sangfor',url,now)}
+        evidence={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.18','vendors':{'sangfor':item},'secrets_embedded':False}
         self.assertEqual(self.vendor_preflight.evaluate(config,evidence,now=now),[])
         with patch.dict(os.environ,{'SANGFOR_TOKEN':'test'}): self.worker.preflight(config,self.adapter,evidence,now)
         self.assertIn('vendor_endpoint_not_accepted:sangfor',self.vendor_preflight.evaluate(config,{**evidence,'vendors':{'sangfor':{**item,'endpoint_url':'https://other.invalid/events'}}},now=now))
         self.assertIn('vendor_acceptance_not_current',self.vendor_preflight.evaluate(config,{**evidence,'generated_at':now-604801},now=now))
+        stale_probe={**item,'probe':{**item['probe'],'generated_at':now-86401}}
+        self.assertIn('vendor_probe_not_current:sangfor',self.vendor_preflight.evaluate(config,{**evidence,'vendors':{'sangfor':stale_probe}},now=now))
+        forged_probe={**item,'probe':{**item['probe'],'endpoint_url':'https://other.invalid/events'}}
+        self.assertIn('vendor_probe_binding_failed:sangfor',self.vendor_preflight.evaluate(config,{**evidence,'vendors':{'sangfor':forged_probe}},now=now))
         with patch.dict(os.environ,{'SANGFOR_TOKEN':'test'}):
             with self.assertRaisesRegex(ValueError,'vendor_acceptance_failed'): self.worker.preflight(config,self.adapter,None,now)
         webhook={'allowed_hosts':['soc.invalid'],'security_webhook':{'enabled':True,'url':'https://soc.invalid/hook','secret_env':'SENTINEL_WEBHOOK_SECRET'}}
@@ -818,7 +825,7 @@ class SentinelTests(unittest.TestCase):
             root=Path(d); db=root/'sentinel.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             sent=[]; sender=lambda url,payload,token='',secret='': sent.append((url,payload,token,secret)) or 202
             gate={'product_version':'test','api_document_id':'test-contract','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test'}
-            accepted={'schema':'sentinel.vendor-acceptance/v1','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events'},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture'}},'secrets_embedded':False}
+            accepted={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events','probe':vendor_probe_receipt('sangfor','https://edr.invalid/events',101)},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture','probe':vendor_probe_receipt('leagsoft','https://leag.invalid/posture',101)}},'secrets_embedded':False}
             first=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=101,acceptance=accepted); second=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=102,acceptance=accepted)
             self.assertEqual(first[0]['result'],'dispatched'); self.assertEqual(second,[]); self.assertEqual(len(sent),2)
             connection=sqlite3.connect(db)
@@ -888,8 +895,8 @@ class SentinelTests(unittest.TestCase):
             retained=self.adapter.process(vendor_report('high'),config,spool_dir=spool,sender=lambda *args,**kwargs:500)
             self.assertEqual(retained[0]['result'],'retained'); self.assertEqual(retained[0]['error'],'adapter_spool_full')
             db=spool/'reports.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
-            gate={'product_version':'test','api_document_id':'test-contract','endpoint_url':'https://edr.invalid/events','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test'}
-            acceptance={'schema':'sentinel.vendor-acceptance/v1','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':gate},'secrets_embedded':False}
+            gate={'product_version':'test','api_document_id':'test-contract','endpoint_url':'https://edr.invalid/events','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test','probe':vendor_probe_receipt('sangfor','https://edr.invalid/events',101)}
+            acceptance={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':gate},'secrets_embedded':False}
             dispatch=self.worker.dispatch_once(db,config,spool,adapter=self.adapter,sender=lambda *args,**kwargs:500,now=101,acceptance=acceptance)
             self.assertEqual(dispatch[0]['result'],'retained')
             connection=sqlite3.connect(db)

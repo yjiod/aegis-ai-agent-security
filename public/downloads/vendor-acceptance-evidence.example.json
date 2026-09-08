@@ -1,5 +1,5 @@
 {
-  "schema": "sentinel.vendor-acceptance/v1",
+  "schema": "sentinel.vendor-acceptance/v2",
   "generated_at": 0,
   "adapter_version": "0.18",
   "vendors": {
@@ -13,7 +13,8 @@
       "non_2xx_retry_verified": false,
       "safe_action_mapping_verified": false,
       "dry_run_payload_approved": false,
-      "approved_by": ""
+      "approved_by": "",
+      "probe": {"schema":"sentinel.vendor-probe/v1","generated_at":0,"adapter_version":"0.18","vendor":"sangfor","endpoint_url":"","payload_sha256":"","idempotency_key":"","safe_action":"observe","live":false,"statuses":[],"idempotent_replay_accepted":false,"secrets_embedded":false}
     },
     "leagsoft": {
       "product_version": "",
@@ -25,7 +26,8 @@
       "non_2xx_retry_verified": false,
       "safe_action_mapping_verified": false,
       "dry_run_payload_approved": false,
-      "approved_by": ""
+      "approved_by": "",
+      "probe": {"schema":"sentinel.vendor-probe/v1","generated_at":0,"adapter_version":"0.18","vendor":"leagsoft","endpoint_url":"","payload_sha256":"","idempotency_key":"","safe_action":"compliance_posture_only","live":false,"statuses":[],"idempotent_replay_accepted":false,"secrets_embedded":false}
     }
   },
   "secrets_embedded": false

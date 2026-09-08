@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Secret-free production enablement gate for Sangfor and Leagsoft adapters."""
-import argparse, json, os, stat, sys, time
+import argparse, hmac, json, os, re, stat, sys, time
 from pathlib import Path
 
-SCHEMA="sentinel.vendor-acceptance/v1"
+SCHEMA="sentinel.vendor-acceptance/v2"
 VENDORS=("sangfor","leagsoft")
 ROOT_FIELDS={"schema","generated_at","adapter_version","vendors","secrets_embedded"}
 VENDOR_FIELDS={
     "product_version","api_document_id","endpoint_url","auth_scheme",
     "field_mapping_approved","idempotency_verified","non_2xx_retry_verified",
-    "safe_action_mapping_verified","dry_run_payload_approved","approved_by",
+    "safe_action_mapping_verified","dry_run_payload_approved","approved_by","probe",
 }
+PROBE_FIELDS={"schema","generated_at","adapter_version","vendor","endpoint_url","payload_sha256","idempotency_key","safe_action","live","statuses","idempotent_replay_accepted","secrets_embedded"}
 MAX_PREFLIGHT_INPUT_BYTES=262_144
 
 def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES):
@@ -56,6 +57,16 @@ def evaluate(config,evidence,adapter_version="0.18",now=None,max_age_seconds=604
         if item.get("auth_scheme")!="bearer": blockers.append(f"vendor_auth_not_accepted:{name}")
         for field in ("field_mapping_approved","idempotency_verified","non_2xx_retry_verified","safe_action_mapping_verified","dry_run_payload_approved"):
             if item.get(field) is not True: blockers.append(f"vendor_gate_failed:{name}:{field}")
+        probe=item.get("probe")
+        if not isinstance(probe,dict) or set(probe)!=PROBE_FIELDS:
+            blockers.append(f"invalid_vendor_probe:{name}"); continue
+        probe_generated=probe.get("generated_at"); statuses=probe.get("statuses"); digest=probe.get("payload_sha256"); key=probe.get("idempotency_key")
+        expected_action="observe" if name=="sangfor" else "compliance_posture_only"
+        if probe.get("schema")!="sentinel.vendor-probe/v1" or probe.get("adapter_version")!=adapter_version or probe.get("vendor")!=name or probe.get("endpoint_url")!=target.get("url") or probe.get("safe_action")!=expected_action or probe.get("live") is not True or probe.get("secrets_embedded") is not False:
+            blockers.append(f"vendor_probe_binding_failed:{name}")
+        if isinstance(probe_generated,bool) or not isinstance(probe_generated,int) or probe_generated>now+300 or now-probe_generated>86400 or (isinstance(generated,int) and probe_generated>generated): blockers.append(f"vendor_probe_not_current:{name}")
+        if not isinstance(digest,str) or not re.fullmatch(r"[0-9a-f]{64}",digest) or not isinstance(key,str) or not hmac.compare_digest(digest,key): blockers.append(f"vendor_probe_idempotency_invalid:{name}")
+        if not isinstance(statuses,list) or len(statuses)!=2 or any(isinstance(value,bool) or not isinstance(value,int) or not 200<=value<300 for value in statuses) or probe.get("idempotent_replay_accepted") is not True: blockers.append(f"vendor_probe_replay_failed:{name}")
     return list(dict.fromkeys(blockers))
 
 def main():

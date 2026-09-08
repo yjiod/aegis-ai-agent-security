@@ -1,8 +1,9 @@
 {
-  "release": "1.0.0",
+  "release": "1.1.0",
   "channel": "pilot",
-  "published_at": "2026-09-07T22:00:00+08:00",
+  "published_at": "2026-09-08T00:30:00+08:00",
   "features": [
+    "vendor_acceptance_v2", "probe_bound_vendor_enablement", "fresh_live_probe_gate", "probe_endpoint_version_vendor_binding", "probe_replay_status_gate", "probe_digest_idempotency_binding",
     "vendor_staging_probe", "explicit_live_vendor_probe", "forced_sangfor_observe_action", "leagsoft_posture_only_probe", "vendor_idempotent_replay_probe", "secret_free_probe_receipt",
     "intune_graph_snapshot_normalization", "graph_device_compliance_mapping", "graph_app_install_state_mapping", "assigned_device_identity_binding", "privacy_minimized_intune_export_v2", "read_only_graph_export_boundary", "strict_collector_snapshot_metadata", "duplicate_collector_device_rejection",
     "derived_intune_evidence", "intune_snapshot_contract", "collector_device_export_join", "privacy_minimized_rollout_counts", "fresh_complete_snapshot_gate", "device_relationship_validation",
