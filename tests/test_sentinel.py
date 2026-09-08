@@ -14,7 +14,7 @@ def vendor_probe_receipt(vendor,url,now):
     return {'schema':'sentinel.vendor-probe/v1','generated_at':now,'adapter_version':'0.18','vendor':vendor,'endpoint_url':url,'payload_sha256':digest,'idempotency_key':digest,'safe_action':'observe' if vendor=='sangfor' else 'compliance_posture_only','live':True,'statuses':[202,202],'idempotent_replay_accepted':True,'secrets_embedded':False}
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); sys.modules['sentinel_adapter']=self.adapter; self.vendor_probe=load('vendor_probe','sentinel_vendor_probe.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.intune_graph=load('intune_graph','sentinel_intune_graph_normalize.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); sys.modules['sentinel_adapter']=self.adapter; self.vendor_probe=load('vendor_probe','sentinel_vendor_probe.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); sys.modules['sentinel_vendor_preflight']=self.vendor_preflight; self.vendor_signer=load('vendor_signer','sentinel_vendor_evidence_sign.py'); self.verifier=load('verifier','sentinel_release_verify.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.intune_graph=load('intune_graph','sentinel_intune_graph_normalize.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
@@ -27,7 +27,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
@@ -794,16 +794,23 @@ class SentinelTests(unittest.TestCase):
         now=2_000_000_000; url='https://edr.invalid/events'
         config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':url,'token_env':'SANGFOR_TOKEN','actions':{'high':'alert'}}}
         item={'product_version':'aCloud EDR verified build','api_document_id':'vendor-api-42','endpoint_url':url,'auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'security-owner','probe':vendor_probe_receipt('sangfor',url,now)}
-        evidence={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.18','vendors':{'sangfor':item},'secrets_embedded':False}
-        self.assertEqual(self.vendor_preflight.evaluate(config,evidence,now=now),[])
-        with patch.dict(os.environ,{'SANGFOR_TOKEN':'test'}): self.worker.preflight(config,self.adapter,evidence,now)
-        self.assertIn('vendor_endpoint_not_accepted:sangfor',self.vendor_preflight.evaluate(config,{**evidence,'vendors':{'sangfor':{**item,'endpoint_url':'https://other.invalid/events'}}},now=now))
-        self.assertIn('vendor_acceptance_not_current',self.vendor_preflight.evaluate(config,{**evidence,'generated_at':now-604801},now=now))
+        secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.18','vendors':{'sangfor':item},'secrets_embedded':False}; evidence=self.vendor_signer.sign(unsigned,secret,'key-2026lk'); self.assertNotIn(secret,json.dumps(evidence))
+        self.assertEqual(self.vendor_preflight.evaluate(config,evidence,now=now,signing_secret=secret),[])
+        tampered=json.loads(json.dumps(evidence)); tampered['vendors']['sangfor']['approved_by']='attacker'
+        self.assertIn('vendor_acceptance_signature_mismatch',self.vendor_preflight.evaluate(config,tampered,now=now,signing_secret=secret))
+        self.assertIn('vendor_acceptance_signing_secret_invalid',self.vendor_preflight.evaluate(config,evidence,now=now,signing_secret=''))
+        with patch.dict(os.environ,{'SANGFOR_TOKEN':'test','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET':secret}): self.worker.preflight(config,self.adapter,evidence,now)
+        other=self.vendor_signer.sign({**unsigned,'vendors':{'sangfor':{**item,'endpoint_url':'https://other.invalid/events'}}},secret,'key-2026lk')
+        self.assertIn('vendor_endpoint_not_accepted:sangfor',self.vendor_preflight.evaluate(config,other,now=now,signing_secret=secret))
+        old=self.vendor_signer.sign({**unsigned,'generated_at':now-604801},secret,'key-2026lk')
+        self.assertIn('vendor_acceptance_not_current',self.vendor_preflight.evaluate(config,old,now=now,signing_secret=secret))
         stale_probe={**item,'probe':{**item['probe'],'generated_at':now-86401}}
-        self.assertIn('vendor_probe_not_current:sangfor',self.vendor_preflight.evaluate(config,{**evidence,'vendors':{'sangfor':stale_probe}},now=now))
+        stale=self.vendor_signer.sign({**unsigned,'vendors':{'sangfor':stale_probe}},secret,'key-2026lk')
+        self.assertIn('vendor_probe_not_current:sangfor',self.vendor_preflight.evaluate(config,stale,now=now,signing_secret=secret))
         forged_probe={**item,'probe':{**item['probe'],'endpoint_url':'https://other.invalid/events'}}
-        self.assertIn('vendor_probe_binding_failed:sangfor',self.vendor_preflight.evaluate(config,{**evidence,'vendors':{'sangfor':forged_probe}},now=now))
-        with patch.dict(os.environ,{'SANGFOR_TOKEN':'test'}):
+        forged=self.vendor_signer.sign({**unsigned,'vendors':{'sangfor':forged_probe}},secret,'key-2026lk')
+        self.assertIn('vendor_probe_binding_failed:sangfor',self.vendor_preflight.evaluate(config,forged,now=now,signing_secret=secret))
+        with patch.dict(os.environ,{'SANGFOR_TOKEN':'test','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET':secret}):
             with self.assertRaisesRegex(ValueError,'vendor_acceptance_failed'): self.worker.preflight(config,self.adapter,None,now)
         webhook={'allowed_hosts':['soc.invalid'],'security_webhook':{'enabled':True,'url':'https://soc.invalid/hook','secret_env':'SENTINEL_WEBHOOK_SECRET'}}
         with patch.dict(os.environ,{'SENTINEL_WEBHOOK_SECRET':'test'}): self.worker.preflight(webhook,self.adapter,None,now)
@@ -825,8 +832,8 @@ class SentinelTests(unittest.TestCase):
             root=Path(d); db=root/'sentinel.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             sent=[]; sender=lambda url,payload,token='',secret='': sent.append((url,payload,token,secret)) or 202
             gate={'product_version':'test','api_document_id':'test-contract','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test'}
-            accepted={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events','probe':vendor_probe_receipt('sangfor','https://edr.invalid/events',101)},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture','probe':vendor_probe_receipt('leagsoft','https://leag.invalid/posture',101)}},'secrets_embedded':False}
-            first=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=101,acceptance=accepted); second=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=102,acceptance=accepted)
+            secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events','probe':vendor_probe_receipt('sangfor','https://edr.invalid/events',101)},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture','probe':vendor_probe_receipt('leagsoft','https://leag.invalid/posture',101)}},'secrets_embedded':False}; accepted=self.vendor_signer.sign(unsigned,secret,'test-key')
+            with patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET':secret}): first=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=101,acceptance=accepted); second=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=102,acceptance=accepted)
             self.assertEqual(first[0]['result'],'dispatched'); self.assertEqual(second,[]); self.assertEqual(len(sent),2)
             connection=sqlite3.connect(db)
             try: stored=connection.execute('SELECT result FROM adapter_dispatches').fetchone()[0]
@@ -896,8 +903,8 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(retained[0]['result'],'retained'); self.assertEqual(retained[0]['error'],'adapter_spool_full')
             db=spool/'reports.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             gate={'product_version':'test','api_document_id':'test-contract','endpoint_url':'https://edr.invalid/events','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test','probe':vendor_probe_receipt('sangfor','https://edr.invalid/events',101)}
-            acceptance={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':gate},'secrets_embedded':False}
-            dispatch=self.worker.dispatch_once(db,config,spool,adapter=self.adapter,sender=lambda *args,**kwargs:500,now=101,acceptance=acceptance)
+            secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':gate},'secrets_embedded':False}; acceptance=self.vendor_signer.sign(unsigned,secret,'test-key')
+            with patch.dict(os.environ,{'SANGFOR_TOKEN':'s','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET':secret}): dispatch=self.worker.dispatch_once(db,config,spool,adapter=self.adapter,sender=lambda *args,**kwargs:500,now=101,acceptance=acceptance)
             self.assertEqual(dispatch[0]['result'],'retained')
             connection=sqlite3.connect(db)
             try: self.assertEqual(connection.execute('SELECT COUNT(*) FROM adapter_dispatches').fetchone()[0],0)

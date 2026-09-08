@@ -2,7 +2,10 @@
   "schema": "sentinel.vendor-contracts/v1",
   "adapter_version": "0.18",
   "production_enablement": {
-    "evidence_schema": "sentinel.vendor-acceptance/v2",
+    "evidence_schema": "sentinel.vendor-acceptance/v3",
+    "signing_input_schema": "sentinel.vendor-acceptance/v2",
+    "integrity_algorithm": "hmac-sha256",
+    "signing_secret_env": "SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET",
     "live_probe_schema": "sentinel.vendor-probe/v1",
     "maximum_probe_age_seconds": 86400,
     "maximum_evidence_age_seconds": 604800,

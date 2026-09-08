@@ -558,6 +558,7 @@ function DetailPanel({
                 <a href="/downloads/vendor-acceptance-evidence.example.json" download>厂商验收证据模板</a>
                 <a href="/downloads/sentinel_vendor_preflight.py" download>厂商接入预检</a>
                 <a href="/downloads/sentinel_vendor_probe.py" download>厂商安全验收探针</a>
+                <a href="/downloads/sentinel_vendor_evidence_sign.py" download>厂商验收签名工具</a>
                 <a href="/downloads/intune-deployment-manifest.json" download>Intune 部署清单</a>
                 <a href="/downloads/sentinel-sign-intune.ps1" download>Windows 企业签名工具</a>
                 <a href="/downloads/intune-rollout-evidence.example.json" download>Intune 晋级证据模板</a>
