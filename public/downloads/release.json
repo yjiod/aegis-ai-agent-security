@@ -1,8 +1,9 @@
 {
-  "release": "1.5.0",
+  "release": "1.6.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T14:30:00+08:00",
+  "published_at": "2026-09-08T22:50:00+08:00",
   "features": [
+    "protected_offline_vendor_signing_keyring", "key_id_exact_offline_signing", "secret_free_signing_process_environment", "bounded_nofollow_signing_key_read", "offline_signing_key_permission_gate",
     "reloadable_vendor_keyring_file", "true_online_signing_key_addition", "bounded_keyring_file", "nofollow_keyring_reload", "atomic_keyring_rotation", "environment_rotation_boundary_documented",
     "per_batch_vendor_input_reload", "online_acceptance_rotation", "online_vendor_config_reload", "descriptor_bound_runtime_reload", "changed_acceptance_immediate_enforcement", "invalid_reload_fail_closed",
     "vendor_acceptance_keyring", "key_id_selected_verification", "five_key_rotation_overlap", "duplicate_signing_secret_rejection", "malformed_keyring_fail_closed", "zero_downtime_acceptance_key_rotation",

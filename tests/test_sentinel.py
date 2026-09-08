@@ -807,6 +807,13 @@ class SentinelTests(unittest.TestCase):
         duplicate={'key-2026lk':secret,'key-copy':secret}
         self.assertIn('vendor_acceptance_signing_keys_invalid',self.vendor_preflight.evaluate(config,evidence,now=now,signing_keys=duplicate))
         self.assertIn('vendor_acceptance_signing_keys_invalid',self.vendor_preflight.evaluate(config,evidence,now=now,signing_keys='{broken'))
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); keyring_path=root/'signing-keys.json'; keyring_path.write_text(json.dumps(both)); keyring_path.chmod(0o600)
+            loaded=self.vendor_signer.load_signing_secret(keyring_path,'key-new'); self.assertEqual(loaded,both['key-new'])
+            self.assertEqual(self.vendor_preflight.evaluate(config,self.vendor_signer.sign(unsigned,loaded,'key-new'),now=now,signing_keys=both),[])
+            with self.assertRaisesRegex(ValueError,'vendor_acceptance_signing_key_unavailable'): self.vendor_signer.load_signing_secret(keyring_path,'missing')
+            keyring_path.chmod(0o644)
+            with self.assertRaisesRegex(ValueError,'unsafe_private_json_input'): self.vendor_signer.load_signing_secret(keyring_path,'key-new')
         with patch.dict(os.environ,{'SANGFOR_TOKEN':'test','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET':secret}): self.worker.preflight(config,self.adapter,evidence,now)
         other=self.vendor_signer.sign({**unsigned,'vendors':{'sangfor':{**item,'endpoint_url':'https://other.invalid/events'}}},secret,'key-2026lk')
         self.assertIn('vendor_endpoint_not_accepted:sangfor',self.vendor_preflight.evaluate(config,other,now=now,signing_secret=secret))
