@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentinel Report Collector API",
-    "version": "0.17.0",
+    "version": "0.18.0",
     "description": "Machine-readable contract for the private Sentinel Collector. Production deployments terminate TLS at the enterprise reverse proxy."
   },
   "servers": [{"url": "https://sentinel-collector.example.internal"}],
@@ -55,9 +55,9 @@
     "/v1/devices": {
       "get": {
         "operationId": "listDevices",
-        "parameters": [{"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 500}}],
+        "parameters": [{"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 500}}, {"name": "view", "in": "query", "required": false, "schema": {"enum": ["activation", "console"], "default": "activation"}}],
         "responses": {
-          "200": {"description": "Bounded device activation evidence", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DeviceList"}}}},
+          "200": {"description": "Bounded activation evidence or console posture view", "content": {"application/json": {"schema": {"oneOf": [{"$ref": "#/components/schemas/DeviceList"}, {"$ref": "#/components/schemas/ConsoleDeviceList"}]}}}},
           "400": {"$ref": "#/components/responses/BadRequest"},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "429": {"$ref": "#/components/responses/RateLimited"},
@@ -97,6 +97,8 @@
       "ReportAcknowledgement": {"type": "object", "additionalProperties": false, "required": ["accepted", "duplicate", "report_id", "severity"], "properties": {"accepted": {"const": true}, "duplicate": {"type": "boolean"}, "report_id": {"type": "string", "pattern": "^[0-9a-f]{20}$"}, "severity": {"enum": ["normal", "high", "critical"]}}},
       "Device": {"type": "object", "additionalProperties": false, "required": ["device_id", "last_seen", "report_count", "credential_generation"], "properties": {"device_id": {"type": "string"}, "last_seen": {"type": "integer"}, "report_count": {"type": "integer", "minimum": 1}, "credential_generation": {"enum": ["current", "previous", "legacy"]}}},
       "DeviceList": {"type": "object", "additionalProperties": false, "required": ["generated_at", "complete", "devices"], "properties": {"generated_at": {"type": "integer"}, "complete": {"type": "boolean"}, "devices": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/components/schemas/Device"}}}},
+      "ConsoleDevice": {"allOf": [{"$ref": "#/components/schemas/Device"}, {"type": "object", "additionalProperties": false, "required": ["device_id", "last_seen", "report_count", "credential_generation", "severity", "agent_version", "policy_version"], "properties": {"device_id": {"type": "string"}, "last_seen": {"type": "integer"}, "report_count": {"type": "integer", "minimum": 1}, "credential_generation": {"enum": ["current", "previous", "legacy"]}, "severity": {"enum": ["normal", "high", "critical"]}, "agent_version": {"type": "string", "maxLength": 64}, "policy_version": {"type": "string", "maxLength": 64}}}]},
+      "ConsoleDeviceList": {"type": "object", "additionalProperties": false, "required": ["generated_at", "complete", "devices"], "properties": {"generated_at": {"type": "integer"}, "complete": {"type": "boolean"}, "devices": {"type": "array", "maxItems": 10000, "items": {"$ref": "#/components/schemas/ConsoleDevice"}}}},
       "CountMap": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
       "AgentCoverage": {"type": "object", "additionalProperties": false, "required": ["total", "active"], "properties": {"total": {"type": "integer", "minimum": 0}, "active": {"type": "integer", "minimum": 0}}},
       "BaselineCoverage": {"type": "object", "additionalProperties": false, "required": ["total", "managed"], "properties": {"total": {"type": "integer", "minimum": 0}, "managed": {"type": "integer", "minimum": 0}}},

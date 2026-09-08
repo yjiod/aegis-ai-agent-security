@@ -52,5 +52,8 @@
     "vite": "8.2.2",
     "wrangler": "4.129.0"
   },
+  "overrides": {
+    "sharp": "0.35.4"
+  },
   "type": "module"
 }

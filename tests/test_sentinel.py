@@ -29,7 +29,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
         for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
-        devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
+        devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==7',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
         self.assertIn("fetch('/api/devices'",page); self.assertIn('fleetDevices.map',page)
         self.assertIn("fetch('/downloads/release.json'",page); self.assertIn('Object.keys(versions).length!==4',page); self.assertIn('releaseMetadata?.component_versions.policy',page); self.assertNotIn('v4.8',page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
@@ -232,7 +232,7 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
         spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
-        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.17.0')
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.18.0')
         self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
         post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
@@ -396,12 +396,18 @@ class SentinelTests(unittest.TestCase):
                     devices_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(devices_request,timeout=3) as response:
                         devices=json.load(response); self.assertTrue(devices['complete']); self.assertEqual(devices['devices'][0]['credential_generation'],'current'); self.assertGreaterEqual(devices['generated_at'],now)
+                    console_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?view=console',headers={'Authorization':'Bearer '+admin})
+                    with urllib.request.urlopen(console_request,timeout=3) as response:
+                        console=json.load(response)['devices'][0]; self.assertEqual((console['severity'],console['agent_version'],console['policy_version']),('normal','0.35.0','4.9.0'))
                     self.collector.store_report(server.db_path,b'other',{'device_id':'000000000000','agent_version':'0.35.0','policy_version':'4.9.0','summary':{'critical':0,'high':0}},now=now)
                     limited_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?limit=1',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(limited_request,timeout=3) as response:
                         limited=json.load(response); self.assertFalse(limited['complete']); self.assertEqual(len(limited['devices']),1)
                     invalid_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?limit=10001',headers={'Authorization':'Bearer '+admin})
                     with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(invalid_request,timeout=3)
+                    self.assertEqual(error.exception.code,400); error.exception.close()
+                    invalid_view=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?view=admin',headers={'Authorization':'Bearer '+admin})
+                    with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(invalid_view,timeout=3)
                     self.assertEqual(error.exception.code,400); error.exception.close()
                     wrong={**report,'device_id':'000000000000'}; wrong_body=json.dumps(wrong).encode(); headers=self.agent.report_headers(wrong_body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=wrong_body,headers=headers,method='POST')
                     with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(request,timeout=3)
@@ -650,6 +656,7 @@ class SentinelTests(unittest.TestCase):
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
         package=json.loads((ROOT/'package.json').read_text()); self.assertEqual(package['scripts']['prebuild'],'node scripts/clean-public-bytecode.mjs')
+        self.assertEqual(package['overrides']['sharp'],'0.35.4')
         cleaner=(ROOT/'scripts'/'clean-public-bytecode.mjs').read_text(); self.assertIn("entry.name === '__pycache__'",cleaner); self.assertIn("path.startsWith(`${publicRoot}/`)",cleaner); self.assertIn("/\\.py[co]$/",cleaner)
     def test_release_verifier_rejects_runtime_drift(self):
         with tempfile.TemporaryDirectory() as d:

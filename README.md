@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `2.1.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.17`，Adapter `0.18`。
+当前发行：产品 `2.2.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.18`，Adapter `0.18`。
 
 ## 目录
 
@@ -51,3 +51,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 2.0 起，私有控制台新增 `/api/devices` 只读代理，最多展示 200 台终端的匿名设备 ID、最近上报、报告数量与凭据代次。代理复用 Collector 精确 HTTPS 主机和服务端令牌边界，并增加响应大小、时效、字段、枚举、重复 ID 和数量校验；不向浏览器暴露 Collector 凭据，也不提供终端写操作。
 
 2.1 起，控制台从同一受验证发行包的 `release.json` 读取产品及组件版本，严格验证字段和版本格式后显示；元数据不可用时使用当前安全默认值。发行验证器固定 Endpoint Agent、策略、Collector 与 Adapter 的版本组合，消除界面静态版本与实际制品漂移。
+
+2.2 起，Collector 0.18 为 `/v1/devices` 增加显式 `view=console` 只读视图，返回每台设备最新风险等级及 Agent/策略版本；默认 activation 视图保持原四字段契约，Intune 晋级和凭据裁剪证据不受影响。控制台代理只接受七字段 console 契约。

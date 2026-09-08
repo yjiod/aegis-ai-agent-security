@@ -31,8 +31,8 @@ function sanitizeDevices(value:unknown) {
   for (const raw of data.devices) {
     if (!raw || typeof raw!=='object' || Array.isArray(raw)) return null;
     const item=raw as Record<string,unknown>;
-    if (Object.keys(item).length!==4 || typeof item.device_id!=='string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(item.device_id) || seen.has(item.device_id) || !Number.isSafeInteger(item.last_seen) || Number(item.last_seen)<0 || Number(item.last_seen)>now+300 || !Number.isSafeInteger(item.report_count) || Number(item.report_count)<1 || Number(item.report_count)>1_000_000_000 || !generations.includes(item.credential_generation as typeof generations[number])) return null;
-    seen.add(item.device_id); devices.push({device_id:item.device_id,last_seen:item.last_seen,report_count:item.report_count,credential_generation:item.credential_generation});
+    if (Object.keys(item).length!==7 || typeof item.device_id!=='string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(item.device_id) || seen.has(item.device_id) || !Number.isSafeInteger(item.last_seen) || Number(item.last_seen)<0 || Number(item.last_seen)>now+300 || !Number.isSafeInteger(item.report_count) || Number(item.report_count)<1 || Number(item.report_count)>1_000_000_000 || !generations.includes(item.credential_generation as typeof generations[number]) || !['normal','high','critical'].includes(String(item.severity)) || typeof item.agent_version!=='string' || item.agent_version.length<1 || item.agent_version.length>64 || typeof item.policy_version!=='string' || item.policy_version.length<1 || item.policy_version.length>64) return null;
+    seen.add(item.device_id); devices.push({device_id:item.device_id,last_seen:item.last_seen,report_count:item.report_count,credential_generation:item.credential_generation,severity:item.severity,agent_version:item.agent_version,policy_version:item.policy_version});
   }
   return {generated_at:data.generated_at,complete:data.complete,devices};
 }
@@ -44,7 +44,7 @@ export async function GET() {
   try {
     const base=new URL(endpoint);
     if (base.protocol!=='https:' || base.hostname.toLowerCase()!==allowedHost.toLowerCase() || base.username || base.password || base.search || base.hash || token.length<32 || token.length>4096) throw new Error('invalid collector configuration');
-    target=new URL('/v1/devices?limit=200',base.origin);
+    target=new URL('/v1/devices?limit=200&view=console',base.origin);
   } catch { return unavailable('collector_configuration_invalid'); }
   try {
     const response=await fetch(target,{headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},cache:'no-store',signal:AbortSignal.timeout(5000)});

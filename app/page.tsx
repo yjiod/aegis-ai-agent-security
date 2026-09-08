@@ -111,7 +111,7 @@ type FleetSummary = {
   agent_coverage: Record<'cursor'|'claude_code'|'codex'|'windsurf'|'gemini_cli'|'github_copilot_cli',{total:number;active:number}>;
   baseline_coverage: Record<'claude_code'|'codex'|'gemini_cli'|'github_copilot_cli',{total:number;managed:number}>;
 };
-type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy' };
+type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy'; severity:'normal'|'high'|'critical'; agent_version:string; policy_version:string };
 type ReleaseMetadata = { release:string; component_versions:{endpoint_agent:string;policy:string;collector:string;adapter:string} };
 
 export default function Home() {
@@ -647,8 +647,8 @@ function DetailPanel({
               rows={fleetDevices ? fleetDevices.map((device)=>[
                 device.device_id,
                 new Date(device.last_seen*1000).toLocaleString('zh-CN'),
-                `${device.report_count} 份报告`,
-                device.credential_generation==='current' ? '当前凭据' : device.credential_generation==='previous' ? '上一代凭据' : 'Legacy',
+                `Agent ${device.agent_version} / 策略 ${device.policy_version}`,
+                `${device.severity==='critical' ? '严重' : device.severity==='high' ? '高危' : '正常'} · ${device.credential_generation==='current' ? '当前凭据' : device.credential_generation==='previous' ? '上一代凭据' : 'Legacy'}`,
               ]) : [
                 ['ENG-MBP-1032', '陈昊 · Cursor', 'v3.8', '受保护'],
                 ['MKT-LT-2841', '林妍 · Cursor', 'v3.7', '需处理'],

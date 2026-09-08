@@ -211,7 +211,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.17"
+    server_version="SentinelCollector/0.18"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -249,16 +249,20 @@ class Handler(BaseHTTPRequestHandler):
         parsed=urlsplit(self.path)
         if parsed.path=="/v1/devices":
             query=parse_qs(parsed.query,keep_blank_values=True)
-            if set(query)-{"limit"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})
+            if set(query)-{"limit","view"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})
             try: limit=int(query.get("limit",["500"])[0])
             except ValueError: return self.reply(400,{"error":"invalid_limit"})
             if not 1<=limit<=10000: return self.reply(400,{"error":"invalid_limit"})
+            view=query.get("view",["activation"])[0]
+            if view not in {"activation","console"}: return self.reply(400,{"error":"invalid_view"})
             try:
                 generated_at=int(time.time())
-                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
+                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.severity,r.agent_version,r.policy_version FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             complete=len(rows)<=limit; rows=rows[:limit]; audit_event(self.server.db_path,"devices_read",detail=str(len(rows))+":"+("complete" if complete else "partial"))
-            return self.reply(200,{"generated_at":generated_at,"complete":complete,"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2],"credential_generation":"legacy" if r[3] is None else "current" if r[3]==0 else "previous"} for r in rows]})
+            devices=[{"device_id":r[0],"last_seen":r[1],"report_count":r[2],"credential_generation":"legacy" if r[3] is None else "current" if r[3]==0 else "previous"} for r in rows]
+            if view=="console": devices=[{**item,"severity":rows[index][4],"agent_version":rows[index][5] or "unknown","policy_version":rows[index][6] or "unknown"} for index,item in enumerate(devices)]
+            return self.reply(200,{"generated_at":generated_at,"complete":complete,"devices":devices})
         if parsed.path=="/v1/summary" and not parsed.query:
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
