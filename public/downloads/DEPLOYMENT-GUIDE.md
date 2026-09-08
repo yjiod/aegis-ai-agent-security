@@ -229,3 +229,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 1.1.0 将厂商验收证据升级为 `sentinel.vendor-acceptance/v2`，每个启用的深信服或联软目标必须嵌入最近 24 小时的真实 `--live` 探针回执。预检把回执与当前 Adapter 版本、厂商名和精确端点绑定，要求两个响应均为整数 2xx、载荷 SHA-256 与幂等键常量时间一致、动作保持 `observe` 或仅合规姿态，且不得含秘密。其他端点、旧版本、离线 dry-run、过期回执或单次成功在结构上均不能通过生产 Worker 启动门禁；回执文件仍属于受控验收记录而不是防篡改证明，必须保存在审计系统中，并由厂商与安全负责人签署字段及动作审批。
 
 1.2.0 将生产验收升级为 `sentinel.vendor-acceptance/v3`，对完整的 v2 审批记录执行 HMAC-SHA256。审批工作站通过 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET` 注入至少 32 字符的独立密钥，运行 `sentinel_vendor_evidence_sign.py --evidence <v2.json> --key-id <轮换标识>` 生成带签名的 v3 文件。Adapter Worker 使用同名受保护环境变量逐批验签；缺少密钥、签名字段异常或审批内容被修改都会失败关闭。该密钥不得与厂商令牌、Webhook HMAC 或 Collector 报告密钥复用，也不得写入证据、Git、命令参数或日志。
+
+1.3.0 为厂商验收签名增加零停机密钥轮换。Worker 优先从 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS` 读取由 `key_id` 到密钥的 JSON 对象，严格接受 1–5 个唯一、至少 32 字符的值，并按证据中的 `key_id` 精确选键；无效 JSON、重复密钥、未知 key_id 或超限密钥环都会失败关闭。轮换时先加入新旧两把密钥，再用新 key_id 重签当前证据，确认 Worker 已加载并成功派发后删除旧键。旧的单值变量仅用于迁移兼容，稳定生产配置应使用密钥环。

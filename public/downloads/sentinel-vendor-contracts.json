@@ -6,6 +6,8 @@
     "signing_input_schema": "sentinel.vendor-acceptance/v2",
     "integrity_algorithm": "hmac-sha256",
     "signing_secret_env": "SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET",
+    "verification_keyring_env": "SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS",
+    "maximum_verification_keys": 5,
     "live_probe_schema": "sentinel.vendor-probe/v1",
     "maximum_probe_age_seconds": 86400,
     "maximum_evidence_age_seconds": 604800,

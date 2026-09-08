@@ -164,7 +164,7 @@ def verify(downloads):
         if directive not in worker_service: errors.append(f"unsafe_adapter_worker_service:{directive}")
     try: adapter_env=(downloads/"sentinel-adapter.env.example").read_text()
     except OSError as exc: errors.append(f"invalid_adapter_env:{type(exc).__name__}"); adapter_env=""
-    for secret_name in ("SANGFOR_EDR_TOKEN","LEAGSOFT_TOKEN","SENTINEL_WEBHOOK_SECRET","SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET"):
+    for secret_name in ("SANGFOR_EDR_TOKEN","LEAGSOFT_TOKEN","SENTINEL_WEBHOOK_SECRET","SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS"):
         if not re.search(rf"(?m)^{secret_name}=$",adapter_env): errors.append(f"adapter_example_secret_not_empty:{secret_name}")
     try: adapter_text=(downloads/"sentinel_adapter.py").read_text()
     except OSError as exc: errors.append(f"invalid_adapter:{type(exc).__name__}"); adapter_text=""
@@ -184,13 +184,13 @@ def verify(downloads):
     if vendor_contract.get("leagsoft",{}).get("compliance_configuration")!={"max_policy_age_hours_min":1,"max_policy_age_hours_max":168,"critical_allowed":0}: errors.append("unsafe_leagsoft_contract")
     if [boundaries.get(name,{}).get("allowed_env_prefix") for name in ("sangfor","leagsoft","security_webhook")]!=["SANGFOR_","LEAGSOFT_","SENTINEL_"]: errors.append("vendor_credential_boundary_drift")
     enablement=vendor_contract.get("production_enablement",{})
-    if enablement!={"evidence_schema":"sentinel.vendor-acceptance/v3","signing_input_schema":"sentinel.vendor-acceptance/v2","integrity_algorithm":"hmac-sha256","signing_secret_env":"SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","live_probe_schema":"sentinel.vendor-probe/v1","maximum_probe_age_seconds":86400,"maximum_evidence_age_seconds":604800,"required_for":["sangfor","leagsoft"],"secrets_allowed":False}: errors.append("vendor_enablement_contract_drift")
+    if enablement!={"evidence_schema":"sentinel.vendor-acceptance/v3","signing_input_schema":"sentinel.vendor-acceptance/v2","integrity_algorithm":"hmac-sha256","signing_secret_env":"SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","verification_keyring_env":"SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS","maximum_verification_keys":5,"live_probe_schema":"sentinel.vendor-probe/v1","maximum_probe_age_seconds":86400,"maximum_evidence_age_seconds":604800,"required_for":["sangfor","leagsoft"],"secrets_allowed":False}: errors.append("vendor_enablement_contract_drift")
     try: vendor_evidence=json.loads((downloads/"vendor-acceptance-evidence.example.json").read_text()); vendor_preflight=(downloads/"sentinel_vendor_preflight.py").read_text()
     except (OSError,ValueError) as exc: errors.append(f"invalid_vendor_preflight:{type(exc).__name__}"); vendor_evidence={}; vendor_preflight=""
     if vendor_evidence.get("schema")!="sentinel.vendor-acceptance/v2" or vendor_evidence.get("adapter_version")!="0.18" or vendor_evidence.get("secrets_embedded") is not False: errors.append("unsafe_vendor_acceptance_example")
     for directive in ('max_age_seconds=604800','vendor_endpoint_not_accepted','vendor_gate_failed','vendor_acceptance_must_be_secret_free','auth_scheme','sentinel.vendor-probe/v1','PROBE_FIELDS','vendor_probe_binding_failed','vendor_probe_not_current','now-probe_generated>86400','hmac.compare_digest(digest,key)','vendor_probe_replay_failed','before=path.lstat()','getattr(os,"O_NOFOLLOW",0)','os.fstat(fd)','(opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino)','handle.read(max_bytes+1)'):
         if directive not in vendor_preflight: errors.append(f"unsafe_vendor_preflight:{directive}")
-    for directive in ('sentinel.vendor-acceptance/v3','UNSIGNED_SCHEMA="sentinel.vendor-acceptance/v2"','INTEGRITY_FIELDS','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET','vendor_acceptance_signing_secret_invalid','vendor_acceptance_signature_invalid','vendor_acceptance_signature_mismatch','canonical_unsigned(evidence)'):
+    for directive in ('sentinel.vendor-acceptance/v3','UNSIGNED_SCHEMA="sentinel.vendor-acceptance/v2"','INTEGRITY_FIELDS','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS','MAX_SIGNING_KEYS=5','parse_signing_keys','invalid_vendor_acceptance_signing_keys','vendor_acceptance_signing_key_unavailable','vendor_acceptance_signature_invalid','vendor_acceptance_signature_mismatch','canonical_unsigned(evidence)'):
         if directive not in vendor_preflight: errors.append(f"unsafe_vendor_signature_preflight:{directive}")
     try: vendor_signer=(downloads/"sentinel_vendor_evidence_sign.py").read_text()
     except OSError as exc: errors.append(f"invalid_vendor_evidence_signer:{type(exc).__name__}"); vendor_signer=""

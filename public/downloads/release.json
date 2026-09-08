@@ -1,8 +1,9 @@
 {
-  "release": "1.2.0",
+  "release": "1.3.0",
   "channel": "pilot",
-  "published_at": "2026-09-08T01:15:00+08:00",
+  "published_at": "2026-09-08T13:30:00+08:00",
   "features": [
+    "vendor_acceptance_keyring", "key_id_selected_verification", "five_key_rotation_overlap", "duplicate_signing_secret_rejection", "malformed_keyring_fail_closed", "zero_downtime_acceptance_key_rotation",
     "vendor_acceptance_v3", "hmac_signed_vendor_acceptance", "fail_closed_acceptance_signature", "acceptance_tamper_detection", "protected_acceptance_signing_secret", "vendor_evidence_signing_tool",
     "vendor_acceptance_v2", "probe_bound_vendor_enablement", "fresh_live_probe_gate", "probe_endpoint_version_vendor_binding", "probe_replay_status_gate", "probe_digest_idempotency_binding",
     "vendor_staging_probe", "explicit_live_vendor_probe", "forced_sangfor_observe_action", "leagsoft_posture_only_probe", "vendor_idempotent_replay_probe", "secret_free_probe_receipt",

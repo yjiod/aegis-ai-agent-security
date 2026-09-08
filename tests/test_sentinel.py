@@ -798,7 +798,15 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(self.vendor_preflight.evaluate(config,evidence,now=now,signing_secret=secret),[])
         tampered=json.loads(json.dumps(evidence)); tampered['vendors']['sangfor']['approved_by']='attacker'
         self.assertIn('vendor_acceptance_signature_mismatch',self.vendor_preflight.evaluate(config,tampered,now=now,signing_secret=secret))
-        self.assertIn('vendor_acceptance_signing_secret_invalid',self.vendor_preflight.evaluate(config,evidence,now=now,signing_secret=''))
+        self.assertIn('vendor_acceptance_signing_keys_invalid',self.vendor_preflight.evaluate(config,evidence,now=now,signing_secret=''))
+        rotated=self.vendor_signer.sign(unsigned,'new-acceptance-signing-secret-456','key-new')
+        both={'key-2026lk':secret,'key-new':'new-acceptance-signing-secret-456'}
+        self.assertEqual(self.vendor_preflight.evaluate(config,evidence,now=now,signing_keys=both),[])
+        self.assertEqual(self.vendor_preflight.evaluate(config,rotated,now=now,signing_keys=both),[])
+        self.assertIn('vendor_acceptance_signing_key_unavailable',self.vendor_preflight.evaluate(config,evidence,now=now,signing_keys={'key-new':both['key-new']}))
+        duplicate={'key-2026lk':secret,'key-copy':secret}
+        self.assertIn('vendor_acceptance_signing_keys_invalid',self.vendor_preflight.evaluate(config,evidence,now=now,signing_keys=duplicate))
+        self.assertIn('vendor_acceptance_signing_keys_invalid',self.vendor_preflight.evaluate(config,evidence,now=now,signing_keys='{broken'))
         with patch.dict(os.environ,{'SANGFOR_TOKEN':'test','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET':secret}): self.worker.preflight(config,self.adapter,evidence,now)
         other=self.vendor_signer.sign({**unsigned,'vendors':{'sangfor':{**item,'endpoint_url':'https://other.invalid/events'}}},secret,'key-2026lk')
         self.assertIn('vendor_endpoint_not_accepted:sangfor',self.vendor_preflight.evaluate(config,other,now=now,signing_secret=secret))

@@ -16,10 +16,18 @@ VENDOR_FIELDS={
 }
 PROBE_FIELDS={"schema","generated_at","adapter_version","vendor","endpoint_url","payload_sha256","idempotency_key","safe_action","live","statuses","idempotent_replay_accepted","secrets_embedded"}
 MAX_PREFLIGHT_INPUT_BYTES=262_144
+MAX_SIGNING_KEYS=5
 
 def canonical_unsigned(evidence):
     unsigned={key:value for key,value in evidence.items() if key!="integrity"}; unsigned["schema"]=UNSIGNED_SCHEMA
     return json.dumps(unsigned,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode()
+
+def parse_signing_keys(raw):
+    try: keys=json.loads(raw)
+    except (TypeError,ValueError,json.JSONDecodeError): raise ValueError("invalid_vendor_acceptance_signing_keys")
+    if not isinstance(keys,dict) or not 1<=len(keys)<=MAX_SIGNING_KEYS: raise ValueError("invalid_vendor_acceptance_signing_keys")
+    if any(not isinstance(key,str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}",key) or not isinstance(secret,str) or not 32<=len(secret)<=4096 for key,secret in keys.items()) or len(set(keys.values()))!=len(keys): raise ValueError("invalid_vendor_acceptance_signing_keys")
+    return keys
 
 def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES):
     path=Path(path)
@@ -37,7 +45,7 @@ def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES):
     if len(raw)>max_bytes: raise ValueError("oversized_json_input")
     return json.loads(raw.decode("utf-8"))
 
-def evaluate(config,evidence,adapter_version="0.18",now=None,max_age_seconds=604800,signing_secret=None):
+def evaluate(config,evidence,adapter_version="0.18",now=None,max_age_seconds=604800,signing_secret=None,signing_keys=None):
     now=int(time.time() if now is None else now); blockers=[]
     if not isinstance(config,dict): return ["invalid_adapter_config"]
     if not any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in VENDORS): return []
@@ -45,11 +53,20 @@ def evaluate(config,evidence,adapter_version="0.18",now=None,max_age_seconds=604
     if evidence.get("schema")!=SCHEMA: blockers.append("invalid_vendor_acceptance_schema")
     if evidence.get("adapter_version")!=adapter_version: blockers.append("vendor_acceptance_version_mismatch")
     if evidence.get("secrets_embedded") is not False: blockers.append("vendor_acceptance_must_be_secret_free")
-    integrity=evidence.get("integrity"); secret=os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","") if signing_secret is None else signing_secret
-    if not isinstance(secret,str) or not 32<=len(secret)<=4096: blockers.append("vendor_acceptance_signing_secret_invalid")
+    integrity=evidence.get("integrity"); key_id=integrity.get("key_id") if isinstance(integrity,dict) else None
+    try:
+        if signing_keys is not None: keys=signing_keys if isinstance(signing_keys,dict) else parse_signing_keys(signing_keys)
+        elif signing_secret is not None: keys={key_id:signing_secret}
+        else:
+            raw=os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS","")
+            keys=parse_signing_keys(raw) if raw else ({key_id:os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","")} if os.getenv("SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET","") else {})
+        if not isinstance(keys,dict) or not 1<=len(keys)<=MAX_SIGNING_KEYS or any(not isinstance(key,str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}",key) or not isinstance(secret,str) or not 32<=len(secret)<=4096 for key,secret in keys.items()) or len(set(keys.values()))!=len(keys): raise ValueError("invalid_vendor_acceptance_signing_keys")
+    except ValueError: keys={}; blockers.append("vendor_acceptance_signing_keys_invalid")
+    secret=keys.get(key_id)
+    if secret is None: blockers.append("vendor_acceptance_signing_key_unavailable")
     if not isinstance(integrity,dict) or set(integrity)!=INTEGRITY_FIELDS or integrity.get("algorithm")!="hmac-sha256" or not isinstance(integrity.get("key_id"),str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}",integrity["key_id"]) or not isinstance(integrity.get("signature"),str) or not re.fullmatch(r"[0-9a-f]{64}",integrity["signature"]):
         blockers.append("vendor_acceptance_signature_invalid")
-    elif isinstance(secret,str) and 32<=len(secret)<=4096:
+    elif isinstance(secret,str):
         expected=hmac.new(secret.encode(),canonical_unsigned(evidence),"sha256").hexdigest()
         if not hmac.compare_digest(expected,integrity["signature"]): blockers.append("vendor_acceptance_signature_mismatch")
     generated=evidence.get("generated_at")
