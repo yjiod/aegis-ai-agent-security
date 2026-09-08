@@ -7,6 +7,8 @@
     "integrity_algorithm": "hmac-sha256",
     "signing_secret_env": "SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET",
     "offline_signing_keyring_argument": "--keyring",
+    "offline_signing_output_argument": "--output",
+    "offline_signing_output_semantics": "private_fsync_atomic_replace_directory_fsync",
     "verification_keyring_env": "SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS",
     "verification_keyring_file_env": "SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FILE",
     "maximum_verification_keys": 5,

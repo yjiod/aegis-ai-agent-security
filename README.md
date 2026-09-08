@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `1.6.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.17`，Adapter `0.18`。
+当前发行：产品 `1.7.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.17`，Adapter `0.18`。
 
 ## 目录
 
@@ -41,3 +41,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 安全轮换顺序：先把新旧密钥同时写入临时文件并原子替换；用新 `key_id` 签署并原子替换验收证据；确认下一批次通过后再从密钥环移除旧密钥。环境变量密钥环只保留兼容用途，其内容变更仍需重启服务。
 
 1.6 起，审批工作站可运行 `sentinel_vendor_evidence_sign.py --evidence <v2.json> --key-id <id> --keyring <受保护密钥环>`，从同样经过权限、所有者、大小和防符号链接校验的文件精确选键。这样签名密钥无需进入进程环境、命令参数、证据或标准输出；环境变量单密钥方式仅保留兼容用途。
+
+1.7 起，增加 `--output <v3.json>` 直接生成 0600 的验收证据。工具拒绝符号链接输出、不安全或经符号链接解析的父目录，并执行文件与目录 `fsync` 后原子替换；标准输出仅返回不含密钥的完成回执。省略 `--output` 的原有标准输出方式仅用于兼容。
