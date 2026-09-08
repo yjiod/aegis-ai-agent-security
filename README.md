@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `1.8.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.17`，Adapter `0.18`。
+当前发行：产品 `1.9.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.17`，Adapter `0.18`。
 
 ## 目录
 
@@ -45,3 +45,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 1.7 起，增加 `--output <v3.json>` 直接生成 0600 的验收证据。工具拒绝符号链接输出、不安全或经符号链接解析的父目录，并执行文件与目录 `fsync` 后原子替换；标准输出仅返回不含密钥的完成回执。省略 `--output` 的原有标准输出方式仅用于兼容。
 
 1.8 起，替换既有验收证据时会在确认其为安全的 0600/0640 普通文件后保留所有者、组和权限，避免把 `root:sentinel 0640` 意外替换成 Worker 无法读取的 `root:root 0600`。既有文件权限过宽、所有者异常或非普通文件时拒绝写入。
+
+1.9 起，`sentinel_vendor_keyring.py` 使用系统 CSPRNG 创建和增加密钥，标准输出只返回 key id、数量与动作。删除旧键必须提供七天内、且由另一把保留密钥有效签署的当前验收证据；不能删除证据正在使用的键，也不能删除最后一把键。

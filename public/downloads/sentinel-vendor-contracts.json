@@ -9,6 +9,8 @@
     "offline_signing_keyring_argument": "--keyring",
     "offline_signing_output_argument": "--output",
     "offline_signing_output_semantics": "private_metadata_preserving_fsync_atomic_replace_directory_fsync",
+    "offline_keyring_manager": "sentinel_vendor_keyring.py",
+    "key_retirement_requires_current_acceptance_signed_by_retained_key": true,
     "verification_keyring_env": "SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS",
     "verification_keyring_file_env": "SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FILE",
     "maximum_verification_keys": 5,
