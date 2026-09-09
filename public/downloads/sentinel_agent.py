@@ -286,25 +286,47 @@ def safe_managed_target(root,path):
         path.parent.resolve().relative_to(root)
         return not path.is_symlink()
     except (OSError,ValueError): return False
+def atomic_managed_write(root,path,data):
+    """Atomically write a repository baseline while preserving developer ownership."""
+    root=Path(root); path=Path(path)
+    if not safe_managed_target(root,path): return False
+    owner=root.stat(); missing=[]; cursor=path.parent
+    while cursor!=root and not cursor.exists(): missing.append(cursor); cursor=cursor.parent
+    for directory in reversed(missing):
+        directory.mkdir()
+        if hasattr(os,"geteuid") and os.geteuid()==0: os.chown(directory,owner.st_uid,owner.st_gid)
+    if not safe_managed_target(root,path) or (path.exists() and not path.is_file()): return False
+    existing=path.stat() if path.exists() else None; fd,temp_name=tempfile.mkstemp(prefix="."+path.name+".",suffix=".tmp",dir=path.parent); temp=Path(temp_name)
+    try:
+        os.fchmod(fd,stat.S_IMODE(existing.st_mode) if existing else 0o644)
+        if hasattr(os,"geteuid") and os.geteuid()==0: os.fchown(fd,existing.st_uid if existing else owner.st_uid,existing.st_gid if existing else owner.st_gid)
+        with os.fdopen(fd,"wb") as handle: fd=-1; handle.write(data.encode("utf-8")); handle.flush(); os.fsync(handle.fileno())
+        if not safe_managed_target(root,path): raise OSError("managed_target_changed")
+        os.replace(temp,path); directory_fd=os.open(path.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)); os.fsync(directory_fd); os.close(directory_fd); return True
+    finally:
+        if fd>=0: os.close(fd)
+        try: temp.unlink()
+        except FileNotFoundError: pass
 def install_baseline(root):
     """Install additive, clearly-marked rules without replacing repository guidance."""
-    root=Path(root).resolve()
+    root=Path(root)
+    if root.is_symlink() or not root.is_dir(): return []
+    root=root.resolve()
     content=BASELINE.read_text()
     targets=[(root/".cursor/rules/sentinel-security.mdc","---\ndescription: 企业安全编码基线\nalwaysApply: true\n---\n"+content),(root/".windsurf/rules/sentinel-security.md",content)]
     changed=[]
     for path,data in targets:
         if not safe_managed_target(root,path): continue
-        path.parent.mkdir(parents=True,exist_ok=True)
         managed=MANAGED_MARKER+"\n"+data
-        if not path.exists() or path.read_text(errors="ignore")!=managed:
-            path.write_text(managed); changed.append(str(path))
+        if not path.is_file() or path.read_text(errors="ignore")!=managed:
+            if atomic_managed_write(root,path,managed): changed.append(str(path))
     for name in ["AGENTS.md","CLAUDE.md","GEMINI.md"]:
         path=root/name; block=f"\n{MANAGED_MARKER}\n## 企业安全基线\n执行任何代码变更前，必须遵循 [.sentinel/SECURITY_BASELINE.md](.sentinel/SECURITY_BASELINE.md)。\n"
         if not safe_managed_target(root,path): continue
-        current=path.read_text(errors="ignore") if path.exists() else ""
-        if MANAGED_MARKER not in current: path.write_text(current.rstrip()+block); changed.append(str(path))
+        current=path.read_text(errors="ignore") if path.is_file() else ""
+        if MANAGED_MARKER not in current and atomic_managed_write(root,path,current.rstrip()+block): changed.append(str(path))
     shared=root/".sentinel/SECURITY_BASELINE.md"
-    if safe_managed_target(root,shared): shared.parent.mkdir(parents=True,exist_ok=True); shared.write_text(MANAGED_MARKER+"\n"+content)
+    atomic_managed_write(root,shared,MANAGED_MARKER+"\n"+content)
     return changed
 def install_user_baselines(homes=None):
     """Load the baseline into already-present user Agent instruction files."""
@@ -382,7 +404,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.36.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.37.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -449,7 +471,7 @@ def build_report(root,policy,verify_baselines=False):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.36.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.37.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
