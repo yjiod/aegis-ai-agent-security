@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentinel Report Collector API",
-    "version": "0.18.0",
+    "version": "0.19.0",
     "description": "Machine-readable contract for the private Sentinel Collector. Production deployments terminate TLS at the enterprise reverse proxy."
   },
   "servers": [{"url": "https://sentinel-collector.example.internal"}],

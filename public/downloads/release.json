@@ -1,9 +1,10 @@
 {
-  "release": "2.4.0",
+  "release": "2.5.0",
   "channel": "pilot",
-  "published_at": "2026-09-09T08:15:00+08:00",
-  "component_versions": {"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.18","adapter":"0.18"},
+  "published_at": "2026-09-09T08:25:00+08:00",
+  "component_versions": {"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"},
   "features": [
+    "collector_0_19", "scheduled_collector_retention", "idle_collector_data_minimization", "collector_quick_check_maintenance", "passive_wal_checkpoint", "hardened_maintenance_timer",
     "full_release_sha256_manifest", "complete_bundle_file_integrity", "strict_release_manifest_parser", "release_file_set_drift_rejection",
     "deterministic_enterprise_release_builder", "isolated_release_rebuild_check", "automatic_embedded_digest_sync", "automatic_intune_manifest_sync", "byte_reproducible_release_zip", "signed_release_rebuild_rejection",
     "sharp_0_35_4_security_override", "libheif_advisory_mitigation", "zero_high_dependency_audit",

@@ -253,3 +253,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 2.3.0 增加确定性企业发行构建器 `sentinel_release_build.py`。开发者通过 `npm run release:build` 一次性同步四项运行文件摘要、所有安装/检测/合规脚本内嵌摘要、十三项 Intune 制品摘要、与当前清单绑定的晋级证据模板，以及按发行时间和稳定文件顺序生成的 ZIP。`npm run release:check` 在临时隔离副本中重建并逐字节比较派生文件，CI 因而会拒绝遗漏同步或非确定性打包。构建器只处理 `pilot_unsigned` 清单；生产 Authenticode 包仍必须由隔离 Windows 签名工作站生成，避免自动重建破坏签名。
 
 2.4.0 将完整 `RELEASE-MANIFEST.sha256` 纳入离线包。该清单覆盖自身之外的每一个预期文件，包括 Collector、Adapter、Intune、回滚、卸载、验收工具、契约和文档；验证器要求文件集合完全相等、每行使用规范的小写 SHA-256 与单层文件名、文件名唯一，并逐项比较实际字节。它用于发现传输损坏和发行漂移，不替代受信下载通道、代码签名或企业制品库的签名证明。
+
+2.5.0 / Collector 0.19 增加独立的 `sentinel_collector_maintenance.py` 及 systemd service/timer。部署脚本与 Collector 后启用 `sentinel-collector-maintenance.timer`；它每天在最多一小时随机延迟内执行，错过开机时间会由 `Persistent=true` 补跑。维护任务以 Collector 服务用户运行，要求数据库目录不可为符号链接、仅由 root/服务用户拥有且不可组写或公开写入，数据库必须是 0600/0640 的普通文件。任务在短暂 `BEGIN IMMEDIATE` 事务中强制执行报告与审计保留策略，再做 `quick_check`、被动 WAL checkpoint 和 optimize；输出只有删除/保留计数与 WAL busy 状态，不含设备身份、报告正文或秘密。由此在无新报告期间也能持续满足数据最小化要求。

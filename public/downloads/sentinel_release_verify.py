@@ -17,7 +17,7 @@ BUNDLE_FILES=(
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
     "uninstall-sentinel-windows.ps1","uninstall-sentinel-macos.sh","CHECKSUMS.sha256","release.json","sentinel_adapter.py","sentinel_release_build.py",
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py","sentinel_vendor_probe.py","sentinel_vendor_evidence_sign.py","sentinel_vendor_keyring.py",
-    "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
+    "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf","sentinel_collector_maintenance.py","sentinel-collector-maintenance.service","sentinel-collector-maintenance.timer",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
     "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","sentinel_intune_graph_normalize.py","intune-rollout-evidence.example.json","intune-device-export.example.json","intune-graph-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
 )
@@ -41,7 +41,7 @@ def verify(downloads):
     try: release=json.loads((downloads/"release.json").read_text())
     except (OSError,ValueError) as exc: return [f"invalid_release_json:{type(exc).__name__}"]
     if not re.fullmatch(r"\d+\.\d+\.\d+",str(release.get("release",""))): errors.append("invalid_release_version")
-    if release.get("component_versions")!={"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.18","adapter":"0.18"}: errors.append("release_component_version_drift")
+    if release.get("component_versions")!={"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"}: errors.append("release_component_version_drift")
     try: release_manifest=parse_digest_manifest(downloads/"RELEASE-MANIFEST.sha256")
     except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_release_manifest:{type(exc).__name__}"); release_manifest={}
     if set(release_manifest)!=set(RELEASE_MANIFEST_FILES): errors.append("release_manifest_file_set_mismatch")
@@ -162,6 +162,14 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector_service:{type(exc).__name__}"); service=""
     for directive in ("User=sentinel","EnvironmentFile=/etc/sentinel/collector.env","--listen 127.0.0.1","NoNewPrivileges=true","ProtectSystem=strict","ProtectHome=true","CapabilityBoundingSet="):
         if directive not in service: errors.append(f"unsafe_collector_service:{directive}")
+    try: maintenance=(downloads/"sentinel_collector_maintenance.py").read_text(); maintenance_service=(downloads/"sentinel-collector-maintenance.service").read_text(); maintenance_timer=(downloads/"sentinel-collector-maintenance.timer").read_text()
+    except OSError as exc: errors.append(f"invalid_collector_maintenance:{type(exc).__name__}"); maintenance=maintenance_service=maintenance_timer=""
+    for directive in ('BEGIN IMMEDIATE','DELETE FROM reports WHERE received_at < ?','collector.prune_audit','PRAGMA quick_check','PRAGMA wal_checkpoint(PASSIVE)','unsafe_database_directory','unsafe_database_file','"secrets_printed":False'):
+        if directive not in maintenance: errors.append(f"unsafe_collector_maintenance:{directive}")
+    for directive in ('Type=oneshot','User=sentinel','RestrictAddressFamilies=AF_UNIX','NoNewPrivileges=true','ProtectSystem=strict','CapabilityBoundingSet='):
+        if directive not in maintenance_service: errors.append(f"unsafe_collector_maintenance_service:{directive}")
+    for directive in ('OnCalendar=daily','Persistent=true','RandomizedDelaySec=1h','Unit=sentinel-collector-maintenance.service'):
+        if directive not in maintenance_timer: errors.append(f"unsafe_collector_maintenance_timer:{directive}")
     try: env_example=(downloads/"sentinel-collector.env.example").read_text()
     except OSError as exc: errors.append(f"invalid_collector_env:{type(exc).__name__}"); env_example=""
     for secret_name in ("SENTINEL_COLLECTOR_TOKEN","SENTINEL_REPORT_SIGNING_SECRET"):
@@ -245,13 +253,13 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
     for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
-    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"','"0.35.0"','"4.9.0"',"SentinelCollector/0.18"):
+    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"','"0.35.0"','"4.9.0"',"SentinelCollector/0.19"):
         if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
     try: openapi=json.loads((downloads/"sentinel-collector.openapi.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_collector_openapi:{type(exc).__name__}"); openapi={}
     paths=openapi.get("paths",{}) if isinstance(openapi,dict) else {}; components=openapi.get("components",{}) if isinstance(openapi,dict) else {}
     expected_methods={"/health":{"get"},"/v1/reports":{"post"},"/v1/summary":{"get"},"/v1/devices":{"get"},"/v1/audit":{"get"}}
-    if openapi.get("openapi")!="3.1.0" or openapi.get("info",{}).get("version")!="0.18.0": errors.append("collector_openapi_version_drift")
+    if openapi.get("openapi")!="3.1.0" or openapi.get("info",{}).get("version")!="0.19.0": errors.append("collector_openapi_version_drift")
     fleet_schema=components.get("schemas",{}).get("FleetSummary",{})
     if "baseline_coverage" not in fleet_schema.get("required",[]) or "baseline_coverage" not in fleet_schema.get("properties",{}): errors.append("collector_openapi_baseline_coverage_drift")
     device_get=paths.get("/v1/devices",{}).get("get",{}); device_parameters={item.get("name"):item for item in device_get.get("parameters",[]) if isinstance(item,dict)}; console_schema=components.get("schemas",{}).get("ConsoleDevice",{}).get("allOf",[{},{}])

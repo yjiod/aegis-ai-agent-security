@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Sentinel Collector maintenance daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+AccuracySec=5m
+Unit=sentinel-collector-maintenance.service
+
+[Install]
+WantedBy=timers.target

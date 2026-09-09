@@ -1,0 +1,32 @@
+[Unit]
+Description=Sentinel Collector retention and integrity maintenance
+After=sentinel-collector.service
+
+[Service]
+Type=oneshot
+User=sentinel
+Group=sentinel
+EnvironmentFile=/etc/sentinel/collector.env
+ExecStart=/usr/bin/python3 /opt/sentinel/sentinel_collector_maintenance.py --db /var/lib/sentinel/sentinel.db
+StateDirectory=sentinel
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=

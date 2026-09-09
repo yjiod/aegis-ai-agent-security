@@ -14,7 +14,24 @@ def vendor_probe_receipt(vendor,url,now):
     return {'schema':'sentinel.vendor-probe/v1','generated_at':now,'adapter_version':'0.18','vendor':vendor,'endpoint_url':url,'payload_sha256':digest,'idempotency_key':digest,'safe_action':'observe' if vendor=='sangfor' else 'compliance_posture_only','live':True,'statuses':[202,202],'idempotent_replay_accepted':True,'secrets_embedded':False}
 
 class SentinelTests(unittest.TestCase):
-    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); sys.modules['sentinel_adapter']=self.adapter; self.vendor_probe=load('vendor_probe','sentinel_vendor_probe.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); sys.modules['sentinel_vendor_preflight']=self.vendor_preflight; self.vendor_signer=load('vendor_signer','sentinel_vendor_evidence_sign.py'); sys.modules['sentinel_vendor_evidence_sign']=self.vendor_signer; self.vendor_keyring=load('vendor_keyring','sentinel_vendor_keyring.py'); self.verifier=load('verifier','sentinel_release_verify.py'); sys.modules['sentinel_release_verify']=self.verifier; self.release_builder=load('release_builder','sentinel_release_build.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.intune_graph=load('intune_graph','sentinel_intune_graph_normalize.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+    def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); sys.modules['sentinel_collector']=self.collector; self.maintenance=load('collector_maintenance','sentinel_collector_maintenance.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); sys.modules['sentinel_adapter']=self.adapter; self.vendor_probe=load('vendor_probe','sentinel_vendor_probe.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); sys.modules['sentinel_vendor_preflight']=self.vendor_preflight; self.vendor_signer=load('vendor_signer','sentinel_vendor_evidence_sign.py'); sys.modules['sentinel_vendor_evidence_sign']=self.vendor_signer; self.vendor_keyring=load('vendor_keyring','sentinel_vendor_keyring.py'); self.verifier=load('verifier','sentinel_release_verify.py'); sys.modules['sentinel_release_verify']=self.verifier; self.release_builder=load('release_builder','sentinel_release_build.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.intune_graph=load('intune_graph','sentinel_intune_graph_normalize.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
+
+    def test_collector_scheduled_maintenance_enforces_retention_while_idle(self):
+        now=2_000_000_000
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'sentinel.db'
+            with self.collector.db_open(path) as db:
+                db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('old','device-old',now-31*86400,'normal','{}'))
+                db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('new','device-new',now,'normal','{}'))
+                db.execute("INSERT INTO audit_events(event,occurred_at) VALUES(?,?)",('old',now-91*86400)); db.execute("INSERT INTO audit_events(event,occurred_at) VALUES(?,?)",('new',now)); db.commit()
+            path.chmod(0o600); result=self.maintenance.maintain(path,now=now,report_days=30,audit_days=90,audit_limit=1000)
+            self.assertEqual((result['reports_deleted'],result['reports_retained']),(1,1)); self.assertEqual(result['audit_events_deleted'],1); self.assertFalse(result['secrets_printed'])
+            with self.collector.db_open(path) as db: self.assertEqual(db.execute("SELECT device_id FROM reports").fetchall(),[('device-new',)]); self.assertEqual(db.execute("PRAGMA quick_check").fetchone()[0],'ok')
+            unsafe=Path(d)/'linked.db'; unsafe.symlink_to(path)
+            with self.assertRaisesRegex(ValueError,'unsafe_database_file'): self.maintenance.maintain(unsafe,now=now)
+        service=(DOWNLOADS/'sentinel-collector-maintenance.service').read_text(); timer=(DOWNLOADS/'sentinel-collector-maintenance.timer').read_text()
+        for value in ('Type=oneshot','User=sentinel','RestrictAddressFamilies=AF_UNIX','NoNewPrivileges=true','ProtectSystem=strict','CapabilityBoundingSet='): self.assertIn(value,service)
+        for value in ('OnCalendar=daily','Persistent=true','RandomizedDelaySec=1h'): self.assertIn(value,timer)
 
     def test_release_builder_is_reproducible_and_refuses_signed_input(self):
         self.release_builder.check(DOWNLOADS)
@@ -254,7 +271,7 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
         spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
-        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.18.0')
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.19.0')
         self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
         post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})

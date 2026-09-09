@@ -211,7 +211,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.18"
+    server_version="SentinelCollector/0.19"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
