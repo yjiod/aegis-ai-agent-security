@@ -15,7 +15,9 @@ npm ci
 python3 -m unittest discover -s tests -v
 for file in public/downloads/*.sh; do sh -n "$file"; done
 npm run build
+npm run release:build
 python3 public/downloads/sentinel_release_verify.py public/downloads
+npm run release:check
 git diff --check
 ```
 
@@ -23,6 +25,6 @@ GitHub 发布门禁还会在独立的 `windows-latest` runner 上使用 Windows 
 
 `package.json` 暂时将间接依赖 `sharp` 固定到 0.35.4，以覆盖 Miniflare 仍声明的 0.35.2 并修复 libheif 高危公告。升级 Cloudflare 工具链时必须重新运行 `npm ls sharp`、完整构建和 `npm audit --audit-level=low`；上游依赖修复后可在单独评审中移除 override。
 
-修改 `sentinel_agent.py`、`sentinel-windows.ps1`、`sentinel-policy.json` 或 `sentinel-security-baseline.md` 后，必须重算 `CHECKSUMS.sha256`，同步安装/检测/合规脚本内嵌哈希，并重建 ZIP。
+修改发行文件后运行 `npm run release:build`。确定性构建器会同步运行文件摘要、安装/检测/合规脚本内嵌摘要、Intune 制品清单、晋级证据模板以及 ZIP，并在完成前执行离线验证。CI 的 `release:check` 会在隔离副本中重建并逐字节比较派生制品，拒绝手工遗漏和非确定性归档。生产签名包必须继续由隔离的 Windows 签名工作站生成；构建器会拒绝改写已签名清单。
 
 评审必须检查：不可信输入边界、代码执行可能性、链接越界、失败关闭、可恢复性、敏感数据暴露、虚假成功状态和跨平台行为对等。

@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `2.2.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.18`，Adapter `0.18`。
+当前发行：产品 `2.3.0`，Endpoint Agent `0.35.0`，策略 `4.9.0`，Collector `0.18`，Adapter `0.18`。
 
 ## 目录
 
@@ -19,6 +19,7 @@ python3 -m unittest discover -s tests
 for file in public/downloads/*.sh; do sh -n "$file"; done
 npm run build
 python3 public/downloads/sentinel_release_verify.py public/downloads
+npm run release:check
 ```
 
 本地启动控制台：`npm run dev`。默认控制台明确显示演示模式，不会下发终端任务。配置服务端 Collector 环境变量后，仅顶部摘要切换为真实只读数据。
@@ -53,3 +54,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 2.1 起，控制台从同一受验证发行包的 `release.json` 读取产品及组件版本，严格验证字段和版本格式后显示；元数据不可用时使用当前安全默认值。发行验证器固定 Endpoint Agent、策略、Collector 与 Adapter 的版本组合，消除界面静态版本与实际制品漂移。
 
 2.2 起，Collector 0.18 为 `/v1/devices` 增加显式 `view=console` 只读视图，返回每台设备最新风险等级及 Agent/策略版本；默认 activation 视图保持原四字段契约，Intune 晋级和凭据裁剪证据不受影响。控制台代理只接受七字段 console 契约。
+
+2.3 起，`npm run release:build` 统一生成运行文件摘要、脚本内嵌摘要、Intune 制品清单、晋级证据模板和确定性 ZIP。CI 会在隔离副本中重建并逐字节比较所有派生制品，防止联合开发过程中提交旧哈希或旧发行包；已签名生产清单不会被自动改写。

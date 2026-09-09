@@ -249,3 +249,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 2.1.0 将控制台版本展示绑定到 `release.json.component_versions`。浏览器仅接受严格的产品 semver 以及 Endpoint Agent、策略、Collector、Adapter 四个版本字段，缺失、额外字段或非法格式不会进入界面状态；发行验证器同时固定这组版本与实际制品。由此基线页面不再保留手工维护的 v4.8 标签，当前展示与策略 4.9.0 一致。
 
 2.2.0 / Collector 0.18 为 `/v1/devices` 增加 `view=console`。该视图在原匿名设备 ID、最近上报、报告数量和凭据代次上补充最新严重度、Agent 版本和策略版本；默认 `view=activation` 仍精确返回原四字段，既有 Intune 证据生成及凭据裁剪工具无需变更。控制台只读代理改为请求 console 视图，并严格要求七字段、三种严重度和受限版本字符串，使设备页面可直接识别风险与版本漂移。
+
+2.3.0 增加确定性企业发行构建器 `sentinel_release_build.py`。开发者通过 `npm run release:build` 一次性同步四项运行文件摘要、所有安装/检测/合规脚本内嵌摘要、十三项 Intune 制品摘要、与当前清单绑定的晋级证据模板，以及按发行时间和稳定文件顺序生成的 ZIP。`npm run release:check` 在临时隔离副本中重建并逐字节比较派生文件，CI 因而会拒绝遗漏同步或非确定性打包。构建器只处理 `pilot_unsigned` 清单；生产 Authenticode 包仍必须由隔离 Windows 签名工作站生成，避免自动重建破坏签名。

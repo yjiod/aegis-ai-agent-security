@@ -15,7 +15,7 @@ BUNDLE_FILES=(
     "sentinel_agent.py","sentinel_collector.py","sentinel-windows.ps1","install-sentinel.sh","intune-windows-detect.ps1",
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
-    "uninstall-sentinel-windows.ps1","uninstall-sentinel-macos.sh","CHECKSUMS.sha256","release.json","sentinel_adapter.py",
+    "uninstall-sentinel-windows.ps1","uninstall-sentinel-macos.sh","CHECKSUMS.sha256","release.json","sentinel_adapter.py","sentinel_release_build.py",
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py","sentinel_vendor_probe.py","sentinel_vendor_evidence_sign.py","sentinel_vendor_keyring.py",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",

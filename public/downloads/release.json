@@ -1,9 +1,10 @@
 {
-  "release": "2.2.0",
+  "release": "2.3.0",
   "channel": "pilot",
-  "published_at": "2026-09-09T07:55:00+08:00",
+  "published_at": "2026-09-09T08:05:00+08:00",
   "component_versions": {"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.18","adapter":"0.18"},
   "features": [
+    "deterministic_enterprise_release_builder", "isolated_release_rebuild_check", "automatic_embedded_digest_sync", "automatic_intune_manifest_sync", "byte_reproducible_release_zip", "signed_release_rebuild_rejection",
     "sharp_0_35_4_security_override", "libheif_advisory_mitigation", "zero_high_dependency_audit",
     "collector_console_device_view", "per_device_latest_severity", "per_device_agent_version", "per_device_policy_version", "activation_evidence_backward_compatibility", "strict_console_posture_proxy",
     "release_metadata_driven_console", "component_version_drift_prevention", "strict_client_release_contract", "current_policy_ui_alignment",

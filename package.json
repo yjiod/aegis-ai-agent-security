@@ -10,6 +10,8 @@
     "prebuild": "node scripts/clean-public-bytecode.mjs",
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
+    "release:build": "python3 public/downloads/sentinel_release_build.py public/downloads",
+    "release:check": "python3 public/downloads/sentinel_release_build.py --check public/downloads",
     "lint": "oxlint",
     "format": "oxfmt"
   },

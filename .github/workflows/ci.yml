@@ -30,6 +30,7 @@ jobs:
           for file in public/downloads/*.sh; do sh -n "$file"; done
       - run: npm run build
       - run: python3 public/downloads/sentinel_release_verify.py public/downloads
+      - run: python3 public/downloads/sentinel_release_build.py --check public/downloads
 
   windows-powershell:
     runs-on: windows-latest
