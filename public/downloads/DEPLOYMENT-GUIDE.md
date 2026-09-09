@@ -269,3 +269,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 3.1.0 将 `PRODUCTION-READINESS.md` 纳入离线包和完整 SHA-256 清单。它按责任人、输入、操作、通过证据与失败回退组织 Collector、Intune、深信服、联软及控制台联合验收，并显式列出只能由客户环境证明的六项生产签署记录；本地测试、CI 或演示控制台不能把这些项目自动标记完成。
 
 3.2.0 新增 `sentinel.production-acceptance/v1` 与 `sentinel_production_preflight.py`。最终证据必须在 24 小时内生成，绑定当前产品版本、完整发行清单 SHA-256、40 位 Git 提交和正整数 Sites 版本；Collector 探针/恢复、Intune production 预检、双平台升级回滚、深信服与联软 v3 验收及真实只读控制台十项检查必须全部为 true，并提供安全、终端、平台与业务四方标识。读取使用 64 KiB、`O_NOFOLLOW` 和 inode 绑定，额外字段、缺签、秘密或设备标识声明、旧证据均失败关闭。
+
+3.3.0 收紧最终生产证据的来源绑定。预检命令现在必须提供 `--expected-git-commit` 与 `--expected-site-version`；两者应分别来自 GitHub 主分支/成功 CI 和 Sites 已成功部署版本的独立只读查询。证据中的 SHA 与站点版本必须精确相等，格式正确但伪造或过期的其他值会以 `git_commit_mismatch` 或 `site_version_mismatch` 拒绝。

@@ -25,7 +25,7 @@ def read_regular_bounded(path,limit):
 
 def digest(path): return hashlib.sha256(read_regular_bounded(path,2*1024*1024)).hexdigest()
 
-def evaluate(downloads,evidence,now=None):
+def evaluate(downloads,evidence,expected_git_commit,expected_site_version,now=None):
     downloads=Path(downloads); now=int(time.time()) if now is None else int(now); errors=[]
     if type(evidence) is not dict or set(evidence)!=TOP: return ["invalid_evidence_contract"]
     try: release=json.loads(read_regular_bounded(downloads/"release.json",64*1024))
@@ -36,8 +36,12 @@ def evaluate(downloads,evidence,now=None):
     except (OSError,ValueError): errors.append("invalid_release_manifest"); manifest_digest=""
     supplied=evidence.get("release_manifest_sha256")
     if not isinstance(supplied,str) or not re.fullmatch(r"[0-9a-f]{64}",supplied) or not hmac.compare_digest(supplied,manifest_digest): errors.append("release_manifest_mismatch")
+    if not isinstance(expected_git_commit,str) or not re.fullmatch(r"[0-9a-f]{40}",expected_git_commit): errors.append("invalid_expected_git_commit")
     if not isinstance(evidence.get("git_commit_sha"),str) or not re.fullmatch(r"[0-9a-f]{40}",evidence["git_commit_sha"]): errors.append("invalid_git_commit_sha")
+    elif isinstance(expected_git_commit,str) and re.fullmatch(r"[0-9a-f]{40}",expected_git_commit) and not hmac.compare_digest(evidence["git_commit_sha"],expected_git_commit): errors.append("git_commit_mismatch")
+    if type(expected_site_version) is not int or expected_site_version<1: errors.append("invalid_expected_site_version")
     if type(evidence.get("site_version")) is not int or evidence["site_version"]<1: errors.append("invalid_site_version")
+    elif type(expected_site_version) is int and expected_site_version>=1 and evidence["site_version"]!=expected_site_version: errors.append("site_version_mismatch")
     generated=evidence.get("generated_at")
     if type(generated) is not int or generated>now+300 or generated<now-86400: errors.append("stale_or_future_evidence")
     checks=evidence.get("checks")
@@ -56,9 +60,9 @@ def evaluate(downloads,evidence,now=None):
     return errors
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument("evidence");parser.add_argument("--downloads",default=Path(__file__).parent);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument("evidence");parser.add_argument("--downloads",default=Path(__file__).parent);parser.add_argument("--expected-git-commit",required=True);parser.add_argument("--expected-site-version",required=True,type=int);args=parser.parse_args()
     try: evidence=json.loads(read_regular_bounded(args.evidence,MAX_EVIDENCE_BYTES))
     except (OSError,ValueError,json.JSONDecodeError) as exc:
         print(json.dumps({"ok":False,"errors":[type(exc).__name__]},separators=(",",":")));return 2
-    errors=evaluate(args.downloads,evidence);print(json.dumps({"ok":not errors,"errors":errors},separators=(",",":")));return 0 if not errors else 2
+    errors=evaluate(args.downloads,evidence,args.expected_git_commit,args.expected_site_version);print(json.dumps({"ok":not errors,"errors":errors},separators=(",",":")));return 0 if not errors else 2
 if __name__=="__main__": sys.exit(main())

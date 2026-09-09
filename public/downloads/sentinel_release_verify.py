@@ -54,7 +54,7 @@ def verify(downloads):
         if directive not in readiness: errors.append(f"incomplete_production_readiness:{directive}")
     try: production_preflight=(downloads/"sentinel_production_preflight.py").read_text(encoding="utf-8"); production_example=json.loads((downloads/"production-acceptance-evidence.example.json").read_text(encoding="utf-8"))
     except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_production_acceptance:{type(exc).__name__}"); production_preflight=""; production_example={}
-    for directive in ("sentinel.production-acceptance/v1","MAX_EVIDENCE_BYTES=64*1024","O_NOFOLLOW","hmac.compare_digest","release_manifest_mismatch","gate_failed:","approval_missing:","device_identifiers_must_not_be_embedded"):
+    for directive in ("sentinel.production-acceptance/v1","MAX_EVIDENCE_BYTES=64*1024","O_NOFOLLOW","hmac.compare_digest","--expected-git-commit","--expected-site-version","git_commit_mismatch","site_version_mismatch","release_manifest_mismatch","gate_failed:","approval_missing:","device_identifiers_must_not_be_embedded"):
         if directive not in production_preflight: errors.append(f"unsafe_production_preflight:{directive}")
     if production_example.get("release_version")!=release.get("release") or production_example.get("secrets_embedded") is not False or production_example.get("device_identifiers_embedded") is not False or any(production_example.get("checks",{}).values()): errors.append("unsafe_production_acceptance_example")
     try: policy=json.loads((downloads/"sentinel-policy.json").read_text())

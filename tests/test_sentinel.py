@@ -19,11 +19,13 @@ class SentinelTests(unittest.TestCase):
     def test_final_production_preflight_binds_all_customer_evidence(self):
         now=2_000_000_000; release=json.loads((DOWNLOADS/'release.json').read_text())
         evidence={'schema':'sentinel.production-acceptance/v1','release_version':release['release'],'release_manifest_sha256':hashlib.sha256((DOWNLOADS/'RELEASE-MANIFEST.sha256').read_bytes()).hexdigest(),'git_commit_sha':'a'*40,'site_version':132,'generated_at':now,'checks':{name:True for name in self.production_preflight.CHECKS},'approvals':{name:'approved-owner' for name in self.production_preflight.APPROVALS},'secrets_embedded':False,'device_identifiers_embedded':False}
-        self.assertEqual(self.production_preflight.evaluate(DOWNLOADS,evidence,now),[])
+        self.assertEqual(self.production_preflight.evaluate(DOWNLOADS,evidence,'a'*40,132,now),[])
         failed=json.loads(json.dumps(evidence)); failed['checks']['sangfor_acceptance_v3_passed']=False; failed['approvals']['business_owner']=''; failed['secrets_embedded']=True
-        errors=self.production_preflight.evaluate(DOWNLOADS,failed,now)
+        errors=self.production_preflight.evaluate(DOWNLOADS,failed,'a'*40,132,now)
         self.assertIn('gate_failed:sangfor_acceptance_v3_passed',errors); self.assertIn('approval_missing:business_owner',errors); self.assertIn('secrets_must_not_be_embedded',errors)
-        self.assertIn('stale_or_future_evidence',self.production_preflight.evaluate(DOWNLOADS,{**evidence,'generated_at':now-86401},now))
+        self.assertIn('stale_or_future_evidence',self.production_preflight.evaluate(DOWNLOADS,{**evidence,'generated_at':now-86401},'a'*40,132,now))
+        self.assertIn('git_commit_mismatch',self.production_preflight.evaluate(DOWNLOADS,evidence,'b'*40,132,now))
+        self.assertIn('site_version_mismatch',self.production_preflight.evaluate(DOWNLOADS,evidence,'a'*40,133,now))
         with tempfile.TemporaryDirectory() as d:
             target=Path(d)/'evidence.json'; target.write_text(json.dumps(evidence)); link=Path(d)/'linked.json'; link.symlink_to(target)
             with self.assertRaises(OSError): self.production_preflight.read_regular_bounded(link,65536)
