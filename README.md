@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `3.6.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
+当前发行：产品 `3.7.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
 
 ## 目录
 
@@ -83,3 +83,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 3.5 起，生产验收签名与预检均支持 `--keyring <受保护文件>`，长期密钥无需进入进程环境。`sentinel_production_keyring.py` 使用系统 CSPRNG 创建密钥，并支持最多五把密钥重叠轮换；删除旧键必须提供 24 小时内、由另一把保留密钥有效签署的生产验收记录，且不能删除最后一把键。环境变量仅保留兼容用途。
 
 3.6 起，生产验收升级为 v3，签名结论不再只携带人工填写的摘要。预检通过 `--evidence-root` 对十项检查记录和四方审批记录逐文件执行有界、防符号链接 SHA-256 核验；文件名限单层安全名称且十四份记录不得复用同一文件。缺失、替换、越界、重复或摘要不匹配均失败关闭。
+
+3.7 起，`sentinel_production_evidence_prepare.py` 从受约束证据目录自动计算十四份原始记录摘要，并以私有原子方式生成待签名副本。准备器拒绝重复文件和已签名输入，只更新摘要，不会把检查结果改成通过、填写审批人或生成签名，避免工具替代人工验收决策。
