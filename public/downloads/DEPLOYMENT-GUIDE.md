@@ -40,7 +40,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.19 默认要求 Agent 0.39.0、策略 4.9.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.19 默认要求 Agent 0.40.0、策略 4.9.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -263,3 +263,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 2.8.0 / Agent 0.38 将 2.7 的安全写入语义扩展到用户级 Agent 指令。Codex `AGENTS.md`、Claude `CLAUDE.md`、Gemini `GEMINI.md` 与 Copilot `copilot-instructions.md` 均通过同目录临时文件、`fsync` 和原子替换更新；既有 mode/uid/gid 保持不变，新建 `.claude` 等目录与文件归属用户主目录所有者。显式传入的符号链接主目录也被拒绝，替换失败不会破坏用户原有指令。
 
 2.9.0 / Agent 0.39 将用户级安全写入补齐到 Windows。Agent 与 Intune 修复脚本都先在目标目录创建唯一临时文件，以 UTF-8 BOM 写入并强制刷新到磁盘；既有指令文件的 ACL 在替换前复制，目标主目录边界与所有父路径重解析点在创建目录后再次验证。替换失败会清除临时项并保留原文件，Windows 原生 CI 同时验证受管更新后的 ACL 与临时文件残留。
+
+3.0.0 / Agent 0.40 将 Windows 的原子安全写入覆盖到自动发现仓库。`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、Cursor/Windsurf 规则和 `.sentinel/SECURITY_BASELINE.md` 不再直接 `Set-Content` 或 `Add-Content`；所有目标复用同目录临时写、UTF-8 BOM、强制落盘、ACL 复制、二次重解析点校验和原子替换。Windows 原生 CI 创建真实仓库并验证已有 `AGENTS.md` 的 ACL 不变且无临时文件残留。

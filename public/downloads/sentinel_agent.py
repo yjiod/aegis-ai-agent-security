@@ -401,7 +401,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.39.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.40.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -468,7 +468,7 @@ def build_report(root,policy,verify_baselines=False):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.39.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.40.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

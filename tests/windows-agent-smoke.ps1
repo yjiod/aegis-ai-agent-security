@@ -31,7 +31,7 @@ try {
   $result = Invoke-SentinelAgent -Diagnostics
   if ($result.ExitCode -ne 0) { Write-Error "clean agent run failed with exit code $($result.ExitCode): $($result.Output)" }
   $report = Get-Content $output -Raw | ConvertFrom-Json
-  if ($report.schema -cne 'sentinel.report/v1' -or $report.agent_version -cne '0.39.0' -or $report.policy_version -cne '4.9.0') { throw 'clean report contract mismatch' }
+  if ($report.schema -cne 'sentinel.report/v1' -or $report.agent_version -cne '0.40.0' -or $report.policy_version -cne '4.9.0') { throw 'clean report contract mismatch' }
   if ($report.summary.critical -ne 0 -or $report.summary.high -ne 0) { throw 'clean report unexpectedly contains blocking findings' }
 
   $testHome = Join-Path $users ('sentinel-ci-' + [Guid]::NewGuid().ToString('N'))
@@ -40,6 +40,11 @@ try {
   $instruction = Join-Path $codex 'AGENTS.md'
   Set-Content -Encoding UTF8 $instruction '# Personal rules'
   $instructionAcl = (Get-Acl $instruction).Sddl
+  $repo = Join-Path $testHome 'Projects\atomic-repo'
+  New-Item -ItemType Directory -Force -Path (Join-Path $repo '.git') | Out-Null
+  $repoInstruction = Join-Path $repo 'AGENTS.md'
+  Set-Content -Encoding UTF8 $repoInstruction '# Repository rules'
+  $repoInstructionAcl = (Get-Acl $repoInstruction).Sddl
   Set-Content -Encoding UTF8 (Join-Path $codex 'config.toml') '# Sentinel native discovery marker'
   $secret = 'sk-abcdefghijklmnopqrstuvwxyz123456'
   Set-Content -Encoding UTF8 (Join-Path $codex 'source.py') ('token="' + $secret + '"')
@@ -52,6 +57,9 @@ try {
   if (@($report.inventory | Where-Object { $_.type -eq 'agent_baseline' -and $_.name -eq 'codex' -and $_.status -eq 'managed' }).Count -ne 1) { throw "Codex managed baseline evidence is missing; baseline=$($report.inventory|Where-Object type -eq 'agent_baseline'|ConvertTo-Json -Compress -Depth 5); bytes=$([Convert]::ToBase64String([IO.File]::ReadAllBytes($instruction)))" }
   if ((Get-Acl $instruction).Sddl -cne $instructionAcl) { throw 'Codex instruction ACL changed during managed update' }
   if (@(Get-ChildItem $codex -Force -Filter '.AGENTS.md.*.tmp').Count -ne 0) { throw 'Codex atomic update left a temporary file' }
+  if ((Get-Content $repoInstruction -Raw) -notmatch 'sentinel-managed-security-baseline') { throw 'repository managed baseline was not installed' }
+  if ((Get-Acl $repoInstruction).Sddl -cne $repoInstructionAcl) { throw 'repository instruction ACL changed during managed update' }
+  if (@(Get-ChildItem $repo -Recurse -Force -Filter '*.tmp').Count -ne 0) { throw 'repository atomic update left a temporary file' }
   if (@($report.findings | Where-Object kind -eq 'hardcoded_secret').Count -ne 1 -or $reportText.Contains($secret)) { throw 'secret finding is missing or not redacted' }
 
   $policyPath = Join-Path $install 'sentinel-policy.json'

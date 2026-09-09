@@ -126,12 +126,16 @@ function Install-SentinelBaseline([string]$repo) {
   $baseline = Get-Content $baselinePath -Raw
   $managed = "$managedMarker`n$baseline"
   $ruleTargets = @((Join-Path $repo '.cursor\rules\sentinel-security.mdc'),(Join-Path $repo '.windsurf\rules\sentinel-security.md'))
-  foreach ($target in $ruleTargets) { if(-not (Test-SentinelSafeTarget $repo $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null;Set-Content -Encoding UTF8 $target $managed }
+  foreach ($target in $ruleTargets) {
+    if(-not (Test-SentinelSafeTarget $repo $target)){continue}
+    $existing=if(Test-Path $target -PathType Leaf){Get-Content $target -Raw}else{''}
+    if($existing -cne $managed){$null=Set-SentinelManagedTextAtomic $repo $target $managed}
+  }
   foreach ($name in @('AGENTS.md','CLAUDE.md','GEMINI.md')) {
     $target=Join-Path $repo $name;if(-not (Test-SentinelSafeTarget $repo $target)){continue};$existing=if(Test-Path $target){Get-Content $target -Raw}else{''}
-    if ($existing -notlike "*$managedMarker*") { Add-Content -Encoding UTF8 $target "`n$managedMarker`n## 企业安全基线`n执行任何代码变更前必须遵循 .sentinel/SECURITY_BASELINE.md。" }
+    if ($existing -notlike "*$managedMarker*") {$updated=$existing.TrimEnd()+"`n$managedMarker`n## 企业安全基线`n执行任何代码变更前必须遵循 .sentinel/SECURITY_BASELINE.md。`n";$null=Set-SentinelManagedTextAtomic $repo $target $updated}
   }
-  $shared=Join-Path $repo '.sentinel\SECURITY_BASELINE.md';if(Test-SentinelSafeTarget $repo $shared){New-Item -ItemType Directory -Force -Path (Split-Path $shared) | Out-Null;Set-Content -Encoding UTF8 $shared $managed}
+  $shared=Join-Path $repo '.sentinel\SECURITY_BASELINE.md';if(Test-SentinelSafeTarget $repo $shared){$existing=if(Test-Path $shared -PathType Leaf){Get-Content $shared -Raw}else{''};if($existing -cne $managed){$null=Set-SentinelManagedTextAtomic $repo $shared $managed}}
 }
 function Sync-SentinelUserBaselines([object[]]$homes) {
   if(-not (Test-Path $baselinePath)){return}
@@ -316,7 +320,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.39.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.40.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
