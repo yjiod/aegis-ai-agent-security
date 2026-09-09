@@ -4,7 +4,7 @@ $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $reportDir = Join-Path $installDir 'reports'
 $previousDir = Join-Path $installDir 'previous'
 $stageDir = Join-Path $installDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
-$expected = @{ 'sentinel-policy.json'='8016c6c9bf79ab07ceeae26f4b1f1caf58b19690d0d7d7fef7733eb3a5bb350c'; 'sentinel-windows.ps1'='74bda2f4caeb33ec312a2836ad6658dc9592635b684928d01e0fba3effb51470'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
+$expected = @{ 'sentinel-policy.json'='8016c6c9bf79ab07ceeae26f4b1f1caf58b19690d0d7d7fef7733eb3a5bb350c'; 'sentinel-windows.ps1'='16eb1a1d2eaf34a2cf527370e38a9d4bc8853e44d77541ddad796fdd38601bba'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
 $taskName='Sentinel AI Agent Security Scan'
 $taskArguments="-NoProfile -ExecutionPolicy Bypass -File `"$installDir\sentinel-windows.ps1`" -Output `"$reportDir\latest.json`""
 New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null
@@ -31,7 +31,14 @@ try {
 $baseline = Get-Content (Join-Path $installDir 'sentinel-security-baseline.md') -Raw
 $userBaselineStart='<!-- sentinel-managed-user-baseline:start -->';$userBaselineEnd='<!-- sentinel-managed-user-baseline:end -->'
 $userBaselineBlock=$userBaselineStart+"`n"+$baseline.TrimEnd()+"`n"+$userBaselineEnd
-Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
+function Test-SentinelUserTarget([string]$root,[string]$target){
+  try{$rootFull=[IO.Path]::GetFullPath($root).TrimEnd('\');$targetFull=[IO.Path]::GetFullPath($target);if(-not $targetFull.StartsWith($rootFull+'\',[StringComparison]::OrdinalIgnoreCase)){return $false};$cursor=Split-Path $targetFull -Parent;while($cursor -and $cursor.Length -ge $rootFull.Length){if(Test-Path $cursor){if((Get-Item $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){return $false}};if($cursor -eq $rootFull){break};$cursor=Split-Path $cursor -Parent};if((Test-Path $targetFull) -and ((Get-Item $targetFull -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){return $false};return $true}catch{return $false}
+}
+function Set-SentinelUserTextAtomic([string]$root,[string]$target,[string]$content){
+  if(-not (Test-SentinelUserTarget $root $target)){return $false};$parent=Split-Path $target -Parent;New-Item -ItemType Directory -Force -Path $parent|Out-Null;if(-not (Test-SentinelUserTarget $root $target)){return $false};if((Test-Path $target) -and -not (Test-Path $target -PathType Leaf)){return $false};$acl=if(Test-Path $target -PathType Leaf){Get-Acl $target}else{$null};$temp=Join-Path $parent ('.'+[IO.Path]::GetFileName($target)+'.'+[Guid]::NewGuid().ToString('N')+'.tmp')
+  try{$encoding=[Text.UTF8Encoding]::new($true);$stream=[IO.FileStream]::new($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);try{$bytes=$encoding.GetBytes($content);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()};if($acl){Set-Acl -Path $temp -AclObject $acl};if(-not (Test-SentinelUserTarget $root $target)){throw 'managed_target_changed'};Move-Item -LiteralPath $temp -Destination $target -Force;return $true}finally{Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}
+}
+Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | ForEach-Object {
   $targets=@()
   $codexDir=Join-Path $_.FullName '.codex';$claudeDir=Join-Path $_.FullName '.claude';$geminiDir=Join-Path $_.FullName '.gemini';$copilotDir=Join-Path $_.FullName '.copilot'
   if((Test-Path $codexDir) -and -not ((Get-Item $codexDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets += Join-Path $_.FullName '.codex\AGENTS.md'}
@@ -39,14 +46,13 @@ Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','
   if((Test-Path $geminiDir) -and -not ((Get-Item $geminiDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets += Join-Path $_.FullName '.gemini\GEMINI.md'}
   if((Test-Path $copilotDir) -and -not ((Get-Item $copilotDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets += Join-Path $_.FullName '.copilot\copilot-instructions.md'}
   foreach ($target in $targets) {
-    New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
-    if((Test-Path $target) -and ((Get-Item $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){continue}
+    if(-not (Test-SentinelUserTarget $_.FullName $target)){continue}
     $existing=if(Test-Path $target){Get-Content $target -Raw}else{''}
     $pattern=[regex]::Escape($userBaselineStart)+'.*?'+[regex]::Escape($userBaselineEnd)
     if($existing.Contains($userBaselineStart) -xor $existing.Contains($userBaselineEnd)){Write-Output "Sentinel baseline markers malformed; preserving $target";continue}
     if($existing -match [regex]::Escape($userBaselineStart)){$updated=[regex]::Replace($existing,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match)$userBaselineBlock},[System.Text.RegularExpressions.RegexOptions]::Singleline)}
     else{$updated=$existing.TrimEnd()+$(if($existing.Trim()){"`n`n"}else{''})+$userBaselineBlock+"`n"}
-    if($updated -ne $existing){Set-Content -Encoding UTF8 $target $updated}
+    if($updated -ne $existing){$null=Set-SentinelUserTextAtomic $_.FullName $target $updated}
   }
 }
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $taskArguments

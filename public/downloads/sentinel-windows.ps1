@@ -103,6 +103,24 @@ function Test-SentinelSafeTarget([string]$root,[string]$target) {
     return $true
   } catch { return $false }
 }
+function Set-SentinelManagedTextAtomic([string]$root,[string]$target,[string]$content) {
+  if(-not (Test-SentinelSafeTarget $root $target)){return $false}
+  $parent=Split-Path $target -Parent
+  New-Item -ItemType Directory -Force -Path $parent|Out-Null
+  if(-not (Test-SentinelSafeTarget $root $target)){return $false}
+  if((Test-Path $target) -and -not (Test-Path $target -PathType Leaf)){return $false}
+  $existingAcl=if(Test-Path $target -PathType Leaf){Get-Acl $target}else{$null}
+  $temp=Join-Path $parent ('.'+[IO.Path]::GetFileName($target)+'.'+[Guid]::NewGuid().ToString('N')+'.tmp')
+  try {
+    $encoding=[Text.UTF8Encoding]::new($true)
+    $stream=[IO.FileStream]::new($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try{$bytes=$encoding.GetBytes($content);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+    if($existingAcl){Set-Acl -Path $temp -AclObject $existingAcl}
+    if(-not (Test-SentinelSafeTarget $root $target)){throw 'managed_target_changed'}
+    Move-Item -LiteralPath $temp -Destination $target -Force
+    return $true
+  } finally { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+}
 function Install-SentinelBaseline([string]$repo) {
   if (-not (Test-Path $baselinePath)) { return }
   $baseline = Get-Content $baselinePath -Raw
@@ -129,7 +147,7 @@ function Sync-SentinelUserBaselines([object[]]$homes) {
       $existing=if(Test-Path $target){Get-Content $target -Raw}else{''};$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
       if($existing.Contains($start) -xor $existing.Contains($end)){$script:findings+=@{kind='malformed_user_baseline_block';severity='high';path=(Protect-SentinelPath $target);message='用户级安全基线托管标记不完整，已停止自动修改'};continue}
       if($existing.Contains($start)){$updated=[regex]::Replace($existing,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match)$block},[System.Text.RegularExpressions.RegexOptions]::Singleline)}else{$updated=$existing.TrimEnd()+$(if($existing.Trim()){"`n`n"}else{''})+$block+"`n"}
-      if($updated -ne $existing){Set-Content -Encoding UTF8 $target $updated}
+      if($updated -ne $existing){$null=Set-SentinelManagedTextAtomic $userHome.FullName $target $updated}
     }
   }
 }
@@ -298,7 +316,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.38.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.39.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

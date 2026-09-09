@@ -1,9 +1,10 @@
 {
-  "release": "2.8.0",
+  "release": "2.9.0",
   "channel": "pilot",
-  "published_at": "2026-09-09T08:55:00+08:00",
-  "component_versions": {"endpoint_agent":"0.38.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"},
+  "published_at": "2026-09-09T13:45:00+08:00",
+  "component_versions": {"endpoint_agent":"0.39.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"},
   "features": [
+    "cross_platform_agent_0_39", "atomic_windows_user_baseline_write", "windows_user_instruction_acl_preservation", "windows_user_target_reparse_recheck", "windows_user_baseline_temp_cleanup",
     "cross_platform_agent_0_38", "atomic_user_agent_baseline_write", "user_instruction_ownership_preservation", "symlink_home_write_rejection", "user_baseline_partial_write_prevention",
     "cross_platform_agent_0_37", "atomic_repository_baseline_write", "developer_ownership_preservation", "existing_baseline_mode_preservation", "durable_baseline_directory_entry", "partial_baseline_write_prevention",
     "cross_platform_agent_0_36", "symlink_safe_managed_home_discovery", "reparse_safe_windows_home_discovery", "symlink_safe_repository_discovery", "repository_root_detection",

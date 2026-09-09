@@ -79,7 +79,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('tests/windows-agent-smoke.ps1',workflow)
         self.assertIn('tests/macos-agent-smoke.sh',workflow)
         smoke=(ROOT/'tests/windows-agent-smoke.ps1').read_text()
-        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.38.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)'):
+        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.39.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)','instruction ACL changed','.AGENTS.md.*.tmp'):
             self.assertIn(directive,smoke)
         mac_smoke=(ROOT/'tests/macos-agent-smoke.sh').read_text()
         for directive in ('SENTINEL_BASE_URL="file://$SOURCE"','install-sentinel.sh','sentinel_agent.py','--auto-enroll','ai_agent','agent_baseline','status\")==\"managed\"','sentinel-managed-user-baseline:start','personal Codex instructions','unapproved-demo','insecure_mcp_transport','unapproved_mcp_transport','insecure_tls_verification','stat.S_IMODE','hardcoded_secret','secret not in open'):
@@ -248,6 +248,10 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('function Get-SentinelUserBaselineStatus',windows); self.assertIn("type='agent_baseline'",windows); self.assertIn("kind='agent_baseline_not_loaded'",windows)
         remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
         self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('Test-Path $geminiDir',remediation); self.assertIn('Test-Path $copilotDir',remediation); self.assertIn('ReparsePoint',remediation)
+        for directive in ('function Set-SentinelManagedTextAtomic','$stream.Flush($true)','Set-Acl -Path $temp -AclObject $existingAcl','Move-Item -LiteralPath $temp -Destination $target -Force','Remove-Item -LiteralPath $temp -Force'):
+            self.assertIn(directive,windows)
+        for directive in ('function Test-SentinelUserTarget','function Set-SentinelUserTextAtomic','$stream.Flush($true)','Set-Acl -Path $temp -AclObject $acl','Move-Item -LiteralPath $temp -Destination $target -Force','Remove-Item -LiteralPath $temp -Force'):
+            self.assertIn(directive,remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
         mac=(DOWNLOADS/'uninstall-sentinel-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-sentinel-windows.ps1').read_text()
         for script in (mac,windows): self.assertIn('sentinel-managed-user-baseline:start',script); self.assertIn('sentinel-managed-user-baseline:end',script); self.assertIn('GEMINI.md',script); self.assertIn('copilot-instructions.md',script)
@@ -426,7 +430,7 @@ class SentinelTests(unittest.TestCase):
             with patch.dict(os.environ,env,clear=True):
                 server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
                 try:
-                    now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.38.0','policy_version':'4.9.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
+                    now=int(time.time()); report={'schema':'sentinel.report/v1','agent_version':'0.39.0','policy_version':'4.9.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
                     headers=self.agent.report_headers(body,token,secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=headers,method='POST')
                     with urllib.request.urlopen(request,timeout=3) as response: self.assertEqual(response.status,202)
                     mixed=self.agent.report_headers(body,token,old_secret,now=now,device_id=device_id); request=urllib.request.Request(url,data=body,headers=mixed,method='POST')
@@ -444,8 +448,8 @@ class SentinelTests(unittest.TestCase):
                         devices=json.load(response); self.assertTrue(devices['complete']); self.assertEqual(devices['devices'][0]['credential_generation'],'current'); self.assertGreaterEqual(devices['generated_at'],now)
                     console_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?view=console',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(console_request,timeout=3) as response:
-                        console=json.load(response)['devices'][0]; self.assertEqual((console['severity'],console['agent_version'],console['policy_version']),('normal','0.38.0','4.9.0'))
-                    self.collector.store_report(server.db_path,b'other',{'device_id':'000000000000','agent_version':'0.38.0','policy_version':'4.9.0','summary':{'critical':0,'high':0}},now=now)
+                        console=json.load(response)['devices'][0]; self.assertEqual((console['severity'],console['agent_version'],console['policy_version']),('normal','0.39.0','4.9.0'))
+                    self.collector.store_report(server.db_path,b'other',{'device_id':'000000000000','agent_version':'0.39.0','policy_version':'4.9.0','summary':{'critical':0,'high':0}},now=now)
                     limited_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?limit=1',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(limited_request,timeout=3) as response:
                         limited=json.load(response); self.assertFalse(limited['complete']); self.assertEqual(len(limited['devices']),1)
@@ -665,8 +669,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.38.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.38.0')
+        self.assertIn("agent_version='0.39.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.39.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -769,7 +773,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'sentinel.report/v1','agent_version':'0.38.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.39.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['SentinelReportValid']); self.assertTrue(parsed['SentinelReportingConfigured']); self.assertTrue(parsed['SentinelReportingHealthy'])
             upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingHealthy']); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
             reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingConfigured']); reporting.chmod(0o600)
