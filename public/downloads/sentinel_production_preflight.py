@@ -4,6 +4,8 @@ import argparse, hashlib, hmac, json, os, re, stat, sys, time
 from pathlib import Path
 
 MAX_EVIDENCE_BYTES=64*1024
+MAX_SIGNING_KEYS_BYTES=64*1024
+MAX_SIGNING_KEYS=5
 CHECKS={
     "release_verified","ci_gates_passed","collector_probe_passed","collector_backup_restore_tested",
     "intune_production_preflight_passed","windows_upgrade_rollback_tested","macos_upgrade_rollback_tested",
@@ -33,13 +35,23 @@ def canonical_unsigned(evidence):
 def parse_signing_keys(raw):
     try: value=json.loads(raw)
     except (TypeError,json.JSONDecodeError): raise ValueError("invalid_production_signing_keys")
-    if type(value) is not dict or not 1<=len(value)<=5: raise ValueError("invalid_production_signing_keys")
+    if type(value) is not dict or not 1<=len(value)<=MAX_SIGNING_KEYS: raise ValueError("invalid_production_signing_keys")
     result={}
     for key_id,secret in value.items():
         if not isinstance(key_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,64}",key_id) or not isinstance(secret,str) or not 32<=len(secret)<=4096: raise ValueError("invalid_production_signing_keys")
         if secret in result.values(): raise ValueError("duplicate_production_signing_key")
         result[key_id]=secret
     return result
+
+def load_signing_keys(path):
+    path=Path(path); flags=os.O_RDONLY|getattr(os,"O_NOFOLLOW",0); descriptor=os.open(path,flags)
+    try:
+        info=os.fstat(descriptor); mode=stat.S_IMODE(info.st_mode); allowed_gids={os.getegid(),*os.getgroups()}
+        if not stat.S_ISREG(info.st_mode) or info.st_uid not in {0,os.geteuid()} or mode not in {0o600,0o640} or (mode==0o640 and info.st_gid not in allowed_gids): raise ValueError("unsafe_production_signing_keyring")
+        data=os.read(descriptor,MAX_SIGNING_KEYS_BYTES+1)
+        if len(data)>MAX_SIGNING_KEYS_BYTES: raise ValueError("production_signing_keyring_too_large")
+        return parse_signing_keys(data.decode("utf-8"))
+    finally: os.close(descriptor)
 
 def evaluate(downloads,evidence,expected_git_commit,expected_site_version,signing_keys,now=None):
     downloads=Path(downloads); now=int(time.time()) if now is None else int(now); errors=[]
@@ -89,11 +101,11 @@ def evaluate(downloads,evidence,expected_git_commit,expected_site_version,signin
     return errors
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument("evidence");parser.add_argument("--downloads",default=Path(__file__).parent);parser.add_argument("--expected-git-commit",required=True);parser.add_argument("--expected-site-version",required=True,type=int);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument("evidence");parser.add_argument("--downloads",default=Path(__file__).parent);parser.add_argument("--expected-git-commit",required=True);parser.add_argument("--expected-site-version",required=True,type=int);parser.add_argument("--keyring");args=parser.parse_args()
     try: evidence=json.loads(read_regular_bounded(args.evidence,MAX_EVIDENCE_BYTES))
     except (OSError,ValueError,json.JSONDecodeError) as exc:
         print(json.dumps({"ok":False,"errors":[type(exc).__name__]},separators=(",",":")));return 2
-    try: signing_keys=parse_signing_keys(os.getenv(SIGNING_KEYS_ENV,""))
+    try: signing_keys=load_signing_keys(args.keyring) if args.keyring else parse_signing_keys(os.getenv(SIGNING_KEYS_ENV,""))
     except ValueError as exc: print(json.dumps({"ok":False,"errors":[str(exc)]},separators=(",",":")));return 2
     errors=evaluate(args.downloads,evidence,args.expected_git_commit,args.expected_site_version,signing_keys);print(json.dumps({"ok":not errors,"errors":errors},separators=(",",":")));return 0 if not errors else 2
 if __name__=="__main__": sys.exit(main())

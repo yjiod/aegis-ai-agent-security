@@ -12,9 +12,9 @@ def sign(evidence,keys,key_id):
     return value
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument("--evidence",required=True);parser.add_argument("--key-id",required=True);parser.add_argument("--output",required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument("--evidence",required=True);parser.add_argument("--key-id",required=True);parser.add_argument("--output",required=True);parser.add_argument("--keyring");args=parser.parse_args()
     try:
-        evidence=json.loads(preflight.read_regular_bounded(args.evidence,preflight.MAX_EVIDENCE_BYTES));keys=preflight.parse_signing_keys(os.getenv(preflight.SIGNING_KEYS_ENV,""));result=sign(evidence,keys,args.key_id);private_atomic_output(args.output,result)
+        evidence=json.loads(preflight.read_regular_bounded(args.evidence,preflight.MAX_EVIDENCE_BYTES));keys=preflight.load_signing_keys(args.keyring) if args.keyring else preflight.parse_signing_keys(os.getenv(preflight.SIGNING_KEYS_ENV,""));result=sign(evidence,keys,args.key_id);private_atomic_output(args.output,result)
         print(json.dumps({"ok":True,"output":args.output,"key_id":args.key_id,"secrets_embedded":False},separators=(",",":")));return 0
     except (OSError,ValueError,TypeError,json.JSONDecodeError) as exc:
         print(json.dumps({"ok":False,"error":str(exc)},separators=(",",":")),file=sys.stderr);return 2

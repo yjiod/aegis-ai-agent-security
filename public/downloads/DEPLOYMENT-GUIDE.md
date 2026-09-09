@@ -275,3 +275,7 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 ## 3.4.0 生产验收证据签名
 
 最终生产验收使用 `sentinel.production-acceptance/v2`。十项检查必须分别填写外部验收记录 SHA-256，安全、终端、平台和业务四方审批必须分别绑定审批记录 SHA-256。审查完成后，在受保护工作站通过 `SENTINEL_PRODUCTION_ACCEPTANCE_SIGNING_KEYS` 注入独立密钥环，并用 `sentinel_production_evidence_sign.py` 生成私有原子输出；不得把密钥写入模板、脚本参数或日志。`sentinel_production_preflight.py` 同时验证签名、密钥 ID、记录摘要、当前发行清单，以及从 GitHub 和私有 Sites 独立查询的权威提交与版本。任何篡改、缺项、未知密钥或模板占位值均失败关闭。
+
+## 3.5.0 生产验收密钥生命周期
+
+`sentinel_production_keyring.py` 通过系统 CSPRNG 创建长期验收密钥，并以私有原子文件保存；签名和最终预检均优先使用 `--keyring`，避免密钥进入进程环境。密钥环限 64 KiB、1–5 个唯一密钥，要求普通文件、防符号链接、root/当前用户所有，权限仅允许 `0600` 或受控组 `0640`。轮换顺序为增加新键、用新键签署新鲜 v2 验收记录、验证通过、再凭该记录退役旧键；旧键不能用自身授权删除，最后一把键不可删除。

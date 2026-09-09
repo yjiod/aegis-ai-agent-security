@@ -575,6 +575,7 @@ function DetailPanel({
                 <a href="/downloads/production-acceptance-evidence.example.json" download>生产验收证据模板</a>
                 <a href="/downloads/sentinel_production_preflight.py" download>生产最终预检</a>
                 <a href="/downloads/sentinel_production_evidence_sign.py" download>生产验收签名工具</a>
+                <a href="/downloads/sentinel_production_keyring.py" download>生产验收密钥环工具</a>
                 <a href="/downloads/intune-windows-detect.ps1" download>Windows 检测脚本</a>
                 <a href="/downloads/intune-windows-remediate.ps1" download>Windows 修复脚本</a>
                 <a href="/downloads/intune-macos-install.sh" download>macOS Intune 脚本</a>
