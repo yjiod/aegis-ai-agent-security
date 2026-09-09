@@ -225,15 +225,18 @@ function Inspect-SentinelDependencies([System.IO.FileInfo]$file,[string]$text) {
 }
 function Get-ManagedRepos {
   $repos=@()
-  Get-ChildItem $ManagedUsersRoot -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
+  Get-ChildItem $ManagedUsersRoot -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | ForEach-Object {
     foreach($relative in @('source\repos','Documents\GitHub','Projects','Code')) {
       $base=Join-Path $_.FullName $relative
-      if(Test-Path $base) { Get-ChildItem $base -Directory -Recurse -Depth 4 | Where-Object { Test-Path (Join-Path $_.FullName '.git') } | ForEach-Object { $repos += $_.FullName } }
+      if((Test-Path $base) -and -not ((Get-Item $base -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        if((Test-Path (Join-Path $base '.git')) -and -not ((Get-Item (Join-Path $base '.git') -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$repos += $base}
+        Get-ChildItem $base -Directory -Recurse -Depth 4 | Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -and (Test-Path (Join-Path $_.FullName '.git')) -and -not ((Get-Item (Join-Path $_.FullName '.git') -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) } | ForEach-Object { $repos += $_.FullName }
+      }
     }
   }
   return $repos | Select-Object -Unique
 }
-$userHomes = @(Get-ChildItem $ManagedUsersRoot -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') })
+$userHomes = @(Get-ChildItem $ManagedUsersRoot -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) })
 Sync-SentinelUserBaselines $userHomes
 $agentMarkers = @{
   cursor=@('.cursor\mcp.json','AppData\Roaming\Cursor\User\settings.json','AppData\Local\Programs\cursor\Cursor.exe')
@@ -295,7 +298,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.35.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.36.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

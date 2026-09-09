@@ -1,9 +1,10 @@
 {
-  "release": "2.5.0",
+  "release": "2.6.0",
   "channel": "pilot",
-  "published_at": "2026-09-09T08:25:00+08:00",
-  "component_versions": {"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"},
+  "published_at": "2026-09-09T08:35:00+08:00",
+  "component_versions": {"endpoint_agent":"0.36.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"},
   "features": [
+    "cross_platform_agent_0_36", "symlink_safe_managed_home_discovery", "reparse_safe_windows_home_discovery", "symlink_safe_repository_discovery", "repository_root_detection",
     "collector_0_19", "scheduled_collector_retention", "idle_collector_data_minimization", "collector_quick_check_maintenance", "passive_wal_checkpoint", "hardened_maintenance_timer",
     "full_release_sha256_manifest", "complete_bundle_file_integrity", "strict_release_manifest_parser", "release_file_set_drift_rejection",
     "deterministic_enterprise_release_builder", "isolated_release_rebuild_check", "automatic_embedded_digest_sync", "automatic_intune_manifest_sync", "byte_reproducible_release_zip", "signed_release_rebuild_rejection",
