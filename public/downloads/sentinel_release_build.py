@@ -7,7 +7,7 @@ from pathlib import Path
 sys.dont_write_bytecode=True
 import sentinel_release_verify as verifier
 
-GENERATED_FILES={"CHECKSUMS.sha256","intune-deployment-manifest.json","intune-rollout-evidence.example.json","sentinel-enterprise-bundle.zip"}
+GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","intune-deployment-manifest.json","intune-rollout-evidence.example.json","sentinel-enterprise-bundle.zip"}
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -66,6 +66,9 @@ def build(downloads):
     evidence_path=downloads/"intune-rollout-evidence.example.json"
     evidence=json.loads(evidence_path.read_text(encoding="utf-8")); evidence["release_version"]=release["release"]; evidence["manifest_sha256"]=digest(manifest_path)
     atomic_write(evidence_path,(json.dumps(evidence,ensure_ascii=False,indent=2)+"\n").encode())
+
+    full_manifest="".join(f"{digest(downloads/name)}  {name}\n" for name in sorted(verifier.RELEASE_MANIFEST_FILES))
+    atomic_write(downloads/"RELEASE-MANIFEST.sha256",full_manifest.encode())
 
     output=downloads/"sentinel-enterprise-bundle.zip"; descriptor,temporary_name=tempfile.mkstemp(prefix=".sentinel-bundle.",suffix=".zip",dir=downloads); os.close(descriptor); temporary=Path(temporary_name)
     stamp=zip_timestamp(release)

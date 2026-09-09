@@ -11,7 +11,7 @@ HASH_CONSUMERS={
     "sentinel-security-baseline.md":("install-sentinel.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
-    "DEPLOYMENT-GUIDE.md","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
+    "DEPLOYMENT-GUIDE.md","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
     "sentinel_agent.py","sentinel_collector.py","sentinel-windows.ps1","install-sentinel.sh","intune-windows-detect.ps1",
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
@@ -21,8 +21,17 @@ BUNDLE_FILES=(
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example",
     "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","sentinel_intune_graph_normalize.py","intune-rollout-evidence.example.json","intune-device-export.example.json","intune-graph-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
 )
+RELEASE_MANIFEST_FILES=tuple(name for name in BUNDLE_FILES if name!="RELEASE-MANIFEST.sha256")
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
+def parse_digest_manifest(path):
+    result={}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not re.fullmatch(r"[0-9a-f]{64}  [A-Za-z0-9][A-Za-z0-9._-]{0,127}",line): raise ValueError("invalid_digest_line")
+        value,name=line.split("  ",1)
+        if name in result: raise ValueError("duplicate_digest_name")
+        result[name]=value
+    return result
 def verify(downloads):
     downloads=Path(downloads); errors=[]
     for script in downloads.glob("*.ps1"):
@@ -33,6 +42,12 @@ def verify(downloads):
     except (OSError,ValueError) as exc: return [f"invalid_release_json:{type(exc).__name__}"]
     if not re.fullmatch(r"\d+\.\d+\.\d+",str(release.get("release",""))): errors.append("invalid_release_version")
     if release.get("component_versions")!={"endpoint_agent":"0.35.0","policy":"4.9.0","collector":"0.18","adapter":"0.18"}: errors.append("release_component_version_drift")
+    try: release_manifest=parse_digest_manifest(downloads/"RELEASE-MANIFEST.sha256")
+    except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_release_manifest:{type(exc).__name__}"); release_manifest={}
+    if set(release_manifest)!=set(RELEASE_MANIFEST_FILES): errors.append("release_manifest_file_set_mismatch")
+    for name in RELEASE_MANIFEST_FILES:
+        path=downloads/name
+        if not path.is_file() or release_manifest.get(name)!=digest(path): errors.append(f"release_manifest_digest_mismatch:{name}")
     try: policy=json.loads((downloads/"sentinel-policy.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_policy_json:{type(exc).__name__}"); policy={}
     patterns=policy.get("secret_patterns",[]) if isinstance(policy,dict) else []

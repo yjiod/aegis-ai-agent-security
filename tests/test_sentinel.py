@@ -27,6 +27,16 @@ class SentinelTests(unittest.TestCase):
             self.assertNotEqual(old_hash,new_hash); self.assertIn(new_hash,(copy/'CHECKSUMS.sha256').read_text()); self.assertNotIn(old_hash,(copy/'install-sentinel.sh').read_text()); self.assertEqual(self.verifier.verify(copy),[])
             manifest=json.loads((copy/'intune-deployment-manifest.json').read_text()); manifest['execution']['script_signature_state']='production_signed'; (copy/'intune-deployment-manifest.json').write_text(json.dumps(manifest))
             with self.assertRaisesRegex(ValueError,'signed_release_must_be_rebuilt_on_signing_workstation'): self.release_builder.build(copy)
+
+    def test_full_release_manifest_covers_every_bundle_artifact(self):
+        manifest=self.verifier.parse_digest_manifest(DOWNLOADS/'RELEASE-MANIFEST.sha256')
+        self.assertEqual(set(manifest),set(self.verifier.BUNDLE_FILES)-{'RELEASE-MANIFEST.sha256'})
+        self.assertEqual(manifest['sentinel_collector.py'],hashlib.sha256((DOWNLOADS/'sentinel_collector.py').read_bytes()).hexdigest())
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel_collector.py').write_bytes((copy/'sentinel_collector.py').read_bytes()+b'\n# drift\n')
+            self.assertIn('release_manifest_digest_mismatch:sentinel_collector.py',self.verifier.verify(copy))
+            (copy/'RELEASE-MANIFEST.sha256').write_text((copy/'RELEASE-MANIFEST.sha256').read_text()+'bad line\n')
+            self.assertTrue(any(error.startswith('invalid_release_manifest:') for error in self.verifier.verify(copy)))
     def test_clean_project(self):
         with tempfile.TemporaryDirectory() as d:
             report=self.agent.build_report(Path(d),self.policy)
