@@ -12,36 +12,46 @@ def vendor_report(level='normal'):
 def vendor_probe_receipt(vendor,url,now):
     digest='a'*64
     return {'schema':'sentinel.vendor-probe/v1','generated_at':now,'adapter_version':'0.18','vendor':vendor,'endpoint_url':url,'payload_sha256':digest,'idempotency_key':digest,'safe_action':'observe' if vendor=='sangfor' else 'compliance_posture_only','live':True,'statuses':[202,202],'idempotent_replay_accepted':True,'secrets_embedded':False}
+def production_evidence(preflight,release,root,now,git_commit='a'*40,site_version=132):
+    root=Path(root); evidence_files={}; evidence_sha256={}
+    for name in preflight.CHECKS:
+        filename=name+'.json'; content=('record:'+name).encode(); (root/filename).write_bytes(content); evidence_files[name]=filename; evidence_sha256[name]=hashlib.sha256(content).hexdigest()
+    approvals={}
+    for name in preflight.APPROVALS:
+        filename=name+'.json'; content=('approval:'+name).encode(); (root/filename).write_bytes(content); approvals[name]={'identity':'approved-owner','evidence_file':filename,'evidence_sha256':hashlib.sha256(content).hexdigest()}
+    return {'schema':'sentinel.production-acceptance/v3','release_version':release['release'],'release_manifest_sha256':hashlib.sha256((DOWNLOADS/'RELEASE-MANIFEST.sha256').read_bytes()).hexdigest(),'git_commit_sha':git_commit,'site_version':site_version,'generated_at':now,'checks':{name:True for name in preflight.CHECKS},'evidence_files':evidence_files,'evidence_sha256':evidence_sha256,'approvals':approvals,'integrity':{'algorithm':'hmac-sha256','key_id':'','signature':''},'secrets_embedded':False,'device_identifiers_embedded':False}
 
 class SentinelTests(unittest.TestCase):
     def setUp(self): self.agent=load('agent','sentinel_agent.py'); self.collector=load('collector','sentinel_collector.py'); sys.modules['sentinel_collector']=self.collector; self.maintenance=load('collector_maintenance','sentinel_collector_maintenance.py'); self.probe=load('probe','sentinel_collector_probe.py'); self.credentials=load('credentials','sentinel_device_credentials.py'); self.backup=load('backup','sentinel_collector_backup.py'); self.restore=load('restore','sentinel_collector_restore.py'); self.adapter=load('adapter','sentinel_adapter.py'); sys.modules['sentinel_adapter']=self.adapter; self.vendor_probe=load('vendor_probe','sentinel_vendor_probe.py'); self.worker=load('adapter_worker','sentinel_adapter_worker.py'); self.vendor_preflight=load('vendor_preflight','sentinel_vendor_preflight.py'); sys.modules['sentinel_vendor_preflight']=self.vendor_preflight; self.vendor_signer=load('vendor_signer','sentinel_vendor_evidence_sign.py'); sys.modules['sentinel_vendor_evidence_sign']=self.vendor_signer; self.vendor_keyring=load('vendor_keyring','sentinel_vendor_keyring.py'); self.verifier=load('verifier','sentinel_release_verify.py'); sys.modules['sentinel_release_verify']=self.verifier; self.release_builder=load('release_builder','sentinel_release_build.py'); self.preflight=load('intune_preflight','sentinel_intune_preflight.py'); sys.modules['sentinel_intune_preflight']=self.preflight; self.intune_evidence=load('intune_evidence','sentinel_intune_evidence.py'); self.intune_graph=load('intune_graph','sentinel_intune_graph_normalize.py'); self.production_preflight=load('production_preflight','sentinel_production_preflight.py'); sys.modules['sentinel_production_preflight']=self.production_preflight; self.production_signer=load('production_signer','sentinel_production_evidence_sign.py'); self.production_keyring=load('production_keyring','sentinel_production_keyring.py'); self.policy=json.loads((DOWNLOADS/'sentinel-policy.json').read_text())
 
     def test_final_production_preflight_binds_all_customer_evidence(self):
         now=2_000_000_000; release=json.loads((DOWNLOADS/'release.json').read_text())
-        keys={'prod-2026':'s'*32}
-        evidence={'schema':'sentinel.production-acceptance/v2','release_version':release['release'],'release_manifest_sha256':hashlib.sha256((DOWNLOADS/'RELEASE-MANIFEST.sha256').read_bytes()).hexdigest(),'git_commit_sha':'a'*40,'site_version':132,'generated_at':now,'checks':{name:True for name in self.production_preflight.CHECKS},'evidence_sha256':{name:hashlib.sha256(name.encode()).hexdigest() for name in self.production_preflight.CHECKS},'approvals':{name:{'identity':'approved-owner','evidence_sha256':hashlib.sha256(('approval:'+name).encode()).hexdigest()} for name in self.production_preflight.APPROVALS},'integrity':{'algorithm':'hmac-sha256','key_id':'prod-2026','signature':'0'*64},'secrets_embedded':False,'device_identifiers_embedded':False}
+        records=tempfile.TemporaryDirectory(); self.addCleanup(records.cleanup); root=Path(records.name).resolve(); keys={'prod-2026':'s'*32}; evidence=production_evidence(self.production_preflight,release,root,now); evidence['integrity']['key_id']='prod-2026'
         evidence['integrity']['signature']=hmac.new(keys['prod-2026'].encode(),self.production_preflight.canonical_unsigned(evidence),hashlib.sha256).hexdigest()
-        self.assertEqual(self.production_preflight.evaluate(DOWNLOADS,evidence,'a'*40,132,keys,now),[])
+        self.assertEqual(self.production_preflight.evaluate(DOWNLOADS,evidence,root,'a'*40,132,keys,now),[])
         failed=json.loads(json.dumps(evidence)); failed['checks']['sangfor_acceptance_v3_passed']=False; failed['approvals']['business_owner']=''; failed['secrets_embedded']=True
-        errors=self.production_preflight.evaluate(DOWNLOADS,failed,'a'*40,132,keys,now)
+        errors=self.production_preflight.evaluate(DOWNLOADS,failed,root,'a'*40,132,keys,now)
         self.assertIn('gate_failed:sangfor_acceptance_v3_passed',errors); self.assertIn('approval_missing:business_owner',errors); self.assertIn('secrets_must_not_be_embedded',errors)
-        self.assertIn('stale_or_future_evidence',self.production_preflight.evaluate(DOWNLOADS,{**evidence,'generated_at':now-86401},'a'*40,132,keys,now))
-        self.assertIn('git_commit_mismatch',self.production_preflight.evaluate(DOWNLOADS,evidence,'b'*40,132,keys,now))
-        self.assertIn('site_version_mismatch',self.production_preflight.evaluate(DOWNLOADS,evidence,'a'*40,133,keys,now))
+        self.assertIn('stale_or_future_evidence',self.production_preflight.evaluate(DOWNLOADS,{**evidence,'generated_at':now-86401},root,'a'*40,132,keys,now))
+        self.assertIn('git_commit_mismatch',self.production_preflight.evaluate(DOWNLOADS,evidence,root,'b'*40,132,keys,now))
+        self.assertIn('site_version_mismatch',self.production_preflight.evaluate(DOWNLOADS,evidence,root,'a'*40,133,keys,now))
         tampered=json.loads(json.dumps(evidence)); tampered['evidence_sha256']['release_verified']='f'*64
-        self.assertIn('invalid_production_signature',self.production_preflight.evaluate(DOWNLOADS,tampered,'a'*40,132,keys,now))
+        errors=self.production_preflight.evaluate(DOWNLOADS,tampered,root,'a'*40,132,keys,now); self.assertIn('invalid_production_signature',errors); self.assertIn('evidence_record_mismatch:release_verified',errors)
+        record=root/evidence['evidence_files']['release_verified']; original=record.read_bytes(); record.write_bytes(b'replaced-record')
+        self.assertIn('evidence_record_mismatch:release_verified',self.production_preflight.evaluate(DOWNLOADS,evidence,root,'a'*40,132,keys,now)); record.write_bytes(original)
+        linked=root/'linked-record.json'; linked.symlink_to(record); linked_evidence=json.loads(json.dumps(evidence)); linked_evidence['evidence_files']['release_verified']=linked.name; linked_evidence['integrity']['signature']=hmac.new(keys['prod-2026'].encode(),self.production_preflight.canonical_unsigned(linked_evidence),hashlib.sha256).hexdigest()
+        self.assertIn('evidence_record_unavailable:release_verified',self.production_preflight.evaluate(DOWNLOADS,linked_evidence,root,'a'*40,132,keys,now))
         unknown=json.loads(json.dumps(evidence)); unknown['integrity']['key_id']='retired-key'
-        self.assertIn('unknown_production_signing_key',self.production_preflight.evaluate(DOWNLOADS,unknown,'a'*40,132,keys,now))
+        self.assertIn('unknown_production_signing_key',self.production_preflight.evaluate(DOWNLOADS,unknown,root,'a'*40,132,keys,now))
         with self.assertRaisesRegex(ValueError,'duplicate_production_signing_key'): self.production_preflight.parse_signing_keys(json.dumps({'one':'x'*32,'two':'x'*32}))
         with tempfile.TemporaryDirectory() as d:
             target=Path(d)/'evidence.json'; target.write_text(json.dumps(evidence)); link=Path(d)/'linked.json'; link.symlink_to(target)
             with self.assertRaises(OSError): self.production_preflight.read_regular_bounded(link,65536)
 
     def test_production_evidence_signer_creates_verifiable_copy(self):
-        now=2_000_000_000; release=json.loads((DOWNLOADS/'release.json').read_text()); keys={'prod-2026':'k'*32}
-        evidence={'schema':'sentinel.production-acceptance/v2','release_version':release['release'],'release_manifest_sha256':hashlib.sha256((DOWNLOADS/'RELEASE-MANIFEST.sha256').read_bytes()).hexdigest(),'git_commit_sha':'b'*40,'site_version':140,'generated_at':now,'checks':{name:True for name in self.production_preflight.CHECKS},'evidence_sha256':{name:hashlib.sha256(('record:'+name).encode()).hexdigest() for name in self.production_preflight.CHECKS},'approvals':{name:{'identity':name+'@example','evidence_sha256':hashlib.sha256(('approval:'+name).encode()).hexdigest()} for name in self.production_preflight.APPROVALS},'integrity':{'algorithm':'hmac-sha256','key_id':'','signature':''},'secrets_embedded':False,'device_identifiers_embedded':False}
+        now=2_000_000_000; release=json.loads((DOWNLOADS/'release.json').read_text()); keys={'prod-2026':'k'*32}; records=tempfile.TemporaryDirectory(); self.addCleanup(records.cleanup); root=Path(records.name).resolve(); evidence=production_evidence(self.production_preflight,release,root,now,'b'*40,140)
         signed=self.production_signer.sign(evidence,keys,'prod-2026')
-        self.assertEqual(self.production_preflight.evaluate(DOWNLOADS,signed,'b'*40,140,keys,now),[])
+        self.assertEqual(self.production_preflight.evaluate(DOWNLOADS,signed,root,'b'*40,140,keys,now),[])
         self.assertEqual(evidence['integrity']['signature'],'')
 
     def test_production_keyring_rotation_requires_retained_key_evidence(self):
@@ -50,7 +60,7 @@ class SentinelTests(unittest.TestCase):
             root=Path(d).resolve(); keyring=root/'production-keys.json'
             first=self.production_keyring.update_keyring(keyring,add_key_id='old-key',now=now); second=self.production_keyring.update_keyring(keyring,add_key_id='new-key',now=now)
             keys=self.production_keyring.load_keyring(keyring); self.assertEqual((first['key_count'],second['key_count']), (1,2)); self.assertFalse(first['secrets_printed']); self.assertNotIn(keys['old-key'],json.dumps(first)); self.assertEqual(stat.S_IMODE(keyring.stat().st_mode),0o600)
-            evidence={'schema':'sentinel.production-acceptance/v2','release_version':release['release'],'release_manifest_sha256':hashlib.sha256((DOWNLOADS/'RELEASE-MANIFEST.sha256').read_bytes()).hexdigest(),'git_commit_sha':'c'*40,'site_version':141,'generated_at':now,'checks':{name:True for name in self.production_preflight.CHECKS},'evidence_sha256':{name:hashlib.sha256(name.encode()).hexdigest() for name in self.production_preflight.CHECKS},'approvals':{name:{'identity':'owner','evidence_sha256':hashlib.sha256(name.encode()).hexdigest()} for name in self.production_preflight.APPROVALS},'integrity':{'algorithm':'hmac-sha256','key_id':'','signature':''},'secrets_embedded':False,'device_identifiers_embedded':False}
+            evidence=production_evidence(self.production_preflight,release,root,now,'c'*40,141)
             acceptance=root/'acceptance.json'; acceptance.write_text(json.dumps(self.production_signer.sign(evidence,keys,'old-key'))); acceptance.chmod(0o600)
             with self.assertRaisesRegex(ValueError,'unsafe_production_key_retirement'): self.production_keyring.update_keyring(keyring,remove_key_id='old-key',acceptance=acceptance,now=now)
             incomplete=json.loads(json.dumps(evidence)); incomplete['checks']['ci_gates_passed']=False; acceptance.write_text(json.dumps(self.production_signer.sign(incomplete,keys,'new-key')))

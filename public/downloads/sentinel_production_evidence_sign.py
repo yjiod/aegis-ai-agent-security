@@ -5,7 +5,7 @@ import sentinel_production_preflight as preflight
 from sentinel_vendor_evidence_sign import private_atomic_output
 
 def sign(evidence,keys,key_id):
-    if type(evidence) is not dict or set(evidence)!=preflight.TOP or evidence.get("schema")!="sentinel.production-acceptance/v2": raise ValueError("invalid_production_acceptance")
+    if type(evidence) is not dict or set(evidence)!=preflight.TOP or evidence.get("schema")!="sentinel.production-acceptance/v3": raise ValueError("invalid_production_acceptance")
     if key_id not in keys: raise ValueError("production_signing_key_unavailable")
     value=json.loads(json.dumps(evidence));value["integrity"]={"algorithm":"hmac-sha256","key_id":key_id,"signature":"0"*64}
     signature=hmac.new(keys[key_id].encode(),preflight.canonical_unsigned(value),hashlib.sha256).hexdigest();value["integrity"]["signature"]=signature

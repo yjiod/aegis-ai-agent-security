@@ -1,6 +1,6 @@
 {
-  "schema": "sentinel.production-acceptance/v2",
-  "release_version": "3.5.0",
+  "schema": "sentinel.production-acceptance/v3",
+  "release_version": "3.6.0",
   "release_manifest_sha256": "REPLACE_WITH_RELEASE_MANIFEST_SHA256",
   "git_commit_sha": "REPLACE_WITH_40_CHARACTER_GIT_COMMIT_SHA",
   "site_version": 0,
@@ -17,6 +17,18 @@
     "leagsoft_acceptance_v3_passed": false,
     "console_read_only_connected": false
   },
+  "evidence_files": {
+    "release_verified": "release-verification.json",
+    "ci_gates_passed": "ci-gates.json",
+    "collector_probe_passed": "collector-probe.json",
+    "collector_backup_restore_tested": "collector-backup-restore.json",
+    "intune_production_preflight_passed": "intune-production-preflight.json",
+    "windows_upgrade_rollback_tested": "windows-upgrade-rollback.json",
+    "macos_upgrade_rollback_tested": "macos-upgrade-rollback.json",
+    "sangfor_acceptance_v3_passed": "sangfor-acceptance.json",
+    "leagsoft_acceptance_v3_passed": "leagsoft-acceptance.json",
+    "console_read_only_connected": "console-read-only.json"
+  },
   "evidence_sha256": {
     "release_verified": "REPLACE_WITH_SHA256",
     "ci_gates_passed": "REPLACE_WITH_SHA256",
@@ -32,18 +44,22 @@
   "approvals": {
     "security_owner": {
       "identity": "",
+      "evidence_file": "security-owner-approval.json",
       "evidence_sha256": "REPLACE_WITH_SHA256"
     },
     "endpoint_owner": {
       "identity": "",
+      "evidence_file": "endpoint-owner-approval.json",
       "evidence_sha256": "REPLACE_WITH_SHA256"
     },
     "platform_owner": {
       "identity": "",
+      "evidence_file": "platform-owner-approval.json",
       "evidence_sha256": "REPLACE_WITH_SHA256"
     },
     "business_owner": {
       "identity": "",
+      "evidence_file": "business-owner-approval.json",
       "evidence_sha256": "REPLACE_WITH_SHA256"
     }
   },

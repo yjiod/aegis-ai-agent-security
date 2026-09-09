@@ -1,9 +1,10 @@
 {
-  "release": "3.5.0",
+  "release": "3.6.0",
   "channel": "pilot",
-  "published_at": "2026-09-09T15:45:00+08:00",
+  "published_at": "2026-09-09T19:00:00+08:00",
   "component_versions": {"endpoint_agent":"0.40.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"},
   "features": [
+    "production_acceptance_v3", "original_evidence_file_verification", "bounded_nofollow_acceptance_records", "evidence_root_confinement", "duplicate_evidence_record_rejection", "approval_record_file_verification",
     "production_acceptance_keyring_file", "protected_production_key_storage", "csprng_production_acceptance_keys", "evidence_gated_production_key_retirement", "retained_key_retirement_authorization", "last_production_key_removal_rejection",
     "production_acceptance_v2", "per_gate_evidence_digest_binding", "per_approval_record_digest_binding", "production_acceptance_hmac", "production_acceptance_keyring", "private_atomic_production_evidence_signing",
     "authoritative_git_commit_binding", "authoritative_sites_version_binding", "independent_production_evidence_expectations", "production_acceptance_mismatch_rejection",
