@@ -271,3 +271,7 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 3.2.0 新增 `sentinel.production-acceptance/v1` 与 `sentinel_production_preflight.py`。最终证据必须在 24 小时内生成，绑定当前产品版本、完整发行清单 SHA-256、40 位 Git 提交和正整数 Sites 版本；Collector 探针/恢复、Intune production 预检、双平台升级回滚、深信服与联软 v3 验收及真实只读控制台十项检查必须全部为 true，并提供安全、终端、平台与业务四方标识。读取使用 64 KiB、`O_NOFOLLOW` 和 inode 绑定，额外字段、缺签、秘密或设备标识声明、旧证据均失败关闭。
 
 3.3.0 收紧最终生产证据的来源绑定。预检命令现在必须提供 `--expected-git-commit` 与 `--expected-site-version`；两者应分别来自 GitHub 主分支/成功 CI 和 Sites 已成功部署版本的独立只读查询。证据中的 SHA 与站点版本必须精确相等，格式正确但伪造或过期的其他值会以 `git_commit_mismatch` 或 `site_version_mismatch` 拒绝。
+
+## 3.4.0 生产验收证据签名
+
+最终生产验收使用 `sentinel.production-acceptance/v2`。十项检查必须分别填写外部验收记录 SHA-256，安全、终端、平台和业务四方审批必须分别绑定审批记录 SHA-256。审查完成后，在受保护工作站通过 `SENTINEL_PRODUCTION_ACCEPTANCE_SIGNING_KEYS` 注入独立密钥环，并用 `sentinel_production_evidence_sign.py` 生成私有原子输出；不得把密钥写入模板、脚本参数或日志。`sentinel_production_preflight.py` 同时验证签名、密钥 ID、记录摘要、当前发行清单，以及从 GitHub 和私有 Sites 独立查询的权威提交与版本。任何篡改、缺项、未知密钥或模板占位值均失败关闭。

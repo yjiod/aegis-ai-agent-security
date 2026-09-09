@@ -1,6 +1,6 @@
 {
-  "schema": "sentinel.production-acceptance/v1",
-  "release_version": "3.3.0",
+  "schema": "sentinel.production-acceptance/v2",
+  "release_version": "3.4.0",
   "release_manifest_sha256": "REPLACE_WITH_RELEASE_MANIFEST_SHA256",
   "git_commit_sha": "REPLACE_WITH_40_CHARACTER_GIT_COMMIT_SHA",
   "site_version": 0,
@@ -17,11 +17,40 @@
     "leagsoft_acceptance_v3_passed": false,
     "console_read_only_connected": false
   },
+  "evidence_sha256": {
+    "release_verified": "REPLACE_WITH_SHA256",
+    "ci_gates_passed": "REPLACE_WITH_SHA256",
+    "collector_probe_passed": "REPLACE_WITH_SHA256",
+    "collector_backup_restore_tested": "REPLACE_WITH_SHA256",
+    "intune_production_preflight_passed": "REPLACE_WITH_SHA256",
+    "windows_upgrade_rollback_tested": "REPLACE_WITH_SHA256",
+    "macos_upgrade_rollback_tested": "REPLACE_WITH_SHA256",
+    "sangfor_acceptance_v3_passed": "REPLACE_WITH_SHA256",
+    "leagsoft_acceptance_v3_passed": "REPLACE_WITH_SHA256",
+    "console_read_only_connected": "REPLACE_WITH_SHA256"
+  },
   "approvals": {
-    "security_owner": "",
-    "endpoint_owner": "",
-    "platform_owner": "",
-    "business_owner": ""
+    "security_owner": {
+      "identity": "",
+      "evidence_sha256": "REPLACE_WITH_SHA256"
+    },
+    "endpoint_owner": {
+      "identity": "",
+      "evidence_sha256": "REPLACE_WITH_SHA256"
+    },
+    "platform_owner": {
+      "identity": "",
+      "evidence_sha256": "REPLACE_WITH_SHA256"
+    },
+    "business_owner": {
+      "identity": "",
+      "evidence_sha256": "REPLACE_WITH_SHA256"
+    }
+  },
+  "integrity": {
+    "algorithm": "hmac-sha256",
+    "key_id": "REPLACE_WITH_KEY_ID",
+    "signature": "REPLACE_WITH_HMAC_SHA256"
   },
   "secrets_embedded": false,
   "device_identifiers_embedded": false

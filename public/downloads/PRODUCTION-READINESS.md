@@ -86,4 +86,6 @@
 
 最终批准：安全负责人、终端管理负责人、平台运维负责人和业务代表均签署后，才能把发行标记为生产可用。
 
-将上述实测结果填写到 `production-acceptance-evidence.example.json` 的副本，替换发行清单 SHA-256、Git 提交、Sites 版本和时间戳后，运行 `python3 sentinel_production_preflight.py <证据.json> --expected-git-commit <从 GitHub 核验的完整 SHA> --expected-site-version <从 Sites 核验的版本号>`。预期值必须来自两个系统的只读查询而不是证据文件本身；只有输出 `{"ok":true,"errors":[]}` 才构成最终机器门禁。模板默认全部为 false，不能直接通过。
+将上述实测结果填写到 `production-acceptance-evidence.example.json` 的副本。每个 `checks` 项必须绑定对应外部验收记录的 SHA-256；每个审批项必须填写审批人身份，并绑定审批记录 SHA-256。替换发行清单 SHA-256、Git 提交、Sites 版本和时间戳后，在受保护的签名工作站从密钥系统注入 `SENTINEL_PRODUCTION_ACCEPTANCE_SIGNING_KEYS`，运行 `python3 sentinel_production_evidence_sign.py --evidence <已审查未签名证据.json> --key-id <当前密钥ID> --output <已签名证据.json>`。密钥不得写入文件、命令参数、日志或工单。
+
+随后运行 `python3 sentinel_production_preflight.py <已签名证据.json> --expected-git-commit <从 GitHub 核验的完整 SHA> --expected-site-version <从 Sites 核验的版本号>`。预期值必须来自两个系统的独立只读查询而不是证据文件本身；只有输出 `{"ok":true,"errors":[]}` 才构成最终机器门禁。模板默认全部为 false、摘要为空且没有有效签名，不能直接通过。密钥轮换时可短期并存最多五个 key ID；确认所有有效证据已迁移后才退役旧密钥。
