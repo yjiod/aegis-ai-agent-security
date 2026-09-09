@@ -2,11 +2,12 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `3.0.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
+当前发行：产品 `3.1.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
 
 ## 目录
 
 - `public/downloads/`：终端 Agent、策略、Intune 脚本、回滚、报告 Schema、Collector、厂商适配器及离线发行包。
+- `public/downloads/PRODUCTION-READINESS.md`：按责任人、输入、通过证据与失败回退组织的生产联合验收清单。
 - `app/`：私有治理控制台与安全的只读 Collector 摘要代理。
 - `tests/`：标准库测试，覆盖扫描、报告、认证、队列、合规、备份恢复与发行完整性。
 - `docs/`：架构、开发和发布过程文档。
@@ -70,3 +71,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 2.9 起，Endpoint Agent 0.39 在 Windows 上使用同目录临时文件、落盘刷新和原子替换更新用户级 Agent 指令；既有文件 ACL 在替换前复制到临时文件，写入前后重复检查主目录边界与重解析点，失败时清除临时项并保留原文件。Intune 修复脚本复用同一安全语义。
 
 3.0 起，Endpoint Agent 0.40 将 Windows 原子写入覆盖到自动发现仓库中的 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、Cursor/Windsurf 规则和共享安全基线。既有仓库指令 ACL 保持不变，所有目标在替换前再次验证仓库边界和重解析点，失败不会留下临时文件或截断仓库规范。
+
+3.1 起，离线包新增生产就绪与联合验收清单，明确 Collector、Intune、深信服 EDR、联软桌管和控制台的责任人、输入、执行顺序、通过证据及失败回退。必须依赖客户凭据或真实终端的事项保持显式“未完成”，避免用本地测试或 CI 冒充生产验收。

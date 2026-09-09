@@ -48,6 +48,7 @@ class SentinelTests(unittest.TestCase):
     def test_full_release_manifest_covers_every_bundle_artifact(self):
         manifest=self.verifier.parse_digest_manifest(DOWNLOADS/'RELEASE-MANIFEST.sha256')
         self.assertEqual(set(manifest),set(self.verifier.BUNDLE_FILES)-{'RELEASE-MANIFEST.sha256'})
+        self.assertIn('PRODUCTION-READINESS.md',manifest)
         self.assertEqual(manifest['sentinel_collector.py'],hashlib.sha256((DOWNLOADS/'sentinel_collector.py').read_bytes()).hexdigest())
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'sentinel_collector.py').write_bytes((copy/'sentinel_collector.py').read_bytes()+b'\n# drift\n')
@@ -66,7 +67,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','生产就绪清单','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
         devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==7',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
         self.assertIn("fetch('/api/devices'",page); self.assertIn('fleetDevices.map',page)

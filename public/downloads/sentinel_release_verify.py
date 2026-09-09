@@ -11,7 +11,7 @@ HASH_CONSUMERS={
     "sentinel-security-baseline.md":("install-sentinel.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
-    "DEPLOYMENT-GUIDE.md","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
+    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
     "sentinel_agent.py","sentinel_collector.py","sentinel-windows.ps1","install-sentinel.sh","intune-windows-detect.ps1",
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
@@ -48,6 +48,10 @@ def verify(downloads):
     for name in RELEASE_MANIFEST_FILES:
         path=downloads/name
         if not path.is_file() or release_manifest.get(name)!=digest(path): errors.append(f"release_manifest_digest_mismatch:{name}")
+    try: readiness=(downloads/"PRODUCTION-READINESS.md").read_text(encoding="utf-8")
+    except (OSError,UnicodeError) as exc: errors.append(f"invalid_production_readiness:{type(exc).__name__}"); readiness=""
+    for directive in ("Collector 上线","Intune 分阶段部署","深信服 EDR 验收边界","联软桌管验收边界","失败回退","生产签署记录","未完成","不得用本地测试或 CI 替代"):
+        if directive not in readiness: errors.append(f"incomplete_production_readiness:{directive}")
     try: policy=json.loads((downloads/"sentinel-policy.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_policy_json:{type(exc).__name__}"); policy={}
     patterns=policy.get("secret_patterns",[]) if isinstance(policy,dict) else []

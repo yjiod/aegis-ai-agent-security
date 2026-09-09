@@ -265,3 +265,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 2.9.0 / Agent 0.39 将用户级安全写入补齐到 Windows。Agent 与 Intune 修复脚本都先在目标目录创建唯一临时文件，以 UTF-8 BOM 写入并强制刷新到磁盘；既有指令文件的 ACL 在替换前复制，目标主目录边界与所有父路径重解析点在创建目录后再次验证。替换失败会清除临时项并保留原文件，Windows 原生 CI 同时验证受管更新后的 ACL 与临时文件残留。
 
 3.0.0 / Agent 0.40 将 Windows 的原子安全写入覆盖到自动发现仓库。`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、Cursor/Windsurf 规则和 `.sentinel/SECURITY_BASELINE.md` 不再直接 `Set-Content` 或 `Add-Content`；所有目标复用同目录临时写、UTF-8 BOM、强制落盘、ACL 复制、二次重解析点校验和原子替换。Windows 原生 CI 创建真实仓库并验证已有 `AGENTS.md` 的 ACL 不变且无临时文件残留。
+
+3.1.0 将 `PRODUCTION-READINESS.md` 纳入离线包和完整 SHA-256 清单。它按责任人、输入、操作、通过证据与失败回退组织 Collector、Intune、深信服、联软及控制台联合验收，并显式列出只能由客户环境证明的六项生产签署记录；本地测试、CI 或演示控制台不能把这些项目自动标记完成。
