@@ -1,9 +1,10 @@
 {
-  "release": "3.1.0",
+  "release": "3.2.0",
   "channel": "pilot",
-  "published_at": "2026-09-09T14:25:00+08:00",
+  "published_at": "2026-09-09T14:45:00+08:00",
   "component_versions": {"endpoint_agent":"0.40.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"},
   "features": [
+    "production_acceptance_v1", "final_production_preflight", "release_manifest_acceptance_binding", "all_customer_gates_required", "four_party_production_approval", "privacy_minimized_acceptance_evidence",
     "production_readiness_runbook", "role_based_acceptance_evidence", "credential_dependent_gate_disclosure", "vendor_and_intune_rollback_matrix", "joint_production_signoff",
     "cross_platform_agent_0_40", "atomic_windows_repository_baseline_write", "windows_repository_instruction_acl_preservation", "windows_repository_target_reparse_recheck", "windows_repository_baseline_temp_cleanup",
     "cross_platform_agent_0_39", "atomic_windows_user_baseline_write", "windows_user_instruction_acl_preservation", "windows_user_target_reparse_recheck", "windows_user_baseline_temp_cleanup",

@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `3.1.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
+当前发行：产品 `3.2.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
 
 ## 目录
 
@@ -73,3 +73,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 3.0 起，Endpoint Agent 0.40 将 Windows 原子写入覆盖到自动发现仓库中的 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、Cursor/Windsurf 规则和共享安全基线。既有仓库指令 ACL 保持不变，所有目标在替换前再次验证仓库边界和重解析点，失败不会留下临时文件或截断仓库规范。
 
 3.1 起，离线包新增生产就绪与联合验收清单，明确 Collector、Intune、深信服 EDR、联软桌管和控制台的责任人、输入、执行顺序、通过证据及失败回退。必须依赖客户凭据或真实终端的事项保持显式“未完成”，避免用本地测试或 CI 冒充生产验收。
+
+3.2 起，`sentinel_production_preflight.py` 对最终生产验收证据执行失败关闭校验。证据必须绑定当前发行与完整清单 SHA-256、40 位 Git 提交、私有站点版本、十项客户环境实测结论和安全/终端/平台/业务四方签署，并明确不含秘密和设备标识；任何假值、缺签、过期或字段漂移都会拒绝放行。

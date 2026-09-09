@@ -1,0 +1,28 @@
+{
+  "schema": "sentinel.production-acceptance/v1",
+  "release_version": "3.2.0",
+  "release_manifest_sha256": "REPLACE_WITH_RELEASE_MANIFEST_SHA256",
+  "git_commit_sha": "REPLACE_WITH_40_CHARACTER_GIT_COMMIT_SHA",
+  "site_version": 0,
+  "generated_at": 0,
+  "checks": {
+    "release_verified": false,
+    "ci_gates_passed": false,
+    "collector_probe_passed": false,
+    "collector_backup_restore_tested": false,
+    "intune_production_preflight_passed": false,
+    "windows_upgrade_rollback_tested": false,
+    "macos_upgrade_rollback_tested": false,
+    "sangfor_acceptance_v3_passed": false,
+    "leagsoft_acceptance_v3_passed": false,
+    "console_read_only_connected": false
+  },
+  "approvals": {
+    "security_owner": "",
+    "endpoint_owner": "",
+    "platform_owner": "",
+    "business_owner": ""
+  },
+  "secrets_embedded": false,
+  "device_identifiers_embedded": false
+}

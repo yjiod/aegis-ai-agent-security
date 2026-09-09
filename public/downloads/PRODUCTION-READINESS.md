@@ -85,3 +85,5 @@
 | 生产控制台 Collector 连通 | 只读摘要与无秘密浏览器检查 |  | 未完成 |
 
 最终批准：安全负责人、终端管理负责人、平台运维负责人和业务代表均签署后，才能把发行标记为生产可用。
+
+将上述实测结果填写到 `production-acceptance-evidence.example.json` 的副本，替换发行清单 SHA-256、Git 提交、Sites 版本和时间戳后，运行 `python3 sentinel_production_preflight.py <证据.json>`。只有输出 `{"ok":true,"errors":[]}` 才构成最终机器门禁；模板默认全部为 false，不能直接通过。

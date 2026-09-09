@@ -267,3 +267,5 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 3.0.0 / Agent 0.40 将 Windows 的原子安全写入覆盖到自动发现仓库。`AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、Cursor/Windsurf 规则和 `.sentinel/SECURITY_BASELINE.md` 不再直接 `Set-Content` 或 `Add-Content`；所有目标复用同目录临时写、UTF-8 BOM、强制落盘、ACL 复制、二次重解析点校验和原子替换。Windows 原生 CI 创建真实仓库并验证已有 `AGENTS.md` 的 ACL 不变且无临时文件残留。
 
 3.1.0 将 `PRODUCTION-READINESS.md` 纳入离线包和完整 SHA-256 清单。它按责任人、输入、操作、通过证据与失败回退组织 Collector、Intune、深信服、联软及控制台联合验收，并显式列出只能由客户环境证明的六项生产签署记录；本地测试、CI 或演示控制台不能把这些项目自动标记完成。
+
+3.2.0 新增 `sentinel.production-acceptance/v1` 与 `sentinel_production_preflight.py`。最终证据必须在 24 小时内生成，绑定当前产品版本、完整发行清单 SHA-256、40 位 Git 提交和正整数 Sites 版本；Collector 探针/恢复、Intune production 预检、双平台升级回滚、深信服与联软 v3 验收及真实只读控制台十项检查必须全部为 true，并提供安全、终端、平台与业务四方标识。读取使用 64 KiB、`O_NOFOLLOW` 和 inode 绑定，额外字段、缺签、秘密或设备标识声明、旧证据均失败关闭。

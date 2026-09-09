@@ -572,6 +572,8 @@ function DetailPanel({
                 <a className="download-primary" href="/downloads/sentinel-enterprise-bundle.zip" download>下载完整部署包</a>
                 <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>
                 <a className="download-primary" href="/downloads/PRODUCTION-READINESS.md" download>生产就绪清单</a>
+                <a href="/downloads/production-acceptance-evidence.example.json" download>生产验收证据模板</a>
+                <a href="/downloads/sentinel_production_preflight.py" download>生产最终预检</a>
                 <a href="/downloads/intune-windows-detect.ps1" download>Windows 检测脚本</a>
                 <a href="/downloads/intune-windows-remediate.ps1" download>Windows 修复脚本</a>
                 <a href="/downloads/intune-macos-install.sh" download>macOS Intune 脚本</a>
