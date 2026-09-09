@@ -291,3 +291,7 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 ## 3.8.0 签名前强制门禁
 
 `sentinel_production_evidence_sign.py` 要求 `--evidence-root`，在访问签名密钥并写出结果前重新执行证据级验证：发行/提交/Sites 绑定格式完整，时间戳在 24 小时内，十项检查均为 true，四方审批身份完整，隐私声明为 false，十四份原始记录可安全读取且摘要吻合。任何失败只返回最小错误，不产生签名文件。
+
+## 3.9.0 签名绑定权威发布
+
+签名命令新增必需的 `--expected-git-commit` 和 `--expected-site-version`，两者必须来自 GitHub 与 Sites 的独立只读查询。工具还从 `--downloads`（默认脚本目录）读取当前 `release.json` 和 `RELEASE-MANIFEST.sha256`。证据的产品版本、清单摘要、完整提交和站点版本必须分别精确匹配，才能进入密钥选择与签名输出；这防止为旧发行、其他提交或尚未发布的站点版本签发生产批准。

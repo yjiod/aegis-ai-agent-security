@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `3.8.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
+当前发行：产品 `3.9.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
 
 ## 目录
 
@@ -87,3 +87,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 3.7 起，`sentinel_production_evidence_prepare.py` 从受约束证据目录自动计算十四份原始记录摘要，并以私有原子方式生成待签名副本。准备器拒绝重复文件和已签名输入，只更新摘要，不会把检查结果改成通过、填写审批人或生成签名，避免工具替代人工验收决策。
 
 3.8 起，生产签名工具也必须接收 `--evidence-root`，并在生成 HMAC 前重新验证 24 小时时效、发行绑定、十项门禁、四方审批、隐私声明及十四份原始记录。检查未通过、审批缺失、记录漂移或重复文件不会得到生产签名，从签名边界开始失败关闭。
+
+3.9 起，签名工具要求分别传入 `--expected-git-commit` 和 `--expected-site-version`，并读取本地 `release.json` 与完整发行清单重新计算摘要。证据只有同时等于当前发行、GitHub 权威提交和 Sites 权威版本才会获得签名，格式正确但指向其他发布的绑定会在签名前拒绝。

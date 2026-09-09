@@ -50,11 +50,13 @@ class SentinelTests(unittest.TestCase):
 
     def test_production_evidence_signer_creates_verifiable_copy(self):
         now=2_000_000_000; release=json.loads((DOWNLOADS/'release.json').read_text()); keys={'prod-2026':'k'*32}; records=tempfile.TemporaryDirectory(); self.addCleanup(records.cleanup); root=Path(records.name).resolve(); evidence=production_evidence(self.production_preflight,release,root,now,'b'*40,140)
-        signed=self.production_signer.sign(evidence,keys,'prod-2026',root,now)
+        signed=self.production_signer.sign(evidence,keys,'prod-2026',root,DOWNLOADS,'b'*40,140,now)
         self.assertEqual(self.production_preflight.evaluate(DOWNLOADS,signed,root,'b'*40,140,keys,now),[])
         self.assertEqual(evidence['integrity']['signature'],'')
+        with self.assertRaisesRegex(ValueError,'git_commit_mismatch'): self.production_signer.sign(evidence,keys,'prod-2026',root,DOWNLOADS,'c'*40,140,now)
+        with self.assertRaisesRegex(ValueError,'site_version_mismatch'): self.production_signer.sign(evidence,keys,'prod-2026',root,DOWNLOADS,'b'*40,141,now)
         (root/evidence['evidence_files']['release_verified']).write_bytes(b'drift')
-        with self.assertRaisesRegex(ValueError,'production_record_mismatch:release_verified'): self.production_signer.sign(evidence,keys,'prod-2026',root,now)
+        with self.assertRaisesRegex(ValueError,'production_record_mismatch:release_verified'): self.production_signer.sign(evidence,keys,'prod-2026',root,DOWNLOADS,'b'*40,140,now)
 
     def test_production_evidence_preparer_hashes_records_without_approving(self):
         now=2_000_000_000; release=json.loads((DOWNLOADS/'release.json').read_text())
@@ -62,7 +64,7 @@ class SentinelTests(unittest.TestCase):
             root=Path(d).resolve(); evidence=production_evidence(self.production_preflight,release,root,now); evidence['checks']['ci_gates_passed']=False; evidence['evidence_sha256']={name:'REPLACE_WITH_SHA256' for name in self.production_preflight.CHECKS}
             for value in evidence['approvals'].values(): value['evidence_sha256']='REPLACE_WITH_SHA256'
             prepared=self.production_preparer.prepare(evidence,root); self.assertFalse(prepared['checks']['ci_gates_passed']); self.assertEqual(prepared['evidence_sha256']['release_verified'],hashlib.sha256(b'record:release_verified').hexdigest()); self.assertEqual(prepared['approvals']['security_owner']['evidence_sha256'],hashlib.sha256(b'approval:security_owner').hexdigest())
-            prepared['checks']['ci_gates_passed']=True; signed=self.production_signer.sign(prepared,{'current':'k'*32},'current',root,now)
+            prepared['checks']['ci_gates_passed']=True; signed=self.production_signer.sign(prepared,{'current':'k'*32},'current',root,DOWNLOADS,'a'*40,132,now)
             with self.assertRaisesRegex(ValueError,'signed_evidence_must_not_be_reprepared'): self.production_preparer.prepare(signed,root)
 
     def test_production_keyring_rotation_requires_retained_key_evidence(self):
@@ -72,13 +74,13 @@ class SentinelTests(unittest.TestCase):
             first=self.production_keyring.update_keyring(keyring,add_key_id='old-key',now=now); second=self.production_keyring.update_keyring(keyring,add_key_id='new-key',now=now)
             keys=self.production_keyring.load_keyring(keyring); self.assertEqual((first['key_count'],second['key_count']), (1,2)); self.assertFalse(first['secrets_printed']); self.assertNotIn(keys['old-key'],json.dumps(first)); self.assertEqual(stat.S_IMODE(keyring.stat().st_mode),0o600)
             evidence=production_evidence(self.production_preflight,release,root,now,'c'*40,141)
-            acceptance=root/'acceptance.json'; acceptance.write_text(json.dumps(self.production_signer.sign(evidence,keys,'old-key',root,now))); acceptance.chmod(0o600)
+            acceptance=root/'acceptance.json'; acceptance.write_text(json.dumps(self.production_signer.sign(evidence,keys,'old-key',root,DOWNLOADS,'c'*40,141,now))); acceptance.chmod(0o600)
             with self.assertRaisesRegex(ValueError,'unsafe_production_key_retirement'): self.production_keyring.update_keyring(keyring,remove_key_id='old-key',acceptance=acceptance,now=now)
             incomplete=json.loads(json.dumps(evidence)); incomplete['checks']['ci_gates_passed']=False
-            with self.assertRaisesRegex(ValueError,'production_gate_not_approved'): self.production_signer.sign(incomplete,keys,'new-key',root,now)
+            with self.assertRaisesRegex(ValueError,'production_gate_not_approved'): self.production_signer.sign(incomplete,keys,'new-key',root,DOWNLOADS,'c'*40,141,now)
             incomplete['integrity']={'algorithm':'hmac-sha256','key_id':'new-key','signature':hmac.new(keys['new-key'].encode(),self.production_preflight.canonical_unsigned(incomplete),hashlib.sha256).hexdigest()}; acceptance.write_text(json.dumps(incomplete))
             with self.assertRaisesRegex(ValueError,'invalid_production_retirement_evidence'): self.production_keyring.update_keyring(keyring,remove_key_id='old-key',acceptance=acceptance,now=now)
-            acceptance.write_text(json.dumps(self.production_signer.sign(evidence,keys,'new-key',root,now)))
+            acceptance.write_text(json.dumps(self.production_signer.sign(evidence,keys,'new-key',root,DOWNLOADS,'c'*40,141,now)))
             removed=self.production_keyring.update_keyring(keyring,remove_key_id='old-key',acceptance=acceptance,now=now); self.assertEqual(removed['action'],'removed'); self.assertEqual(set(self.production_keyring.load_keyring(keyring)),{'new-key'})
             with self.assertRaisesRegex(ValueError,'cannot_remove_last_production_acceptance_key'): self.production_keyring.update_keyring(keyring,remove_key_id='new-key',acceptance=acceptance,now=now)
             keyring.chmod(0o644)
