@@ -86,7 +86,7 @@
 
 最终批准：安全负责人、终端管理负责人、平台运维负责人和业务代表均签署后，才能把发行标记为生产可用。
 
-将上述实测结果填写到 `production-acceptance-evidence.example.json` 的副本。每个 `checks` 项必须绑定对应外部验收记录的 SHA-256；每个审批项必须填写审批人身份，并绑定审批记录 SHA-256。替换发行清单 SHA-256、Git 提交、Sites 版本和时间戳后，在受保护的签名工作站运行 `python3 sentinel_production_evidence_sign.py --evidence <已审查未签名证据.json> --key-id <当前密钥ID> --keyring <受保护密钥环.json> --output <已签名证据.json>`。密钥不得写入模板、命令参数、进程环境、日志或工单。
+将上述实测结果填写到 `production-acceptance-evidence.example.json` 的副本。每个 `checks` 项必须绑定对应外部验收记录的 SHA-256；每个审批项必须填写审批人身份，并绑定审批记录 SHA-256。替换发行清单 SHA-256、Git 提交、Sites 版本和时间戳后，在受保护的签名工作站运行 `python3 sentinel_production_evidence_sign.py --evidence <已审查未签名证据.json> --evidence-root <原始证据目录> --key-id <当前密钥ID> --keyring <受保护密钥环.json> --output <已签名证据.json>`。签名工具会重新核验全部原始记录和门禁，密钥不得写入模板、命令参数、进程环境、日志或工单。
 
 推荐先运行 `python3 sentinel_production_keyring.py --keyring <受保护密钥环.json> --add-key-id <当前密钥ID>`，再以 `--keyring` 向签名工具和预检工具传入该文件。文件必须由 root 或当前签名用户所有、权限为 `0600`，或以当前进程所属组设置 `0640`；禁止符号链接、其他用户访问和超过 64 KiB。环境变量方式仅作兼容。
 

@@ -1,9 +1,10 @@
 {
-  "release": "3.7.0",
+  "release": "3.8.0",
   "channel": "pilot",
-  "published_at": "2026-09-09T19:20:00+08:00",
+  "published_at": "2026-09-09T19:40:00+08:00",
   "component_versions": {"endpoint_agent":"0.40.0","policy":"4.9.0","collector":"0.19","adapter":"0.18"},
   "features": [
+    "pre_sign_production_gate", "pre_sign_original_record_verification", "failed_acceptance_signature_rejection", "stale_acceptance_signing_rejection", "approval_complete_before_signing", "privacy_gate_before_signing",
     "production_evidence_preparer", "automatic_original_record_hashing", "private_atomic_unsigned_evidence", "signed_evidence_reprepare_rejection", "non_approving_evidence_automation", "fourteen_record_preparation",
     "production_acceptance_v3", "original_evidence_file_verification", "bounded_nofollow_acceptance_records", "evidence_root_confinement", "duplicate_evidence_record_rejection", "approval_record_file_verification",
     "production_acceptance_keyring_file", "protected_production_key_storage", "csprng_production_acceptance_keys", "evidence_gated_production_key_retirement", "retained_key_retirement_authorization", "last_production_key_removal_rejection",
