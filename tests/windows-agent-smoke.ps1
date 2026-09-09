@@ -40,7 +40,7 @@ try {
   $instruction = Join-Path $codex 'AGENTS.md'
   Set-Content -Encoding UTF8 $instruction '# Personal rules'
   $instructionAcl = (Get-Acl $instruction).Sddl
-  $repo = Join-Path $testHome 'Projects\atomic-repo'
+  $repo = Join-Path $testHome 'Projects'
   New-Item -ItemType Directory -Force -Path (Join-Path $repo '.git') | Out-Null
   $repoInstruction = Join-Path $repo 'AGENTS.md'
   Set-Content -Encoding UTF8 $repoInstruction '# Repository rules'
