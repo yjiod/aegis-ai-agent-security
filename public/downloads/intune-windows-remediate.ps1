@@ -4,7 +4,7 @@ $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $reportDir = Join-Path $installDir 'reports'
 $previousDir = Join-Path $installDir 'previous'
 $stageDir = Join-Path $installDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
-$expected = @{ 'sentinel-policy.json'='8016c6c9bf79ab07ceeae26f4b1f1caf58b19690d0d7d7fef7733eb3a5bb350c'; 'sentinel-windows.ps1'='16eb1a1d2eaf34a2cf527370e38a9d4bc8853e44d77541ddad796fdd38601bba'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
+$expected = @{ 'sentinel-policy.json'='8016c6c9bf79ab07ceeae26f4b1f1caf58b19690d0d7d7fef7733eb3a5bb350c'; 'sentinel-windows.ps1'='f0f16578221e27749776db01f75853230efbee1c6747ae9e47a3559caa8a44c1'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
 $taskName='Sentinel AI Agent Security Scan'
 $taskArguments="-NoProfile -ExecutionPolicy Bypass -File `"$installDir\sentinel-windows.ps1`" -Output `"$reportDir\latest.json`""
 New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null
@@ -36,7 +36,7 @@ function Test-SentinelUserTarget([string]$root,[string]$target){
 }
 function Set-SentinelUserTextAtomic([string]$root,[string]$target,[string]$content){
   if(-not (Test-SentinelUserTarget $root $target)){return $false};$parent=Split-Path $target -Parent;New-Item -ItemType Directory -Force -Path $parent|Out-Null;if(-not (Test-SentinelUserTarget $root $target)){return $false};if((Test-Path $target) -and -not (Test-Path $target -PathType Leaf)){return $false};$acl=if(Test-Path $target -PathType Leaf){Get-Acl $target}else{$null};$temp=Join-Path $parent ('.'+[IO.Path]::GetFileName($target)+'.'+[Guid]::NewGuid().ToString('N')+'.tmp')
-  try{$encoding=[Text.UTF8Encoding]::new($true);$stream=[IO.FileStream]::new($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);try{$bytes=$encoding.GetBytes($content);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()};if($acl){Set-Acl -Path $temp -AclObject $acl};if(-not (Test-SentinelUserTarget $root $target)){throw 'managed_target_changed'};Move-Item -LiteralPath $temp -Destination $target -Force;return $true}finally{Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}
+  try{$encoding=[Text.UTF8Encoding]::new($true);$stream=[IO.FileStream]::new($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);try{$preamble=$encoding.GetPreamble();$stream.Write($preamble,0,$preamble.Length);$bytes=$encoding.GetBytes($content);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()};if($acl){Set-Acl -Path $temp -AclObject $acl};if(-not (Test-SentinelUserTarget $root $target)){throw 'managed_target_changed'};Move-Item -LiteralPath $temp -Destination $target -Force;return $true}finally{Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}
 }
 Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } | ForEach-Object {
   $targets=@()

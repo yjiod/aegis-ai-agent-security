@@ -11,15 +11,15 @@
   "artifacts": {
     "windows_detection": {
       "file": "intune-windows-detect.ps1",
-      "sha256": "e12179ccd70891bcc67cc582f39d7236ec83f16dbe74287311e3c7bbce306177"
+      "sha256": "74cf8cc99350e65c11acdcfd6be743e03247d88f6ab62d4d617f638b24bb07f8"
     },
     "windows_remediation": {
       "file": "intune-windows-remediate.ps1",
-      "sha256": "e368cad674bf4c9584714705cd9b362d680a366967e8a14555f6408592322575"
+      "sha256": "448fa45470eff8a0fe2fd7f4bafcae03ea57e5c87b5b40d9ab4f326a07f4af5b"
     },
     "windows_compliance_discovery": {
       "file": "intune-compliance-discovery.ps1",
-      "sha256": "9700b178e73d6d7a245ea0793dc4580ebb055107849a379b5da1ef8c5a809b7e"
+      "sha256": "d9ba1003ebedf3990a43d4934aee7b12f0eed0c1095be309279f79ac8f053f85"
     },
     "windows_compliance_rules": {
       "file": "intune-compliance-policy.json",

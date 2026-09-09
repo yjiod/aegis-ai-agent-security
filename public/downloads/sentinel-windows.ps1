@@ -114,7 +114,7 @@ function Set-SentinelManagedTextAtomic([string]$root,[string]$target,[string]$co
   try {
     $encoding=[Text.UTF8Encoding]::new($true)
     $stream=[IO.FileStream]::new($temp,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-    try{$bytes=$encoding.GetBytes($content);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+    try{$preamble=$encoding.GetPreamble();$stream.Write($preamble,0,$preamble.Length);$bytes=$encoding.GetBytes($content);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
     if($existingAcl){Set-Acl -Path $temp -AclObject $existingAcl}
     if(-not (Test-SentinelSafeTarget $root $target)){throw 'managed_target_changed'}
     Move-Item -LiteralPath $temp -Destination $target -Force

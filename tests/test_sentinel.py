@@ -248,9 +248,9 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('function Get-SentinelUserBaselineStatus',windows); self.assertIn("type='agent_baseline'",windows); self.assertIn("kind='agent_baseline_not_loaded'",windows)
         remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
         self.assertIn('sentinel-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('Test-Path $geminiDir',remediation); self.assertIn('Test-Path $copilotDir',remediation); self.assertIn('ReparsePoint',remediation)
-        for directive in ('function Set-SentinelManagedTextAtomic','$stream.Flush($true)','Set-Acl -Path $temp -AclObject $existingAcl','Move-Item -LiteralPath $temp -Destination $target -Force','Remove-Item -LiteralPath $temp -Force'):
+        for directive in ('function Set-SentinelManagedTextAtomic','$encoding.GetPreamble()','$stream.Write($preamble,0,$preamble.Length)','$stream.Flush($true)','Set-Acl -Path $temp -AclObject $existingAcl','Move-Item -LiteralPath $temp -Destination $target -Force','Remove-Item -LiteralPath $temp -Force'):
             self.assertIn(directive,windows)
-        for directive in ('function Test-SentinelUserTarget','function Set-SentinelUserTextAtomic','$stream.Flush($true)','Set-Acl -Path $temp -AclObject $acl','Move-Item -LiteralPath $temp -Destination $target -Force','Remove-Item -LiteralPath $temp -Force'):
+        for directive in ('function Test-SentinelUserTarget','function Set-SentinelUserTextAtomic','$encoding.GetPreamble()','$stream.Write($preamble,0,$preamble.Length)','$stream.Flush($true)','Set-Acl -Path $temp -AclObject $acl','Move-Item -LiteralPath $temp -Destination $target -Force','Remove-Item -LiteralPath $temp -Force'):
             self.assertIn(directive,remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
         mac=(DOWNLOADS/'uninstall-sentinel-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-sentinel-windows.ps1').read_text()
