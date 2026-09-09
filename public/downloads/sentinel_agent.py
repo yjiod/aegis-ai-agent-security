@@ -334,22 +334,19 @@ def install_user_baselines(homes=None):
     block=f"{USER_BASELINE_START}\n{content}\n{USER_BASELINE_END}"
     changed=[]
     for home in homes:
-        home=Path(home); targets=[]
+        home=Path(home)
+        if home.is_symlink() or not home.is_dir(): continue
+        targets=[]
         if (home/".codex").is_dir(): targets.append(home/".codex/AGENTS.md")
         if (home/".claude").is_dir() or (home/".claude.json").is_file(): targets.append(home/".claude/CLAUDE.md")
         if (home/".gemini").is_dir(): targets.append(home/".gemini/GEMINI.md")
         if (home/".copilot").is_dir(): targets.append(home/".copilot/copilot-instructions.md")
         for path in targets:
             if not safe_managed_target(home,path): continue
-            path.parent.mkdir(parents=True,exist_ok=True); current=path.read_text(errors="ignore") if path.exists() else ""
+            current=path.read_text(errors="ignore") if path.is_file() else ""
             pattern=re.compile(re.escape(USER_BASELINE_START)+r".*?"+re.escape(USER_BASELINE_END),re.S)
             updated=pattern.sub(block,current) if pattern.search(current) else current.rstrip()+("\n\n" if current.strip() else "")+block+"\n"
-            if updated!=current:
-                path.write_text(updated)
-                if hasattr(os,"geteuid") and os.geteuid()==0:
-                    try: owner=home.stat(); os.chown(path,owner.st_uid,owner.st_gid)
-                    except OSError: pass
-                changed.append(str(path))
+            if updated!=current and atomic_managed_write(home,path,updated): changed.append(str(path))
     return changed
 def verify_user_baselines(homes=None):
     """Return privacy-minimized evidence that detected user Agents loaded the managed block."""
@@ -404,7 +401,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.37.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.38.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -471,7 +468,7 @@ def build_report(root,policy,verify_baselines=False):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.37.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.38.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

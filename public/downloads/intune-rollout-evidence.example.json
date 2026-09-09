@@ -1,7 +1,7 @@
 {
   "schema": "sentinel.intune-evidence/v3",
-  "release_version": "2.7.0",
-  "manifest_sha256": "c476a255098944f53c93edb1adb3e4b530776630ba751e46afd7385024bfd146",
+  "release_version": "2.8.0",
+  "manifest_sha256": "5c998acc69f4593358b381ce1d7d9696d0d7b87ff03d59f62072124920d247dd",
   "generated_at": 0,
   "current_ring": "lab",
   "current_ring_entered_at": 0,

@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft Intune 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
 
-当前发行：产品 `2.7.0`，Endpoint Agent `0.37.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
+当前发行：产品 `2.8.0`，Endpoint Agent `0.38.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.18`。
 
 ## 目录
 
@@ -64,3 +64,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 2.6 起，Endpoint Agent 0.36 在多用户自动发现时拒绝符号链接用户目录、Windows 重解析点用户目录以及符号链接/reparse Git 标记，并能识别本身就是 Git 仓库的标准 Windows 项目根目录。周期任务仍会为之后安装的 Agent 和之后创建的真实仓库加载基线，但不会沿伪造目录越过受管边界。
 
 2.7 起，Endpoint Agent 0.37 在 macOS/Linux 以原子替换写入仓库基线，写入前后重复校验目标边界并同步文件与目录。既有文件保留权限和所有者；root 周期任务创建的新文件及目录继承仓库所有者，避免企业基线使开发者仓库变成 root-only。写入失败时保留原文件并清理临时文件。
+
+2.8 起，Endpoint Agent 0.38 将相同的原子写入、所有权和权限保留机制扩展到 Codex、Claude Code、Gemini CLI 与 GitHub Copilot CLI 的用户级指令文件，并拒绝显式传入的符号链接用户主目录。root 周期同步不会留下截断文件或短暂的 root-only 指令文件。
