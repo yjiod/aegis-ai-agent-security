@@ -556,18 +556,18 @@ function DetailPanel({
             <div className="baseline-banner">
               <div>
                 <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.40.0'}</h2>
-                <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
+                <p>厂商无关部署 · 企业 4A 标准接口 · 可插拔兼容适配器</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
             </div>
             <div className="panel inset onboarding">
               <h2>企业部署编排</h2>
               <div className="control-planes">
-                <article><b>Microsoft Intune</b><span>主部署通道</span><p>Windows Remediations 与 macOS Shell Script，负责安装、版本检测、周期修复和自定义合规。</p></article>
-                <article><b>深信服 EDR</b><span>响应处置</span><p>接收高危事件，按现网版本能力执行隔离、查杀或 IOC 取证。</p></article>
-                <article><b>联软桌管</b><span>资产与兜底</span><p>软件分发、资产核验及未安装终端的准入修复。</p></article>
+                <article><b>终端部署层</b><span>厂商无关</span><p>支持任意 MDM、桌管、软件分发或受控本地流程；Intune 制品作为可选兼容实现保留。</p></article>
+                <article><b>企业 4A</b><span>标准主接口</span><p>以最小安全事件对接账号、认证、授权和审计平台，影响访问的动作必须经外部审批。</p></article>
+                <article><b>兼容适配层</b><span>按需启用</span><p>深信服、联软与安全 Webhook 默认关闭，不影响 Sentinel 核心部署、扫描和报告。</p></article>
               </div>
-              <ol><li><b>自动发现</b><span>Intune 周期任务检测 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 与 GitHub Copilot CLI。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>联动处置</b><span>以 device_id 关联深信服 EDR 与联软资产，按风险等级分级响应。</span></li></ol>
+              <ol><li><b>自动发现</b><span>系统周期任务检测 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 与 GitHub Copilot CLI。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>4A 联动</b><span>以匿名设备主体输出标准安全姿态、待审批授权建议和可追踪审计关联号。</span></li></ol>
               <div className="download-actions">
                 <a className="download-primary" href="/downloads/sentinel-enterprise-bundle.zip" download>下载完整部署包</a>
                 <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>
@@ -585,6 +585,8 @@ function DetailPanel({
                 <a href="/downloads/sentinel_device_credentials.py" download>逐设备凭据工具</a>
                 <a href="/downloads/sentinel_collector_probe.py" download>Collector 验收探针</a>
                 <a href="/downloads/sentinel-collector.openapi.json" download>Collector API 规范</a>
+                <a href="/downloads/sentinel-enterprise-4a.openapi.json" download>企业 4A OpenAPI</a>
+                <a href="/downloads/ENTERPRISE-4A-INTEGRATION.md" download>企业 4A 接入指南</a>
                 <a href="/downloads/sentinel-vendor-contracts.json" download>厂商联动契约</a>
                 <a href="/downloads/vendor-acceptance-evidence.example.json" download>厂商验收证据模板</a>
                 <a href="/downloads/sentinel_vendor_preflight.py" download>厂商接入预检</a>
@@ -597,7 +599,7 @@ function DetailPanel({
                 <a href="/downloads/sentinel_intune_evidence.py" download>Intune 证据生成器</a>
                 <a href="/downloads/sentinel_intune_graph_normalize.py" download>Graph 导出归一化器</a>
               </div>
-              <p className="safety-note"><LockKeyhole size={15}/>部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。</p>
+              <p className="safety-note"><LockKeyhole size={15}/>核心能力不依赖特定 MDM、EDR 或桌管。4A 与可选适配器凭据只从受保护运行环境注入，绝不写入部署包。</p>
             </div>
           </>
         )}

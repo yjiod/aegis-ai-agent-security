@@ -57,7 +57,7 @@ def read_json_bounded(path,max_bytes=MAX_PREFLIGHT_INPUT_BYTES,private=False):
     if len(raw)>max_bytes: raise ValueError("oversized_json_input")
     return json.loads(raw.decode("utf-8"))
 
-def evaluate(config,evidence,adapter_version="0.18",now=None,max_age_seconds=604800,signing_secret=None,signing_keys=None):
+def evaluate(config,evidence,adapter_version="0.19",now=None,max_age_seconds=604800,signing_secret=None,signing_keys=None):
     now=int(time.time() if now is None else now); blockers=[]
     if not isinstance(config,dict): return ["invalid_adapter_config"]
     if not any(isinstance(config.get(name),dict) and config[name].get("enabled") for name in VENDORS): return []
@@ -115,7 +115,7 @@ def evaluate(config,evidence,adapter_version="0.18",now=None,max_age_seconds=604
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--config",required=True); parser.add_argument("--evidence",required=True)
-    parser.add_argument("--adapter-version",default="0.18")
+    parser.add_argument("--adapter-version",default="0.19")
     args=parser.parse_args()
     try:
         config=read_json_bounded(args.config); evidence=read_json_bounded(args.evidence)

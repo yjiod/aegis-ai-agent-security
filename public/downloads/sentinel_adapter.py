@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Fail-safe vendor boundary for Sangfor EDR and Leagsoft. Disabled by default."""
+"""Fail-safe, vendor-neutral enterprise integration boundary. Disabled by default."""
 import argparse, hashlib, hmac, json, os, re, stat, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 SAFE_ACTIONS={"observe","alert","isolate_pending_approval","block_pending_approval"}
-ADAPTERS=("sangfor","leagsoft","security_webhook")
+ADAPTERS=("enterprise_4a","sangfor","leagsoft","security_webhook")
 MAX_VENDOR_PAYLOAD_BYTES=2_000_000
 MAX_VENDOR_QUEUE_FILE_BYTES=2_100_000
 MAX_VENDOR_CONFIG_BYTES=65_536
@@ -26,8 +26,8 @@ def read_json_bounded(path,max_bytes):
         if fd>=0: os.close(fd)
     if len(raw)>max_bytes: raise ValueError("oversized_json_input")
     return json.loads(raw.decode("utf-8"))
-TARGET_FIELDS={"sangfor":{"enabled","mode","url","token_env","actions"},"leagsoft":{"enabled","mode","url","token_env","compliance"},"security_webhook":{"enabled","mode","url","secret_env"}}
-CREDENTIAL_PREFIX={"sangfor":"SANGFOR_","leagsoft":"LEAGSOFT_","security_webhook":"SENTINEL_"}
+TARGET_FIELDS={"enterprise_4a":{"enabled","mode","url","token_env","tenant","actions"},"sangfor":{"enabled","mode","url","token_env","actions"},"leagsoft":{"enabled","mode","url","token_env","compliance"},"security_webhook":{"enabled","mode","url","secret_env"}}
+CREDENTIAL_PREFIX={"enterprise_4a":"SENTINEL_4A_","sangfor":"SANGFOR_","leagsoft":"LEAGSOFT_","security_webhook":"SENTINEL_"}
 
 def validate_config(config):
     if not isinstance(config,dict) or not set(config).issubset({"allowed_hosts",*ADAPTERS}): raise ValueError("invalid_adapter_config")
@@ -47,6 +47,10 @@ def validate_config(config):
             if not isinstance(compliance,dict) or set(compliance)!={"max_policy_age_hours","critical_allowed"}: raise ValueError("invalid_leagsoft_compliance")
             age=compliance.get("max_policy_age_hours"); critical=compliance.get("critical_allowed")
             if isinstance(age,bool) or not isinstance(age,int) or not 1<=age<=168 or isinstance(critical,bool) or not isinstance(critical,int) or critical!=0: raise ValueError("invalid_leagsoft_compliance")
+        if name=="enterprise_4a" and target:
+            tenant=target.get("tenant",""); actions=target.get("actions",{})
+            if not isinstance(tenant,str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}",tenant): raise ValueError("invalid_enterprise_4a_tenant")
+            if not isinstance(actions,dict) or not set(actions).issubset({"critical","high","medium","low","normal"}) or any(action not in {"observe","alert","access_review_pending","containment_pending_approval"} for action in actions.values()): raise ValueError("invalid_enterprise_4a_actions")
     return config
 
 def valid_report(report):
@@ -78,8 +82,11 @@ def valid_payload(name,payload):
     try:
         if len(json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode())>MAX_VENDOR_PAYLOAD_BYTES: return False
     except (TypeError,ValueError,RecursionError,UnicodeError): return False
-    fields={"sangfor":{"event_type","source","device_id","severity","recommended_action","finding_count","policy_version","occurred_at"},"leagsoft":{"source","device_id","compliant","risk_level","policy_version","last_scan","reason"}}
+    fields={"enterprise_4a":{"schema","event_id","event_type","source","tenant","subject","risk","authorization","audit"},"sangfor":{"event_type","source","device_id","severity","recommended_action","finding_count","policy_version","occurred_at"},"leagsoft":{"source","device_id","compliant","risk_level","policy_version","last_scan","reason"}}
     if name not in fields or set(payload)!=fields[name]: return False
+    if name=="enterprise_4a":
+        subject=payload.get("subject"); risk=payload.get("risk"); authorization=payload.get("authorization"); audit=payload.get("audit")
+        return payload.get("schema")=="sentinel.enterprise-4a.event/v1" and payload.get("event_type")=="ai_agent_security_posture" and payload.get("source")=="sentinel" and isinstance(payload.get("event_id"),str) and bool(re.fullmatch(r"[0-9a-f]{40}",payload["event_id"])) and isinstance(payload.get("tenant"),str) and bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}",payload["tenant"])) and isinstance(subject,dict) and set(subject)=={"type","id"} and subject.get("type")=="device" and isinstance(subject.get("id"),str) and 8<=len(subject["id"])<=128 and isinstance(risk,dict) and set(risk)=={"level","finding_count","policy_version","observed_at"} and risk.get("level") in {"critical","high","medium","low","normal"} and isinstance(risk.get("finding_count"),int) and not isinstance(risk["finding_count"],bool) and 0<=risk["finding_count"]<=10000 and isinstance(risk.get("policy_version"),str) and 1<=len(risk["policy_version"])<=64 and isinstance(risk.get("observed_at"),int) and not isinstance(risk["observed_at"],bool) and isinstance(authorization,dict) and set(authorization)=={"decision","enforcement"} and authorization.get("decision") in {"observe","alert","access_review_pending","containment_pending_approval"} and authorization.get("enforcement")=="external_approval_required" and isinstance(audit,dict) and set(audit)=={"correlation_id","data_classification"} and audit.get("correlation_id")==payload["event_id"] and audit.get("data_classification")=="internal_security_metadata"
     if payload.get("source")!="sentinel" or not isinstance(payload.get("device_id"),str) or not 8<=len(payload["device_id"])<=128: return False
     if not isinstance(payload.get("policy_version"),str) or not 1<=len(payload["policy_version"])<=64: return False
     if payload.get("severity",payload.get("risk_level")) not in {"critical","high","medium","low","normal"}: return False
@@ -102,6 +109,12 @@ def leagsoft_posture(report,config,now=None):
     risky=level in {"critical","high"}; stale=last_scan>now+300 or now-last_scan>max_age
     compliant=not risky and not stale; reason="critical_or_high_finding" if risky else "stale_policy" if stale else "policy_pass"
     return {"source":"sentinel","device_id":report["device_id"],"compliant":compliant,"risk_level":level,"policy_version":report.get("policy_version"),"last_scan":last_scan,"reason":reason}
+def enterprise_4a_event(report,config):
+    level=severity(report); action=config.get("actions",{}).get(level,"observe")
+    if action not in {"observe","alert","access_review_pending","containment_pending_approval"}: raise ValueError(f"unsafe_enterprise_4a_action:{action}")
+    identity=f'{config["tenant"]}:{report["device_id"]}:{report["scanned_at"]}:{report["policy_version"]}'
+    event_id=hashlib.sha256(identity.encode()).hexdigest()[:40]
+    return {"schema":"sentinel.enterprise-4a.event/v1","event_id":event_id,"event_type":"ai_agent_security_posture","source":"sentinel","tenant":config["tenant"],"subject":{"type":"device","id":report["device_id"]},"risk":{"level":level,"finding_count":len(report.get("findings",[])),"policy_version":report["policy_version"],"observed_at":report["scanned_at"]},"authorization":{"decision":action,"enforcement":"external_approval_required"},"audit":{"correlation_id":event_id,"data_classification":"internal_security_metadata"}}
 def validate_target(name,target,config,dry_run=False):
     if target.get("mode","webhook")!="webhook": raise ValueError(f"unsupported_adapter_mode:{name}")
     url=str(target.get("url","")); parsed=urlsplit(url)
@@ -115,7 +128,7 @@ def validate_target(name,target,config,dry_run=False):
 def send(url,payload,token="",secret=""):
     body=json.dumps(payload,ensure_ascii=False,separators=(",",":")).encode()
     if len(body)>MAX_VENDOR_PAYLOAD_BYTES: raise ValueError("adapter_payload_too_large")
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.18","Idempotency-Key":hashlib.sha256(body).hexdigest()}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAdapter/0.19","Idempotency-Key":hashlib.sha256(body).hexdigest()}
     if token: headers["Authorization"]="Bearer "+token
     if secret:
         timestamp=str(int(time.time())); headers["X-Sentinel-Signature"]="sha256="+hmac.new(secret.encode(),timestamp.encode()+b"."+body,hashlib.sha256).hexdigest(); headers["X-Sentinel-Timestamp"]=timestamp
@@ -195,7 +208,7 @@ def process(report,config,dry_run=False,spool_dir=None,sender=send,now=None):
     try: validate_config(config)
     except ValueError as exc: return [{"adapter":"boundary","result":"rejected","error":str(exc)}]
     outputs=[]; spool=Path(spool_dir) if spool_dir else Path(os.getenv("SENTINEL_ADAPTER_SPOOL",Path.home()/".sentinel-adapter/spool"))
-    builders={"sangfor":sangfor_event,"leagsoft":lambda value,target:leagsoft_posture(value,target,now),"security_webhook":lambda value,_config:value}
+    builders={"enterprise_4a":enterprise_4a_event,"sangfor":sangfor_event,"leagsoft":lambda value,target:leagsoft_posture(value,target,now),"security_webhook":lambda value,_config:value}
     for name in ADAPTERS:
         target=config.get(name,{})
         if not target.get("enabled"): continue

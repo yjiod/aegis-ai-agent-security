@@ -1,6 +1,6 @@
 # Sentinel 企业部署指南
 
-私有站点提供经验证的发行物下载、架构说明和治理界面。配置 Collector 后，顶部摘要和最多 200 台匿名终端姿态可切换为真实只读数据；覆盖分布、风险事件以及 Intune/EDR/联软任务按钮仍明确标识为样例或未接入，任何按钮都不会声称已执行外部变更。完成对应企业 API、身份认证、授权与审计接入前，不得把样例面板用于运营判断。
+私有站点提供经验证的发行物下载、架构说明和治理界面。配置 Collector 后，顶部摘要和最多 200 台匿名终端姿态可切换为真实只读数据；覆盖分布、风险事件以及外部平台任务仍明确标识为样例或未接入，任何按钮都不会声称已执行外部变更。完成对应企业 API、身份认证、授权与审计接入前，不得把样例面板用于运营判断。
 
 0.48.0 起，站点提供只读同源 `/api/summary` 代理。服务端配置 `SENTINEL_COLLECTOR_URL`、精确主机名 `SENTINEL_COLLECTOR_ALLOWED_HOST` 和至少 32 字符的 `SENTINEL_COLLECTOR_TOKEN` 后，顶部四项指标读取接收器摘要；令牌不会进入浏览器。代理只允许 HTTPS、拒绝 URL 凭据/查询参数、五秒超时、禁用缓存并严格复核汇总计数。未配置、上游异常或契约不符时自动回到明确标识的演示模式。
 
@@ -8,9 +8,13 @@
 
 ## 推荐职责
 
-- Microsoft Intune：Windows/macOS 安装、周期检测、修复与合规状态。
-- 深信服 EDR：接收高危事件后执行主机隔离、查杀和取证；接口以客户实际版本的 OpenAPI 为准。
-- 联软 UniAccess/LeagView：资产映射、软件统一分发，以及未安装 Sentinel 终端的准入限制。
+- 任意企业终端管理平台：Windows/macOS 安装、周期检测、修复与合规状态；Intune 制品作为可选参考实现保留。
+- 企业 4A：标准化设备主体、安全认证、待审批授权建议和审计关联，是默认外部集成边界。
+- 可选兼容适配器：深信服 EDR、联软 UniAccess/LeagView 与安全 Webhook，全部默认关闭。
+
+## 企业 4A（默认标准接口）
+
+使用 `sentinel-enterprise-4a.openapi.json` 和 `ENTERPRISE-4A-INTEGRATION.md` 与企业 IAM/4A 团队对接。配置只需精确 HTTPS 主机、租户标识和以 `SENTINEL_4A_` 开头的令牌环境变量。事件不含用户名、代码正文或路径，影响访问的建议始终要求外部审批。Intune、深信服和联软均不是核心运行前置条件。
 
 ## Intune Windows
 
@@ -295,3 +299,8 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 ## 3.9.0 签名绑定权威发布
 
 签名命令新增必需的 `--expected-git-commit` 和 `--expected-site-version`，两者必须来自 GitHub 与 Sites 的独立只读查询。工具还从 `--downloads`（默认脚本目录）读取当前 `release.json` 和 `RELEASE-MANIFEST.sha256`。证据的产品版本、清单摘要、完整提交和站点版本必须分别精确匹配，才能进入密钥选择与签名输出；这防止为旧发行、其他提交或尚未发布的站点版本签发生产批准。
+## 4.0.0 厂商无关与企业 4A
+
+核心部署不再以 Intune、深信服或联软为前置条件。Adapter 0.19 新增 `enterprise_4a` 通道，按 `sentinel.enterprise-4a.event/v1` 输出最小设备安全姿态，通过精确 HTTPS 主机、`SENTINEL_4A_` 凭据命名空间、Bearer 服务身份和稳定幂等键对接企业 4A。授权输出只包含观察、告警、访问复核待处理和隔离待审批，不允许 Adapter 直接改变访问权限。
+
+生产验收的十项门禁保持数量和签名结构不变，但平台相关项目迁移为 `deployment_platform_preflight_passed`、`enterprise_4a_interface_accepted` 和 `optional_adapters_disabled_or_accepted`。未采用 Intune 时提供所选部署平台的等价实测记录；未采用深信服或联软时提供目标关闭且无凭据引用的审计记录即可。

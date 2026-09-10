@@ -1,0 +1,31 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title":"Sentinel Enterprise 4A Event Interface","version":"1.0.0"},
+  "paths": {
+    "/api/v1/security-events": {
+      "post": {
+        "operationId": "acceptSentinelSecurityEvent",
+        "security": [{"bearerAuth":[]}],
+        "parameters": [{"name":"Idempotency-Key","in":"header","required":true,"schema":{"type":"string","pattern":"^[0-9a-f]{64}$"}}],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/SecurityEvent"}}}},
+        "responses": {"202":{"description":"Accepted"},"200":{"description":"Already accepted"},"400":{"description":"Invalid contract"},"401":{"description":"Authentication failed"},"429":{"description":"Rate limited"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {"bearerAuth":{"type":"http","scheme":"bearer"}},
+    "schemas": {
+      "SecurityEvent": {
+        "type":"object","additionalProperties":false,
+        "required":["schema","event_id","event_type","source","tenant","subject","risk","authorization","audit"],
+        "properties": {
+          "schema":{"const":"sentinel.enterprise-4a.event/v1"},"event_id":{"type":"string","pattern":"^[0-9a-f]{40}$"},"event_type":{"const":"ai_agent_security_posture"},"source":{"const":"sentinel"},"tenant":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+          "subject":{"type":"object","additionalProperties":false,"required":["type","id"],"properties":{"type":{"const":"device"},"id":{"type":"string","minLength":8,"maxLength":128}}},
+          "risk":{"type":"object","additionalProperties":false,"required":["level","finding_count","policy_version","observed_at"],"properties":{"level":{"enum":["critical","high","medium","low","normal"]},"finding_count":{"type":"integer","minimum":0,"maximum":10000},"policy_version":{"type":"string","minLength":1,"maxLength":64},"observed_at":{"type":"integer"}}},
+          "authorization":{"type":"object","additionalProperties":false,"required":["decision","enforcement"],"properties":{"decision":{"enum":["observe","alert","access_review_pending","containment_pending_approval"]},"enforcement":{"const":"external_approval_required"}}},
+          "audit":{"type":"object","additionalProperties":false,"required":["correlation_id","data_classification"],"properties":{"correlation_id":{"type":"string","pattern":"^[0-9a-f]{40}$"},"data_classification":{"const":"internal_security_metadata"}}}
+        }
+      }
+    }
+  }
+}

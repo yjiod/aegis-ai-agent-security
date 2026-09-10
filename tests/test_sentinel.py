@@ -11,7 +11,7 @@ def vendor_report(level='normal'):
     return {'schema':'sentinel.report/v1','agent_version':'0.21.0','policy_version':'4.6.0','device_id':'device-123','scanned_at':1,'summary':summary,'findings':findings}
 def vendor_probe_receipt(vendor,url,now):
     digest='a'*64
-    return {'schema':'sentinel.vendor-probe/v1','generated_at':now,'adapter_version':'0.18','vendor':vendor,'endpoint_url':url,'payload_sha256':digest,'idempotency_key':digest,'safe_action':'observe' if vendor=='sangfor' else 'compliance_posture_only','live':True,'statuses':[202,202],'idempotent_replay_accepted':True,'secrets_embedded':False}
+    return {'schema':'sentinel.vendor-probe/v1','generated_at':now,'adapter_version':'0.19','vendor':vendor,'endpoint_url':url,'payload_sha256':digest,'idempotency_key':digest,'safe_action':'observe' if vendor=='sangfor' else 'compliance_posture_only','live':True,'statuses':[202,202],'idempotent_replay_accepted':True,'secrets_embedded':False}
 def production_evidence(preflight,release,root,now,git_commit='a'*40,site_version=132):
     root=Path(root); evidence_files={}; evidence_sha256={}
     for name in preflight.CHECKS:
@@ -29,9 +29,9 @@ class SentinelTests(unittest.TestCase):
         records=tempfile.TemporaryDirectory(); self.addCleanup(records.cleanup); root=Path(records.name).resolve(); keys={'prod-2026':'s'*32}; evidence=production_evidence(self.production_preflight,release,root,now); evidence['integrity']['key_id']='prod-2026'
         evidence['integrity']['signature']=hmac.new(keys['prod-2026'].encode(),self.production_preflight.canonical_unsigned(evidence),hashlib.sha256).hexdigest()
         self.assertEqual(self.production_preflight.evaluate(DOWNLOADS,evidence,root,'a'*40,132,keys,now),[])
-        failed=json.loads(json.dumps(evidence)); failed['checks']['sangfor_acceptance_v3_passed']=False; failed['approvals']['business_owner']=''; failed['secrets_embedded']=True
+        failed=json.loads(json.dumps(evidence)); failed['checks']['enterprise_4a_interface_accepted']=False; failed['approvals']['business_owner']=''; failed['secrets_embedded']=True
         errors=self.production_preflight.evaluate(DOWNLOADS,failed,root,'a'*40,132,keys,now)
-        self.assertIn('gate_failed:sangfor_acceptance_v3_passed',errors); self.assertIn('approval_missing:business_owner',errors); self.assertIn('secrets_must_not_be_embedded',errors)
+        self.assertIn('gate_failed:enterprise_4a_interface_accepted',errors); self.assertIn('approval_missing:business_owner',errors); self.assertIn('secrets_must_not_be_embedded',errors)
         self.assertIn('stale_or_future_evidence',self.production_preflight.evaluate(DOWNLOADS,{**evidence,'generated_at':now-86401},root,'a'*40,132,keys,now))
         self.assertIn('git_commit_mismatch',self.production_preflight.evaluate(DOWNLOADS,evidence,root,'b'*40,132,keys,now))
         self.assertIn('site_version_mismatch',self.production_preflight.evaluate(DOWNLOADS,evidence,root,'a'*40,133,keys,now))
@@ -137,7 +137,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','生产就绪清单','生产验收证据模板','生产最终预检','生产验收证据准备器','生产验收签名工具','生产验收密钥环工具','Collector 验收探针','Collector API 规范','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','生产就绪清单','生产验收证据模板','生产最终预检','生产验收证据准备器','生产验收签名工具','生产验收密钥环工具','Collector 验收探针','Collector API 规范','企业 4A OpenAPI','企业 4A 接入指南','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
         devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==7',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
         self.assertIn("fetch('/api/devices'",page); self.assertIn('fleetDevices.map',page)
@@ -888,8 +888,22 @@ class SentinelTests(unittest.TestCase):
         outputs=self.adapter.process(report,config,dry_run=True)
         self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
         self.assertFalse(outputs[1]['payload']['compliant'])
+    def test_enterprise_4a_adapter_is_vendor_neutral_and_approval_only(self):
+        config={'allowed_hosts':['4a.invalid'],'enterprise_4a':{'enabled':True,'mode':'webhook','url':'https://4a.invalid/api/v1/security-events','token_env':'SENTINEL_4A_ACCESS_TOKEN','tenant':'security-cn','actions':{'critical':'containment_pending_approval','high':'access_review_pending'}}}
+        output=self.adapter.process(vendor_report('critical'),config,dry_run=True)[0]
+        self.assertEqual(output['adapter'],'enterprise_4a'); self.assertEqual(output['result'],'dry_run')
+        event=output['payload']; self.assertTrue(self.adapter.valid_payload('enterprise_4a',event))
+        self.assertEqual(event['schema'],'sentinel.enterprise-4a.event/v1'); self.assertEqual(event['authorization'],{'decision':'containment_pending_approval','enforcement':'external_approval_required'})
+        self.assertEqual(event['audit']['correlation_id'],event['event_id']); self.assertNotIn('findings',event); self.assertNotIn('scan_root',event)
+        self.assertEqual(self.adapter.enterprise_4a_event(vendor_report('critical'),config['enterprise_4a']),event)
+        with self.assertRaisesRegex(ValueError,'invalid_enterprise_4a_actions'):
+            self.adapter.validate_config({**config,'enterprise_4a':{**config['enterprise_4a'],'actions':{'critical':'block_now'}}})
+        with self.assertRaisesRegex(ValueError,'invalid_adapter_credential_env'):
+            self.adapter.validate_config({**config,'enterprise_4a':{**config['enterprise_4a'],'token_env':'SANGFOR_TOKEN'}})
+        contract=json.loads((DOWNLOADS/'sentinel-enterprise-4a.openapi.json').read_text())
+        self.assertEqual(contract['openapi'],'3.1.0'); self.assertIn('/api/v1/security-events',contract['paths'])
     def test_vendor_contract_and_configuration_are_fail_closed(self):
-        contract=json.loads((DOWNLOADS/'sentinel-vendor-contracts.json').read_text()); self.assertEqual(contract['adapter_version'],'0.18'); self.assertFalse(contract['secrets_embedded']); self.assertFalse(contract['sangfor']['direct_destructive_actions_allowed'])
+        contract=json.loads((DOWNLOADS/'sentinel-vendor-contracts.json').read_text()); self.assertEqual(contract['adapter_version'],'0.19'); self.assertFalse(contract['secrets_embedded']); self.assertFalse(contract['sangfor']['direct_destructive_actions_allowed'])
         self.assertEqual(contract['delivery_queue']['overflow_behavior'],'retain_source_report_and_retry'); self.assertFalse(contract['delivery_queue']['silent_eviction_allowed'])
         self.assertEqual(contract['delivery_queue']['write_semantics'],'private_fsync_atomic_replace_directory_fsync'); self.assertFalse(contract['delivery_queue']['symlink_directory_allowed'])
         self.assertEqual(contract['delivery_queue']['read_semantics'],'nofollow_regular_file_inode_bound_bounded_read'); self.assertFalse(contract['delivery_queue']['symlink_event_allowed'])
@@ -927,7 +941,7 @@ class SentinelTests(unittest.TestCase):
         now=2_000_000_000; url='https://edr.invalid/events'
         config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':url,'token_env':'SANGFOR_TOKEN','actions':{'high':'alert'}}}
         item={'product_version':'aCloud EDR verified build','api_document_id':'vendor-api-42','endpoint_url':url,'auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'security-owner','probe':vendor_probe_receipt('sangfor',url,now)}
-        secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.18','vendors':{'sangfor':item},'secrets_embedded':False}; evidence=self.vendor_signer.sign(unsigned,secret,'key-2026lk'); self.assertNotIn(secret,json.dumps(evidence))
+        secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.19','vendors':{'sangfor':item},'secrets_embedded':False}; evidence=self.vendor_signer.sign(unsigned,secret,'key-2026lk'); self.assertNotIn(secret,json.dumps(evidence))
         self.assertEqual(self.vendor_preflight.evaluate(config,evidence,now=now,signing_secret=secret),[])
         tampered=json.loads(json.dumps(evidence)); tampered['vendors']['sangfor']['approved_by']='attacker'
         self.assertIn('vendor_acceptance_signature_mismatch',self.vendor_preflight.evaluate(config,tampered,now=now,signing_secret=secret))
@@ -982,12 +996,12 @@ class SentinelTests(unittest.TestCase):
         with patch.object(self.adapter.urllib.request,'urlopen',side_effect=lambda request,timeout: captured.append((request,timeout)) or Response()):
             self.assertEqual(self.adapter.send('https://edr.invalid/events',payload,token='secret'),202)
         request,timeout=captured[0]; body=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
-        self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(request.get_header('User-agent'),'SentinelAdapter/0.18'); self.assertEqual(timeout,15)
+        self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(request.get_header('User-agent'),'SentinelAdapter/0.19'); self.assertEqual(timeout,15)
         with self.assertRaisesRegex(ValueError,'adapter_payload_too_large'): self.adapter.send('https://edr.invalid/events',{'blob':'x'*2_000_000},token='secret')
     def test_adapter_worker_reloads_signed_acceptance_each_batch(self):
         now=2_000_000_000; url='https://edr.invalid/events'; config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':url,'token_env':'SANGFOR_TOKEN','actions':{'normal':'observe'}}}
         item={'product_version':'test','api_document_id':'test-contract','endpoint_url':url,'auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test','probe':vendor_probe_receipt('sangfor',url,now)}
-        unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.18','vendors':{'sangfor':item},'secrets_embedded':False}; old_secret='old-acceptance-signing-secret-123'; new_secret='new-acceptance-signing-secret-456'
+        unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.19','vendors':{'sangfor':item},'secrets_embedded':False}; old_secret='old-acceptance-signing-secret-123'; new_secret='new-acceptance-signing-secret-456'
         old=self.vendor_signer.sign(unsigned,old_secret,'old-key'); new=self.vendor_signer.sign(unsigned,new_secret,'new-key')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); config_path=root/'adapters.json'; acceptance_path=root/'acceptance.json'; config_path.write_text(json.dumps(config)); acceptance_path.write_text(json.dumps(old))
@@ -1009,7 +1023,7 @@ class SentinelTests(unittest.TestCase):
             first=self.vendor_keyring.update_keyring(keyring,add_key_id='old-key',now=now); second=self.vendor_keyring.update_keyring(keyring,add_key_id='new-key',now=now)
             self.assertEqual((first['key_count'],second['key_count']),(1,2)); self.assertFalse(first['secrets_printed']); self.assertEqual(stat.S_IMODE(keyring.stat().st_mode),0o600)
             keys=self.vendor_keyring.load_keyring(keyring); self.assertNotIn(keys['old-key'],json.dumps(first)); self.assertNotIn(keys['new-key'],json.dumps(second))
-            unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.18','vendors':{},'secrets_embedded':False}
+            unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':now,'adapter_version':'0.19','vendors':{},'secrets_embedded':False}
             acceptance=root/'acceptance.json'; self.vendor_signer.private_atomic_output(acceptance,self.vendor_signer.sign(unsigned,keys['old-key'],'old-key'))
             with self.assertRaisesRegex(ValueError,'unsafe_vendor_key_retirement'): self.vendor_keyring.update_keyring(keyring,remove_key_id='old-key',acceptance=acceptance,now=now)
             self.vendor_signer.private_atomic_output(acceptance,self.vendor_signer.sign(unsigned,keys['new-key'],'new-key'))
@@ -1021,7 +1035,7 @@ class SentinelTests(unittest.TestCase):
             root=Path(d); db=root/'sentinel.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             sent=[]; sender=lambda url,payload,token='',secret='': sent.append((url,payload,token,secret)) or 202
             gate={'product_version':'test','api_document_id':'test-contract','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test'}
-            secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events','probe':vendor_probe_receipt('sangfor','https://edr.invalid/events',101)},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture','probe':vendor_probe_receipt('leagsoft','https://leag.invalid/posture',101)}},'secrets_embedded':False}; accepted=self.vendor_signer.sign(unsigned,secret,'test-key')
+            secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.19','vendors':{'sangfor':{**gate,'endpoint_url':'https://edr.invalid/events','probe':vendor_probe_receipt('sangfor','https://edr.invalid/events',101)},'leagsoft':{**gate,'endpoint_url':'https://leag.invalid/posture','probe':vendor_probe_receipt('leagsoft','https://leag.invalid/posture',101)}},'secrets_embedded':False}; accepted=self.vendor_signer.sign(unsigned,secret,'test-key')
             with patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET':secret}): first=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=101,acceptance=accepted); second=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=102,acceptance=accepted)
             self.assertEqual(first[0]['result'],'dispatched'); self.assertEqual(second,[]); self.assertEqual(len(sent),2)
             connection=sqlite3.connect(db)
@@ -1092,7 +1106,7 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(retained[0]['result'],'retained'); self.assertEqual(retained[0]['error'],'adapter_spool_full')
             db=spool/'reports.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             gate={'product_version':'test','api_document_id':'test-contract','endpoint_url':'https://edr.invalid/events','auth_scheme':'bearer','field_mapping_approved':True,'idempotency_verified':True,'non_2xx_retry_verified':True,'safe_action_mapping_verified':True,'dry_run_payload_approved':True,'approved_by':'test','probe':vendor_probe_receipt('sangfor','https://edr.invalid/events',101)}
-            secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.18','vendors':{'sangfor':gate},'secrets_embedded':False}; acceptance=self.vendor_signer.sign(unsigned,secret,'test-key')
+            secret='acceptance-signing-secret-value-123'; unsigned={'schema':'sentinel.vendor-acceptance/v2','generated_at':101,'adapter_version':'0.19','vendors':{'sangfor':gate},'secrets_embedded':False}; acceptance=self.vendor_signer.sign(unsigned,secret,'test-key')
             with patch.dict(os.environ,{'SANGFOR_TOKEN':'s','SENTINEL_VENDOR_ACCEPTANCE_SIGNING_SECRET':secret}): dispatch=self.worker.dispatch_once(db,config,spool,adapter=self.adapter,sender=lambda *args,**kwargs:500,now=101,acceptance=acceptance)
             self.assertEqual(dispatch[0]['result'],'retained')
             connection=sqlite3.connect(db)

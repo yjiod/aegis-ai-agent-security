@@ -9,8 +9,8 @@ MAX_SIGNING_KEYS=5
 MAX_RECORD_BYTES=2*1024*1024
 CHECKS={
     "release_verified","ci_gates_passed","collector_probe_passed","collector_backup_restore_tested",
-    "intune_production_preflight_passed","windows_upgrade_rollback_tested","macos_upgrade_rollback_tested",
-    "sangfor_acceptance_v3_passed","leagsoft_acceptance_v3_passed","console_read_only_connected",
+    "deployment_platform_preflight_passed","windows_upgrade_rollback_tested","macos_upgrade_rollback_tested",
+    "enterprise_4a_interface_accepted","optional_adapters_disabled_or_accepted","console_read_only_connected",
 }
 APPROVALS={"security_owner","endpoint_owner","platform_owner","business_owner"}
 TOP={"schema","release_version","release_manifest_sha256","git_commit_sha","site_version","generated_at","checks","evidence_files","evidence_sha256","approvals","integrity","secrets_embedded","device_identifiers_embedded"}

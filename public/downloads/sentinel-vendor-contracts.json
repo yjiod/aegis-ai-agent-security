@@ -1,6 +1,6 @@
 {
   "schema": "sentinel.vendor-contracts/v1",
-  "adapter_version": "0.18",
+  "adapter_version": "0.19",
   "production_enablement": {
     "evidence_schema": "sentinel.vendor-acceptance/v3",
     "signing_input_schema": "sentinel.vendor-acceptance/v2",
@@ -54,9 +54,17 @@
     "symlink_allowed": false
   },
   "credential_boundaries": {
+    "enterprise_4a": {"header": "Authorization: Bearer <SENTINEL_4A_* env>", "allowed_env_prefix": "SENTINEL_4A_", "contract": "sentinel-enterprise-4a.openapi.json"},
     "sangfor": {"header": "Authorization: Bearer <SANGFOR_* env>", "allowed_env_prefix": "SANGFOR_"},
     "leagsoft": {"header": "Authorization: Bearer <LEAGSOFT_* env>", "allowed_env_prefix": "LEAGSOFT_"},
     "security_webhook": {"headers": ["X-Sentinel-Timestamp", "X-Sentinel-Signature"], "allowed_env_prefix": "SENTINEL_", "signature_input": "<timestamp>.<raw-body>"}
+  },
+  "enterprise_4a": {
+    "schema": "sentinel.enterprise-4a.event/v1",
+    "purpose": ["account_subject_mapping", "authentication_service_identity", "authorization_recommendation", "audit_correlation"],
+    "safe_actions": ["observe", "alert", "access_review_pending", "containment_pending_approval"],
+    "direct_access_enforcement_allowed": false,
+    "additional_properties": false
   },
   "sangfor": {
     "additional_properties": false,

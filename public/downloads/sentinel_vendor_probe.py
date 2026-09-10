@@ -26,7 +26,7 @@ def run_probe(config,vendor,live=False,sender=adapter.send,now=None):
     statuses=[]
     if live:
         for _ in range(2): statuses.append(adapter.deliver(vendor,probe_target,payload,sender))
-    return {"schema":SCHEMA,"generated_at":now,"adapter_version":"0.18","vendor":vendor,"endpoint_url":target["url"],"payload_sha256":digest,"idempotency_key":digest,"safe_action":"observe" if vendor=="sangfor" else "compliance_posture_only","live":live,"statuses":statuses,"idempotent_replay_accepted":live and len(statuses)==2 and all(200<=value<300 for value in statuses),"secrets_embedded":False}
+    return {"schema":SCHEMA,"generated_at":now,"adapter_version":"0.19","vendor":vendor,"endpoint_url":target["url"],"payload_sha256":digest,"idempotency_key":digest,"safe_action":"observe" if vendor=="sangfor" else "compliance_posture_only","live":live,"statuses":statuses,"idempotent_replay_accepted":live and len(statuses)==2 and all(200<=value<300 for value in statuses),"secrets_embedded":False}
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--config",required=True); ap.add_argument("--vendor",required=True,choices=VENDORS); ap.add_argument("--live",action="store_true"); args=ap.parse_args()
