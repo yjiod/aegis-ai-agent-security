@@ -43,7 +43,7 @@
 
 1. 依据 `sentinel-enterprise-4a.openapi.json` 实现或映射 HTTPS 事件接收接口，并使用独立服务身份认证。
 2. 确认账号主体映射、认证令牌轮换、授权建议枚举和审计关联号留存；禁止传输用户名、代码正文和本地路径。
-3. 先以 `--dry-run` 审查事件，再验证同一 `Idempotency-Key` 重放、超时、非 2xx、离线补发和凭据轮换。
+3. 先以 Adapter `--dry-run` 审查事件，再运行 `sentinel_4a_probe.py --config <配置> --live` 验证强制观察事件与同一 `Idempotency-Key` 重放；另行验证超时、非 2xx、离线补发和凭据轮换。
 4. `access_review_pending` 与 `containment_pending_approval` 必须进入企业审批流，4A 接收端不得自动封禁。
 
 失败回退：关闭 `enterprise_4a` 目标并保留 spool 与 Collector 原始记录；核心扫描和报告继续运行。

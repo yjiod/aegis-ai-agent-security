@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它可通过任意 MDM、软件分发系统或本地运维流程部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告进入受认证的接收器后，可通过标准企业 4A 接口联动账号、认证、授权与审计平台；Intune、深信服和联软保留为可选兼容适配器。
 
-当前发行：产品 `4.0.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.19`。
+当前发行：产品 `4.1.0`，Endpoint Agent `0.40.0`，策略 `4.9.0`，Collector `0.19`，Adapter `0.19`。
 
 ## 目录
 
@@ -91,3 +91,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 3.9 起，签名工具要求分别传入 `--expected-git-commit` 和 `--expected-site-version`，并读取本地 `release.json` 与完整发行清单重新计算摘要。证据只有同时等于当前发行、GitHub 权威提交和 Sites 权威版本才会获得签名，格式正确但指向其他发布的绑定会在签名前拒绝。
 
 4.0 起，Sentinel 核心改为厂商无关架构。新增 `enterprise_4a` 标准连接器、OpenAPI 3.1 契约与 4A 接入指南，把账号主体、服务认证、待审批授权建议和审计关联统一为最小事件；Intune、深信服与联软保留为默认关闭的可选兼容适配器。最终生产门禁相应改为部署平台证据、4A 接口验收以及“可选适配器关闭或已验收”证据，不再强制要求三家产品凭据。
+
+4.1 起，新增 `sentinel_4a_probe.py`。探针无论正式动作配置为何都强制生成 `observe` 事件；只有显式 `--live` 才向隔离端点连续发送两份相同载荷，并输出不含凭据和设备标识的幂等验收回执，可直接作为 `enterprise_4a_interface_accepted` 的原始记录。

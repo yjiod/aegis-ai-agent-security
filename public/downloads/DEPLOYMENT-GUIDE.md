@@ -304,3 +304,7 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 核心部署不再以 Intune、深信服或联软为前置条件。Adapter 0.19 新增 `enterprise_4a` 通道，按 `sentinel.enterprise-4a.event/v1` 输出最小设备安全姿态，通过精确 HTTPS 主机、`SENTINEL_4A_` 凭据命名空间、Bearer 服务身份和稳定幂等键对接企业 4A。授权输出只包含观察、告警、访问复核待处理和隔离待审批，不允许 Adapter 直接改变访问权限。
 
 生产验收的十项门禁保持数量和签名结构不变，但平台相关项目迁移为 `deployment_platform_preflight_passed`、`enterprise_4a_interface_accepted` 和 `optional_adapters_disabled_or_accepted`。未采用 Intune 时提供所选部署平台的等价实测记录；未采用深信服或联软时提供目标关闭且无凭据引用的审计记录即可。
+
+## 4.1.0 企业 4A 安全验收探针
+
+`sentinel_4a_probe.py` 默认只生成脱敏 dry-run 回执；只有显式指定 `--live` 才访问配置中的精确 HTTPS 端点。探针忽略生产动作映射并强制使用 `observe`，连续发送两份相同事件，两个响应均为 2xx 时才确认幂等重放能力。输出仅包含端点、租户、载荷摘要、幂等键、状态码与布尔结论，不包含访问令牌、设备 ID 或事件正文，可作为 4A 接口生产门禁的原始验收记录。

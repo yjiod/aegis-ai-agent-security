@@ -21,6 +21,8 @@ python3 sentinel_adapter.py report.json --config adapters.json --dry-run
 
 双方确认字段、脱敏和待审批语义后，在隔离测试端点验证重复请求、超时、非 2xx、凭据轮换和离线补发，再启用 Worker。接收端不得把 `*_pending*` 自动解释为封禁指令。
 
+正式联调使用 `python3 sentinel_4a_probe.py --config adapters.json --live`。探针会覆盖动作映射并强制发送两份完全相同的 `observe` 事件；两个请求都被 2xx 接受时，回执才将 `idempotent_replay_accepted` 标记为 true。标准输出不包含令牌、设备 ID 或事件正文。
+
 ## 演进建议
 
 当前传输层采用预置 Bearer 服务令牌，适配绝大多数内部 API 网关。后续可在不改变事件 Schema 的前提下增加 OAuth 2.0 Client Credentials、mTLS、OIDC 工作负载身份或消息总线传输；身份获取应作为独立凭据提供器实现，不应把客户端密钥写入适配器 JSON。

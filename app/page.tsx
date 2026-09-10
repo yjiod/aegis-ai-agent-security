@@ -587,6 +587,7 @@ function DetailPanel({
                 <a href="/downloads/sentinel-collector.openapi.json" download>Collector API 规范</a>
                 <a href="/downloads/sentinel-enterprise-4a.openapi.json" download>企业 4A OpenAPI</a>
                 <a href="/downloads/ENTERPRISE-4A-INTEGRATION.md" download>企业 4A 接入指南</a>
+                <a href="/downloads/sentinel_4a_probe.py" download>企业 4A 验收探针</a>
                 <a href="/downloads/sentinel-vendor-contracts.json" download>厂商联动契约</a>
                 <a href="/downloads/vendor-acceptance-evidence.example.json" download>厂商验收证据模板</a>
                 <a href="/downloads/sentinel_vendor_preflight.py" download>厂商接入预检</a>
