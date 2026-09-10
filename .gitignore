@@ -35,6 +35,7 @@ next-env.d.ts
 /dist/
 /.wrangler/
 /outputs/
+/client-artifacts/
 /work/
 __pycache__/
 *.py[cod]
