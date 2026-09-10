@@ -1,0 +1,17 @@
+{
+  "schema": "sentinel.deployment-platform-acceptance/v1",
+  "release_version": "4.2.0",
+  "release_manifest_sha256": "REPLACE_WITH_RELEASE_MANIFEST_SHA256",
+  "generated_at": 0,
+  "platform": {"name":"","type":"mdm","evidence_export_id":""},
+  "rings": [
+    {"name":"lab","assigned":0,"installed":0,"reporting":0,"compliant":0,"failed":0,"observation_hours":24,"rollback_tested":false,"approved":false},
+    {"name":"pilot","assigned":0,"installed":0,"reporting":0,"compliant":0,"failed":0,"observation_hours":48,"rollback_tested":false,"approved":false},
+    {"name":"broad","assigned":0,"installed":0,"reporting":0,"compliant":0,"failed":0,"observation_hours":72,"rollback_tested":false,"approved":false},
+    {"name":"production","assigned":0,"installed":0,"reporting":0,"compliant":0,"failed":0,"observation_hours":168,"rollback_tested":false,"approved":false}
+  ],
+  "controls": {"privileged_execution":false,"artifact_digest_pinning":false,"protected_secret_delivery":false,"scheduled_scan_enabled":false,"rollback_available":false},
+  "approved_by": "",
+  "secrets_embedded": false,
+  "device_identifiers_embedded": false
+}

@@ -48,6 +48,23 @@ class SentinelTests(unittest.TestCase):
             target=Path(d)/'evidence.json'; target.write_text(json.dumps(evidence)); link=Path(d)/'linked.json'; link.symlink_to(target)
             with self.assertRaises(OSError): self.production_preflight.read_regular_bounded(link,65536)
 
+    def test_vendor_neutral_deployment_preflight_accepts_supported_platforms(self):
+        gate=load('deployment_preflight','sentinel_deployment_preflight.py'); release=json.loads((DOWNLOADS/'release.json').read_text()); now=2_000_000_000
+        rings=[]
+        for index,(name,hours) in enumerate(zip(gate.RINGS,gate.OBSERVATION_HOURS)):
+            assigned=(index+1)*100; rings.append({'name':name,'assigned':assigned,'installed':assigned-1,'reporting':assigned-2,'compliant':assigned-2,'failed':1,'observation_hours':hours,'rollback_tested':True,'approved':True})
+        evidence={'schema':gate.SCHEMA,'release_version':release['release'],'release_manifest_sha256':hashlib.sha256((DOWNLOADS/'RELEASE-MANIFEST.sha256').read_bytes()).hexdigest(),'generated_at':now,'platform':{'name':'Enterprise Distribution','type':'software_distribution','evidence_export_id':'export-42'},'rings':rings,'controls':{name:True for name in gate.CONTROLS},'approved_by':'endpoint-owner','secrets_embedded':False,'device_identifiers_embedded':False}
+        self.assertEqual(gate.evaluate(DOWNLOADS,evidence,now),[])
+        for platform_type in gate.PLATFORM_TYPES:
+            candidate=json.loads(json.dumps(evidence)); candidate['platform']['type']=platform_type; self.assertEqual(gate.evaluate(DOWNLOADS,candidate,now),[])
+        failed=json.loads(json.dumps(evidence)); failed['rings'][1]['reporting']=50; failed['rings'][2]['failed']=10; failed['controls']['rollback_available']=False
+        errors=gate.evaluate(DOWNLOADS,failed,now); self.assertIn('deployment_reporting_below_gate:pilot',errors); self.assertIn('deployment_failure_above_gate:broad',errors); self.assertIn('deployment_controls_incomplete',errors)
+        private=json.loads(json.dumps(evidence)); private['device_identifiers_embedded']=True; self.assertIn('deployment_device_identifiers_must_not_be_embedded',gate.evaluate(DOWNLOADS,private,now))
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'evidence.json'; path.write_text(json.dumps(evidence)); self.assertEqual(gate.read_json_bounded(path),evidence)
+            linked=Path(directory)/'linked.json'; linked.symlink_to(path)
+            with self.assertRaisesRegex(ValueError,'unsafe_deployment_evidence'): gate.read_json_bounded(linked)
+
     def test_production_evidence_signer_creates_verifiable_copy(self):
         now=2_000_000_000; release=json.loads((DOWNLOADS/'release.json').read_text()); keys={'prod-2026':'k'*32}; records=tempfile.TemporaryDirectory(); self.addCleanup(records.cleanup); root=Path(records.name).resolve(); evidence=production_evidence(self.production_preflight,release,root,now,'b'*40,140)
         signed=self.production_signer.sign(evidence,keys,'prod-2026',root,DOWNLOADS,'b'*40,140,now)
@@ -137,7 +154,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
-        for label in ('Gemini CLI','GitHub Copilot CLI','生产就绪清单','生产验收证据模板','生产最终预检','生产验收证据准备器','生产验收签名工具','生产验收密钥环工具','Collector 验收探针','Collector API 规范','企业 4A OpenAPI','企业 4A 接入指南','企业 4A 验收探针','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
+        for label in ('Gemini CLI','GitHub Copilot CLI','生产就绪清单','生产验收证据模板','生产最终预检','生产验收证据准备器','生产验收签名工具','生产验收密钥环工具','Collector 验收探针','Collector API 规范','企业 4A OpenAPI','企业 4A 接入指南','企业 4A 验收探针','通用部署验收模板','通用部署预检','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
         devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==7',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
         self.assertIn("fetch('/api/devices'",page); self.assertIn('fleetDevices.map',page)

@@ -32,8 +32,8 @@
 1. 在所选 MDM、桌管、软件分发系统或受控本地流程中，按安装、检测、修复、合规与回滚顺序部署；Windows 以 SYSTEM、macOS 以 root 运行。采用 Intune 时复用 `intune-deployment-manifest.json` 及配套证据工具。
 2. 通过受保护配置下发 Collector URL 和逐设备凭据，禁止把秘密写入脚本、策略或命令行。
 3. 依次使用 lab 1%、pilot 5%、broad 25%、production 100% 环；不得跳环或缩短观察期。
-4. 从终端管理平台导出可审计的安装、上报、合规和失败聚合状态；采用 Intune 时可运行 `sentinel_intune_graph_normalize.py` 与 `sentinel_intune_evidence.py`。
-5. 对下一环执行平台对应的预检。采用 Intune 时运行 `sentinel_intune_preflight.py`；其他平台应提供等价的签名、覆盖率、失败率、回滚与风险证据。
+4. 从终端管理平台导出可审计的安装、上报、合规和失败聚合状态，并填写 `deployment-platform-evidence.example.json` 的副本；证据只保留聚合计数，不包含设备标识或秘密。采用 Intune 时可先运行 `sentinel_intune_graph_normalize.py` 与 `sentinel_intune_evidence.py` 辅助聚合。
+5. 运行 `sentinel_deployment_preflight.py <通用部署证据>`。它对所有平台统一验证四环顺序与观察期、95% 安装/上报/合规覆盖、最多 2% 失败率、特权执行、摘要固定、秘密保护、周期扫描和回滚；采用 Intune 时可额外运行 `sentinel_intune_preflight.py` 保留专有证据。
 
 每个环必须抽样验证：新增 AI Agent 自动发现、用户和仓库基线加载、Skill/MCP/代码扫描、24 小时内上报、离线重试、升级、回滚和卸载。失败回退：停止扩圈，下发对应平台回滚；若恢复校验失败，保持周期任务停止并进入人工修复组。
 

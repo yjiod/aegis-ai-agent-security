@@ -308,3 +308,7 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 ## 4.1.0 企业 4A 安全验收探针
 
 `sentinel_4a_probe.py` 默认只生成脱敏 dry-run 回执；只有显式指定 `--live` 才访问配置中的精确 HTTPS 端点。探针忽略生产动作映射并强制使用 `observe`，连续发送两份相同事件，两个响应均为 2xx 时才确认幂等重放能力。输出仅包含端点、租户、载荷摘要、幂等键、状态码与布尔结论，不包含访问令牌、设备 ID 或事件正文，可作为 4A 接口生产门禁的原始验收记录。
+
+## 4.2.0 通用部署平台生产门禁
+
+复制 `deployment-platform-evidence.example.json`，从所选终端管理平台写入 lab、pilot、broad、production 四环聚合结果，并运行 `python3 sentinel_deployment_preflight.py <证据文件>`。门禁支持 `mdm`、`desktop_management`、`software_distribution` 和 `manual_controlled`，固定要求 24/48/72/168 小时观察期、每环回滚与审批、至少 95% 安装/上报/合规率以及不高于 2% 的失败率。证据绑定当前发行及完整清单摘要，24 小时后失效，禁止嵌入秘密或设备标识。Intune 专用工具继续保留，但不再是非 Intune 环境的前置条件。
