@@ -54,32 +54,6 @@ const modules = [
     tone: 'green',
   },
 ];
-const risks = [
-  {
-    severity: '高危',
-    title: 'MCP Server 请求了未授权文件目录',
-    source: 'cursor-mcp-filesystem',
-    device: 'MKT-LT-2841',
-    time: '2 分钟前',
-    color: 'red',
-  },
-  {
-    severity: '中危',
-    title: 'Skill 包含可疑的隐藏指令覆盖',
-    source: 'prompt-helper.skill',
-    device: 'ENG-MBP-1032',
-    time: '18 分钟前',
-    color: 'orange',
-  },
-  {
-    severity: '中危',
-    title: '生成代码使用弱随机数创建会话令牌',
-    source: 'payment-service / PR #184',
-    device: 'ENG-LT-0948',
-    time: '31 分钟前',
-    color: 'orange',
-  },
-];
 const viewNames = {
   onboarding: '接入中心',
   devices: '设备与 Agent',
@@ -120,9 +94,9 @@ export default function Home() {
   const [fleet, setFleet] = useState<FleetSummary | null>(null);
   const [fleetDevices, setFleetDevices] = useState<FleetDevice[] | null>(null);
   const [releaseMetadata, setReleaseMetadata] = useState<ReleaseMetadata | null>(null);
-  const [collectorState, setCollectorState] = useState<'checking' | 'live' | 'demo'>('checking');
+  const [collectorState, setCollectorState] = useState<'checking' | 'live' | 'unavailable'>('checking');
   function runScan() {
-    setToast('当前为演示数据，尚未连接任务下发 API；未对任何终端执行操作。');
+    setToast('扫描任务下发接口尚未启用；请通过已签名终端部署包执行周期扫描。');
   }
   useEffect(() => {
     const controller = new AbortController();
@@ -134,7 +108,7 @@ export default function Home() {
         setFleet(value.summary); setCollectorState('live');
       })
       .catch((error: unknown) => {
-        if ((error as { name?: string })?.name !== 'AbortError') setCollectorState('demo');
+        if ((error as { name?: string })?.name !== 'AbortError') setCollectorState('unavailable');
       });
     fetch('/api/devices', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
@@ -153,12 +127,12 @@ export default function Home() {
       }).catch(() => setReleaseMetadata(null));
     return () => controller.abort();
   }, []);
-  const totalDevices=fleet?.total_devices ?? 312; const activeDevices=fleet?.active_devices ?? 284; const staleDevices=fleet?.stale_devices ?? 28;
-  const currentDevices=fleet?.version_posture.current ?? 302; const coverage=totalDevices ? (currentDevices/totalDevices)*100 : 0;
-  const highRiskDevices=fleet ? fleet.latest_severity.critical+fleet.latest_severity.high : 12; const driftDevices=fleet ? totalDevices-currentDevices : 10;
+  const totalDevices=fleet?.total_devices ?? 0; const activeDevices=fleet?.active_devices ?? 0; const staleDevices=fleet?.stale_devices ?? 0;
+  const currentDevices=fleet?.version_posture.current ?? 0; const coverage=totalDevices ? (currentDevices/totalDevices)*100 : 0;
+  const highRiskDevices=fleet ? fleet.latest_severity.critical+fleet.latest_severity.high : 0; const driftDevices=fleet ? totalDevices-currentDevices : 0;
   const agentCoverage: [string,number,number,number|null,number|null][] = fleet ? [
     ['Cursor',fleet.agent_coverage.cursor.total,fleet.agent_coverage.cursor.active,null,null],['Claude Code',fleet.agent_coverage.claude_code.total,fleet.agent_coverage.claude_code.active,fleet.baseline_coverage.claude_code.managed,fleet.baseline_coverage.claude_code.total],['Codex CLI',fleet.agent_coverage.codex.total,fleet.agent_coverage.codex.active,fleet.baseline_coverage.codex.managed,fleet.baseline_coverage.codex.total],['Windsurf',fleet.agent_coverage.windsurf.total,fleet.agent_coverage.windsurf.active,null,null],['Gemini CLI',fleet.agent_coverage.gemini_cli.total,fleet.agent_coverage.gemini_cli.active,fleet.baseline_coverage.gemini_cli.managed,fleet.baseline_coverage.gemini_cli.total],['GitHub Copilot CLI',fleet.agent_coverage.github_copilot_cli.total,fleet.agent_coverage.github_copilot_cli.active,fleet.baseline_coverage.github_copilot_cli.managed,fleet.baseline_coverage.github_copilot_cli.total],
-  ] : [['Cursor',124,100,null,null],['Claude Code',86,78,83,86],['Codex CLI',64,58,62,64],['Windsurf',38,34,null,null],['Gemini CLI',42,37,40,42],['GitHub Copilot CLI',51,45,48,51]];
+  ] : [['Cursor',0,0,null,null],['Claude Code',0,0,0,0],['Codex CLI',0,0,0,0],['Windsurf',0,0,null,null],['Gemini CLI',0,0,0,0],['GitHub Copilot CLI',0,0,0,0]];
   return (
     <main className="min-h-screen bg-[#07110f] text-[#eaf7f2]">
       <header className="topbar">
@@ -173,7 +147,7 @@ export default function Home() {
         <div className="header-actions">
           <span className="system-ok">
             <span className={collectorState === 'live' ? 'live-dot' : 'demo-dot'} />
-            {collectorState === 'live' ? '只读摘要已连接' : collectorState === 'checking' ? '正在检查接收器' : '演示数据 · 接收器未连接'}
+            {collectorState === 'live' ? '生产 Collector 已连接' : collectorState === 'checking' ? '正在检查生产链路' : '生产 Collector 暂不可用'}
           </span>
           <button className="icon-btn" aria-label="搜索">
             <Search size={18} />
@@ -202,14 +176,14 @@ export default function Home() {
               label="设备与 Agent"
               target="devices"
               open={setDetail}
-              count="312"
+              count={fleet ? String(fleet.total_devices) : undefined}
             />
             <Nav
               icon={AlertTriangle}
               label="风险中心"
               target="risks"
               open={setDetail}
-              alert="12"
+              alert={fleet && highRiskDevices ? String(highRiskDevices) : undefined}
             />
             <p className="nav-label section-gap">安全能力</p>
             <Nav
@@ -260,16 +234,16 @@ export default function Home() {
             <LockKeyhole size={16} />
             <div>
               <strong>企业安全策略</strong>
-              <small>尚未连接接收器</small>
+              <small>{collectorState === 'live' ? '真实数据 · 只读' : '连接状态异常'}</small>
             </div>
             <Check size={16} />
           </div>
         </aside>
         <section className="workspace" id="overview">
-          <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>{fleet ? '混合只读模式' : '演示模式'}</strong>{fleet ? ` 顶部指标来自接收器；终端明细${fleetDevices ? '也已连接真实只读数据' : '仍为界面样例'}，覆盖分布和风险事件仍为样例。` : ' 页面指标、设备和风险事件均为界面样例，不代表真实终端状态。请部署报告接收器并完成私有 API 接入后再用于运营判断。'}</span></div>
+          <div className="demo-notice" role="note"><ShieldCheck size={16} /><span><strong>生产只读模式</strong>{fleet ? ` 指标来自生产 Collector；终端明细${fleetDevices ? '已连接' : '暂不可用'}。未接入的数据保持为空，不使用样例回退。` : ' Collector 当前不可用，所有运营指标保持为空；控制台不会用样例数据替代真实状态。'}</span></div>
           <div className="page-head">
             <div>
-              <p className="eyebrow">安全态势 / 演示数据</p>
+              <p className="eyebrow">安全态势 / 生产只读</p>
               <h1>AI Agent 安全总览</h1>
               <p>统一发现、校验并约束员工终端上的 AI Agent 行为。</p>
             </div>
@@ -293,7 +267,7 @@ export default function Home() {
           <div className="metrics">
             <article className="metric">
               <div className="metric-top">
-                <span>已纳管设备{fleet ? '' : '（样例）'}</span>
+                <span>已纳管设备</span>
                 <Laptop size={18} />
               </div>
               <strong>{totalDevices}</strong>
@@ -303,7 +277,7 @@ export default function Home() {
             </article>
             <article className="metric">
               <div className="metric-top">
-                <span>当前版本覆盖率{fleet ? '' : '（样例）'}</span>
+                <span>当前版本覆盖率</span>
                 <Bot size={18} />
               </div>
               <strong>
@@ -316,17 +290,17 @@ export default function Home() {
             </article>
             <article className="metric danger">
               <div className="metric-top">
-                <span>高风险设备{fleet ? '' : '（样例）'}</span>
+                <span>高风险设备</span>
                 <AlertTriangle size={18} />
               </div>
               <strong>{highRiskDevices}</strong>
               <p>
-                <i>{fleet?.latest_severity.critical ?? 3} 严重</i> · {fleet?.latest_severity.high ?? 9} 高危
+                <i>{fleet?.latest_severity.critical ?? 0} 严重</i> · {fleet?.latest_severity.high ?? 0} 高危
               </p>
             </article>
             <article className="metric">
               <div className="metric-top">
-                <span>版本漂移设备{fleet ? '' : '（样例）'}</span>
+                <span>版本漂移设备</span>
                 <ShieldCheck size={18} />
               </div>
               <strong>{driftDevices}</strong>
@@ -403,55 +377,37 @@ export default function Home() {
             <section className="panel risks" id="risks">
               <div className="panel-head">
                 <div>
-                  <h2>风险事件样例</h2>
-                  <p>按风险等级与时间排序</p>
+                  <h2>风险事件</h2>
+                  <p>事件明细接口待接入</p>
                 </div>
                 <button>进入风险中心 →</button>
               </div>
-              <div className="risk-table">
-                {risks.map((r) => (
-                  <div className="risk-row" key={r.title}>
-                    <span className={`severity ${r.color}`}>{r.severity}</span>
-                    <div className="risk-main">
-                      <strong>{r.title}</strong>
-                      <span>{r.source}</span>
-                    </div>
-                    <span className="device">{r.device}</span>
-                    <span className="time">{r.time}</span>
-                    <button
-                      className="handle"
-                      onClick={() => setToast(`已打开「${r.title}」处置详情。`)}
-                    >
-                      处置
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <div className="empty-detail"><ShieldCheck size={32}/><h3>暂无真实事件明细</h3><p>汇总风险数量来自生产 Collector；事件内容不会使用样例填充。</p></div>
             </section>
             <section className="panel score">
               <div className="panel-head">
                 <div>
                   <h2>安全评分</h2>
-                  <p>企业基线综合得分</p>
+                  <p>评分接口待接入</p>
                 </div>
               </div>
               <div className="score-body">
                 <div className="score-ring">
-                  <strong>92</strong>
+                  <strong>—</strong>
                   <span>/ 100</span>
                 </div>
                 <div className="score-list">
                   <p>
                     <span>配置合规</span>
-                    <b>98</b>
+                    <b>—</b>
                   </p>
                   <p>
                     <span>Agent 行为</span>
-                    <b>94</b>
+                    <b>—</b>
                   </p>
                   <p>
                     <span>代码安全</span>
-                    <b>87</b>
+                    <b>—</b>
                   </p>
                 </div>
               </div>
@@ -513,24 +469,6 @@ function DetailPanel({
   fleetDevices: FleetDevice[] | null;
   releaseMetadata: ReleaseMetadata | null;
 }) {
-  const scanRows =
-    view === 'skills'
-      ? [
-          ['prompt-helper.skill', '隔离', '隐藏指令覆盖', '高危'],
-          ['jira-assistant.skill', '放行', '权限声明完整', '通过'],
-          ['release-notes.skill', '观察', '依赖包待升级', '中危'],
-        ]
-      : view === 'mcp'
-        ? [
-            ['filesystem-mcp', '限制', '越权目录访问', '高危'],
-            ['github-mcp', '放行', 'OAuth 范围合规', '通过'],
-            ['postgres-mcp', '观察', '出站地址未锁定', '中危'],
-          ]
-        : [
-            ['payment-service', '阻断', '弱随机数生成令牌', '高危'],
-            ['customer-portal', '放行', '质量门禁通过', '通过'],
-            ['data-pipeline', '观察', '依赖存在 CVE', '中危'],
-          ];
   const scanner = view === 'skills' || view === 'mcp' || view === 'quality';
   return (
     <div
@@ -550,7 +488,7 @@ function DetailPanel({
             ×
           </button>
         </div>
-        <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>演示模式</strong> 本面板中的终端、风险、合规率和处置结果均为样例；企业 API 接入前不会执行外部操作。</span></div>
+        <div className="demo-notice" role="note"><ShieldCheck size={16} /><span><strong>生产数据边界</strong> 已接入的 Collector 数据会实时显示；未接入的明细、评分和写操作保持为空或禁用。</span></div>
         {view === 'onboarding' && (
           <>
             <div className="baseline-banner">
@@ -611,18 +549,18 @@ function DetailPanel({
             <div className="detail-kpis">
               <article>
                 <strong>
-                  {view === 'skills' ? 68 : view === 'mcp' ? 41 : 126}
+                  0
                 </strong>
                 <span>已扫描对象</span>
               </article>
               <article>
                 <strong>
-                  {view === 'skills' ? 3 : view === 'mcp' ? 2 : 7}
+                  0
                 </strong>
                 <span>待处理发现</span>
               </article>
               <article>
-                <strong>100%</strong>
+                <strong>—</strong>
                 <span>在线终端覆盖</span>
               </article>
             </div>
@@ -630,15 +568,15 @@ function DetailPanel({
               <div className="panel-head">
                 <div>
                   <h2>最近扫描结果</h2>
-                  <p>终端安全 Agent 上报样例</p>
+                  <p>扫描明细 API 待接入</p>
                 </div>
                 <Button
-                  onClick={() => notify('演示模式：未连接规则同步 API，未修改任何终端。')}
+                  onClick={() => notify('规则同步 API 尚未启用，未修改任何终端。')}
                 >
                   同步规则库
                 </Button>
               </div>
-              <DataTable rows={scanRows} />
+              <div className="empty-detail"><ShieldCheck size={32}/><h3>暂无真实扫描明细</h3><p>终端上报后将在此显示，控制台不会填充样例记录。</p></div>
             </div>
           </>
         )}
@@ -647,10 +585,10 @@ function DetailPanel({
             <div className="panel-head">
               <div>
                 <h2>受管终端</h2>
-                <p>{fleet ? `${fleet.total_devices} 台设备 · ${fleet.active_devices} 台在线` : '312 台设备 · 284 台在线（样例）'}</p>
+                <p>{fleet ? `${fleet.total_devices} 台设备 · ${fleet.active_devices} 台在线` : 'Collector 暂不可用'}</p>
                 {fleet?.credential_posture && <p>凭据代次：当前 {fleet.credential_posture.current} · 上一代 {fleet.credential_posture.previous} · Legacy {fleet.credential_posture.legacy}</p>}
               </div>
-              <Button onClick={() => notify('演示模式：请直接下载已验证发行包，未创建外部任务。')}>
+              <Button onClick={() => notify('请从接入中心下载已验证发行包；未创建外部任务。')}>
                 生成部署包
               </Button>
             </div>
@@ -660,12 +598,7 @@ function DetailPanel({
                 new Date(device.last_seen*1000).toLocaleString('zh-CN'),
                 `Agent ${device.agent_version} / 策略 ${device.policy_version}`,
                 `${device.severity==='critical' ? '严重' : device.severity==='high' ? '高危' : '正常'} · ${device.credential_generation==='current' ? '当前凭据' : device.credential_generation==='previous' ? '上一代凭据' : 'Legacy'}`,
-              ]) : [
-                ['ENG-MBP-1032', '陈昊 · Cursor', 'v3.8', '受保护'],
-                ['MKT-LT-2841', '林妍 · Cursor', 'v3.7', '需处理'],
-                ['ENG-LT-0948', '周航 · Codex CLI', 'v3.8', '受保护'],
-                ['OPS-MBP-0314', '罗宁 · Claude Code', 'v3.8', '离线'],
-              ]}
+              ]) : []}
             />
           </div>
         )}
@@ -674,29 +607,13 @@ function DetailPanel({
             <div className="panel-head">
               <div>
                 <h2>待研判事件</h2>
-                <p>3 个高危事件需要人工确认</p>
+                <p>风险事件明细接口待接入</p>
               </div>
-              <Button onClick={() => notify('演示模式：未连接 EDR 审批接口，未隔离任何对象。')}>
+              <Button onClick={() => notify('EDR 审批接口尚未启用，未隔离任何对象。')}>
                 隔离全部高危
               </Button>
             </div>
-            {risks.map((r) => (
-              <div className="risk-row wide" key={r.title}>
-                <span className={`severity ${r.color}`}>{r.severity}</span>
-                <div className="risk-main">
-                  <strong>{r.title}</strong>
-                  <span>{r.source}</span>
-                </div>
-                <span className="device">{r.device}</span>
-                <span className="time">{r.time}</span>
-                <button
-                  className="handle"
-                  onClick={() => notify(`演示模式：未连接工单接口，未认领「${r.title}」。`)}
-                >
-                  认领处置
-                </button>
-              </div>
-            ))}
+            <div className="empty-detail"><ShieldCheck size={32}/><h3>暂无真实事件明细</h3><p>当前仅展示 Collector 提供的聚合风险数量。</p></div>
           </div>
         )}
         {view === 'baseline' && (
@@ -704,10 +621,10 @@ function DetailPanel({
             <div className="baseline-banner">
               <div>
                 <h2>企业 AI Coding 安全基线 v{releaseMetadata?.component_versions.policy ?? '4.9.0'}</h2>
-                <p>规则应用范围与合规率为界面样例</p>
+                <p>当前已验证并发布的规则基线</p>
               </div>
               <strong>
-                98.2%<span>合规率</span>
+                v{releaseMetadata?.component_versions.policy ?? '4.9.0'}<span>策略版本</span>
               </strong>
             </div>
             <div className="policy-grid">
@@ -738,7 +655,7 @@ function DetailPanel({
                 <h2>默认终端策略</h2>
                 <p>变更将自动同步至在线安全 Agent</p>
               </div>
-              <Button onClick={() => notify('演示模式：未连接策略发布 API，未修改任何终端。')}>
+              <Button onClick={() => notify('策略发布 API 尚未启用，未修改任何终端。')}>
                 发布策略
               </Button>
             </div>
@@ -757,7 +674,7 @@ function DetailPanel({
                   className={`switch ${on ? 'on' : ''}`}
                   onClick={(e) => {
                     e.currentTarget.classList.toggle('on');
-                    notify(`演示模式：${a} 未被修改，设置 API 尚未连接。`);
+                    notify(`${a} 未被修改，设置 API 尚未连接。`);
                   }}
                   aria-label={`切换${a}`}
                 >
@@ -772,7 +689,7 @@ function DetailPanel({
             <ShieldCheck size={44} />
             <h2>{viewNames[view]}已接入</h2>
             <p>下一阶段可连接企业身份、通知和审计系统。</p>
-            <Button onClick={() => notify('演示模式：配置向导尚未连接企业后端。')}>
+            <Button onClick={() => notify('配置向导尚未连接企业后端。')}>
               打开配置向导
             </Button>
           </div>

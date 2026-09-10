@@ -312,3 +312,6 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 ## 4.2.0 通用部署平台生产门禁
 
 复制 `deployment-platform-evidence.example.json`，从所选终端管理平台写入 lab、pilot、broad、production 四环聚合结果，并运行 `python3 sentinel_deployment_preflight.py <证据文件>`。门禁支持 `mdm`、`desktop_management`、`software_distribution` 和 `manual_controlled`，固定要求 24/48/72/168 小时观察期、每环回滚与审批、至少 95% 安装/上报/合规率以及不高于 2% 的失败率。证据绑定当前发行及完整清单摘要，24 小时后失效，禁止嵌入秘密或设备标识。Intune 专用工具继续保留，但不再是非 Intune 环境的前置条件。
+## 4.3.0 真实 Collector 与参考 4A 服务
+
+本版本提供 `sentinel_4a_receiver.py` 与加固的 systemd 单元，作为企业 4A 标准安全事件接口的轻量参考实现。接收器只接受最小化姿态事件、强制 Bearer 认证、校验请求体绑定的幂等键，并把影响访问的动作保留为外部审批状态。生产控制台不再回退到样例数据：Collector 或明细接口不可用时显示空状态。参考身份层可采用 Authelia 与 Nginx AuthRequest，覆盖账号、认证、路径授权和访问审计；Intune、深信服与联软仍作为默认关闭的可插拔兼容适配器。
