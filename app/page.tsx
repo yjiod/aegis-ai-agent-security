@@ -82,7 +82,7 @@ type FleetSummary = {
     unknown: number;
   };
   credential_posture?: { current: number; previous: number; legacy: number };
-  agent_coverage: Record<'cursor'|'claude_code'|'codex'|'windsurf'|'gemini_cli'|'github_copilot_cli',{total:number;active:number}>;
+  agent_coverage: Record<'cursor'|'claude_code'|'codex'|'windsurf'|'gemini_cli'|'github_copilot_cli'|'workbuddy'|'qwen_enterprise'|'tongyi_lingma'|'codebuddy',{total:number;active:number}>;
   baseline_coverage: Record<'claude_code'|'codex'|'gemini_cli'|'github_copilot_cli',{total:number;managed:number}>;
 };
 type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy'; severity:'normal'|'high'|'critical'; agent_version:string; policy_version:string };
@@ -131,8 +131,8 @@ export default function Home() {
   const currentDevices=fleet?.version_posture.current ?? 0; const coverage=totalDevices ? (currentDevices/totalDevices)*100 : 0;
   const highRiskDevices=fleet ? fleet.latest_severity.critical+fleet.latest_severity.high : 0; const driftDevices=fleet ? totalDevices-currentDevices : 0;
   const agentCoverage: [string,number,number,number|null,number|null][] = fleet ? [
-    ['Cursor',fleet.agent_coverage.cursor.total,fleet.agent_coverage.cursor.active,null,null],['Claude Code',fleet.agent_coverage.claude_code.total,fleet.agent_coverage.claude_code.active,fleet.baseline_coverage.claude_code.managed,fleet.baseline_coverage.claude_code.total],['Codex CLI',fleet.agent_coverage.codex.total,fleet.agent_coverage.codex.active,fleet.baseline_coverage.codex.managed,fleet.baseline_coverage.codex.total],['Windsurf',fleet.agent_coverage.windsurf.total,fleet.agent_coverage.windsurf.active,null,null],['Gemini CLI',fleet.agent_coverage.gemini_cli.total,fleet.agent_coverage.gemini_cli.active,fleet.baseline_coverage.gemini_cli.managed,fleet.baseline_coverage.gemini_cli.total],['GitHub Copilot CLI',fleet.agent_coverage.github_copilot_cli.total,fleet.agent_coverage.github_copilot_cli.active,fleet.baseline_coverage.github_copilot_cli.managed,fleet.baseline_coverage.github_copilot_cli.total],
-  ] : [['Cursor',0,0,null,null],['Claude Code',0,0,0,0],['Codex CLI',0,0,0,0],['Windsurf',0,0,null,null],['Gemini CLI',0,0,0,0],['GitHub Copilot CLI',0,0,0,0]];
+    ['Cursor',fleet.agent_coverage.cursor.total,fleet.agent_coverage.cursor.active,null,null],['Claude Code',fleet.agent_coverage.claude_code.total,fleet.agent_coverage.claude_code.active,fleet.baseline_coverage.claude_code.managed,fleet.baseline_coverage.claude_code.total],['Codex CLI',fleet.agent_coverage.codex.total,fleet.agent_coverage.codex.active,fleet.baseline_coverage.codex.managed,fleet.baseline_coverage.codex.total],['Windsurf',fleet.agent_coverage.windsurf.total,fleet.agent_coverage.windsurf.active,null,null],['Gemini CLI',fleet.agent_coverage.gemini_cli.total,fleet.agent_coverage.gemini_cli.active,fleet.baseline_coverage.gemini_cli.managed,fleet.baseline_coverage.gemini_cli.total],['GitHub Copilot CLI',fleet.agent_coverage.github_copilot_cli.total,fleet.agent_coverage.github_copilot_cli.active,fleet.baseline_coverage.github_copilot_cli.managed,fleet.baseline_coverage.github_copilot_cli.total],['WorkBuddy',fleet.agent_coverage.workbuddy.total,fleet.agent_coverage.workbuddy.active,null,null],['千问企业版',fleet.agent_coverage.qwen_enterprise.total,fleet.agent_coverage.qwen_enterprise.active,null,null],['通义灵码',fleet.agent_coverage.tongyi_lingma.total,fleet.agent_coverage.tongyi_lingma.active,null,null],['CodeBuddy',fleet.agent_coverage.codebuddy.total,fleet.agent_coverage.codebuddy.active,null,null],
+  ] : [['Cursor',0,0,null,null],['Claude Code',0,0,0,0],['Codex CLI',0,0,0,0],['Windsurf',0,0,null,null],['Gemini CLI',0,0,0,0],['GitHub Copilot CLI',0,0,0,0],['WorkBuddy',0,0,null,null],['千问企业版',0,0,null,null],['通义灵码',0,0,null,null],['CodeBuddy',0,0,null,null]];
   return (
     <main className="min-h-screen bg-[#07110f] text-[#eaf7f2]">
       <header className="topbar">
@@ -493,7 +493,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.40.0'}</h2>
+                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.41.0'}</h2>
                 <p>厂商无关部署 · 企业 4A 标准接口 · 可插拔兼容适配器</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
@@ -505,7 +505,7 @@ function DetailPanel({
                 <article><b>企业 4A</b><span>标准主接口</span><p>以最小安全事件对接账号、认证、授权和审计平台，影响访问的动作必须经外部审批。</p></article>
                 <article><b>兼容适配层</b><span>按需启用</span><p>深信服、联软与安全 Webhook 默认关闭，不影响 Sentinel 核心部署、扫描和报告。</p></article>
               </div>
-              <ol><li><b>自动发现</b><span>系统周期任务检测 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 与 GitHub Copilot CLI。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>4A 联动</b><span>以匿名设备主体输出标准安全姿态、待审批授权建议和可追踪审计关联号。</span></li></ol>
+              <ol><li><b>自动发现</b><span>周期检测 Cursor、Claude Code、Codex、Windsurf、Gemini、Copilot、WorkBuddy、千问企业版、通义灵码与 CodeBuddy。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>4A 联动</b><span>以匿名设备主体输出标准安全姿态、待审批授权建议和可追踪审计关联号。</span></li></ol>
               <div className="download-actions">
                 <a className="download-primary" href="/downloads/sentinel-enterprise-bundle.zip" download>下载完整部署包</a>
                 <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>

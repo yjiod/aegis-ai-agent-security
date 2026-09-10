@@ -1,9 +1,10 @@
 {
-  "release": "4.3.0",
+  "release": "4.3.1",
   "channel": "pilot",
-  "published_at": "2026-09-10T13:00:00+08:00",
-  "component_versions": {"endpoint_agent":"0.40.0","policy":"4.9.0","collector":"0.19","adapter":"0.19"},
+  "published_at": "2026-09-10T14:10:00+08:00",
+  "component_versions": {"endpoint_agent":"0.41.0","policy":"4.9.0","collector":"0.19","adapter":"0.19"},
   "features": [
+    "windows_x64_msi_validation_client", "workbuddy_discovery", "qwen_enterprise_discovery", "tongyi_lingma_discovery", "codebuddy_discovery", "china_ai_agent_mcp_and_skill_scanning", "cross_platform_agent_0_41",
     "production_collector_deployment", "reference_4a_audit_receiver", "strict_4a_event_contract", "idempotent_4a_audit_ingestion", "authelia_nginx_authrequest_reference", "production_console_without_sample_fallback",
     "vendor_neutral_deployment_preflight", "four_ring_deployment_evidence", "fixed_cross_platform_rollout_gates", "deployment_platform_privacy_receipt", "mdm_desktop_software_manual_platform_contract",
     "enterprise_4a_acceptance_probe", "forced_observe_4a_probe", "enterprise_4a_idempotent_replay_evidence", "secret_free_4a_probe_receipt",

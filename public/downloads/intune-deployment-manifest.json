@@ -11,15 +11,15 @@
   "artifacts": {
     "windows_detection": {
       "file": "intune-windows-detect.ps1",
-      "sha256": "a7eb55a7c6af4c97f2f116d6c0086bf0cb51dfd4923838a5a53b938bedf930c9"
+      "sha256": "58611ef24b02112afd1422af2829c5f471aa34e6670bbb539ecdcd9cde80d5fb"
     },
     "windows_remediation": {
       "file": "intune-windows-remediate.ps1",
-      "sha256": "5b91019e4fe76328ffbdd76396045ffb3db13a4ee9a5b99848daf0a969546356"
+      "sha256": "0eb4734f7104f8264e61b451261e31a41f64c7002a1a1ec8993e4b692b1ab817"
     },
     "windows_compliance_discovery": {
       "file": "intune-compliance-discovery.ps1",
-      "sha256": "1082e1e6d11989cef465897c9e386445a5d156bf8b9893de3a957b08eed2e94b"
+      "sha256": "9dc0a499e55baf3527abc8a7eac7a4ce4e9987e7b5e281ce6beab46690b88c9d"
     },
     "windows_compliance_rules": {
       "file": "intune-compliance-policy.json",
@@ -39,11 +39,11 @@
     },
     "macos_install": {
       "file": "intune-macos-install.sh",
-      "sha256": "0f60bd62112f6073fdfc6d62fecfa3d9c0ae4695cdfb975e285b8cad6b9509b4"
+      "sha256": "e9ef23a31e3ed25790c93aec9f394d4648a541189d121e98ce08933078903492"
     },
     "macos_compliance_discovery": {
       "file": "intune-macos-compliance.sh",
-      "sha256": "0c58eb644e2b1bba38917da00fa31b512dc7f6e5465a0e2b1c8d301cd729cfd9"
+      "sha256": "190f23d730b0951b798cb339a0ae9aadbb461f3be800b0379c1f384516041352"
     },
     "macos_compliance_rules": {
       "file": "intune-macos-compliance-policy.json",

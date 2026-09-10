@@ -11,7 +11,7 @@ const postures = [
   'unknown',
 ] as const;
 const credentialPostures = ['current', 'previous', 'legacy'] as const;
-const agentNames = ['cursor', 'claude_code', 'codex', 'windsurf', 'gemini_cli', 'github_copilot_cli'] as const;
+const agentNames = ['cursor', 'claude_code', 'codex', 'windsurf', 'gemini_cli', 'github_copilot_cli', 'workbuddy', 'qwen_enterprise', 'tongyi_lingma', 'codebuddy'] as const;
 const baselineNames = ['claude_code', 'codex', 'gemini_cli', 'github_copilot_cli'] as const;
 
 function boundedCount(value: unknown): value is number {

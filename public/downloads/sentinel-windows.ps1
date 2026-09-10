@@ -267,9 +267,13 @@ $agentMarkers = @{
   windsurf=@('.codeium\windsurf\mcp_config.json','AppData\Roaming\Windsurf\User\settings.json','AppData\Local\Programs\Windsurf\Windsurf.exe')
   gemini_cli=@('.gemini\settings.json','.gemini\GEMINI.md','AppData\Roaming\npm\gemini.cmd')
   github_copilot_cli=@('.copilot\config.json','.copilot\settings.json','.copilot\mcp-config.json','AppData\Roaming\npm\copilot.cmd')
+  workbuddy=@('.workbuddy\mcp.json','workbuddy','AppData\Local\Programs\WorkBuddy\WorkBuddy.exe','AppData\Roaming\CodeBuddyExtension')
+  qwen_enterprise=@('.qwenworkcn','AppData\Roaming\QwenWork','AppData\Local\Programs\Qwen\Qwen.exe')
+  tongyi_lingma=@('.lingma','.aliyun\lingma','AppData\Roaming\Lingma')
+  codebuddy=@('.codebuddy','AppData\Roaming\CodeBuddyExtension','AppData\Local\Programs\CodeBuddy\CodeBuddy.exe')
 }
 foreach ($userHome in $userHomes) {
-  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf','.gemini','.copilot')) { $candidate=Join-Path $userHome.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
+  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf','.gemini','.copilot','.workbuddy','.qwenworkcn','.lingma','.codebuddy','workbuddy','AppData\Roaming\CodeBuddyExtension')) { $candidate=Join-Path $userHome.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
   foreach ($agent in $agentMarkers.Keys) {
     foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $userHome.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-SentinelPath $marker);scope='user';detected_by='filesystem_marker'};$baseline=Get-SentinelUserBaselineStatus $userHome.FullName $agent;if($baseline){$inventory += @{type='agent_baseline';name=$agent;status=$baseline.status;scope='user'};if($baseline.status -ne 'managed'){$findings += @{kind='agent_baseline_not_loaded';severity='high';path=(Protect-SentinelPath $baseline.path);message="$agent 已发现但企业安全基线未处于受管状态";evidence=$baseline.status}}};break} }
   }
@@ -281,6 +285,10 @@ $systemMarkers = @{
   windsurf=@("$env:LOCALAPPDATA\Programs\Windsurf\Windsurf.exe","$env:ProgramFiles\Windsurf\Windsurf.exe")
   gemini_cli=@("$env:APPDATA\npm\gemini.cmd","$env:ProgramFiles\nodejs\gemini.cmd")
   github_copilot_cli=@("$env:APPDATA\npm\copilot.cmd","$env:ProgramFiles\nodejs\copilot.cmd")
+  workbuddy=@("$env:LOCALAPPDATA\Programs\WorkBuddy\WorkBuddy.exe","$env:APPDATA\CodeBuddyExtension")
+  qwen_enterprise=@("$env:LOCALAPPDATA\Programs\Qwen\Qwen.exe","$env:APPDATA\QwenWork")
+  tongyi_lingma=@("$env:APPDATA\Lingma")
+  codebuddy=@("$env:LOCALAPPDATA\Programs\CodeBuddy\CodeBuddy.exe","$env:APPDATA\CodeBuddyExtension")
 }
 foreach($agent in $systemMarkers.Keys){foreach($marker in $systemMarkers[$agent]){if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=$marker;scope='system';detected_by='filesystem_marker'};break}}}
 foreach($repo in Get-ManagedRepos) { Install-SentinelBaseline $repo; $roots += $repo; $inventory += @{type='managed_repository';path=(Protect-SentinelPath $repo)} }
@@ -320,7 +328,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.40.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.41.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
