@@ -8,6 +8,7 @@ import {
   Bot,
   Check,
   Code2,
+  Cpu,
   Laptop,
   LockKeyhole,
   Network,
@@ -59,6 +60,7 @@ const navSections: NavSection[] = [
       { href: '/skills', label: 'Skill 扫描器', icon: Sparkles },
       { href: '/mcp', label: 'MCP 扫描器', icon: Network },
       { href: '/quality', label: '代码质量', icon: Wrench },
+      { href: '/engines', label: '扫描引擎', icon: Cpu },
     ],
   },
   {
