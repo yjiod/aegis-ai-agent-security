@@ -13,7 +13,7 @@ trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 
 for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
 echo "3161c845caab3a06d009fac0be03fbd0b8f94d0baf55a1794dfb161ede3e0e5f  $STAGE_DIR/aegis_agent.py" | shasum -a 256 -c -
 echo "a39a304dcd75e2a1ce43b9c0bf00ece9982b707c1e86652488f4ff9d7e1b0991  $STAGE_DIR/aegis-policy.json" | shasum -a 256 -c -
-echo "e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e  $STAGE_DIR/aegis-security-baseline.md" | shasum -a 256 -c -
+echo "5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806  $STAGE_DIR/aegis-security-baseline.md" | shasum -a 256 -c -
 CURRENT_COMPLETE=1
 for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do if [ ! -f "$INSTALL_DIR/$name" ]; then CURRENT_COMPLETE=0; fi; done
 if [ "$CURRENT_COMPLETE" -eq 1 ]; then
