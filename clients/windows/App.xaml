@@ -1,0 +1,12 @@
+<Application x:Class="AegisAgent.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- Aegis 品牌色 -->
+            <SolidColorBrush x:Key="AegisPrimary" Color="#49e8a5"/>
+            <SolidColorBrush x:Key="AegisBackground" Color="#07110f"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

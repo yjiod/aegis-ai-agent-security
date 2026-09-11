@@ -12,6 +12,7 @@ import {
   LockKeyhole,
   Network,
   Search,
+  ScrollText,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
@@ -65,6 +66,7 @@ const navSections: NavSection[] = [
     gap: true,
     items: [
       { href: '/policies', label: '策略配置', icon: SlidersHorizontal },
+      { href: '/audit', label: '审计日志', icon: ScrollText },
       { href: '/team', label: '团队与权限', icon: Users },
       { href: '/settings', label: '系统设置', icon: Settings },
     ],

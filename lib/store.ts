@@ -105,11 +105,28 @@ export interface Ticket {
 }
 
 /* ------------------------------------------------------------------ *
+ * Identifier shapes
+ * ------------------------------------------------------------------ */
+
+/**
+ * device_id is the join key between the console, the Collector and EDR, so its
+ * shape is fixed: 3-64 characters of ASCII alphanumerics and hyphens. No dots,
+ * slashes or unicode — it ends up in URLs, log lines and on-disk paths.
+ */
+export const DEVICE_ID_PATTERN = /^[A-Za-z0-9-]{3,64}$/;
+
+/** The `TKT-YYYYMMDD-NNNN` shape allocated by {@link nextTicketId}. */
+export const TICKET_ID_PATTERN = /^TKT-\d{8}-\d{4}$/;
+
+/* ------------------------------------------------------------------ *
  * Type guards (used by the route handlers for input validation)
  * ------------------------------------------------------------------ */
 
 function oneOf(values: readonly string[], candidate: unknown): boolean {
-  return typeof candidate === 'string' && (values as readonly string[]).includes(candidate);
+  return (
+    typeof candidate === 'string' &&
+    (values as readonly string[]).includes(candidate)
+  );
 }
 
 export function isAgentType(value: unknown): value is AgentType {
@@ -132,15 +149,30 @@ export function isTicketStatus(value: unknown): value is TicketStatus {
  * Ticket state machine
  * ------------------------------------------------------------------ */
 
+/**
+ * The single source of truth for the ticket lifecycle, consumed by
+ * app/api/tickets/[id]/route.ts:
+ *
+ *   open -> acknowledged -> investigating -> resolved | dismissed
+ *   any non-open state -> open (reopen)
+ *
+ * `open -> resolved` is therefore impossible: a risk has to be owned and looked
+ * at before it can be closed. `acknowledged -> dismissed` is kept deliberately —
+ * a claimed ticket can still turn out to be a false positive, and the console
+ * offers that action.
+ */
 const VALID_TRANSITIONS: Record<TicketStatus, TicketStatus[]> = {
   open: ['acknowledged'],
-  acknowledged: ['investigating', 'dismissed'],
-  investigating: ['resolved', 'dismissed'],
+  acknowledged: ['investigating', 'dismissed', 'open'],
+  investigating: ['resolved', 'dismissed', 'open'],
   resolved: ['open'],
   dismissed: ['open'],
 };
 
-export function isValidTransition(from: TicketStatus, to: TicketStatus): boolean {
+export function isValidTransition(
+  from: TicketStatus,
+  to: TicketStatus,
+): boolean {
   return VALID_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
@@ -155,6 +187,7 @@ export function getValidTransitions(from: TicketStatus): TicketStatus[] {
 type AegisStores = {
   __aegis_devices?: Map<string, Device>;
   __aegis_tickets?: Map<string, Ticket>;
+  __aegis_audit?: AuditEntry[];
 };
 
 /**
@@ -319,7 +352,8 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
     device_id: 'DESK-WIN-0521',
     description:
       'mcp_config.json 内以明文保存供应商 API 令牌；已轮换凭据并改用系统钥匙串注入。',
-    finding_ref: 'secret_in_mcp_config:C:\\Users\\zhaolei\\.codeium\\windsurf\\mcp_config.json',
+    finding_ref:
+      'secret_in_mcp_config:C:\\Users\\zhaolei\\.codeium\\windsurf\\mcp_config.json',
     assignee: '罗宁',
     age_ms: 2 * DAY,
     closed_after_ms: 3 * HOUR,
@@ -376,7 +410,8 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
     device_id: 'ENG-LT-0948',
     description:
       'Codex CLI 在 payment-service PR #184 中使用非加密安全随机数生成会话令牌，需确认是否已合入主干。',
-    finding_ref: 'weak_crypto_in_generated_code:payment-service/src/session/token.ts',
+    finding_ref:
+      'weak_crypto_in_generated_code:payment-service/src/session/token.ts',
     assignee: '周航',
     age_ms: 31 * MINUTE,
     trail: [
@@ -410,7 +445,8 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
     device_id: 'ENG-MBP-1032',
     description:
       'prompt-helper Skill 在系统提示中嵌入了不可见的指令覆盖片段，可能改变 Agent 的工具调用边界。',
-    finding_ref: 'prompt_injection_artifact:/Users/chenhao/.cursor/skills/prompt-helper/SKILL.md',
+    finding_ref:
+      'prompt_injection_artifact:/Users/chenhao/.cursor/skills/prompt-helper/SKILL.md',
     age_ms: 18 * MINUTE,
   },
   // 0007 — risks page row 1 (高危, 2 分钟前).
@@ -443,7 +479,8 @@ export function nextTicketId(
   for (const ticketId of store.keys()) {
     if (!ticketId.startsWith(prefix)) continue;
     const sequence = Number.parseInt(ticketId.slice(prefix.length), 10);
-    if (Number.isSafeInteger(sequence) && sequence > highest) highest = sequence;
+    if (Number.isSafeInteger(sequence) && sequence > highest)
+      highest = sequence;
   }
   return `${prefix}${String(highest + 1).padStart(4, '0')}`;
 }
@@ -484,7 +521,10 @@ export function seedTickets(): Ticket[] {
         ? createdAt + seed.closed_after_ms
         : undefined;
     const lastEntry = history.at(-1);
-    const updatedAt = Math.max(resolvedAt ?? 0, lastEntry?.timestamp ?? createdAt);
+    const updatedAt = Math.max(
+      resolvedAt ?? 0,
+      lastEntry?.timestamp ?? createdAt,
+    );
 
     const ticket: Ticket = {
       ticket_id: nextTicketId(seeded, createdAt),
@@ -531,4 +571,158 @@ export function getTicketStore(): Map<string, Ticket> {
   for (const ticket of seedTickets()) store.set(ticket.ticket_id, ticket);
   globals.__aegis_tickets = store;
   return store;
+}
+
+/* ------------------------------------------------------------------ *
+ * Audit log
+ *
+ * An append-only, per-isolate trail of every governance mutation. It mirrors the
+ * `audit_log` D1 table one-for-one so the in-memory demo store and the
+ * production D1 adapter (lib/d1-store.ts) expose the same shape. Like the device
+ * and ticket registries this is ephemeral — swap `getAuditStore` / `logAudit` for
+ * the D1 helpers before this drives real compliance reporting.
+ *
+ * Timestamps are epoch **milliseconds**, matching every other timestamp in this
+ * module (and what `date-fns` on the client expects).
+ * ------------------------------------------------------------------ */
+
+/** The resource an audit entry describes. */
+export const AUDIT_RESOURCE_TYPES = [
+  'device',
+  'ticket',
+  'policy',
+  'system',
+] as const;
+export type AuditResourceType = (typeof AUDIT_RESOURCE_TYPES)[number];
+
+export interface AuditEntry {
+  /** Monotonic within one isolate; the D1 `AUTOINCREMENT` id in production. */
+  id: number;
+  /** Epoch milliseconds. */
+  timestamp: number;
+  actor: string;
+  /**
+   * Verb, namespaced by resource: 'device:create', 'device:update',
+   * 'device:delete', 'ticket:create', 'ticket:transition', 'ticket:assign',
+   * 'policy:publish'.
+   */
+  action: string;
+  resource_type: AuditResourceType;
+  resource_id?: string;
+  detail?: string;
+}
+
+export function isAuditResourceType(
+  value: unknown,
+): value is AuditResourceType {
+  return oneOf(AUDIT_RESOURCE_TYPES, value);
+}
+
+/** Actor recorded when a caller does not identify itself. */
+const DEFAULT_AUDIT_ACTOR = 'console_user';
+
+/** Hard ceiling so a long-lived isolate cannot grow the trail without bound. */
+const MAX_AUDIT_ENTRIES = 1_000;
+
+type AuditSeed = Omit<AuditEntry, 'id' | 'timestamp'> & { ago_ms: number };
+
+/**
+ * Five demo entries: recent device registrations and ticket transitions that
+ * line up with the seeded devices/tickets above, oldest first.
+ */
+const AUDIT_SEEDS: readonly AuditSeed[] = [
+  {
+    ago_ms: 26 * HOUR,
+    actor: 'aegis-collector',
+    action: 'device:create',
+    resource_type: 'device',
+    resource_id: 'OPS-MBP-0314',
+    detail: '运维部终端接入注册表，Claude Code Agent 首次上报。',
+  },
+  {
+    ago_ms: 3 * HOUR,
+    actor: '罗宁',
+    action: 'ticket:transition',
+    resource_type: 'ticket',
+    resource_id: 'TKT-DEMO-0001',
+    detail: '工单状态 investigating → resolved：MCP 明文令牌已轮换。',
+  },
+  {
+    ago_ms: 96 * MINUTE,
+    actor: '陈昊',
+    action: 'device:create',
+    resource_type: 'device',
+    resource_id: 'ENG-MBP-1032',
+    detail: '研发部 Cursor 企业版终端完成纳管，Skill 白名单已生效。',
+  },
+  {
+    ago_ms: 9 * MINUTE,
+    actor: '罗宁',
+    action: 'ticket:transition',
+    resource_type: 'ticket',
+    resource_id: 'TKT-DEMO-0003',
+    detail: '工单状态 open → acknowledged：已认领未签名 MCP 出站事件。',
+  },
+  {
+    ago_ms: 2 * MINUTE,
+    actor: 'aegis-collector',
+    action: 'ticket:create',
+    resource_type: 'ticket',
+    resource_id: 'TKT-DEMO-0007',
+    detail: '由 cursor-mcp-filesystem 自动上报，创建高危工单。',
+  },
+];
+
+/** Returns five fresh AuditEntry objects (never shared references), oldest first. */
+export function seedAudit(): AuditEntry[] {
+  const now = Date.now();
+  return AUDIT_SEEDS.map(({ ago_ms, ...entry }, index) => ({
+    id: index + 1,
+    timestamp: now - ago_ms,
+    ...entry,
+  }));
+}
+
+/** Next monotonic id for the in-memory audit array. */
+function nextAuditId(entries: readonly AuditEntry[]): number {
+  return entries.reduce((highest, entry) => Math.max(highest, entry.id), 0) + 1;
+}
+
+/**
+ * The live audit trail, seeded with five demo entries on first access. Newest
+ * entries are appended at the end; readers sort/filter as needed.
+ */
+export function getAuditStore(): AuditEntry[] {
+  const existing = globals.__aegis_audit;
+  if (existing) return existing;
+
+  const store = seedAudit();
+  globals.__aegis_audit = store;
+  return store;
+}
+
+/**
+ * Appends one audit entry, stamping `id` and `timestamp` server-side so a caller
+ * can never forge the trail's ordering. Returns the stored entry.
+ */
+export function logAudit(
+  entry: Omit<AuditEntry, 'id' | 'timestamp'>,
+): AuditEntry {
+  const store = getAuditStore();
+  const record: AuditEntry = {
+    id: nextAuditId(store),
+    timestamp: Date.now(),
+    actor: entry.actor || DEFAULT_AUDIT_ACTOR,
+    action: entry.action,
+    resource_type: entry.resource_type,
+    ...(entry.resource_id === undefined
+      ? {}
+      : { resource_id: entry.resource_id }),
+    ...(entry.detail === undefined ? {} : { detail: entry.detail }),
+  };
+  store.push(record);
+  // Drop oldest first once the cap is reached, keeping the trail bounded.
+  if (store.length > MAX_AUDIT_ENTRIES)
+    store.splice(0, store.length - MAX_AUDIT_ENTRIES);
+  return record;
 }
