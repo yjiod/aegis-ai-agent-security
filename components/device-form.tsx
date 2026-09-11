@@ -32,6 +32,12 @@ export type AgentType =
   | 'claude_code'
   | 'codex_cli'
   | 'windsurf'
+  | 'gemini_cli'
+  | 'github_copilot_cli'
+  | 'qwen_enterprise'
+  | 'tongyi_lingma'
+  | 'codebuddy'
+  | 'workbuddy'
   | 'other';
 
 export type DeviceStatus = 'online' | 'offline' | 'stale' | 'needs_attention';
@@ -77,6 +83,12 @@ export const AGENT_TYPE_OPTIONS: readonly {
   { value: 'claude_code', label: 'Claude Code' },
   { value: 'codex_cli', label: 'Codex CLI' },
   { value: 'windsurf', label: 'Windsurf' },
+  { value: 'gemini_cli', label: 'Gemini CLI' },
+  { value: 'github_copilot_cli', label: 'GitHub Copilot' },
+  { value: 'qwen_enterprise', label: 'QwenWork / 通义千问' },
+  { value: 'tongyi_lingma', label: '通义灵码' },
+  { value: 'codebuddy', label: 'CodeBuddy' },
+  { value: 'workbuddy', label: 'WorkBuddy' },
   { value: 'other', label: '其他工具' },
 ];
 
