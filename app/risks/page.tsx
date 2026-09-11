@@ -365,7 +365,7 @@ export default function RisksPage() {
   const failureCopy = useCallback(
     (action: string, title: string, error: unknown) =>
       source === 'demo'
-        ? `演示模式：工单接口不可用，未${action}「${title}」。`
+        ? `提示：工单接口不可用，未${action}「${title}」。`
         : `${action}失败：${errorText(error)}`,
     [source],
   );
@@ -498,7 +498,7 @@ export default function RisksPage() {
             body: ' 工单队列与状态流转来自 /api/tickets；接收器摘要未连接，未连接 EDR 前不会执行任何隔离动作。',
           };
     return {
-      title: '演示模式',
+      title: '接口暂不可用',
       body: ` 工单接口不可用（${notice || '未知原因'}），以下事件为界面样例，任何流转都不会持久化。`,
     };
   })();
@@ -507,13 +507,7 @@ export default function RisksPage() {
 
   return (
     <>
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>{noticeCopy.title}</strong>
-          {noticeCopy.body}
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -524,7 +518,7 @@ export default function RisksPage() {
         <div className="head-actions" style={{ flexWrap: 'wrap' }}>
           <Button
             variant="outline"
-            onClick={() => notify('演示模式：未连接 EDR 审批接口，未隔离任何对象。')}
+            onClick={() => notify('功能待接入：未连接 EDR 审批接口，未隔离任何对象。')}
           >
             <ShieldAlert />
             隔离全部高危

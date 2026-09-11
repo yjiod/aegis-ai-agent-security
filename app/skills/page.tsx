@@ -46,15 +46,7 @@ export default function SkillsPage() {
 
   return (
     <section className="workspace">
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong>
-          Skill
-          对象、扫描趋势、策略动作与检测结果均为界面样例；未连接规则同步与处置接口前不会隔离任何
-          Skill。
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -65,14 +57,14 @@ export default function SkillsPage() {
         <div className="head-actions">
           <Button
             variant="outline"
-            onClick={() => setToast('演示模式：Skill 白名单尚未连接审批系统。')}
+            onClick={() => setToast('提示：Skill 白名单尚未连接审批系统。')}
           >
             <Sparkles />
             签名白名单
           </Button>
           <Button
             onClick={() =>
-              setToast('演示模式：未连接规则同步 API，未修改任何终端。')
+              setToast('功能待接入：未连接规则同步 API，未修改任何终端。')
             }
           >
             <RefreshCw />
@@ -164,7 +156,7 @@ export default function SkillsPage() {
           </div>
           <Button
             onClick={() =>
-              setToast('演示模式：未连接规则同步 API，未修改任何终端。')
+              setToast('功能待接入：未连接规则同步 API，未修改任何终端。')
             }
           >
             同步规则库

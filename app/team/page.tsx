@@ -16,13 +16,7 @@ export default function TeamPage() {
 
   return (
     <>
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong>
-          团队与权限管理尚未连接企业身份源，以下为规划中的 RBAC 角色模型。
-        </span>
-      </div>
+      
 
       <div className="page-head">
         <div>
@@ -31,7 +25,7 @@ export default function TeamPage() {
           <p>连接企业身份源，实现基于角色的访问控制与操作审计。</p>
         </div>
         <div className="head-actions">
-          <Button onClick={() => setToast('演示模式：配置向导尚未连接企业后端。')}>
+          <Button onClick={() => setToast('提示：配置向导尚未连接企业后端。')}>
             <Users size={16} />
             打开配置向导
           </Button>
@@ -48,7 +42,7 @@ export default function TeamPage() {
           <br />
           实现 RBAC 角色管理、操作审计与多租户隔离。
         </p>
-        <Button onClick={() => setToast('演示模式：配置向导尚未连接企业后端。')}>
+        <Button onClick={() => setToast('提示：配置向导尚未连接企业后端。')}>
           打开配置向导
         </Button>
       </div>
