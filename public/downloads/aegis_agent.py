@@ -5,8 +5,8 @@ import argparse, hashlib, hmac, json, os, re, stat, sys, tempfile, time, urllib.
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 DEFAULT_POLICY=Path(__file__).with_name("aegis-policy.json")
-AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json"]
-SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills"]
+AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json",".gemini/settings.json",".copilot/mcp-config.json",".workbuddy/mcp.json",".qwenworkcn/mcp.json",".lingma/mcp.json",".codebuddy/mcp.json"]
+SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills",".gemini/skills",".copilot/skills",".workbuddy/skills",".qwenworkcn/skills",".lingma/skills",".codebuddy/skills"]
 DEPENDENCY_MANIFESTS={"package.json","requirements.txt","requirements-dev.txt"}
 REPORT_INVENTORY_LIMIT=5000
 REPORT_FINDING_LIMIT=10000
@@ -38,12 +38,22 @@ AGENT_HOME_MARKERS={
     "codex":[".codex/config.toml",".local/bin/codex"],
     "claude_code":[".claude.json",".claude/settings.json",".local/bin/claude"],
     "windsurf":[".codeium/windsurf/mcp_config.json","Library/Application Support/Windsurf/User/settings.json",".config/Windsurf/User/settings.json"],
+    "gemini_cli":[".gemini/settings.json",".config/gemini/settings.json"],
+    "github_copilot_cli":[".copilot/config.json",".copilot/settings.json",".copilot/mcp-config.json",".local/bin/copilot"],
+    "qwen_enterprise":[".qwenworkcn","Library/Application Support/QwenWork"],
+    "tongyi_lingma":[".lingma",".aliyun/lingma","Library/Application Support/Lingma"],
+    "codebuddy":[".codebuddy","Library/Application Support/CodeBuddyExtension"],
 }
 AGENT_SYSTEM_MARKERS={
     "cursor":["/Applications/Cursor.app","/usr/local/bin/cursor","/opt/homebrew/bin/cursor"],
     "codex":["/usr/local/bin/codex","/opt/homebrew/bin/codex"],
     "claude_code":["/usr/local/bin/claude","/opt/homebrew/bin/claude"],
     "windsurf":["/Applications/Windsurf.app","/usr/local/bin/windsurf","/opt/homebrew/bin/windsurf"],
+    "gemini_cli":["/usr/local/bin/gemini","/opt/homebrew/bin/gemini"],
+    "github_copilot_cli":["/usr/local/bin/copilot","/opt/homebrew/bin/copilot"],
+    "qwen_enterprise":["/Applications/Qwen.app","/Applications/QwenWork.app"],
+    "tongyi_lingma":["/Applications/Lingma.app"],
+    "codebuddy":["/Applications/CodeBuddy.app"],
 }
 BASELINE=Path(__file__).with_name("aegis-security-baseline.md")
 MANAGED_MARKER="<!-- aegis-managed-baseline -->"
