@@ -34,14 +34,7 @@ export default function BaselinePage() {
 
   return (
     <section className="workspace">
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong>
-          规则清单为已打包的真实基线样例，合规率、命中范围与配置结果均为界面样例；未连接策略发布
-          API 前不会下发到任何终端。
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -53,7 +46,7 @@ export default function BaselinePage() {
           <Button
             variant="outline"
             onClick={() =>
-              setToast('演示模式：未连接基线导出接口，未生成规则清单文件。')
+              setToast('功能待接入：未连接基线导出接口，未生成规则清单文件。')
             }
           >
             <FileText />
@@ -61,7 +54,7 @@ export default function BaselinePage() {
           </Button>
           <Button
             onClick={() =>
-              setToast('演示模式：未连接策略发布 API，未修改任何终端。')
+              setToast('功能待接入：未连接策略发布 API，未修改任何终端。')
             }
           >
             <RefreshCw />

@@ -18,7 +18,7 @@ export default function PoliciesPage() {
   const [states, setStates] = useState(policies.map((p) => p.on));
 
   function toggle(index: number) {
-    setToast(`演示模式：「${policies[index].name}」未被修改，设置 API 尚未连接。`);
+    setToast(`提示：「${policies[index].name}」未被修改，设置 API 尚未连接。`);
     setStates((prev) => {
       const next = [...prev];
       next[index] = !next[index];
@@ -33,13 +33,7 @@ export default function PoliciesPage() {
 
   return (
     <>
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong>
-          策略开关状态为界面样例，企业 API 接入前不会下发至任何终端。
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -48,7 +42,7 @@ export default function PoliciesPage() {
           <p>变更将自动同步至所有在线安全 Agent，请谨慎操作。</p>
         </div>
         <div className="head-actions">
-          <Button onClick={() => setToast('演示模式：未连接策略发布 API，未修改任何终端。')}>
+          <Button onClick={() => setToast('功能待接入：未连接策略发布 API，未修改任何终端。')}>
             <SlidersHorizontal size={16} />
             发布策略
           </Button>

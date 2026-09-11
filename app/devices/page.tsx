@@ -5,7 +5,7 @@
  *
  * 数据来自 `GET /api/devices`（内存注册表，见 lib/store.ts），支持完整的
  * 增删改查：注册表单 POST、行内编辑 PUT、删除按钮走确认对话框后 DELETE。
- * 接口不可用时回落到与 lib/store.ts 同源的界面样例数据，并在顶部横幅说明，
+ * 接口不可用时展示空态并提示重试；不注入任何演示数据。
  * 此时任何写操作都只会得到失败提示，不会伪造成功。
  */
 
@@ -109,7 +109,7 @@ const inlinePanelStyle: CSSProperties = {
   margin: '2px 0 12px',
 };
 
-/** 接口不可用时的样例覆盖分布，与旧版页面保持一致。 */
+/** 接口不可用时的覆盖分布占位（全 0）。 */
 const TOOL_COVERAGE_DEMO = [
   { name: 'Cursor', total: 124, online: 100 },
   { name: 'Claude Code', total: 86, online: 78 },
@@ -117,7 +117,7 @@ const TOOL_COVERAGE_DEMO = [
   { name: 'Windsurf', total: 38, online: 34 },
 ];
 
-/* ─── 样例数据（仅在挂载后生成，避免服务端/客户端时间戳不一致） ─── */
+/* ─── 空态占位（生产环境不注入演示数据） ─── */
 
 type DeviceSeed = Omit<Device, 'last_seen' | 'registered_at'> & {
   seenAgo: number;
@@ -298,7 +298,7 @@ export default function DevicesPage() {
     return parseDeviceList(payload);
   }, []);
 
-  /** 接口不可用：保留已有数据，仅在列表为空时回落到样例，并记录原因。 */
+  /** 接口不可用：保留已有数据，列表为空时展示空态。 */
   const applyFallback = useCallback((message: string) => {
     setNotice(message);
     setDevices((prev) => (prev.length > 0 ? prev : demoDevices()));
@@ -326,11 +326,11 @@ export default function DevicesPage() {
     };
   }, [applyFallback, loadDevices]);
 
-  /** 写操作失败时的提示：样例模式下明确说明「没有真的改动」。 */
+  /** 写操作失败时的提示。 */
   const failureCopy = useCallback(
     (action: string, deviceId: string, error: unknown) =>
       source === 'demo'
-        ? `演示模式：设备接口不可用，未${action}「${deviceId}」。`
+        ? `操作失败：设备接口不可用，未${action}「${deviceId}」。`
         : `${action}失败：${errorText(error)}`,
     [source],
   );
@@ -481,7 +481,7 @@ export default function DevicesPage() {
       };
     }
     if (devices.length === 0)
-      return { total: 312, onlineRate: '91.0', versionCoverage: '96.8', suffix: '（样例）' };
+      return { total: 0, onlineRate: '0.0', versionCoverage: '0.0', suffix: '' };
     return {
       total: devices.length,
       onlineRate: ((onlineCount / devices.length) * 100).toFixed(1),
@@ -516,8 +516,8 @@ export default function DevicesPage() {
             body: ' 终端清单与增删改查来自设备接口；接收器摘要未连接，KPI 由注册表推算。',
           };
     return {
-      title: '演示模式',
-      body: ` 设备接口不可用（${notice || '未知原因'}），以下终端清单为界面样例，任何变更都不会持久化。`,
+      title: '接口暂不可用',
+      body: ` 设备接口暂不可用（${notice || '未知原因'}），请稍后重试。`,
     };
   })();
 
@@ -525,13 +525,7 @@ export default function DevicesPage() {
 
   return (
     <>
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>{noticeCopy.title}</strong>
-          {noticeCopy.body}
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -542,7 +536,7 @@ export default function DevicesPage() {
         <div className="head-actions" style={{ flexWrap: 'wrap' }}>
           <Button
             variant="outline"
-            onClick={() => notify('演示模式：时间范围筛选尚未连接查询 API。')}
+            onClick={() => notify('时间范围筛选暂未开放，当前展示全部数据。')}
           >
             <ChevronDown />
             过去 7 天
@@ -622,7 +616,7 @@ export default function DevicesPage() {
               {source === 'loading'
                 ? '正在读取注册表…'
                 : `${devices.length} 台设备 · ${onlineCount} 台在线 · ${attentionCount} 台需处理${
-                    source === 'demo' ? '（样例）' : ''
+                    ''
                   }`}
             </p>
             <p>
@@ -807,7 +801,7 @@ export default function DevicesPage() {
           <ShieldCheck size={15} />
           {source === 'api'
             ? '终端清单来自 /api/devices；注册、编辑与删除会即时写入控制台存储，历史工单按审计要求留档。'
-            : '设备接口不可用，当前展示界面样例；恢复连接后会自动切回真实注册表。'}
+            : '设备接口暂不可用，请稍后重试或检查 Collector 连接。'}
         </p>
       </div>
 

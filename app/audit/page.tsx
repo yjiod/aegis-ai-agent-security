@@ -145,12 +145,7 @@ export default function AuditPage() {
 
   return (
     <>
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong> 审计日志记录控制台上的设备与工单变更；当前数据来自内存存储，生产环境将写入 Cloudflare D1。
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
