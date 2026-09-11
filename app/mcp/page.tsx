@@ -45,14 +45,7 @@ export default function McpPage() {
 
   return (
     <section className="workspace">
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong>
-          MCP Server 清单、工具权限、出站地址与检测结果均为界面样例；未连接规则同步与处置接口前不会限制或隔离任何
-          MCP。
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -63,14 +56,14 @@ export default function McpPage() {
         <div className="head-actions">
           <Button
             variant="outline"
-            onClick={() => setToast('演示模式：出站白名单尚未连接策略下发接口。')}
+            onClick={() => setToast('提示：出站白名单尚未连接策略下发接口。')}
           >
             <Network />
             出站白名单
           </Button>
           <Button
             onClick={() =>
-              setToast('演示模式：未连接规则同步 API，未修改任何终端。')
+              setToast('功能待接入：未连接规则同步 API，未修改任何终端。')
             }
           >
             <RefreshCw />
@@ -162,7 +155,7 @@ export default function McpPage() {
           </div>
           <Button
             onClick={() =>
-              setToast('演示模式：未连接规则同步 API，未修改任何终端。')
+              setToast('功能待接入：未连接规则同步 API，未修改任何终端。')
             }
           >
             同步规则库

@@ -144,11 +144,25 @@ export async function PUT(request: Request) {
   if (!device_id) return json({ error: 'missing_device_id' }, 400);
 
   const store = getDeviceStore();
-  const existing = store.get(device_id);
-  if (!existing) return json({ error: 'device_not_found' }, 404);
+  const now = Math.floor(Date.now() / 1000);
+
+  // Upsert: Collector-discovered devices get an overlay entry on first edit.
+  const existing = store.get(device_id) ?? {
+    device_id,
+    hostname: device_id,
+    owner: '待分配',
+    agent_type: 'other' as const,
+    agent_version: '0.0.0',
+    policy_version: '0.0.0',
+    status: 'online' as const,
+    last_seen: now,
+    registered_at: now,
+    findings_summary: { critical: 0, high: 0, medium: 0, low: 0 },
+  };
 
   if (body.hostname) existing.hostname = String(body.hostname).slice(0, 128);
   if (body.owner) existing.owner = String(body.owner).slice(0, 64);
+  if (body.agent_type) existing.agent_type = String(body.agent_type) as typeof existing.agent_type;
   if (body.notes !== undefined) existing.notes = String(body.notes).slice(0, 500) || undefined;
 
   store.set(device_id, existing);

@@ -61,10 +61,7 @@ export default function EnginesPage() {
 
   return (
     <>
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span><strong>引擎管理</strong> 多引擎独立运行，规则语法不互转。动态更新经隔离区→四道门禁→发布管道。</span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -73,10 +70,10 @@ export default function EnginesPage() {
           <p>Cisco skill-scanner · Snyk agent-scan · Semgrep · Gitleaks — 各自独立规则源。</p>
         </div>
         <div className="head-actions">
-          <Button variant="outline" onClick={() => notify('演示模式：引擎同步 API 尚未连接。')}>
+          <Button variant="outline" onClick={() => notify('提示：引擎同步 API 尚未连接。')}>
             <RefreshCw size={16} /> 同步规则库
           </Button>
-          <Button onClick={() => notify('演示模式：全量扫描需连接终端 Agent。')}>
+          <Button onClick={() => notify('提示：全量扫描需连接终端 Agent。')}>
             <Zap size={16} /> 全量扫描
           </Button>
         </div>

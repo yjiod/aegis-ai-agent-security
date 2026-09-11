@@ -62,13 +62,7 @@ export default function OnboardingPage() {
 
   return (
     <section className="workspace">
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong>
-          部署编排、控制面联动与下载清单均为界面样例；正式接入前请以现网 Intune、深信服 EDR 与联软桌管版本核对脚本与接口授权。
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -80,7 +74,7 @@ export default function OnboardingPage() {
           <Button
             variant="outline"
             onClick={() =>
-              setToast('演示模式：发行通道固定为 Intune + 联软桌管，未切换。')
+              setToast('提示：发行通道固定为 Intune + 联软桌管，未切换。')
             }
           >
             <ChevronDown />
@@ -88,7 +82,7 @@ export default function OnboardingPage() {
           </Button>
           <Button
             onClick={() =>
-              setToast('演示模式：请直接下载已验证发行包，未创建外部任务。')
+              setToast('提示：请直接下载已验证发行包，未创建外部任务。')
             }
           >
             <Download />
