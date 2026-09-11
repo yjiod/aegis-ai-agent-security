@@ -27,6 +27,12 @@ export const AGENT_TYPES = [
   'claude_code',
   'codex_cli',
   'windsurf',
+  'gemini_cli',
+  'github_copilot_cli',
+  'qwen_enterprise',
+  'tongyi_lingma',
+  'codebuddy',
+  'workbuddy',
   'other',
 ] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
