@@ -22,6 +22,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import ThemeToggle from '@/components/theme-toggle';
+import { PasswordModal } from '@/components/password-modal';
 import {
   CollectorProvider,
   type CollectorState,
@@ -48,8 +49,8 @@ const navSections: NavSection[] = [
     items: [
       { href: '/', label: '总览', icon: Activity },
       { href: '/onboarding', label: '接入中心', icon: Bot },
-      { href: '/devices', label: '设备与 Agent', icon: Laptop, count: '312' },
-      { href: '/risks', label: '风险中心', icon: AlertTriangle, alert: '12' },
+      { href: '/devices', label: '设备与 Agent', icon: Laptop },
+      { href: '/risks', label: '风险中心', icon: AlertTriangle },
     ],
   },
   {
@@ -87,6 +88,16 @@ export default function ConsoleShell({
   const pathname = usePathname();
   const [fleet, setFleet] = useState<FleetSummary | null>(null);
   const [internalState, setInternalState] = useState<CollectorState>('checking');
+  const [ticketCount, setTicketCount] = useState<number | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/tickets?limit=1', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d && typeof d.total === 'number') setTicketCount(d.total); })
+      .catch(() => setTicketCount(null));
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -136,11 +147,34 @@ export default function ConsoleShell({
               <Search size={18} />
             </button>
             <ThemeToggle />
-            <button className="avatar" aria-label="账户菜单">
-              SL
-            </button>
+            <div style={{ position: 'relative' }}>
+              <button className="avatar" aria-label="账户菜单" onClick={() => setShowUserMenu((v) => !v)}>
+                SL
+              </button>
+              {showUserMenu && (
+                <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 200, background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-overlay)', zIndex: 30, overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>admin</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>安全管理员</div>
+                  </div>
+                  <button
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 0, color: 'var(--foreground)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
+                    onClick={() => { setShowUserMenu(false); setShowPasswordModal(true); }}
+                  >
+                    <LockKeyhole size={14} /> 修改密码
+                  </button>
+                  <button
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 0, color: 'var(--muted-foreground)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
+                    onClick={() => { document.cookie = 'aegis_session=; path=/; max-age=0'; window.location.href = '/login'; }}
+                  >
+                    <Check size={14} /> 退出登录
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
+        {showPasswordModal && <PasswordModal onClose={() => setShowPasswordModal(false)} />}
         <div className="shell">
           <aside className="sidebar">
             <nav aria-label="主导航">
@@ -153,18 +187,22 @@ export default function ConsoleShell({
                   >
                     {section.label}
                   </p>
-                  {section.items.map(({ href, label, icon: Icon, count, alert }) => (
-                    <Link
-                      key={href}
-                      href={href}
-                      className={`nav-item ${pathname === href ? 'active' : ''}`}
-                    >
-                      <Icon size={18} />
-                      {label}
-                      {count && <span>{count}</span>}
-                      {alert && <b>{alert}</b>}
-                    </Link>
-                  ))}
+                  {section.items.map(({ href, label, icon: Icon }) => {
+                    const deviceCount = href === '/devices' && fleet ? String(fleet.total_devices) : undefined;
+                    const riskAlert = href === '/risks' && ticketCount !== null && ticketCount > 0 ? String(ticketCount) : undefined;
+                    return (
+                      <Link
+                        key={href}
+                        href={href}
+                        className={`nav-item ${pathname === href ? 'active' : ''}`}
+                      >
+                        <Icon size={18} />
+                        {label}
+                        {deviceCount && <span>{deviceCount}</span>}
+                        {riskAlert && <b>{riskAlert}</b>}
+                      </Link>
+                    );
+                  })}
                 </div>
               ))}
             </nav>
