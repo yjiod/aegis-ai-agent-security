@@ -20,7 +20,7 @@ BUNDLE_FILES=(
     "aegis-collector.service","aegis-collector.env.example","aegis-collector.nginx.conf",
     "aegis_adapter_worker.py","aegis-adapter-worker.service","aegis-adapter.env.example",
     "aegis-configure-windows.ps1","aegis-configure-macos.sh","aegis-device-credentials.example.json","aegis_device_credentials.py",
-    "aegis_production_preflight.py","aegis_release_build.py","aegis_vendor_probe.py","aegis_4a_interface.py","aegis_engine_framework.py",
+    "aegis_production_preflight.py","aegis_release_build.py","aegis_vendor_probe.py","aegis_4a_interface.py","aegis_engine_framework.py","aegis_vendor_preflight.py","aegis_vendor_keyring.py","aegis_vendor_evidence_sign.py","aegis_production_keyring.py","aegis_production_evidence_sign.py","aegis_production_evidence_prepare.py","aegis_intune_preflight.py","aegis_intune_graph_normalize.py","aegis_intune_evidence.py","aegis_deployment_preflight.py","aegis_4a_receiver.py","aegis_4a_probe.py",
 )
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
