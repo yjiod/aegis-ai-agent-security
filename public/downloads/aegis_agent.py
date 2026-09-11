@@ -313,6 +313,12 @@ def install_user_baselines(homes=None):
         home=Path(home); targets=[]
         if (home/".codex").is_dir(): targets.append(home/".codex/AGENTS.md")
         if (home/".claude").is_dir() or (home/".claude.json").is_file(): targets.append(home/".claude/CLAUDE.md")
+        if (home/".workbuddy").is_dir(): targets.append(home/".workbuddy/AGENTS.md")
+        if (home/".qwenworkcn").is_dir(): targets.append(home/".qwenworkcn/AGENTS.md")
+        if (home/".gemini").is_dir(): targets.append(home/".gemini/GEMINI.md")
+        if (home/".copilot").is_dir(): targets.append(home/".copilot/copilot-instructions.md")
+        if (home/".lingma").is_dir(): targets.append(home/".lingma/rules.md")
+        if (home/".codebuddy").is_dir(): targets.append(home/".codebuddy/rules.md")
         for path in targets:
             if not safe_managed_target(home,path): continue
             path.parent.mkdir(parents=True,exist_ok=True); current=path.read_text(errors="ignore") if path.exists() else ""
@@ -344,7 +350,7 @@ def verify_user_baselines(homes=None):
     try: expected=BASELINE.read_text().rstrip()
     except OSError: return [],[]
     inventory=[];findings=[]
-    targets={"codex":(".codex",".codex/AGENTS.md"),"claude_code":((".claude",".claude.json"),".claude/CLAUDE.md"),"gemini_cli":(".gemini",".gemini/GEMINI.md"),"github_copilot_cli":(".copilot",".copilot/copilot-instructions.md"),"qwen_enterprise":(".qwenworkcn",".qwenworkcn/AGENTS.md"),"tongyi_lingma":(".lingma",".lingma/rules.md"),"codebuddy":(".codebuddy",".codebuddy/rules.md")}
+    targets={"codex":(".codex",".codex/AGENTS.md"),"claude_code":((".claude",".claude.json"),".claude/CLAUDE.md"),"workbuddy":(".workbuddy",".workbuddy/AGENTS.md"),"gemini_cli":(".gemini",".gemini/GEMINI.md"),"github_copilot_cli":(".copilot",".copilot/copilot-instructions.md"),"qwen_enterprise":(".qwenworkcn",".qwenworkcn/AGENTS.md"),"tongyi_lingma":(".lingma",".lingma/rules.md"),"codebuddy":(".codebuddy",".codebuddy/rules.md")}
     for home in homes:
         home=Path(home)
         if home.is_symlink() or not home.is_dir(): continue
