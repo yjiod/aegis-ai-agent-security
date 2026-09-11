@@ -1,274 +1,875 @@
 'use client';
 
-import { useCallback, useEffect, useId, useState } from 'react';
-import {
-  AlertTriangle, Plus, Search,
-  Trash2, Pencil, X, Check,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { useCollector } from '@/components/collector-context';
-import { Toast } from '@/components/toast';
+/**
+ * 设备与 Agent — 受管终端注册表。
+ *
+ * 数据来自 `GET /api/devices`（内存注册表，见 lib/store.ts），支持完整的
+ * 增删改查：注册表单 POST、行内编辑 PUT、删除按钮走确认对话框后 DELETE。
+ * 接口不可用时回落到与 lib/store.ts 同源的界面样例数据，并在顶部横幅说明，
+ * 此时任何写操作都只会得到失败提示，不会伪造成功。
+ */
 
-/* ─── Types ─────────────────────────────────────────────── */
-interface Device {
-  device_id: string; hostname: string; owner: string;
-  agent_type: string; agent_version: string; policy_version: string;
-  status: 'online' | 'offline' | 'stale' | 'needs_attention';
-  last_seen: number; registered_at: number; notes?: string;
-  findings_summary?: { critical: number; high: number; medium: number; low: number };
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
+import {
+  AlertTriangle,
+  Bot,
+  ChevronDown,
+  CircleCheck,
+  CircleDot,
+  Laptop,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Trash2,
+  X,
+} from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import { Spinner } from '@/components/ui/spinner';
+import { useCollector } from '@/components/collector-context';
+import DeviceForm, {
+  AGENT_TYPE_OPTIONS,
+  agentTypeLabel,
+  agentVersionLabel,
+  parseDevice,
+  parseDeviceList,
+  type Device,
+  type DeviceFormData,
+  type DeviceStatus,
+} from '@/components/device-form';
+
+/* ─── 展示层常量 ─────────────────────────────────────────── */
+
+type DataSource = 'loading' | 'api' | 'demo';
+type ToastTone = 'info' | 'success' | 'error';
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** 状态徽标：绿=在线，灰=离线，琥珀=过期，红=需处理。 */
+const STATUS_META: Record<
+  DeviceStatus,
+  { label: string; className: string; style?: CSSProperties }
+> = {
+  online: { label: '在线', className: 'pass' },
+  offline: {
+    label: '离线',
+    className: '',
+    style: {
+      color: 'var(--muted-foreground)',
+      background: 'color-mix(in srgb, var(--muted-foreground) 12%, transparent)',
+      border: '1px solid var(--border)',
+      boxShadow: 'none',
+    },
+  },
+  stale: { label: '过期', className: 'warn' },
+  needs_attention: { label: '需处理', className: 'fail' },
+};
+
+/** 接口错误码的中文说明，`details` 存在时优先展示逐字段原因。 */
+const ERROR_COPY: Record<string, string> = {
+  device_already_registered: '该设备 ID 已在注册表中，请改用行内编辑',
+  device_not_found: '设备不存在或已被移除',
+  validation_failed: '提交内容未通过服务端校验',
+  no_updatable_fields: '没有需要更新的字段',
+  read_only_field: '请求包含服务端托管字段',
+  immutable_field: '请求包含不可修改字段',
+};
+
+const cellStackStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  minWidth: 0,
+};
+
+const inlinePanelStyle: CSSProperties = {
+  border: '1px solid var(--line-base)',
+  borderRadius: 10,
+  background: 'var(--surface-1)',
+  padding: '4px 14px 14px',
+  margin: '2px 0 12px',
+};
+
+/** 接口不可用时的样例覆盖分布，与旧版页面保持一致。 */
+const TOOL_COVERAGE_DEMO = [
+  { name: 'Cursor', total: 124, online: 100 },
+  { name: 'Claude Code', total: 86, online: 78 },
+  { name: 'Codex CLI', total: 64, online: 58 },
+  { name: 'Windsurf', total: 38, online: 34 },
+];
+
+/* ─── 样例数据（仅在挂载后生成，避免服务端/客户端时间戳不一致） ─── */
+
+type DeviceSeed = Omit<Device, 'last_seen' | 'registered_at'> & {
+  seenAgo: number;
+  enrolledAgo: number;
+};
+
+const DEVICE_SEEDS: DeviceSeed[] = [
+  {
+    device_id: 'ENG-MBP-1032',
+    hostname: 'eng-mbp-1032.corp.aegis.local',
+    owner: '陈昊',
+    agent_type: 'cursor',
+    agent_version: 'v3.8',
+    policy_version: 'v4.8',
+    status: 'online',
+    notes: '研发部 · Cursor 企业版已纳管，Skill 白名单生效。',
+    seenAgo: 4 * MINUTE,
+    enrolledAgo: 214 * DAY,
+  },
+  {
+    device_id: 'MKT-LT-2841',
+    hostname: 'mkt-lt-2841.corp.aegis.local',
+    owner: '林妍',
+    agent_type: 'cursor',
+    agent_version: 'v3.7',
+    policy_version: 'v4.8',
+    status: 'needs_attention',
+    notes: '市场部 · MCP filesystem 越权访问待研判。',
+    seenAgo: 2 * MINUTE,
+    enrolledAgo: 96 * DAY,
+  },
+  {
+    device_id: 'ENG-LT-0948',
+    hostname: 'eng-lt-0948.corp.aegis.local',
+    owner: '周航',
+    agent_type: 'codex_cli',
+    agent_version: 'v3.8',
+    policy_version: 'v4.8',
+    status: 'online',
+    notes: '研发部 · Codex CLI 生成代码进入人工复核队列。',
+    seenAgo: 11 * MINUTE,
+    enrolledAgo: 158 * DAY,
+  },
+  {
+    device_id: 'OPS-MBP-0314',
+    hostname: 'ops-mbp-0314.corp.aegis.local',
+    owner: '罗宁',
+    agent_type: 'claude_code',
+    agent_version: 'v3.8',
+    policy_version: 'v4.8',
+    status: 'offline',
+    notes: '运维部 · 超过 24 小时未上报，离线前存在未签名 MCP 出站。',
+    seenAgo: 26 * HOUR,
+    enrolledAgo: 301 * DAY,
+  },
+  {
+    device_id: 'DESK-WIN-0521',
+    hostname: 'desk-win-0521.corp.aegis.local',
+    owner: '赵磊',
+    agent_type: 'windsurf',
+    agent_version: 'v3.8',
+    policy_version: 'v4.8',
+    status: 'online',
+    notes: '客服部 · Windows 桌面，历史工单已闭环。',
+    seenAgo: 7 * MINUTE,
+    enrolledAgo: 74 * DAY,
+  },
+  {
+    device_id: 'MKT-MBP-0847',
+    hostname: 'mkt-mbp-0847.corp.aegis.local',
+    owner: '吴婷',
+    agent_type: 'cursor',
+    agent_version: 'v3.6',
+    policy_version: 'v4.6',
+    status: 'needs_attention',
+    notes: '市场部 · Agent 落后基线两个版本，待推送升级。',
+    seenAgo: 52 * MINUTE,
+    enrolledAgo: 122 * DAY,
+  },
+];
+
+function demoDevices(): Device[] {
+  const now = Date.now();
+  return DEVICE_SEEDS.map(({ seenAgo, enrolledAgo, ...device }) => ({
+    ...device,
+    last_seen: now - seenAgo,
+    registered_at: now - enrolledAgo,
+  }));
 }
 
-const AGENT_LABELS: Record<string, string> = {
-  cursor: 'Cursor', claude_code: 'Claude Code', codex_cli: 'Codex CLI', windsurf: 'Windsurf', other: '其他',
-};
-const STATUS_LABELS: Record<string, string> = {
-  online: '在线', offline: '离线', stale: '过期', needs_attention: '需处理',
-};
-const STATUS_CLASS: Record<string, string> = {
-  online: 'pass', offline: 'warn', stale: 'warn', needs_attention: 'fail',
-};
+/* ─── 响应与错误解析 ─────────────────────────────────────── */
 
-/* ─── Page ──────────────────────────────────────────────── */
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : '未知错误';
+}
+
+/** `{ error, message, details }` 是 lib/api.ts 的统一错误信封。 */
+function describeError(payload: unknown, fallback: string): string {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const data = payload as Record<string, unknown>;
+    const code = typeof data.error === 'string' ? data.error : '';
+    const details = Array.isArray(data.details)
+      ? data.details.filter((item): item is string => typeof item === 'string')
+      : [];
+    const copy = ERROR_COPY[code] ?? (typeof data.message === 'string' ? data.message : '');
+    if (details.length > 0) return details.join('；');
+    if (copy) return copy;
+    if (code) return code;
+  }
+  return fallback;
+}
+
+/** 取 `{ device: {...} }` 里的记录；没有包装时退回载荷本身。 */
+function pickRecord(payload: unknown, key: string): unknown {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const data = payload as Record<string, unknown>;
+    if (data[key] !== undefined) return data[key];
+  }
+  return payload;
+}
+
+function pickNumber(payload: unknown, key: string): number {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const value = (payload as Record<string, unknown>)[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function formatLastSeen(value: number): string {
+  if (!value) return '从未上报';
+  const diff = Date.now() - value;
+  if (diff < MINUTE) return '刚刚上报';
+  if (diff < HOUR) return `${Math.floor(diff / MINUTE)} 分钟前上报`;
+  if (diff < DAY) return `${Math.floor(diff / HOUR)} 小时前上报`;
+  return `${Math.floor(diff / DAY)} 天前上报`;
+}
+
+/* ─── 页面 ───────────────────────────────────────────────── */
+
 export default function DevicesPage() {
   const { fleet } = useCollector();
-  const [devices, setDevices] = useState<Device[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState('');
-  const [search, setSearch] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const fetchDevices = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch('/api/devices', { cache: 'no-store', signal });
-      if (res.ok) {
-        // `await res.json()` 静态类型是 unknown，按接口契约收窄后再取字段。
-        const data = (await res.json()) as { devices?: Device[] };
-        setDevices(data.devices ?? []);
-      }
-    } catch (error) {
-      // 主动取消不是失败：effect 清理时 abort 在途请求，直接返回不触碰 state。
-      if (error instanceof Error && error.name === 'AbortError') return;
-      /* 其余错误保持现有数据 */
-    }
-    setLoading(false);
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [source, setSource] = useState<DataSource>('loading');
+  const [notice, setNotice] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Device | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
+  const toastTimer = useRef<number | null>(null);
+
+  const notify = useCallback((text: string, tone: ToastTone = 'info') => {
+    setToast({ text, tone });
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 4_000);
   }, []);
 
-  // setState 全部位于 await 之后，非 effect 内同步 setState（EffectSetState）；
-  // abort 保证卸载/重跑时不会有迟到的响应写回已失效的状态。
+  useEffect(
+    () => () => {
+      if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    },
+    [],
+  );
+
+  const loadDevices = useCallback(async (signal?: AbortSignal) => {
+    const response = await fetch('/api/devices', { cache: 'no-store', signal });
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok)
+      throw new Error(describeError(payload, `设备接口返回 ${response.status}`));
+    return parseDeviceList(payload);
+  }, []);
+
+  /** 接口不可用：保留已有数据，仅在列表为空时回落到样例，并记录原因。 */
+  const applyFallback = useCallback((message: string) => {
+    setNotice(message);
+    setDevices((prev) => (prev.length > 0 ? prev : demoDevices()));
+    setSource((prev) => (prev === 'api' ? 'api' : 'demo'));
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
-    // EffectSetState 是基于调用图的静态启发式：它只看到「effect 内调用了含
-    // setState 的函数」，看不见 await 边界。此处 setState 全部位于 await 之后，
-    // 由 React 18+ 自动批处理合并为单次渲染，不构成规则所担心的同步级联渲染；
-    // AbortController 另保证迟到的响应不会写回已失效的状态。「按依赖变化取数
-    // 并存入 state」是 React 标准模式，不宜为迁就静态分析而扭曲结构。
-    // oxlint-disable-next-line react/react-compiler
-    void fetchDevices(controller.signal);
-    return () => controller.abort();
-  }, [fetchDevices]);
+    let active = true;
+    void (async () => {
+      try {
+        const list = await loadDevices(controller.signal);
+        if (!active) return;
+        setDevices(list);
+        setSource('api');
+        setNotice('');
+      } catch (error) {
+        if (!active || isAbortError(error)) return;
+        applyFallback(errorText(error));
+      }
+    })();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [applyFallback, loadDevices]);
 
-  function notify(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500); }
+  /** 写操作失败时的提示：样例模式下明确说明「没有真的改动」。 */
+  const failureCopy = useCallback(
+    (action: string, deviceId: string, error: unknown) =>
+      source === 'demo'
+        ? `演示模式：设备接口不可用，未${action}「${deviceId}」。`
+        : `${action}失败：${errorText(error)}`,
+    [source],
+  );
 
-  const filtered = devices.filter((d) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return d.device_id.toLowerCase().includes(q) || d.hostname.toLowerCase().includes(q) || d.owner.toLowerCase().includes(q);
-  });
-
-  const totalDevices = fleet?.total_devices ?? devices.length;
-  const onlineDevices = devices.filter((d) => d.status === 'online').length;
-  const coverage = totalDevices ? ((fleet?.version_posture.current ?? onlineDevices) / totalDevices) * 100 : 0;
-
-  async function handleDelete(device_id: string) {
-    const res = await fetch(`/api/devices?device_id=${encodeURIComponent(device_id)}`, { method: 'DELETE' });
-    if (res.ok) { notify(`设备 ${device_id} 已从注册表移除。`); await fetchDevices(); }
-    else notify('删除失败，请重试。');
-    setDeleteConfirm(null);
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      const list = await loadDevices();
+      setDevices(list);
+      setSource('api');
+      setNotice('');
+      notify(`已刷新，共 ${list.length} 台受管终端。`, 'success');
+    } catch (error) {
+      applyFallback(errorText(error));
+      notify(`刷新失败：${errorText(error)}`, 'error');
+    } finally {
+      setRefreshing(false);
+    }
   }
+
+  async function createDevice(data: DeviceFormData) {
+    try {
+      const response = await fetch('/api/devices', {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify(data),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(describeError(payload, `设备接口返回 ${response.status}`));
+      const created = parseDevice(pickRecord(payload, 'device'));
+      if (created) {
+        setDevices((prev) => [
+          created,
+          ...prev.filter((device) => device.device_id !== created.device_id),
+        ]);
+      } else {
+        setDevices(await loadDevices());
+      }
+      setSource('api');
+      setNotice('');
+      setShowForm(false);
+      setQuery('');
+      notify(`设备 ${data.device_id} 已注册，等待 Agent 首次上报。`, 'success');
+    } catch (error) {
+      notify(failureCopy('注册', data.device_id, error), 'error');
+    }
+  }
+
+  async function updateDevice(data: DeviceFormData) {
+    try {
+      const response = await fetch('/api/devices', {
+        method: 'PUT',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({
+          device_id: data.device_id,
+          hostname: data.hostname,
+          owner: data.owner,
+          agent_type: data.agent_type,
+          notes: data.notes,
+        }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(describeError(payload, `设备接口返回 ${response.status}`));
+      const updated = parseDevice(pickRecord(payload, 'device'));
+      if (updated) {
+        setDevices((prev) =>
+          prev.map((device) =>
+            device.device_id === updated.device_id ? updated : device,
+          ),
+        );
+      } else {
+        setDevices(await loadDevices());
+      }
+      setSource('api');
+      setEditingId(null);
+      notify(`设备 ${data.device_id} 已更新。`, 'success');
+    } catch (error) {
+      notify(failureCopy('更新', data.device_id, error), 'error');
+    }
+  }
+
+  async function confirmDelete() {
+    const target = pendingDelete;
+    if (!target || deleting) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(
+        `/api/devices?device_id=${encodeURIComponent(target.device_id)}`,
+        { method: 'DELETE' },
+      );
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(describeError(payload, `设备接口返回 ${response.status}`));
+      setDevices((prev) =>
+        prev.filter((device) => device.device_id !== target.device_id),
+      );
+      if (editingId === target.device_id) setEditingId(null);
+      setPendingDelete(null);
+      const retained = pickNumber(payload, 'retained_tickets');
+      notify(
+        retained > 0
+          ? `设备 ${target.device_id} 已删除，${retained} 张关联工单按审计要求留档。`
+          : `设备 ${target.device_id} 已从注册表移除。`,
+        'success',
+      );
+    } catch (error) {
+      setPendingDelete(null);
+      notify(failureCopy('删除', target.device_id, error), 'error');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  /* ── 派生数据 ─────────────────────────────────────────── */
+
+  const visibleDevices = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return devices;
+    return devices.filter((device) =>
+      [device.device_id, device.hostname, device.owner]
+        .join('\n')
+        .toLowerCase()
+        .includes(keyword),
+    );
+  }, [devices, query]);
+
+  const onlineCount = devices.filter((device) => device.status === 'online').length;
+  const staleCount = devices.filter((device) => device.status === 'stale').length;
+  const attentionCount = devices.filter(
+    (device) => device.status === 'needs_attention',
+  ).length;
+  const reportedCount = devices.filter(
+    (device) => agentVersionLabel(device.agent_version) !== '未上报',
+  ).length;
+
+  const kpis = useMemo(() => {
+    if (fleet && fleet.total_devices > 0) {
+      return {
+        total: fleet.total_devices,
+        onlineRate: ((fleet.active_devices / fleet.total_devices) * 100).toFixed(1),
+        versionCoverage: (
+          (fleet.version_posture.current / fleet.total_devices) *
+          100
+        ).toFixed(1),
+        suffix: '',
+      };
+    }
+    if (devices.length === 0)
+      return { total: 312, onlineRate: '91.0', versionCoverage: '96.8', suffix: '（样例）' };
+    return {
+      total: devices.length,
+      onlineRate: ((onlineCount / devices.length) * 100).toFixed(1),
+      versionCoverage: ((reportedCount / devices.length) * 100).toFixed(1),
+      suffix: '',
+    };
+  }, [devices.length, fleet, onlineCount, reportedCount]);
+
+  const coverageRows = useMemo(() => {
+    if (source !== 'api' || devices.length === 0) return TOOL_COVERAGE_DEMO;
+    return AGENT_TYPE_OPTIONS.map((option) => {
+      const rows = devices.filter((device) => device.agent_type === option.value);
+      return {
+        name: option.label,
+        total: rows.length,
+        online: rows.filter((device) => device.status === 'online').length,
+      };
+    }).filter((row) => row.total > 0);
+  }, [devices, source]);
+
+  const noticeCopy = (() => {
+    if (source === 'loading')
+      return { title: '正在读取注册表', body: ' 正在从 /api/devices 拉取受管终端清单。' };
+    if (source === 'api')
+      return fleet
+        ? {
+            title: '混合只读模式',
+            body: ' 终端注册表支持增删改查；顶部三项指标来自已验证的接收器摘要。',
+          }
+        : {
+            title: '注册表已连接',
+            body: ' 终端清单与增删改查来自设备接口；接收器摘要未连接，KPI 由注册表推算。',
+          };
+    return {
+      title: '演示模式',
+      body: ` 设备接口不可用（${notice || '未知原因'}），以下终端清单为界面样例，任何变更都不会持久化。`,
+    };
+  })();
+
+  /* ── 渲染 ─────────────────────────────────────────────── */
 
   return (
     <>
       <div className="demo-notice" role="note">
         <AlertTriangle size={16} />
-        <span><strong>{fleet ? '混合只读模式' : '演示模式'}</strong> 设备注册表支持 CRUD 操作；顶部 KPI 来自{fleet ? '已验证的接收器摘要' : '界面样例'}。</span>
+        <span>
+          <strong>{noticeCopy.title}</strong>
+          {noticeCopy.body}
+        </span>
       </div>
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
-          <p className="eyebrow">控制台 / 设备与 Agent</p>
-          <h1>设备管理</h1>
-          <p>注册、查看并管理所有受管终端上的 AI Agent 安全客户端。</p>
+          <p className="eyebrow">终端资产 / Agent 版本</p>
+          <h1>设备与 Agent</h1>
+          <p>注册受管终端、维护负责人与工具类型，并跟踪逐设备版本姿态。</p>
         </div>
-        <div className="head-actions">
-          <Button variant="outline" onClick={() => setShowForm(!showForm)}>
-            {showForm ? <X size={16} /> : <Plus size={16} />}
-            {showForm ? '取消' : '注册设备'}
+        <div className="head-actions" style={{ flexWrap: 'wrap' }}>
+          <Button
+            variant="outline"
+            onClick={() => notify('演示模式：时间范围筛选尚未连接查询 API。')}
+          >
+            <ChevronDown />
+            过去 7 天
+          </Button>
+          <Button onClick={() => setShowForm((prev) => !prev)}>
+            {showForm ? <X /> : <Plus />}
+            {showForm ? '收起表单' : '注册设备'}
           </Button>
         </div>
       </div>
 
-      <Toast message={toast} />
-
-      {/* KPI cards */}
-      <div className="detail-kpis animate-entrance animate-entrance-2">
-        <article><strong>{totalDevices}</strong><span>受管终端总数</span></article>
-        <article><strong>{onlineDevices}</strong><span>当前在线</span></article>
-        <article><strong>{coverage.toFixed(1)}%</strong><span>版本覆盖率</span></article>
-      </div>
-
-      {/* Registration form */}
-      {showForm && <DeviceForm onCreate={() => { setShowForm(false); void fetchDevices(); notify('设备注册成功。'); }} notify={notify} />}
-
-      {/* Search */}
-      <div className="panel animate-entrance animate-entrance-3" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Search size={16} style={{ color: '#5e7c73', flexShrink: 0 }} />
-          <input
-            className="search-input"
-            placeholder="搜索设备 ID、主机名或负责人..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#eaf7f2', fontSize: 13 }}
-          />
-          {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 0, color: '#5e7c73', cursor: 'pointer' }}><X size={14} /></button>}
+      {toast && (
+        <div
+          className="toast"
+          role="status"
+          style={
+            toast.tone === 'error'
+              ? { borderColor: 'var(--destructive)', color: 'var(--destructive)' }
+              : undefined
+          }
+        >
+          {toast.tone === 'error' ? (
+            <AlertTriangle size={16} />
+          ) : toast.tone === 'success' ? (
+            <CircleCheck size={16} />
+          ) : (
+            <CircleDot size={16} />
+          )}
+          {toast.text}
         </div>
+      )}
+
+      <div className="detail-kpis">
+        <article className="animate-entrance animate-entrance-1">
+          <strong>{kpis.total}</strong>
+          <span>受管终端总数{kpis.suffix}</span>
+        </article>
+        <article className="animate-entrance animate-entrance-2">
+          <strong>{kpis.onlineRate}%</strong>
+          <span>在线率{kpis.suffix}</span>
+        </article>
+        <article className="animate-entrance animate-entrance-3">
+          <strong>{kpis.versionCoverage}%</strong>
+          <span>版本覆盖率{kpis.suffix}</span>
+        </article>
       </div>
 
-      {/* Device table */}
-      <div className="panel animate-entrance animate-entrance-4">
+      {showForm && (
+        <div className="panel animate-entrance" style={{ marginBottom: 14 }}>
+          <div className="panel-head">
+            <div>
+              <h2>注册新终端</h2>
+              <p>登记终端与负责人后，Agent 上报会自动关联到该记录。</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="收起注册表单"
+              onClick={() => setShowForm(false)}
+            >
+              <X />
+            </Button>
+          </div>
+          <DeviceForm
+            mode="create"
+            onSubmit={createDevice}
+            onCancel={() => setShowForm(false)}
+          />
+        </div>
+      )}
+
+      <div className="panel">
         <div className="panel-head">
           <div>
             <h2>受管终端</h2>
-            <p>{loading ? '加载中...' : `${filtered.length} 台设备${search ? ` (筛选自 ${devices.length} 台)` : ''}`}</p>
-          </div>
-        </div>
-
-        {loading ? (
-          <>{[1,2,3,4].map(i => <div className="skeleton-row" key={i}><div className="skeleton-cell" /><div className="skeleton-cell" /><div className="skeleton-cell" /><div className="skeleton-cell" /></div>)}</>
-        ) : (
-          <div className="data-table">
-            <div className="data-head">
-              <span>设备 ID</span><span>负责人 · 工具</span><span>Agent 版本</span><span>状态</span>
-            </div>
-            {filtered.map((d, i) => (
-              <div key={d.device_id}>
-                <div className="data-row animate-row-entrance" style={{ animationDelay: `${i * 30 + 200}ms` }}>
-                  <strong>{d.device_id}</strong>
-                  <span>{d.owner} · {AGENT_LABELS[d.agent_type] ?? d.agent_type}</span>
-                  <span>{d.agent_version}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <i className={STATUS_CLASS[d.status]}>{STATUS_LABELS[d.status]}</i>
-                    <button className="icon-action" onClick={() => setEditId(editId === d.device_id ? null : d.device_id)} aria-label="编辑"><Pencil size={13} /></button>
-                    {deleteConfirm === d.device_id ? (
-                      <button className="icon-action danger" onClick={() => handleDelete(d.device_id)} aria-label="确认删除"><Check size={13} /></button>
-                    ) : (
-                      <button className="icon-action" onClick={() => setDeleteConfirm(d.device_id)} aria-label="删除"><Trash2 size={13} /></button>
-                    )}
-                  </div>
-                </div>
-                {editId === d.device_id && (
-                  <EditPanel device={d} onSave={() => { setEditId(null); void fetchDevices(); notify('设备信息已更新。'); }} onCancel={() => setEditId(null)} notify={notify} />
-                )}
-                {deleteConfirm === d.device_id && (
-                  <div style={{ padding: '8px 12px', fontSize: 11, color: '#ff8f88', background: '#1a1210', borderRadius: 6, margin: '4px 0' }}>
-                    确认删除 {d.device_id}？此操作不可撤销。<button onClick={() => setDeleteConfirm(null)} style={{ marginLeft: 8, background: 'none', border: 0, color: '#7d9c92', cursor: 'pointer', fontSize: 11 }}>取消</button>
-                  </div>
-                )}
-              </div>
-            ))}
-            {filtered.length === 0 && !loading && (
-              <div style={{ padding: 32, textAlign: 'center', color: '#5e7c73', fontSize: 13 }}>
-                {search ? '没有匹配的设备' : '暂无注册设备，点击「注册设备」添加'}
-              </div>
+            <p>
+              {source === 'loading'
+                ? '正在读取注册表…'
+                : `${devices.length} 台设备 · ${onlineCount} 台在线 · ${attentionCount} 台需处理${
+                    source === 'demo' ? '（样例）' : ''
+                  }`}
+            </p>
+            <p>
+              要求 Agent 版本 {fleet?.required_agent_version ?? 'v3.8'} ·
+              要求策略版本 {fleet?.required_policy_version ?? 'v4.8'}
+            </p>
+            {fleet?.credential_posture && (
+              <p>
+                凭据代次：当前 {fleet.credential_posture.current} · 上一代{' '}
+                {fleet.credential_posture.previous} · Legacy{' '}
+                {fleet.credential_posture.legacy}
+              </p>
             )}
           </div>
+          <Badge variant="outline">
+            <Laptop size={13} />
+            {fleet?.active_devices ?? onlineCount} 台活跃
+          </Badge>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 10,
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 0 }}>
+            <Search
+              size={14}
+              aria-hidden
+              style={{
+                position: 'absolute',
+                left: 10,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--muted-foreground)',
+                pointerEvents: 'none',
+              }}
+            />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索设备 ID、主机名或负责人"
+              aria-label="搜索受管终端"
+              autoComplete="off"
+              style={{ paddingLeft: 30 }}
+            />
+          </div>
+          {query && (
+            <Button variant="ghost" size="sm" onClick={() => setQuery('')}>
+              <X />
+              清除
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void refresh()}
+            disabled={refreshing || source === 'loading'}
+          >
+            {refreshing ? <Spinner /> : <RefreshCw />}
+            刷新
+          </Button>
+          <Badge variant="outline">
+            {visibleDevices.length} / {devices.length} 台
+          </Badge>
+        </div>
+
+        <div className="data-table">
+          <div className="data-head">
+            <span>设备 ID</span>
+            <span>用户 · 工具</span>
+            <span>Agent 版本</span>
+            <span>状态</span>
+          </div>
+
+          {source === 'loading' &&
+            [0, 1, 2, 3, 4].map((index) => (
+              <div className="skeleton-row" key={index} />
+            ))}
+
+          {visibleDevices.map((device, index) => {
+            const meta = STATUS_META[device.status] ?? STATUS_META.offline;
+            const editing = editingId === device.device_id;
+            const findings = device.findings_summary;
+            const openFindings = findings
+              ? findings.critical + findings.high + findings.medium + findings.low
+              : 0;
+            return (
+              <Fragment key={device.device_id}>
+                <div
+                  className="data-row animate-row-entrance"
+                  style={{
+                    animationDelay: `${index * 30 + 200}ms`,
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setEditingId(editing ? null : device.device_id)}
+                >
+                  <div style={cellStackStyle}>
+                    <strong>{device.device_id}</strong>
+                    <span style={{ fontSize: 10 }}>{device.hostname}</span>
+                  </div>
+                  <span>
+                    {device.owner || '未指派'} · {agentTypeLabel(device.agent_type)}
+                  </span>
+                  <span>{agentVersionLabel(device.agent_version)}</span>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      gap: 6,
+                    }}
+                  >
+                    <i
+                      className={meta.className}
+                      style={meta.style}
+                      title={`${meta.label} · ${formatLastSeen(device.last_seen)}${
+                        openFindings > 0 ? ` · ${openFindings} 项待闭环发现` : ''
+                      }`}
+                    >
+                      {meta.label}
+                    </i>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`编辑 ${device.device_id}`}
+                      aria-expanded={editing}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingId(editing ? null : device.device_id);
+                      }}
+                    >
+                      <Pencil />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`删除 ${device.device_id}`}
+                      style={{ color: 'var(--destructive)' }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPendingDelete(device);
+                      }}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </div>
+
+                {editing && (
+                  <div className="animate-entrance" style={inlinePanelStyle}>
+                    <DeviceForm
+                      mode="edit"
+                      initialData={device}
+                      onSubmit={updateDevice}
+                      onCancel={() => setEditingId(null)}
+                    />
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
+        </div>
+
+        {source !== 'loading' && visibleDevices.length === 0 && (
+          <div className="empty-detail" style={{ minHeight: 180 }}>
+            <Laptop size={36} />
+            <h2>{query ? '没有匹配的终端' : '注册表为空'}</h2>
+            <p>
+              {query
+                ? `未找到与「${query}」匹配的设备 ID、主机名或负责人。`
+                : '点击右上角「注册设备」，把第一台终端纳入治理。'}
+            </p>
+          </div>
+        )}
+
+        <p className="safety-note">
+          <ShieldCheck size={15} />
+          {source === 'api'
+            ? '终端清单来自 /api/devices；注册、编辑与删除会即时写入控制台存储，历史工单按审计要求留档。'
+            : '设备接口不可用，当前展示界面样例；恢复连接后会自动切回真实注册表。'}
+        </p>
+      </div>
+
+      <div className="panel coverage">
+        <div className="panel-head">
+          <div>
+            <h2>按 Agent 工具覆盖</h2>
+            <p>在线终端 / 已纳管终端</p>
+          </div>
+          <Badge variant="outline">
+            <Bot size={13} />
+            {fleet?.stale_devices ?? staleCount} 台待修复
+          </Badge>
+        </div>
+        {coverageRows.map((tool) => (
+          <div className="coverage-row" key={tool.name}>
+            <div className="tool-logo">{tool.name.slice(0, 1)}</div>
+            <div className="coverage-data">
+              <div>
+                <strong>{tool.name}</strong>
+                <span>
+                  {tool.online}/{tool.total} 在线
+                </span>
+              </div>
+              <Progress value={tool.total ? (tool.online / tool.total) * 100 : 0} />
+            </div>
+          </div>
+        ))}
+        {coverageRows.length === 0 && (
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--muted-foreground)' }}>
+            暂无终端上报工具覆盖数据。
+          </p>
         )}
       </div>
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除设备</AlertDialogTitle>
+            <AlertDialogDescription>
+              确认把 {pendingDelete?.device_id ?? '该终端'} 从注册表移除？负责人{' '}
+              {pendingDelete?.owner || '未指派'} 将失去该终端的凭据代次，关联工单会保留以满足审计要求。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting ? <Spinner /> : <Trash2 />}
+              {deleting ? '删除中…' : '确认删除'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
-  );
-}
-
-/* ─── Device Registration Form ──────────────────────────── */
-function DeviceForm({ onCreate, notify }: { onCreate: () => void; notify: (m: string) => void }) {
-  const [form, setForm] = useState({ device_id: '', hostname: '', owner: '', agent_type: 'cursor', notes: '' });
-  const [submitting, setSubmitting] = useState(false);
-  // useId 而非硬编码字符串：同一表单可能被多处渲染，硬编码会产生重复 id。
-  const agentTypeId = useId();
-
-  async function handleSubmit(e: React.SubmitEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!form.device_id || !form.hostname || !form.owner) { notify('请填写所有必填字段。'); return; }
-    setSubmitting(true);
-    const res = await fetch('/api/devices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
-    setSubmitting(false);
-    if (res.status === 201) { onCreate(); }
-    else {
-      const err = (await res.json().catch(() => ({}))) as { error?: string };
-      notify(`注册失败: ${err.error ?? res.status}`);
-    }
-  }
-
-  return (
-    <form className="panel animate-entrance" onSubmit={handleSubmit} style={{ marginBottom: 14 }}>
-      <div className="panel-head"><div><h2>注册新设备</h2><p>填写终端信息以纳入安全管理</p></div></div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <Field label="设备 ID *" value={form.device_id} onChange={(v) => setForm({ ...form, device_id: v })} placeholder="ENG-MBP-1234" />
-        <Field label="主机名 *" value={form.hostname} onChange={(v) => setForm({ ...form, hostname: v })} placeholder="eng-mbp-1234" />
-        <Field label="负责人 *" value={form.owner} onChange={(v) => setForm({ ...form, owner: v })} placeholder="张三" />
-        <div>
-          <label htmlFor={agentTypeId} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>Agent 类型</label>
-          <select id={agentTypeId} value={form.agent_type} onChange={(e) => setForm({ ...form, agent_type: e.target.value })} className="form-select">
-            <option value="cursor">Cursor</option><option value="claude_code">Claude Code</option>
-            <option value="codex_cli">Codex CLI</option><option value="windsurf">Windsurf</option><option value="other">其他</option>
-          </select>
-        </div>
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <Field label="备注" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="可选备注信息" />
-      </div>
-      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-        <Button type="submit" disabled={submitting}>{submitting ? '提交中...' : '注册设备'}</Button>
-      </div>
-    </form>
-  );
-}
-
-/* ─── Inline Edit Panel ─────────────────────────────────── */
-function EditPanel({ device, onSave, onCancel, notify }: { device: Device; onSave: () => void; onCancel: () => void; notify: (m: string) => void }) {
-  const [form, setForm] = useState({ hostname: device.hostname, owner: device.owner, notes: device.notes ?? '' });
-  const [saving, setSaving] = useState(false);
-
-  async function handleSave() {
-    setSaving(true);
-    const res = await fetch('/api/devices', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device_id: device.device_id, ...form }) });
-    setSaving(false);
-    if (res.ok) onSave(); else notify('更新失败，请重试。');
-  }
-
-  return (
-    <div style={{ padding: '12px 16px', background: '#0a1613', border: '1px solid #1e332d', borderRadius: 8, margin: '4px 0 8px' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-        <Field label="主机名" value={form.hostname} onChange={(v) => setForm({ ...form, hostname: v })} />
-        <Field label="负责人" value={form.owner} onChange={(v) => setForm({ ...form, owner: v })} />
-        <Field label="备注" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} />
-      </div>
-      <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-        <Button size="sm" onClick={handleSave} disabled={saving}>{saving ? '保存中...' : '保存'}</Button>
-        <Button size="sm" variant="outline" onClick={onCancel}>取消</Button>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Shared Field ──────────────────────────────────────── */
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  const id = useId();
-  return (
-    <div>
-      <label htmlFor={id} style={{ fontSize: 11, color: '#78968c', display: 'block', marginBottom: 4 }}>{label}</label>
-      <input id={id} className="form-input" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
-    </div>
   );
 }

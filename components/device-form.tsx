@@ -36,16 +36,28 @@ export type AgentType =
 
 export type DeviceStatus = 'online' | 'offline' | 'stale' | 'needs_attention';
 
+/** 该终端上尚未闭环的发现项，按严重等级汇总。 */
+export type FindingsSummary = {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
 export type Device = {
   device_id: string;
   hostname: string;
   owner: string;
   agent_type: AgentType;
-  agent_version?: string;
-  policy_version?: string;
-  status?: DeviceStatus;
+  agent_version: string;
+  policy_version: string;
+  status: DeviceStatus;
+  /** 最近一次上报时间（epoch 毫秒），0 表示从未上报。 */
+  last_seen: number;
+  /** 注册时间（epoch 毫秒）。 */
+  registered_at: number;
   notes?: string;
-  last_seen?: string | number | null;
+  findings_summary?: FindingsSummary;
 };
 
 /** 表单提交给 `/api/devices` 的载荷。 */
@@ -112,30 +124,70 @@ export function normalizeDeviceStatus(value: unknown): DeviceStatus {
   return 'offline';
 }
 
+/** 接口用 `unreported` 占位「注册后还没上报过版本」的终端。 */
+const UNREPORTED = 'unreported';
+
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : 0;
+}
+
+/** 接口返回 epoch 毫秒；同时容忍秒级时间戳与 ISO 字符串，无法解析时为 0。 */
+function timestamp(value: unknown): number {
+  if (typeof value === 'number')
+    return Number.isFinite(value) && value > 0 ? (value > 1e12 ? value : value * 1000) : 0;
+  if (typeof value !== 'string') return 0;
+  const trimmed = value.trim();
+  if (!trimmed) return 0;
+  if (/^\d+$/.test(trimmed)) return timestamp(Number(trimmed));
+  const parsed = Date.parse(trimmed);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function version(value: unknown): string {
+  const raw = text(value, 64);
+  return raw || UNREPORTED;
+}
+
+/** Agent 版本列的展示值：把服务端占位符翻译成中文。 */
+export function agentVersionLabel(value: string | undefined): string {
+  if (!value || value === UNREPORTED) return '未上报';
+  return value;
+}
+
+function parseFindings(value: unknown): FindingsSummary | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const data = value as Record<string, unknown>;
+  return {
+    critical: count(data.critical),
+    high: count(data.high),
+    medium: count(data.medium),
+    low: count(data.low),
+  };
+}
+
 /** 把单条不可信记录规范化为 `Device`；缺少 device_id 时返回 null。 */
 export function parseDevice(raw: unknown): Device | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const data = raw as Record<string, unknown>;
   const deviceId = text(data.device_id ?? data.id ?? data.deviceId, 64);
   if (!deviceId) return null;
-  const hostname = text(data.hostname ?? data.host ?? data.name, 128);
-  const agentVersion = text(data.agent_version ?? data.agentVersion, 32);
-  const policyVersion = text(data.policy_version ?? data.policyVersion, 32);
-  const notes = text(data.notes ?? data.note ?? data.comment, 512);
-  const lastSeen = data.last_seen ?? data.lastSeen ?? null;
+  const hostname = text(data.hostname ?? data.host ?? data.name, 253);
+  const notes = text(data.notes ?? data.note ?? data.comment, 2000);
+  const findings = parseFindings(data.findings_summary ?? data.findings);
   return {
     device_id: deviceId,
     hostname: hostname || deviceId,
     owner: text(data.owner ?? data.user ?? data.owner_name, 128),
     agent_type: normalizeAgentType(data.agent_type ?? data.agentType ?? data.tool),
-    ...(agentVersion ? { agent_version: agentVersion } : {}),
-    ...(policyVersion ? { policy_version: policyVersion } : {}),
+    agent_version: version(data.agent_version ?? data.agentVersion),
+    policy_version: version(data.policy_version ?? data.policyVersion),
     status: normalizeDeviceStatus(data.status ?? data.state),
+    last_seen: timestamp(data.last_seen ?? data.lastSeen),
+    registered_at: timestamp(data.registered_at ?? data.registeredAt),
     ...(notes ? { notes } : {}),
-    last_seen:
-      typeof lastSeen === 'string' || typeof lastSeen === 'number'
-        ? lastSeen
-        : null,
+    ...(findings ? { findings_summary: findings } : {}),
   };
 }
 
@@ -171,6 +223,9 @@ export type DeviceFormErrors = Partial<
   Record<'device_id' | 'hostname' | 'owner', string>
 >;
 
+/** 与 `POST/PUT /api/devices` 的 HOSTNAME_PATTERN 保持一致。 */
+const HOSTNAME_PATTERN = /^[A-Za-z0-9._-]{1,253}$/;
+
 export function validateDeviceForm(values: {
   device_id: string;
   hostname: string;
@@ -181,7 +236,10 @@ export function validateDeviceForm(values: {
   if (!deviceId) errors.device_id = '设备 ID 为必填项';
   else if (!DEVICE_ID_PATTERN.test(deviceId))
     errors.device_id = '设备 ID 需为 3 至 64 位字母、数字或连字符';
-  if (!values.hostname.trim()) errors.hostname = '主机名为必填项';
+  const hostname = values.hostname.trim();
+  if (!hostname) errors.hostname = '主机名为必填项';
+  else if (!HOSTNAME_PATTERN.test(hostname))
+    errors.hostname = '主机名只能包含字母、数字、点、下划线与连字符';
   if (!values.owner.trim()) errors.owner = '负责人为必填项';
   return errors;
 }
@@ -290,7 +348,7 @@ export default function DeviceForm({
           <strong>
             <Label htmlFor={ids.hostname}>主机名</Label>
           </strong>
-          <span>终端在 MDM / 域内登记的主机名</span>
+          <span>终端在 MDM / 域内登记的主机名，仅支持字母、数字、点、下划线与连字符</span>
           {errors.hostname && (
             <span id={`${ids.hostname}-error`} role="alert" style={errorStyle}>
               {errors.hostname}
@@ -364,14 +422,14 @@ export default function DeviceForm({
           <strong>
             <Label htmlFor={ids.notes}>备注</Label>
           </strong>
-          <span>可选，最多 512 字符，仅控制台可见</span>
+          <span>可选，最多 1000 字符，仅控制台可见</span>
         </div>
         <Textarea
           id={ids.notes}
           value={notes}
           onChange={(event) => setNotes(event.target.value)}
           placeholder="例如：试点组第一批，允许访问 payment-service 仓库"
-          maxLength={512}
+          maxLength={1000}
           disabled={submitting}
           style={{ ...controlStyle, width: 320 }}
         />

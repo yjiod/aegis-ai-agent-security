@@ -1,105 +1,374 @@
+/**
+ * app/api/tickets/[id]/route.ts — single-ticket workflow operations.
+ *
+ * GET    /api/tickets/:id -> fetch one ticket            (200 / 404)
+ * PUT    /api/tickets/:id -> transition / assign / note  (200 / 400 / 404 / 409)
+ * DELETE /api/tickets/:id -> remove the ticket           (200 / 404)
+ *
+ * This is the only place a ticket's lifecycle may change. Every accepted mutation
+ * appends to `history[]`, so the trail is complete and append-only: the fields
+ * that describe the *evidence* (title, severity, source, device_id, finding_ref)
+ * and the server-stamped fields (ticket_id, created_at, resolved_at) are rejected
+ * here on purpose. Editing evidence after the fact is exactly what an audit trail
+ * must not allow.
+ *
+ * The store is the in-memory demo registry in lib/store.ts and must be swapped
+ * for D1 in production — see the note at the top of that file.
+ */
+
 import { NextResponse } from 'next/server';
-import { getTicketStore, isValidTransition, type TicketStatus } from '@/lib/store';
-import { invalidFieldPayload, maybeText, optionalText, requireText } from '@/lib/http-body';
+import {
+  apiError,
+  boundedString,
+  jsonResponse,
+  methodNotAllowed,
+  readJsonObject,
+} from '@/lib/api';
+import {
+  getTicketStore,
+  getValidTransitions,
+  isValidTransition,
+  isTicketStatus,
+  logAudit,
+  TICKET_ID_PATTERN,
+  TICKET_STATUSES,
+  type Ticket,
+  type TicketHistoryEntry,
+  type TicketStatus,
+} from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 
-const HEADERS = { 'Cache-Control': 'no-store' };
-
-function json(data: unknown, status = 200) {
-  return NextResponse.json(data, { status, headers: HEADERS });
-}
-
+/** vinext passes route params as a thenable (Next.js 15 App Router semantics). */
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, context: RouteContext) {
-  const { id } = await context.params;
-  const store = getTicketStore();
-  const ticket = store.get(id);
-  if (!ticket) return json({ error: 'ticket_not_found', ticket_id: id }, 404);
-  return json({ ticket });
+/** Methods this item resource really implements (used for the 405 Allow). */
+const ALLOW = 'DELETE, GET, PUT';
+
+const MAX_NOTE = 2_000;
+const MAX_ASSIGNEE = 128;
+const MAX_ACTOR = 128;
+
+/** Actor recorded when a caller does not identify itself. */
+const DEFAULT_ACTOR = 'aegis-console';
+
+/** History verb recorded for each target status. */
+const TRANSITION_ACTIONS: Readonly<Record<TicketStatus, string>> = {
+  open: 'reopen',
+  acknowledged: 'acknowledge',
+  investigating: 'investigate',
+  resolved: 'resolve',
+  dismissed: 'dismiss',
+};
+
+/** States that close a ticket and therefore stamp `resolved_at`. */
+const TERMINAL_STATUSES: readonly TicketStatus[] = ['resolved', 'dismissed'];
+
+/** Everything PUT refuses to touch (see the file header for why). */
+const NOT_EDITABLE = [
+  'ticket_id',
+  'title',
+  'severity',
+  'source',
+  'device_id',
+  'description',
+  'finding_ref',
+  'created_at',
+  'updated_at',
+  'resolved_at',
+  'history',
+] as const;
+
+/** Optional `actor` override; defaults to the console's own identity. */
+function readActor(value: unknown, problems: string[]): string {
+  if (value === undefined || value === null) return DEFAULT_ACTOR;
+  const actor = boundedString(value, MAX_ACTOR);
+  if (actor === null) {
+    problems.push(
+      `actor must be a non-empty string of at most ${MAX_ACTOR} characters`,
+    );
+    return DEFAULT_ACTOR;
+  }
+  return actor;
 }
 
-export async function PUT(request: Request, context: RouteContext) {
+/**
+ * Resolves and validates the `:id` segment.
+ * A malformed id is a bad request; a well-formed but unknown id is a 404.
+ */
+async function resolveTicket(
+  context: RouteContext,
+): Promise<{ ticket: Ticket } | { response: NextResponse }> {
   const { id } = await context.params;
-  const store = getTicketStore();
-  const ticket = store.get(id);
-  if (!ticket) return json({ error: 'ticket_not_found', ticket_id: id }, 404);
+  const ticketId = typeof id === 'string' ? id.trim() : '';
 
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return json({ error: 'invalid_json' }, 400);
+  if (!TICKET_ID_PATTERN.test(ticketId)) {
+    return {
+      response: apiError(
+        'invalid_ticket_id',
+        'Ticket ids look like TKT-YYYYMMDD-NNNN.',
+        400,
+        ['id must match TKT-\\d{8}-\\d{4}'],
+      ),
+    };
   }
 
-  // 时间戳一律 epoch 毫秒（见 lib/store.ts 头部约定）。此前写秒会让 updated_at /
-  // resolved_at / history.timestamp 与种子数据相差 1000 倍，客户端 timeAgo 失真。
-  const now = Date.now();
+  const ticket = getTicketStore().get(ticketId);
+  if (!ticket) {
+    return {
+      response: apiError(
+        'ticket_not_found',
+        `No ticket with id ${ticketId}.`,
+        404,
+      ),
+    };
+  }
+  return { ticket };
+}
 
-  const wantsStatus = body.status !== undefined;
-  const wantsAssignee = body.assignee !== undefined;
+/* ------------------------------------------------------------------ *
+ * Handlers
+ * ------------------------------------------------------------------ */
 
-  let actor: string;
+/** GET /api/tickets/:id — the ticket plus its full audit history. */
+export async function GET(
+  _request: Request,
+  context: RouteContext,
+): Promise<NextResponse> {
+  const resolved = await resolveTicket(context);
+  if ('response' in resolved) return resolved.response;
+  return jsonResponse({ ticket: resolved.ticket });
+}
+
+/**
+ * PUT /api/tickets/:id — advance the workflow.
+ *
+ * Body: `{ status?, assignee?, note?, actor? }` — at least one of the first three.
+ * Each accepted change appends one entry to `history[]`; a status change and an
+ * assignment in the same call append two, in that order.
+ *
+ * 409 (not 400) for a disallowed transition: the body is well formed, it simply
+ * conflicts with the ticket's current state.
+ */
+export async function PUT(
+  request: Request,
+  context: RouteContext,
+): Promise<NextResponse> {
+  const resolved = await resolveTicket(context);
+  if ('response' in resolved) return resolved.response;
+  // Copy, never mutate in place: a rejected request must leave the store untouched.
+  const ticket: Ticket = {
+    ...resolved.ticket,
+    history: [...resolved.ticket.history],
+  };
+
+  const parsed = await readJsonObject(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.value;
+
+  const forbidden = NOT_EDITABLE.filter((field) => field in body);
+  if (forbidden.length > 0) {
+    return apiError(
+      'read_only_field',
+      'This endpoint only advances the workflow; ticket evidence and audit history are immutable.',
+      400,
+      forbidden.map((field) => `${field} cannot be modified here`),
+    );
+  }
+
+  const problems: string[] = [];
+
+  let nextStatus: TicketStatus | null = null;
+  if ('status' in body) {
+    if (!isTicketStatus(body.status)) {
+      problems.push(
+        `status must be one of ${TICKET_STATUSES.map((s) => `'${s}'`).join(', ')}`,
+      );
+    } else {
+      nextStatus = body.status;
+    }
+  }
+
+  let nextAssignee: string | null = null;
+  if ('assignee' in body && body.assignee !== null) {
+    const assignee = boundedString(body.assignee, MAX_ASSIGNEE);
+    if (assignee === null) {
+      problems.push(
+        `assignee must be a non-empty string of at most ${MAX_ASSIGNEE} characters`,
+      );
+    } else {
+      nextAssignee = assignee;
+    }
+  }
+
   let note: string | undefined;
-  let rawStatus: string | undefined;
-  let rawAssignee: string | undefined;
-  try {
-    actor = optionalText(body, 'actor', 'console_user').slice(0, 64);
-    note = maybeText(body, 'note', 500);
-    if (wantsStatus) rawStatus = requireText(body, 'status');
-    if (wantsAssignee) rawAssignee = requireText(body, 'assignee').slice(0, 64) || undefined;
-  } catch (error) {
-    const payload = invalidFieldPayload(error);
-    if (!payload) throw error;
-    return json({ ...payload, hint: 'fields must be string/number/boolean, not object or array' }, 400);
+  if ('note' in body && body.note !== null) {
+    const text = boundedString(body.note, MAX_NOTE);
+    if (text === null) {
+      problems.push(
+        `note must be a non-empty string of at most ${MAX_NOTE} characters`,
+      );
+    } else {
+      note = text;
+    }
   }
 
-  // Status transition
-  if (wantsStatus) {
-    const newStatus = rawStatus as TicketStatus;
-    const allStatuses: TicketStatus[] = ['open', 'acknowledged', 'investigating', 'resolved', 'dismissed'];
-    if (!allStatuses.includes(newStatus)) {
-      return json({ error: 'invalid_status', allowed: allStatuses }, 400);
-    }
-    if (!isValidTransition(ticket.status, newStatus)) {
-      return json({
-        error: 'invalid_transition',
-        from: ticket.status,
-        to: newStatus,
-        hint: `Valid transitions from '${ticket.status}': see workflow rules`,
-      }, 422);
-    }
-    // 必须在改写前留存来源状态：此前先赋 ticket.status 再拼历史动作，
-    // 导致审计轨迹恒为 "status:resolved→resolved"，来源状态永久丢失。
-    const fromStatus = ticket.status;
-    ticket.status = newStatus;
-    ticket.updated_at = now;
-    if (newStatus === 'resolved' || newStatus === 'dismissed') ticket.resolved_at = now;
-    if (newStatus === 'open') ticket.resolved_at = undefined;
-    ticket.history.push({ action: `status:${fromStatus}→${newStatus}`, actor, timestamp: now, note });
+  const actor = readActor(body.actor, problems);
+
+  if (problems.length > 0) {
+    return apiError(
+      'validation_failed',
+      'Ticket update was rejected.',
+      400,
+      problems,
+    );
+  }
+  if (nextStatus === null && nextAssignee === null && note === undefined) {
+    return apiError(
+      'no_updatable_fields',
+      'Provide at least one of status, assignee or note.',
+      400,
+    );
   }
 
-  // Assignee update
-  if (wantsAssignee) {
-    ticket.assignee = rawAssignee;
-    ticket.updated_at = now;
-    ticket.history.push({
-      action: 'assigned',
+  // --- state machine (table owned by lib/store.ts) -------------------
+  let transitioned = false;
+  if (nextStatus !== null && nextStatus !== ticket.status) {
+    if (!isValidTransition(ticket.status, nextStatus)) {
+      return apiError(
+        'invalid_status_transition',
+        `A ticket cannot move from '${ticket.status}' to '${nextStatus}'.`,
+        409,
+        [
+          `allowed next states from '${ticket.status}': ${getValidTransitions(
+            ticket.status,
+          )
+            .map((state) => `'${state}'`)
+            .join(', ')}`,
+        ],
+      );
+    }
+    transitioned = true;
+  }
+
+  // Acknowledging means owning: if nobody is assigned yet, the actor becomes the
+  // assignee so an acknowledged ticket always has a responsible person.
+  if (
+    nextStatus === 'acknowledged' &&
+    transitioned &&
+    nextAssignee === null &&
+    ticket.assignee === undefined
+  ) {
+    nextAssignee = actor;
+  }
+
+  const assigneeChanged =
+    nextAssignee !== null && nextAssignee !== ticket.assignee;
+  if (!transitioned && !assigneeChanged && note === undefined) {
+    // Values supplied but already current — a no-op, reported honestly.
+    return jsonResponse({ ticket, updated: false, changed: false });
+  }
+
+  const now = Date.now();
+  const entries: TicketHistoryEntry[] = [];
+
+  if (transitioned && nextStatus !== null) {
+    ticket.status = nextStatus;
+    entries.push({
+      action: TRANSITION_ACTIONS[nextStatus],
       actor,
       timestamp: now,
-      note: ticket.assignee ? `指派给 ${ticket.assignee}` : '取消指派',
+      ...(note === undefined ? {} : { note }),
+    });
+    // Terminal states stamp resolved_at; reopening clears it so the ticket can be
+    // closed again later with an accurate timestamp.
+    if (TERMINAL_STATUSES.includes(nextStatus)) ticket.resolved_at = now;
+    else delete ticket.resolved_at;
+  }
+
+  if (assigneeChanged && nextAssignee !== null) {
+    ticket.assignee = nextAssignee;
+    entries.push({
+      action: 'assign',
+      actor,
+      timestamp: now,
+      // The caller's note rides along with the primary action; the assignment
+      // entry still says what changed.
+      note:
+        entries.length === 0 && note !== undefined
+          ? note
+          : `责任人变更为 ${nextAssignee}`,
     });
   }
 
-  store.set(id, ticket);
-  return json({ ticket });
+  if (entries.length === 0 && note !== undefined) {
+    entries.push({ action: 'comment', actor, timestamp: now, note });
+  }
+
+  ticket.history.push(...entries);
+  ticket.updated_at = now;
+
+  getTicketStore().set(ticket.ticket_id, ticket);
+
+  // Audit trail: one entry per meaningful change (transition and/or assignment).
+  if (transitioned && nextStatus !== null) {
+    logAudit({
+      actor,
+      action: 'ticket:transition',
+      resource_type: 'ticket',
+      resource_id: ticket.ticket_id,
+      detail: `工单状态 ${resolved.ticket.status} → ${nextStatus}${note ? `：${note}` : ''}。`,
+    });
+  }
+  if (assigneeChanged && nextAssignee !== null) {
+    logAudit({
+      actor,
+      action: 'ticket:assign',
+      resource_type: 'ticket',
+      resource_id: ticket.ticket_id,
+      detail: `责任人变更为 ${nextAssignee}。`,
+    });
+  }
+
+  return jsonResponse({ ticket, updated: true, changed: true });
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
-  const { id } = await context.params;
-  const store = getTicketStore();
-  if (!store.has(id)) return json({ error: 'ticket_not_found', ticket_id: id }, 404);
-  store.delete(id);
-  return json({ deleted: true, ticket_id: id });
+/**
+ * DELETE /api/tickets/:id — remove a ticket.
+ *
+ * Deleting is a registry operation, not a workflow transition, so it does not
+ * append history: after the delete there is nothing left to read it. Real
+ * deployments should prefer `dismissed` and reserve DELETE for bad data.
+ */
+export async function DELETE(
+  _request: Request,
+  context: RouteContext,
+): Promise<NextResponse> {
+  const resolved = await resolveTicket(context);
+  if ('response' in resolved) return resolved.response;
+
+  getTicketStore().delete(resolved.ticket.ticket_id);
+
+  logAudit({
+    actor: 'console_user',
+    action: 'ticket:delete',
+    resource_type: 'ticket',
+    resource_id: resolved.ticket.ticket_id,
+    detail: `删除工单「${resolved.ticket.title}」。`,
+  });
+
+  return jsonResponse({ deleted: true, ticket_id: resolved.ticket.ticket_id });
+}
+
+/**
+ * POST / PATCH are not implemented on an individual ticket: creation happens on
+ * the collection and partial edits are deliberately unsupported (see NOT_EDITABLE).
+ * Exporting them keeps the 405 body JSON with `Cache-Control: no-store`.
+ */
+export function POST(): NextResponse {
+  return methodNotAllowed(ALLOW);
+}
+
+export function PATCH(): NextResponse {
+  return methodNotAllowed(ALLOW);
 }
