@@ -69,9 +69,10 @@ export async function GET(request: Request) {
   if (collectorDevices && collectorDevices.length > 0) {
     let devices = collectorDevices.map((d) => ({
       device_id: d.device_id,
-      hostname: d.device_id.toLowerCase(),
-      owner: '—',
+      hostname: (d as Record<string, unknown>).hostname as string ?? d.device_id,
+      owner: ((d as Record<string, unknown>).owner as string) || '待分配',
       agent_type: d.tools?.[0] ?? 'unknown',
+      tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',
       policy_version: d.policy_version ?? '0.0.0',
       status: severityToStatus(d.latest_severity, d.last_seen),
