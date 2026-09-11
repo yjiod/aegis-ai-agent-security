@@ -556,19 +556,20 @@ export function getDeviceStore(): Map<string, Device> {
   const existing = globals.__aegis_devices;
   if (existing) return existing;
 
+  // Start EMPTY — real device data comes from the Collector.
+  // Console-side registry is only for manually registered devices.
   const store = new Map<string, Device>();
-  for (const device of seedDevices()) store.set(device.device_id, device);
   globals.__aegis_devices = store;
   return store;
 }
 
-/** The live ticket registry, seeded with demo tickets on first access. */
+/** The live ticket registry. Starts empty; tickets are created from real findings. */
 export function getTicketStore(): Map<string, Ticket> {
   const existing = globals.__aegis_tickets;
   if (existing) return existing;
 
+  // Start EMPTY — no fake demo tickets.
   const store = new Map<string, Ticket>();
-  for (const ticket of seedTickets()) store.set(ticket.ticket_id, ticket);
   globals.__aegis_tickets = store;
   return store;
 }
@@ -696,7 +697,7 @@ export function getAuditStore(): AuditEntry[] {
   const existing = globals.__aegis_audit;
   if (existing) return existing;
 
-  const store = seedAudit();
+  const store: AuditEntry[] = [];
   globals.__aegis_audit = store;
   return store;
 }
