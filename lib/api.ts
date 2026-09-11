@@ -129,7 +129,11 @@ export async function readJsonObject(
   } catch {
     return {
       ok: false,
-      response: apiError('unreadable_body', 'Request body could not be read.', 400),
+      response: apiError(
+        'unreadable_body',
+        'Request body could not be read.',
+        400,
+      ),
     };
   }
 

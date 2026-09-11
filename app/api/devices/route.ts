@@ -3,14 +3,14 @@
  *
  * GET    /api/devices                 -> registry list + (optional) live fleet summary
  * POST   /api/devices                 -> register a device            (201)
- * PUT    /api/devices                 -> update device metadata      (200)
- * DELETE /api/devices?device_id=ID    -> remove from the registry    (200)
+ * PUT    /api/devices                 -> update device metadata       (200)
+ * DELETE /api/devices?device_id=ID    -> remove from the registry     (200)
  *
- * The registry itself is the in-memory demo store in lib/store.ts. In production
- * it must be backed by D1 (or the Collector's SQLite) — see the note at the top
- * of that file. GET additionally tries the authenticated, read-only Collector
- * summary so the fleet KPIs can be real while the per-device rows stay demo data,
- * exactly like the "混合只读模式" the devices page already describes.
+ * The registry is the in-memory demo store in lib/store.ts. In production it must
+ * be backed by D1 (or the Collector's SQLite) — see the note at the top of that
+ * file. GET additionally tries the authenticated, read-only Collector summary so
+ * the fleet KPIs can be real while per-device rows stay demo data, which is
+ * exactly the "混合只读模式" the devices page already describes.
  */
 
 import { NextResponse } from 'next/server';
@@ -25,10 +25,12 @@ import {
   readJsonObject,
 } from '@/lib/api';
 import {
+  DEVICE_ID_PATTERN,
   getDeviceStore,
   getTicketStore,
   isAgentType,
   isDeviceStatus,
+  logAudit,
   type AgentType,
   type Device,
   type DeviceStatus,
@@ -37,31 +39,37 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-/** Methods this collection resource really implements (used for 405 `Allow`). */
+/** Methods this collection resource really implements (used for the 405 Allow). */
 const ALLOW = 'DELETE, GET, POST, PUT';
 
-/**
- * device_id is the join key between the console, the Collector and EDR, so the
- * shape is fixed: 3-64 chars of ASCII alphanumerics and hyphens. No dots, no
- * slashes, no unicode — it ends up in URLs, log lines and file paths.
- */
-const DEVICE_ID_PATTERN = /^[A-Za-z0-9-]{3,64}$/;
-
-/** Conservative hostname/FQDN shape; also what the Collector accepts. */
+/** Conservative hostname/FQDN shape. */
 const HOSTNAME_PATTERN = /^[A-Za-z0-9._-]{1,253}$/;
 
+const MAX_HOSTNAME = 253;
 const MAX_OWNER = 128;
 const MAX_NOTES = 2_000;
 
-/** Version reported before a device has ever uploaded a report. */
+/** Version recorded before a device has ever uploaded a report. */
 const UNREPORTED = 'unreported';
 
 /**
- * Fields the client may never write: they are derived from Collector reports or
- * stamped by the server. Rejecting them beats silently ignoring them, because a
- * governance console must not look like it accepted a forged posture.
+ * Fields a client may never write on registration: they are derived from
+ * Collector reports or stamped by the server. Rejecting them beats silently
+ * ignoring them — a governance console must not look like it accepted a forged
+ * posture.
  */
-const READ_ONLY_ON_CREATE = ['status', 'last_seen', 'registered_at', 'findings_summary'] as const;
+const READ_ONLY_ON_CREATE = [
+  'status',
+  'last_seen',
+  'registered_at',
+  'findings_summary',
+] as const;
+
+/**
+ * Stamped once at enrolment and never editable. `device_id` is not listed here
+ * because a PUT body must carry it as the lookup key; renaming a device is a
+ * delete + re-register, not an update.
+ */
 const IMMUTABLE = ['registered_at'] as const;
 
 /* ------------------------------------------------------------------ *
@@ -86,7 +94,7 @@ function isShortString(value: unknown): value is string {
   return typeof value === 'string' && value.length >= 1 && value.length <= 64;
 }
 
-/** Counts must all be present and sum to `total_devices`. */
+/** Every key must be a count, and they must sum to `total`. */
 function validCounts(
   block: unknown,
   keys: readonly string[],
@@ -101,12 +109,14 @@ function validCounts(
 /**
  * Validates the Collector's `/v1/summary` payload and returns only the fields the
  * console understands. Anything unexpected -> null, which degrades to demo mode
- * rather than surfacing unvalidated numbers.
+ * instead of surfacing unvalidated numbers.
  */
 function sanitizedFleet(value: unknown): FleetSummary | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const data = value as Record<string, unknown>;
-  const { total_devices: total, active_devices: active, stale_devices: stale } = data;
+  const total = data.total_devices;
+  const active = data.active_devices;
+  const stale = data.stale_devices;
   if (!isCount(total) || !isCount(active) || !isCount(stale)) return null;
   if (active + stale !== total) return null;
   if (!isShortString(data.required_agent_version)) return null;
@@ -114,12 +124,16 @@ function sanitizedFleet(value: unknown): FleetSummary | null {
   if (!validCounts(data.latest_severity, LEVELS, total)) return null;
   if (!validCounts(data.version_posture, POSTURES, total)) return null;
 
-  const severity = data.latest_severity as Record<string, number>;
-  const posture = data.version_posture as Record<string, number>;
-  const hasCredentials = validCounts(data.credential_posture, CREDENTIAL_POSTURES, total);
-  const credentials = hasCredentials
-    ? (data.credential_posture as Record<string, number>)
-    : undefined;
+  const severity = data.latest_severity;
+  const posture = data.version_posture;
+  // Optional block: only echoed when it is present *and* internally consistent.
+  const credentials = validCounts(
+    data.credential_posture,
+    CREDENTIAL_POSTURES,
+    total,
+  )
+    ? data.credential_posture
+    : null;
 
   return {
     total_devices: total,
@@ -152,9 +166,9 @@ function sanitizedFleet(value: unknown): FleetSummary | null {
 }
 
 /**
- * Reads the Collector summary with the same guards app/api/summary/route.ts uses
- * (allowlisted host, no embedded credentials/query, https unless local dev,
- * bounded body, hard timeout). Never throws: `null` means "demo mode".
+ * Reads the Collector summary behind the same guards app/api/summary/route.ts
+ * uses (allowlisted host, no embedded credentials or query, https unless local
+ * dev, size cap, hard timeout). Never throws: `null` means "demo mode".
  */
 async function fetchFleetSummary(): Promise<FleetSummary | null> {
   const endpoint = process.env.AEGIS_COLLECTOR_URL;
@@ -195,34 +209,92 @@ async function fetchFleetSummary(): Promise<FleetSummary | null> {
     if (Number.isSafeInteger(declared) && declared > 65_536) return null;
     return sanitizedFleet(await response.json());
   } catch {
-    // Collector down, slow, or not configured: the registry still answers.
+    // Collector down, slow, or unconfigured: the registry still answers.
     return null;
   }
 }
 
 /* ------------------------------------------------------------------ *
  * Field readers
+ *
+ * Each reader pushes a human-readable problem onto `problems` and returns null on
+ * failure, so a single 400 can report every bad field at once and the happy path
+ * stays free of type assertions.
  * ------------------------------------------------------------------ */
 
-/**
- * `notes` may be cleared with an empty string on update. Returns
- * `{ value: undefined }` to mean "remove the key".
- */
-function readNotes(
-  body: Record<string, unknown>,
+function readDeviceId(value: unknown, problems: string[]): string | null {
+  const deviceId = typeof value === 'string' ? value.trim() : '';
+  if (!DEVICE_ID_PATTERN.test(deviceId)) {
+    problems.push('device_id must be 3-64 characters of [A-Za-z0-9-]');
+    return null;
+  }
+  return deviceId;
+}
+
+function readHostname(value: unknown, problems: string[]): string | null {
+  const hostname = boundedString(value, MAX_HOSTNAME);
+  if (hostname === null || !HOSTNAME_PATTERN.test(hostname)) {
+    problems.push(
+      `hostname must be 1-${MAX_HOSTNAME} characters of [A-Za-z0-9._-]`,
+    );
+    return null;
+  }
+  return hostname;
+}
+
+function readOwner(value: unknown, problems: string[]): string | null {
+  const owner = boundedString(value, MAX_OWNER);
+  if (owner === null) {
+    problems.push(
+      `owner must be a non-empty string of at most ${MAX_OWNER} characters`,
+    );
+    return null;
+  }
+  return owner;
+}
+
+function readAgentType(value: unknown, problems: string[]): AgentType | null {
+  if (!isAgentType(value)) {
+    problems.push(
+      "agent_type must be one of 'cursor', 'claude_code', 'codex_cli', 'windsurf', 'other'",
+    );
+    return null;
+  }
+  return value;
+}
+
+function readStatus(value: unknown, problems: string[]): DeviceStatus | null {
+  if (!isDeviceStatus(value)) {
+    problems.push(
+      "status must be one of 'online', 'offline', 'stale', 'needs_attention'",
+    );
+    return null;
+  }
+  return value;
+}
+
+function readVersion(
+  field: 'agent_version' | 'policy_version',
+  value: unknown,
   problems: string[],
-): { present: boolean; value?: string } {
-  if (!('notes' in body)) return { present: false };
-  const raw = body.notes;
-  if (raw === null || (typeof raw === 'string' && raw.trim() === '')) {
-    return { present: true, value: undefined };
+): string | null {
+  const version = boundedVersion(value);
+  if (version === null) {
+    problems.push(`${field} must match [A-Za-z0-9._+-]{1,64}`);
+    return null;
   }
-  const notes = boundedString(raw, MAX_NOTES);
-  if (notes === null) {
-    problems.push(`notes must be a non-empty string of at most ${MAX_NOTES} characters`);
-    return { present: true, value: undefined };
+  return version;
+}
+
+function readLastSeen(value: unknown, problems: string[]): number | null {
+  const lastSeen = boundedTimestamp(value);
+  if (lastSeen === null) {
+    problems.push(
+      'last_seen must be a non-negative integer (epoch milliseconds)',
+    );
+    return null;
   }
-  return { present: true, value: notes };
+  return lastSeen;
 }
 
 function readFindingsSummary(
@@ -234,22 +306,50 @@ function readFindingsSummary(
     return null;
   }
   const record = value as Record<string, unknown>;
-  const keys = ['critical', 'high', 'medium', 'low'] as const;
-  if (!keys.every((key) => isCount(record[key]))) {
+  const critical = record.critical;
+  const high = record.high;
+  const medium = record.medium;
+  const low = record.low;
+  if (
+    !isCount(critical) ||
+    !isCount(high) ||
+    !isCount(medium) ||
+    !isCount(low)
+  ) {
     problems.push(
       'findings_summary must contain non-negative integers for critical, high, medium and low',
     );
     return null;
   }
-  return {
-    critical: record.critical as number,
-    high: record.high as number,
-    medium: record.medium as number,
-    low: record.low as number,
-  };
+  return { critical, high, medium, low };
 }
 
-function rejectReadOnlyFields(
+/** `notes` is tri-state on update: absent, cleared (null/""), or set. */
+type NotesPatch =
+  | { kind: 'absent' }
+  | { kind: 'clear' }
+  | { kind: 'set'; value: string };
+
+function readNotes(
+  body: Record<string, unknown>,
+  problems: string[],
+): NotesPatch {
+  if (!('notes' in body)) return { kind: 'absent' };
+  const raw = body.notes;
+  if (raw === null || (typeof raw === 'string' && raw.trim() === '')) {
+    return { kind: 'clear' };
+  }
+  const notes = boundedString(raw, MAX_NOTES);
+  if (notes === null) {
+    problems.push(`notes must be a string of at most ${MAX_NOTES} characters`);
+    // Safe: a non-empty `problems` always short-circuits before anything is applied.
+    return { kind: 'absent' };
+  }
+  return { kind: 'set', value: notes };
+}
+
+/** Rejects server-managed fields appearing in a client body. */
+function findForbidden(
   body: Record<string, unknown>,
   fields: readonly string[],
 ): string[] {
@@ -263,8 +363,8 @@ function rejectReadOnlyFields(
 /**
  * GET /api/devices
  *
- * Returns the registry in insertion order (the seeded six first, matching
- * app/devices/page.tsx) alongside the live fleet summary when the Collector is
+ * Returns the registry in insertion order (the six seeded devices first, matching
+ * app/devices/page.tsx) plus the live fleet summary when the Collector is
  * reachable. `connected: false` is not an error — it is the console's demo mode.
  */
 export async function GET(): Promise<NextResponse> {
@@ -276,78 +376,57 @@ export async function GET(): Promise<NextResponse> {
     count: devices.length,
     connected: fleet !== null,
     source: fleet === null ? 'demo' : 'live',
-    ...(fleet === null ? { fleet: null } : { fleet }),
+    fleet,
   });
 }
 
 /**
  * POST /api/devices — register a device.
+ *
  * Body: `{ device_id, hostname, owner, agent_type, notes?, agent_version?, policy_version? }`
- * 201 on success, 409 if the device_id is already registered.
+ * 201 on success; 409 when the device_id is already registered.
  */
 export async function POST(request: Request): Promise<NextResponse> {
   const parsed = await readJsonObject(request);
   if (!parsed.ok) return parsed.response;
   const body = parsed.value;
 
-  const readOnly = rejectReadOnlyFields(body, READ_ONLY_ON_CREATE);
-  if (readOnly.length > 0) {
+  const forbidden = findForbidden(body, READ_ONLY_ON_CREATE);
+  if (forbidden.length > 0) {
     return apiError(
       'read_only_field',
       'These fields are managed by the server and cannot be set on registration.',
       400,
-      readOnly.map((field) => `${field} is read-only`),
+      forbidden.map((field) => `${field} is read-only`),
     );
   }
 
   const problems: string[] = [];
-
-  const deviceId = typeof body.device_id === 'string' ? body.device_id.trim() : '';
-  if (!DEVICE_ID_PATTERN.test(deviceId)) {
-    problems.push('device_id must be 3-64 characters of [A-Za-z0-9-]');
-  }
-
-  const hostname = boundedString(body.hostname, 253);
-  if (hostname === null || !HOSTNAME_PATTERN.test(hostname)) {
-    problems.push('hostname must be 1-253 characters of [A-Za-z0-9._-]');
-  }
-
-  const owner = boundedString(body.owner, MAX_OWNER);
-  if (owner === null) {
-    problems.push(`owner must be a non-empty string of at most ${MAX_OWNER} characters`);
-  }
-
-  if (!isAgentType(body.agent_type)) {
-    problems.push(
-      "agent_type must be one of 'cursor', 'claude_code', 'codex_cli', 'windsurf', 'other'",
-    );
-  }
-
-  // Optional versions: a freshly enrolled device has usually not reported yet.
-  let agentVersion = UNREPORTED;
-  if ('agent_version' in body && body.agent_version !== null) {
-    const value = boundedVersion(body.agent_version);
-    if (value === null) {
-      problems.push('agent_version must match [A-Za-z0-9._+-]{1,64}');
-    } else {
-      agentVersion = value;
-    }
-  }
-
-  let policyVersion = UNREPORTED;
-  if ('policy_version' in body && body.policy_version !== null) {
-    const value = boundedVersion(body.policy_version);
-    if (value === null) {
-      problems.push('policy_version must match [A-Za-z0-9._+-]{1,64}');
-    } else {
-      policyVersion = value;
-    }
-  }
-
+  const deviceId = readDeviceId(body.device_id, problems);
+  const hostname = readHostname(body.hostname, problems);
+  const owner = readOwner(body.owner, problems);
+  const agentType = readAgentType(body.agent_type, problems);
   const notes = readNotes(body, problems);
 
-  if (problems.length > 0) {
-    return apiError('validation_failed', 'Device registration was rejected.', 400, problems);
+  // Optional: a freshly enrolled device has usually not reported a version yet.
+  let agentVersion = UNREPORTED;
+  if ('agent_version' in body && body.agent_version !== null) {
+    const value = readVersion('agent_version', body.agent_version, problems);
+    if (value !== null) agentVersion = value;
+  }
+  let policyVersion = UNREPORTED;
+  if ('policy_version' in body && body.policy_version !== null) {
+    const value = readVersion('policy_version', body.policy_version, problems);
+    if (value !== null) policyVersion = value;
+  }
+
+  if (problems.length > 0 || !deviceId || !hostname || !owner || !agentType) {
+    return apiError(
+      'validation_failed',
+      'Device registration was rejected.',
+      400,
+      problems,
+    );
   }
 
   const store = getDeviceStore();
@@ -359,36 +438,45 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const now = Date.now();
   const device: Device = {
     device_id: deviceId,
-    hostname: hostname as string,
-    owner: owner as string,
-    agent_type: body.agent_type as AgentType,
+    hostname,
+    owner,
+    agent_type: agentType,
     agent_version: agentVersion,
     policy_version: policyVersion,
-    // A device that has never reported is offline until the Collector hears from it.
+    // Offline until the Collector actually hears from it; last_seen 0 = never.
     status: 'offline',
     last_seen: 0,
-    registered_at: now,
-    ...(notes.value === undefined ? {} : { notes: notes.value }),
+    registered_at: Date.now(),
+    ...(notes.kind === 'set' ? { notes: notes.value } : {}),
   };
   store.set(deviceId, device);
+
+  logAudit({
+    actor: 'console_user',
+    action: 'device:create',
+    resource_type: 'device',
+    resource_id: deviceId,
+    detail: `注册设备 ${hostname}（负责人 ${owner}，${agentType}）。`,
+  });
 
   return jsonResponse({ device, created: true }, 201);
 }
 
 /**
  * PUT /api/devices — update device metadata.
+ *
  * Body: `{ device_id, ...fields }`; at least one updatable field is required.
- * 404 when the device is not registered.
+ * 404 when the device is not registered. `device_id` identifies the target and
+ * cannot itself be changed.
  */
 export async function PUT(request: Request): Promise<NextResponse> {
   const parsed = await readJsonObject(request);
   if (!parsed.ok) return parsed.response;
   const body = parsed.value;
 
-  const immutable = rejectReadOnlyFields(body, IMMUTABLE);
+  const immutable = findForbidden(body, IMMUTABLE);
   if (immutable.length > 0) {
     return apiError(
       'immutable_field',
@@ -398,105 +486,79 @@ export async function PUT(request: Request): Promise<NextResponse> {
     );
   }
 
-  const problems: string[] = [];
-
-  const deviceId = typeof body.device_id === 'string' ? body.device_id.trim() : '';
-  if (!DEVICE_ID_PATTERN.test(deviceId)) {
+  const keyProblems: string[] = [];
+  const deviceId = readDeviceId(body.device_id, keyProblems);
+  if (deviceId === null) {
     return apiError(
       'validation_failed',
       'device_id is required to identify the device to update.',
       400,
-      ['device_id must be 3-64 characters of [A-Za-z0-9-]'],
+      keyProblems,
     );
   }
 
   const store = getDeviceStore();
   const existing = store.get(deviceId);
   if (!existing) {
-    return apiError('device_not_found', `No device registered with id ${deviceId}.`, 404);
+    return apiError(
+      'device_not_found',
+      `No device registered with id ${deviceId}.`,
+      404,
+    );
   }
 
+  const problems: string[] = [];
   const patch: Partial<Device> = {};
 
   if ('hostname' in body) {
-    const hostname = boundedString(body.hostname, 253);
-    if (hostname === null || !HOSTNAME_PATTERN.test(hostname)) {
-      problems.push('hostname must be 1-253 characters of [A-Za-z0-9._-]');
-    } else {
-      patch.hostname = hostname;
-    }
+    const hostname = readHostname(body.hostname, problems);
+    if (hostname !== null) patch.hostname = hostname;
   }
-
   if ('owner' in body) {
-    const owner = boundedString(body.owner, MAX_OWNER);
-    if (owner === null) {
-      problems.push(`owner must be a non-empty string of at most ${MAX_OWNER} characters`);
-    } else {
-      patch.owner = owner;
-    }
+    const owner = readOwner(body.owner, problems);
+    if (owner !== null) patch.owner = owner;
   }
-
   if ('agent_type' in body) {
-    if (!isAgentType(body.agent_type)) {
-      problems.push(
-        "agent_type must be one of 'cursor', 'claude_code', 'codex_cli', 'windsurf', 'other'",
-      );
-    } else {
-      patch.agent_type = body.agent_type;
-    }
+    const agentType = readAgentType(body.agent_type, problems);
+    if (agentType !== null) patch.agent_type = agentType;
   }
-
   if ('agent_version' in body) {
-    const value = boundedVersion(body.agent_version);
-    if (value === null) {
-      problems.push('agent_version must match [A-Za-z0-9._+-]{1,64}');
-    } else {
-      patch.agent_version = value;
-    }
+    const version = readVersion('agent_version', body.agent_version, problems);
+    if (version !== null) patch.agent_version = version;
   }
-
   if ('policy_version' in body) {
-    const value = boundedVersion(body.policy_version);
-    if (value === null) {
-      problems.push('policy_version must match [A-Za-z0-9._+-]{1,64}');
-    } else {
-      patch.policy_version = value;
-    }
+    const version = readVersion(
+      'policy_version',
+      body.policy_version,
+      problems,
+    );
+    if (version !== null) patch.policy_version = version;
   }
-
   if ('status' in body) {
-    if (!isDeviceStatus(body.status)) {
-      problems.push(
-        "status must be one of 'online', 'offline', 'stale', 'needs_attention'",
-      );
-    } else {
-      patch.status = body.status as DeviceStatus;
-    }
+    const status = readStatus(body.status, problems);
+    if (status !== null) patch.status = status;
   }
-
   if ('last_seen' in body) {
-    const value = boundedTimestamp(body.last_seen);
-    if (value === null) {
-      problems.push('last_seen must be a non-negative integer (epoch milliseconds)');
-    } else {
-      patch.last_seen = value;
-    }
+    const lastSeen = readLastSeen(body.last_seen, problems);
+    if (lastSeen !== null) patch.last_seen = lastSeen;
   }
-
   if ('findings_summary' in body) {
-    const value = readFindingsSummary(body.findings_summary, problems);
-    if (value !== null) patch.findings_summary = value;
+    const summary = readFindingsSummary(body.findings_summary, problems);
+    if (summary !== null) patch.findings_summary = summary;
   }
 
   const notes = readNotes(body, problems);
-  const notesCleared = notes.present && notes.value === undefined && 'notes' in body;
+  const notesChanged = notes.kind === 'set' || notes.kind === 'clear';
 
   if (problems.length > 0) {
-    return apiError('validation_failed', 'Device update was rejected.', 400, problems);
+    return apiError(
+      'validation_failed',
+      'Device update was rejected.',
+      400,
+      problems,
+    );
   }
-
-  const changedFields = Object.keys(patch).length + (notes.present ? 1 : 0);
-  if (changedFields === 0) {
+  if (Object.keys(patch).length === 0 && !notesChanged) {
     return apiError(
       'no_updatable_fields',
       'Provide at least one updatable field besides device_id.',
@@ -505,14 +567,20 @@ export async function PUT(request: Request): Promise<NextResponse> {
   }
 
   const updated: Device = { ...existing, ...patch };
-  if (notes.present) {
-    if (notes.value === undefined) delete updated.notes;
-    else updated.notes = notes.value;
-  }
-  // `delete` above can leave the key absent; make the "cleared" case explicit.
-  if (notesCleared) delete updated.notes;
+  if (notes.kind === 'set') updated.notes = notes.value;
+  else if (notes.kind === 'clear') delete updated.notes;
 
   store.set(deviceId, updated);
+
+  const changedFields = [...Object.keys(patch), ...(notesChanged ? ['notes'] : [])];
+  logAudit({
+    actor: 'console_user',
+    action: 'device:update',
+    resource_type: 'device',
+    resource_id: deviceId,
+    detail: `更新设备字段：${changedFields.join(', ')}。`,
+  });
+
   return jsonResponse({ device: updated, updated: true });
 }
 
@@ -521,22 +589,30 @@ export async function PUT(request: Request): Promise<NextResponse> {
  *
  * Tickets referencing the device are intentionally retained: a governance audit
  * trail must outlive the asset it describes. The response reports how many were
- * left behind so a caller can warn the operator.
+ * left behind so the caller can warn the operator.
  */
 export async function DELETE(request: Request): Promise<NextResponse> {
-  const deviceId = new URL(request.url).searchParams.get('device_id')?.trim() ?? '';
-  if (!DEVICE_ID_PATTERN.test(deviceId)) {
+  const problems: string[] = [];
+  const deviceId = readDeviceId(
+    new URL(request.url).searchParams.get('device_id'),
+    problems,
+  );
+  if (deviceId === null) {
     return apiError(
       'validation_failed',
       'The device_id query parameter is required.',
       400,
-      ['device_id must be 3-64 characters of [A-Za-z0-9-]'],
+      problems,
     );
   }
 
   const store = getDeviceStore();
   if (!store.has(deviceId)) {
-    return apiError('device_not_found', `No device registered with id ${deviceId}.`, 404);
+    return apiError(
+      'device_not_found',
+      `No device registered with id ${deviceId}.`,
+      404,
+    );
   }
   store.delete(deviceId);
 
@@ -545,10 +621,22 @@ export async function DELETE(request: Request): Promise<NextResponse> {
     if (ticket.device_id === deviceId) retainedTickets += 1;
   }
 
-  return jsonResponse({ deleted: true, device_id: deviceId, retained_tickets: retainedTickets });
+  logAudit({
+    actor: 'console_user',
+    action: 'device:delete',
+    resource_type: 'device',
+    resource_id: deviceId,
+    detail: `从注册表移除设备，保留 ${retainedTickets} 条关联工单。`,
+  });
+
+  return jsonResponse({
+    deleted: true,
+    device_id: deviceId,
+    retained_tickets: retainedTickets,
+  });
 }
 
-/** PATCH is not implemented — PUT replaces the mutable fields wholesale. */
+/** PATCH is not implemented — PUT rewrites the mutable fields wholesale. */
 export function PATCH(): NextResponse {
   return methodNotAllowed(ALLOW);
 }
