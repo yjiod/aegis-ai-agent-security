@@ -338,6 +338,30 @@ def auto_enroll(root):
     changed=install_user_baselines()
     for repo in discover_repositories(root): changed.extend(install_baseline(repo))
     return changed
+def verify_user_baselines(homes=None):
+    """Return privacy-minimized evidence that detected user Agents loaded the managed block."""
+    homes=managed_homes() if homes is None else homes
+    try: expected=BASELINE.read_text().rstrip()
+    except OSError: return [],[]
+    inventory=[];findings=[]
+    targets={"codex":(".codex",".codex/AGENTS.md"),"claude_code":((".claude",".claude.json"),".claude/CLAUDE.md"),"gemini_cli":(".gemini",".gemini/GEMINI.md"),"github_copilot_cli":(".copilot",".copilot/copilot-instructions.md"),"qwen_enterprise":(".qwenworkcn",".qwenworkcn/AGENTS.md"),"tongyi_lingma":(".lingma",".lingma/rules.md"),"codebuddy":(".codebuddy",".codebuddy/rules.md")}
+    for home in homes:
+        home=Path(home)
+        if home.is_symlink() or not home.is_dir(): continue
+        for agent,(markers,relative) in targets.items():
+            markers=(markers,) if isinstance(markers,str) else markers
+            if not any((home/m).exists() for m in markers): continue
+            path=home/relative; status="missing"
+            if not safe_managed_target(home,path): status="unsafe"
+            elif path.is_file():
+                try:
+                    text=path.read_text(errors="ignore"); starts=text.count(USER_BASELINE_START); ends=text.count(USER_BASELINE_END)
+                    match=re.search(re.escape(USER_BASELINE_START)+r"\n(.*?)\n"+re.escape(USER_BASELINE_END),text,re.S)
+                    status="managed" if starts==1 and ends==1 and match and match.group(1).rstrip()==expected else "malformed"
+                except OSError: status="unreadable"
+            inventory.append({"type":"agent_baseline","name":agent,"status":status,"scope":"user"})
+            if status!="managed": findings.append(finding("agent_baseline_not_loaded","high",path,f"{agent} 已发现但企业安全基线未处于受管状态",status))
+    return inventory,findings
 def load_reporting_config(path):
     path=Path(path)
     if path.is_symlink(): raise ValueError("reporting_config_symlink")
@@ -413,6 +437,8 @@ def write_upload_status(path,url,now=None):
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
+    baseline_inv,baseline_findings=verify_user_baselines()
+    inventory.extend(baseline_inv); findings.extend(baseline_findings)
     if len(inventory)>REPORT_INVENTORY_LIMIT:
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
