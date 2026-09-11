@@ -248,16 +248,7 @@ export default function CatalogPage() {
 
   return (
     <div className="min-w-0">
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>组件目录 · 开发参考 · 非生产页面</strong>
-          本页展示 shadcn/ui 组件与 Aegis
-          自定义样式类的实时渲染效果，仅供本地开发与 UI
-          走查使用；所有数据都是样例，不连接任何后端。生产构建应排除 /catalog
-          路由（排除逻辑尚未实现，详见 app/catalog/page.tsx 顶部注释）。
-        </span>
-      </div>
+      
 
       <div className="page-head">
         <div>
@@ -689,7 +680,7 @@ export default function CatalogPage() {
               <Variant label="警告 warning" vertical>
                 <Alert className="border-[#6a5427] bg-[#2b2313] text-[#ffd77f]">
                   <AlertTriangle />
-                  <AlertTitle>演示模式</AlertTitle>
+                  <AlertTitle>组件走查</AlertTitle>
                   <AlertDescription className="text-[#d9c28d]">
                     接收器未连接，页面中的设备数、合规率与风险条目均为界面样例。
                   </AlertDescription>
@@ -786,7 +777,7 @@ export default function CatalogPage() {
                 <Button
                   variant="outline"
                   onClick={() =>
-                    setToast('演示模式：未连接策略发布 API，未修改任何终端。')
+                    setToast('功能待接入：未连接策略发布 API，未修改任何终端。')
                   }
                 >
                   <CircleDot />
@@ -1139,7 +1130,7 @@ export default function CatalogPage() {
                     <button
                       className="handle"
                       onClick={() =>
-                        setToast('演示模式：未连接工单接口，未认领该事件。')
+                        setToast('功能待接入：未连接工单接口，未认领该事件。')
                       }
                     >
                       认领处置
@@ -1156,7 +1147,7 @@ export default function CatalogPage() {
                     <button
                       className="handle"
                       onClick={() =>
-                        setToast('演示模式：未连接工单接口，未认领该事件。')
+                        setToast('功能待接入：未连接工单接口，未认领该事件。')
                       }
                     >
                       认领处置

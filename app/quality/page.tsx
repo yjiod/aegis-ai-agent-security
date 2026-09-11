@@ -47,14 +47,7 @@ export default function QualityPage() {
 
   return (
     <section className="workspace">
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong>
-          仓库清单、SAST 发现、门禁通过率与阻断结果均为界面样例；未连接代码托管平台前不会阻断任何
-          合并请求。
-        </span>
-      </div>
+      
 
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
@@ -65,14 +58,14 @@ export default function QualityPage() {
         <div className="head-actions">
           <Button
             variant="outline"
-            onClick={() => setToast('演示模式：门禁阈值尚未连接代码托管平台。')}
+            onClick={() => setToast('提示：门禁阈值尚未连接代码托管平台。')}
           >
             <Wrench />
             门禁阈值
           </Button>
           <Button
             onClick={() =>
-              setToast('演示模式：未连接规则同步 API，未修改任何终端。')
+              setToast('功能待接入：未连接规则同步 API，未修改任何终端。')
             }
           >
             <RefreshCw />
@@ -164,7 +157,7 @@ export default function QualityPage() {
           </div>
           <Button
             onClick={() =>
-              setToast('演示模式：未连接规则同步 API，未修改任何终端。')
+              setToast('功能待接入：未连接规则同步 API，未修改任何终端。')
             }
           >
             同步规则库

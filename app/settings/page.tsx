@@ -21,7 +21,7 @@ export default function SettingsPage() {
 
   function toggleSwitch(index: number) {
     const name = settings.filter((s) => s.type === 'switch')[index]?.name ?? '';
-    setToast(`演示模式：「${name}」未被修改，设置 API 尚未连接。`);
+    setToast(`提示：「${name}」未被修改，设置 API 尚未连接。`);
     setSwitches((prev) => {
       const next = [...prev];
       next[index] = !next[index];
@@ -38,13 +38,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <div className="demo-notice" role="note">
-        <AlertTriangle size={16} />
-        <span>
-          <strong>演示模式</strong>
-          系统设置为界面样例，企业 API 接入前修改不会持久化。
-        </span>
-      </div>
+      
 
       <div className="page-head">
         <div>
@@ -53,7 +47,7 @@ export default function SettingsPage() {
           <p>Collector 连接、数据保留、通知与审计配置。</p>
         </div>
         <div className="head-actions">
-          <Button onClick={() => setToast('演示模式：设置未保存，后端 API 尚未连接。')}>
+          <Button onClick={() => setToast('提示：设置未保存，后端 API 尚未连接。')}>
             <Settings size={16} />
             保存设置
           </Button>

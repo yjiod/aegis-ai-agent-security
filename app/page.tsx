@@ -197,7 +197,7 @@ export default function Home() {
 
   return (
     <>
-      <div className="demo-notice" role="note"><AlertTriangle size={16} /><span><strong>{fleet ? '混合只读模式' : '演示模式'}</strong>{fleet ? ' 顶部四项指标来自已验证的接收器摘要；终端明细、覆盖分布和风险事件仍为界面样例。' : ' 页面指标、设备和风险事件均为界面样例，不代表真实终端状态。请部署报告接收器并完成私有 API 接入后再用于运营判断。'}</span></div>
+      
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">安全态势 / 演示数据</p>
