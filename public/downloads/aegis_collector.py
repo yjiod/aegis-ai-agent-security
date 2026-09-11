@@ -28,7 +28,7 @@ def valid_report(d,now=None):
     """Validate the published v1 contract without a third-party JSON Schema runtime."""
     if not isinstance(d,dict): return False
     required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}
-    allowed=required|{"scan_root","inventory"}
+    allowed=required|{"scan_root","inventory","hostname"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
     if d.get("schema")!="aegis.report/v1": return False
     if not all(isinstance(d.get(k),str) and 1<=len(d[k])<=64 for k in ("agent_version","policy_version")): return False
@@ -242,10 +242,25 @@ class Handler(BaseHTTPRequestHandler):
             if not 1<=limit<=10000: return self.reply(400,{"error":"invalid_limit"})
             try:
                 generated_at=int(time.time())
-                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
+                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.body FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             complete=len(rows)<=limit; rows=rows[:limit]; audit_event(self.server.db_path,"devices_read",detail=str(len(rows))+":"+("complete" if complete else "partial"))
-            return self.reply(200,{"generated_at":generated_at,"complete":complete,"devices":[{"device_id":r[0],"last_seen":r[1],"report_count":r[2],"credential_generation":"legacy" if r[3] is None else "current" if r[3]==0 else "previous"} for r in rows]})
+            devices_out=[]
+            for r in rows:
+                dev={"device_id":r[0],"last_seen":r[1],"report_count":r[2],"credential_generation":"legacy" if r[3] is None else "current" if r[3]==0 else "previous"}
+                try:
+                    body=json.loads(r[4]) if r[4] else {}
+                    if isinstance(body,dict):
+                        if isinstance(body.get("hostname"),str): dev["hostname"]=body["hostname"][:128]
+                        if isinstance(body.get("agent_version"),str): dev["agent_version"]=body["agent_version"][:32]
+                        if isinstance(body.get("policy_version"),str): dev["policy_version"]=body["policy_version"][:32]
+                        inv=body.get("inventory")
+                        if isinstance(inv,list):
+                            dev["tools"]=sorted({x.get("name") for x in inv if isinstance(x,dict) and x.get("type")=="ai_agent" and isinstance(x.get("name"),str)})[:20]
+                            dev["latest_severity"]={"critical":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="critical"),"high":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="high"),"medium":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="medium"),"low":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="low")}
+                except (ValueError,TypeError): pass
+                devices_out.append(dev)
+            return self.reply(200,{"generated_at":generated_at,"complete":complete,"devices":devices_out})
         if parsed.path=="/v1/summary" and not parsed.query:
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
