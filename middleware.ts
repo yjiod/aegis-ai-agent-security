@@ -1,0 +1,54 @@
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+/**
+ * Session guard: all console pages require a valid aegis_session cookie.
+ * Exempt: /login, /api/auth/*, static assets (_next, favicon), /aegis/* (Collector API).
+ */
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Exempt paths
+  if (
+    pathname === '/login' ||
+    pathname.startsWith('/api/auth') ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/aegis') ||
+    pathname === '/favicon.svg' ||
+    pathname.startsWith('/downloads')
+  ) {
+    return NextResponse.next();
+  }
+
+  const session = request.cookies.get('aegis_session')?.value;
+
+  if (!session) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('from', pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  // Validate session format: username.expiry.signature
+  const parts = session.split('.');
+  if (parts.length !== 3) {
+    const loginUrl = new URL('/login', request.url);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  const [, expiryStr] = parts;
+  const expiry = Number(expiryStr);
+  if (!Number.isFinite(expiry) || expiry < Date.now()) {
+    const loginUrl = new URL('/login', request.url);
+    const response = NextResponse.redirect(loginUrl);
+    response.cookies.delete('aegis_session');
+    return response;
+  }
+
+  // Signature verification happens server-side in each API route / page as needed.
+  // Here we only check presence + expiry for the redirect gate.
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+};
