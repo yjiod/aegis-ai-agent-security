@@ -111,11 +111,13 @@ export async function GET() {
   let target: URL;
   try {
     const base = new URL(endpoint);
-    const isLocalDev =
-      process.env.NODE_ENV === 'development' &&
-      (base.hostname === '127.0.0.1' || base.hostname === 'localhost');
+    // Localhost connections never leave the machine — HTTP is safe regardless of NODE_ENV.
+    // This allows wrangler/miniflare runtime (which forces NODE_ENV=production) to
+    // reach a same-host Collector over HTTP.
+    const isLocalhost =
+      base.hostname === '127.0.0.1' || base.hostname === 'localhost' || base.hostname === '[::1]';
     if (
-      (!isLocalDev && base.protocol !== 'https:') ||
+      (!isLocalhost && base.protocol !== 'https:') ||
       base.hostname.toLowerCase() !== allowedHost.toLowerCase() ||
       base.username ||
       base.password ||
