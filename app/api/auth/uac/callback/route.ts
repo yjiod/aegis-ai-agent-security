@@ -17,24 +17,41 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
+
+  // The UAC portal sometimes double-URL-encodes the appended redirect params,
+  // arriving as a single encoded blob (e.g. ?token%3Dr_x%26rtoken%3Du_y).
+  // Parse normal params first; fall back to decoding the raw query once.
+  let params = url.searchParams;
+  const hasToken = params.get('token') || params.get('rtoken') || params.get('utoken');
+  if (!hasToken) {
+    const raw = url.search.replace(/^\?/, '');
+    if (raw && (raw.includes('%3D') || raw.includes('%26') || raw.includes('%3d') || raw.includes('%26'))) {
+      try {
+        params = new URLSearchParams(decodeURIComponent(raw));
+      } catch {
+        params = url.searchParams;
+      }
+    }
+  }
+
   const token =
-    url.searchParams.get('token') ??
-    url.searchParams.get('utoken') ??
-    url.searchParams.get('accessToken') ??
-    url.searchParams.get('access_token') ??
+    params.get('token') ??
+    params.get('utoken') ??
+    params.get('accessToken') ??
+    params.get('access_token') ??
     '';
   const rtoken =
-    url.searchParams.get('rtoken') ??
-    url.searchParams.get('urtoken') ??
-    url.searchParams.get('refreshToken') ??
+    params.get('rtoken') ??
+    params.get('urtoken') ??
+    params.get('refreshToken') ??
     '';
-  const employeeNo = url.searchParams.get('employeeNo') ?? url.searchParams.get('jobNumber') ?? '';
-  const err = url.searchParams.get('error');
+  const employeeNo = params.get('employeeNo') ?? params.get('jobNumber') ?? '';
+  const err = params.get('error');
 
   if (err) return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(err)}`, url.origin));
   if (!token && !rtoken) {
     // Diagnose: report which query params the UAC portal actually appended.
-    const got = [...url.searchParams.keys()].join(',') || '(none)';
+    const got = [...params.keys()].map((k) => (params.get(k) ? `${k}=${params.get(k)}` : k)).join('&') || '(none)';
     return NextResponse.redirect(new URL(`/login?error=missing_uac_token&got=${encodeURIComponent(got)}`, url.origin));
   }
 
