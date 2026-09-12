@@ -1,7 +1,7 @@
 {
-  "schema": "aegis.intune-evidence/v3",
+  "schema": "aegis.mdm-evidence/v3",
   "release_version": "0.65.0",
-  "manifest_sha256": "d8ca5c78364c9c52a4ca83577ec1a7deaca54dd0a926ef35b4d07664acaeb05f",
+  "manifest_sha256": "2eb53dc66788c8d9ba27d86548da44aafdafa650ee34fd0951c1e97568832e98",
   "generated_at": 0,
   "current_ring": "lab",
   "current_ring_entered_at": 0,

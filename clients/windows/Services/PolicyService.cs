@@ -1,5 +1,5 @@
 // PolicyService：企业安全基线（aegis.policy/v1）加载与热更新。
-// - 从 %PROGRAMDATA%\AegisAgent\policy.json 读取（Intune 下发）
+// - 从 %PROGRAMDATA%\AegisAgent\policy.json 读取（MDM 下发）
 // - FileSystemWatcher 监听变更并热加载
 // - 解析/校验失败时回退到 last-known-good（对应 Python reload_policy 的行为）
 using System;

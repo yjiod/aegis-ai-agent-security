@@ -7,7 +7,7 @@ from pathlib import Path
 sys.dont_write_bytecode=True
 import aegis_release_verify as verifier
 
-GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","intune-deployment-manifest.json","intune-rollout-evidence.example.json","production-acceptance-evidence.example.json","aegis-enterprise-bundle.zip"}
+GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","mdm-deployment-manifest.json","mdm-rollout-evidence.example.json","production-acceptance-evidence.example.json","aegis-enterprise-bundle.zip"}
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -46,7 +46,7 @@ def build(downloads):
     if downloads.is_symlink() or not downloads.is_dir(): raise ValueError("unsafe_downloads_directory")
     for name in set(verifier.BUNDLE_FILES)|{"aegis-enterprise-bundle.zip"}: require_regular(downloads/name)
     release=json.loads((downloads/"release.json").read_text(encoding="utf-8"))
-    manifest_path=downloads/"intune-deployment-manifest.json"
+    manifest_path=downloads/"mdm-deployment-manifest.json"
     deployment=json.loads(manifest_path.read_text(encoding="utf-8"))
     if deployment.get("execution",{}).get("script_signature_state")!="pilot_unsigned":
         raise ValueError("signed_release_must_be_rebuilt_on_signing_workstation")
@@ -63,7 +63,7 @@ def build(downloads):
 
     for artifact in deployment["artifacts"].values(): artifact["sha256"]=digest(downloads/artifact["file"])
     atomic_write(manifest_path,(json.dumps(deployment,ensure_ascii=False,indent=2)+"\n").encode())
-    evidence_path=downloads/"intune-rollout-evidence.example.json"
+    evidence_path=downloads/"mdm-rollout-evidence.example.json"
     evidence=json.loads(evidence_path.read_text(encoding="utf-8")); evidence["release_version"]=release["release"]; evidence["manifest_sha256"]=digest(manifest_path)
     atomic_write(evidence_path,(json.dumps(evidence,ensure_ascii=False,indent=2)+"\n").encode())
     production_path=downloads/"production-acceptance-evidence.example.json"

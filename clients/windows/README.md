@@ -51,14 +51,14 @@ dotnet publish -c Release -r win-x64 --self-contained -o publish\
 
 `%PROGRAMDATA%\AegisAgent\policy.json`
 
-由 Intune 部署。FileSystemWatcher 热重载，解析失败保留 last-known-good。
+由 MDM 部署。FileSystemWatcher 热重载，解析失败保留 last-known-good。
 
-## 部署 (Intune)
+## 部署 (MDM)
 
-使用 `public/downloads/intune-windows-remediate.ps1` 脚本：
+使用 `public/downloads/mdm-windows-remediate.ps1` 脚本：
 1. 将 publish 目录复制到 `%PROGRAMFILES%\AegisAgent\`
 2. 创建计划任务 (SYSTEM 账户，每小时触发)
-3. 注册检测脚本 (`intune-windows-detect.ps1`) 用于合规检查
+3. 注册检测脚本 (`mdm-windows-detect.ps1`) 用于合规检查
 
 ## 项目结构
 
