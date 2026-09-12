@@ -1,5 +1,5 @@
 {
-  "schema": "aegis.intune-deployment/v1",
+  "schema": "aegis.mdm-deployment/v1",
   "execution": {
     "windows_run_as": "system",
     "windows_run_as_32_bit": false,
@@ -10,20 +10,20 @@
   },
   "artifacts": {
     "windows_detection": {
-      "file": "intune-windows-detect.ps1",
+      "file": "mdm-windows-detect.ps1",
       "sha256": "50bbec946eb91b9acce6862fb796ef839490c9ec639cf6f11e4bca9418bbe398"
     },
     "windows_remediation": {
-      "file": "intune-windows-remediate.ps1",
+      "file": "mdm-windows-remediate.ps1",
       "sha256": "b7469bb32fb48af541bebe47f5de34c9e696678302e83e8f4fc2078b84cd047a"
     },
     "windows_compliance_discovery": {
-      "file": "intune-compliance-discovery.ps1",
+      "file": "mdm-compliance-discovery.ps1",
       "sha256": "7f926f05aa7b919ddec6cd9474ba5766d8405282f6095568b94a72b6b452f23c"
     },
     "windows_compliance_rules": {
-      "file": "intune-compliance-policy.json",
-      "sha256": "9427c77fb628e4c52339dcda8da99032d6240c8accf40ac83edb222df1857f56"
+      "file": "mdm-compliance-policy.json",
+      "sha256": "ca0588cb4f64371e96e9eee852cbc917967411f85f3a6d949d6fc00884055e3a"
     },
     "windows_reporting_configuration": {
       "file": "aegis-configure-windows.ps1",
@@ -38,16 +38,16 @@
       "sha256": "f4c14eeb02a365a1fa8e7042f3cca7dd9d88784b428759066f335d9d8ef00a4d"
     },
     "macos_install": {
-      "file": "intune-macos-install.sh",
-      "sha256": "7b1c78e77450cdad1dc62373a0650b17abb1226b12ca2e1af1a5634fa88b83fd"
+      "file": "mdm-macos-install.sh",
+      "sha256": "4d4b975cd5742cd3c1b4d6aeea551824664f57c4d3cee12997d7a5bb01eb6294"
     },
     "macos_compliance_discovery": {
-      "file": "intune-macos-compliance.sh",
+      "file": "mdm-macos-compliance.sh",
       "sha256": "7e8e6eb8af7b9fa7f959f7f141b36fb9a8479b97e4d68c81788a01e4fdd1ac2b"
     },
     "macos_compliance_rules": {
-      "file": "intune-macos-compliance-policy.json",
-      "sha256": "2f9b1c95aeae142231216b81facee77005cbf893c653f716ae7fc1eec18a3d8e"
+      "file": "mdm-macos-compliance-policy.json",
+      "sha256": "088f945d5286242b27298f95a72601172f7343a2833fafed60986aafbb77b826"
     },
     "macos_reporting_configuration": {
       "file": "aegis-configure-macos.sh",

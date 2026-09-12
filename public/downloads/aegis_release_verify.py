@@ -5,22 +5,22 @@ from pathlib import Path
 
 RUNTIME_FILES=("aegis_agent.py","aegis-windows.ps1","aegis-policy.json","aegis-security-baseline.md")
 HASH_CONSUMERS={
-    "aegis_agent.py":("install-aegis.sh","intune-macos-install.sh","intune-macos-compliance.sh"),
-    "aegis-windows.ps1":("intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
-    "aegis-policy.json":("install-aegis.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
-    "aegis-security-baseline.md":("install-aegis.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
+    "aegis_agent.py":("install-aegis.sh","mdm-macos-install.sh","mdm-macos-compliance.sh"),
+    "aegis-windows.ps1":("mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
+    "aegis-policy.json":("install-aegis.sh","mdm-macos-install.sh","mdm-macos-compliance.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
+    "aegis-security-baseline.md":("install-aegis.sh","mdm-macos-install.sh","mdm-macos-compliance.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
     "DEPLOYMENT-GUIDE.md","aegis-policy.json","aegis-security-baseline.md","aegis-report.schema.json",
-    "aegis_agent.py","aegis_collector.py","aegis-windows.ps1","install-aegis.sh","intune-windows-detect.ps1",
-    "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
-    "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-aegis-windows.ps1","rollback-aegis-macos.sh",
+    "aegis_agent.py","aegis_collector.py","aegis-windows.ps1","install-aegis.sh","mdm-windows-detect.ps1",
+    "mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1","mdm-compliance-policy.json","mdm-macos-install.sh",
+    "mdm-macos-compliance.sh","mdm-macos-compliance-policy.json","rollback-aegis-windows.ps1","rollback-aegis-macos.sh",
     "uninstall-aegis-windows.ps1","uninstall-aegis-macos.sh","CHECKSUMS.sha256","release.json","aegis_adapter.py",
     "aegis-adapters.example.json","aegis_release_verify.py","aegis_collector_backup.py","aegis_collector_restore.py",
     "aegis-collector.service","aegis-collector.env.example","aegis-collector.nginx.conf",
     "aegis_adapter_worker.py","aegis-adapter-worker.service","aegis-adapter.env.example",
     "aegis-configure-windows.ps1","aegis-configure-macos.sh","aegis-device-credentials.example.json","aegis_device_credentials.py",
-    "aegis_production_preflight.py","aegis_release_build.py","aegis_vendor_probe.py","aegis_4a_interface.py","aegis_engine_framework.py","aegis-vendor-contracts.json","ENTERPRISE-4A-INTEGRATION.md","aegis_vendor_preflight.py","aegis_vendor_keyring.py","aegis_vendor_evidence_sign.py","aegis_production_keyring.py","aegis_production_evidence_sign.py","aegis_production_evidence_prepare.py","aegis_intune_preflight.py","aegis_intune_graph_normalize.py","aegis_intune_evidence.py","aegis_deployment_preflight.py","aegis_4a_receiver.py","aegis_4a_probe.py",
+    "aegis_production_preflight.py","aegis_release_build.py","aegis_vendor_probe.py","aegis_4a_interface.py","aegis_engine_framework.py","aegis-vendor-contracts.json","ENTERPRISE-4A-INTEGRATION.md","aegis_vendor_preflight.py","aegis_vendor_keyring.py","aegis_vendor_evidence_sign.py","aegis_production_keyring.py","aegis_production_evidence_sign.py","aegis_production_evidence_prepare.py","aegis_mdm_preflight.py","aegis_mdm_graph_normalize.py","aegis_mdm_evidence.py","aegis_deployment_preflight.py","aegis_4a_receiver.py","aegis_4a_probe.py",
 )
 
 # Compatibility shim: aegis_release_build.py generates RELEASE-MANIFEST.sha256
@@ -60,7 +60,7 @@ def verify(downloads):
             try: text=(downloads/consumer).read_text()
             except OSError: errors.append(f"missing_hash_consumer:{consumer}"); continue
             if actual not in text: errors.append(f"stale_embedded_hash:{consumer}:{name}")
-    for name in ("intune-compliance-policy.json","intune-macos-compliance-policy.json"):
+    for name in ("mdm-compliance-policy.json","mdm-macos-compliance-policy.json"):
         try: rules=json.loads((downloads/name).read_text()).get("Rules",[])
         except (OSError,ValueError): errors.append(f"invalid_compliance_json:{name}"); continue
         if not rules: errors.append(f"empty_compliance_rules:{name}")

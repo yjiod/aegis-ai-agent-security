@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Normalize privacy-minimized Microsoft Graph Intune snapshots for Aegis evidence."""
+"""Normalize privacy-minimized Microsoft Graph MDM snapshots for Aegis evidence."""
 import argparse, json, re, sys
 from pathlib import Path
-import aegis_intune_preflight as preflight
+import aegis_mdm_preflight as preflight
 
 MAX_GRAPH_EXPORT_BYTES=2_000_000
 GRAPH_ID=re.compile(r"[A-Za-z0-9._-]{8,128}")
@@ -17,7 +17,7 @@ def identifier(value,pattern=GRAPH_ID):
 
 def normalize(snapshot):
     expected={"schema","generated_at","current_ring","managed_devices","assigned_device_ids","install_states","bindings"}
-    if not isinstance(snapshot,dict) or set(snapshot)!=expected or snapshot.get("schema")!="aegis.intune-graph-export/v1": raise ValueError("invalid_graph_export")
+    if not isinstance(snapshot,dict) or set(snapshot)!=expected or snapshot.get("schema")!="aegis.mdm-graph-export/v1": raise ValueError("invalid_graph_export")
     generated=snapshot.get("generated_at")
     if isinstance(generated,bool) or not isinstance(generated,int) or generated<1: raise ValueError("invalid_graph_export_time")
     if snapshot.get("current_ring") not in preflight.RINGS: raise ValueError("invalid_graph_ring")
@@ -39,13 +39,13 @@ def normalize(snapshot):
         install[graph_id]=state
     mapping={}; aegis_ids=set()
     for item in bindings:
-        if not isinstance(item,dict) or set(item)!={"intune_device_id","aegis_device_id"}: raise ValueError("invalid_device_binding")
-        graph_id=identifier(item.get("intune_device_id")); aegis_id=identifier(item.get("aegis_device_id"),AEGIS_ID)
+        if not isinstance(item,dict) or set(item)!={"mdm_device_id","aegis_device_id"}: raise ValueError("invalid_device_binding")
+        graph_id=identifier(item.get("mdm_device_id")); aegis_id=identifier(item.get("aegis_device_id"),AEGIS_ID)
         if graph_id in mapping or aegis_id in aegis_ids: raise ValueError("invalid_device_binding")
         mapping[graph_id]=aegis_id; aegis_ids.add(aegis_id)
     if set(mapping)!=set(assigned) or not set(assigned).issubset(install): raise ValueError("incomplete_assigned_device_evidence")
     assigned_aegis=[mapping[value] for value in assigned]
-    return {"schema":"aegis.intune-export/v2","generated_at":generated,"current_ring":snapshot["current_ring"],"fleet_total_devices":len(compliance),"assigned_device_ids":assigned_aegis,"compliant_device_ids":[mapping[value] for value in assigned if compliance[value]=="compliant"],"installation_failed_device_ids":[mapping[value] for value in assigned if install[value] in FAILURE_STATES]}
+    return {"schema":"aegis.mdm-export/v2","generated_at":generated,"current_ring":snapshot["current_ring"],"fleet_total_devices":len(compliance),"assigned_device_ids":assigned_aegis,"compliant_device_ids":[mapping[value] for value in assigned if compliance[value]=="compliant"],"installation_failed_device_ids":[mapping[value] for value in assigned if install[value] in FAILURE_STATES]}
 
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--graph-export",required=True); args=ap.parse_args()

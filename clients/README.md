@@ -27,8 +27,8 @@
 
 | 平台 | 目录 | 语言 | UI 形态 | 部署方式 |
 |------|------|------|---------|----------|
-| macOS 14+ | `clients/macos/` | Swift 5.9 | 菜单栏 (NSStatusItem) | Intune Shell Script |
-| Windows 10+ | `clients/windows/` | C# / .NET 8 | 系统托盘 (WPF NotifyIcon) | Intune Remediations |
+| macOS 14+ | `clients/macos/` | Swift 5.9 | 菜单栏 (NSStatusItem) | MDM Shell Script |
+| Windows 10+ | `clients/windows/` | C# / .NET 8 | 系统托盘 (WPF NotifyIcon) | MDM Remediations |
 
 ## 功能对等矩阵
 
@@ -81,5 +81,5 @@ dotnet publish -c Release -r win-x64 --self-contained
 - [ ] 补全依赖 CVE 数据库比对
 - [ ] macOS: 打包为 .pkg + 代码签名 + 公证
 - [ ] Windows: 打包为 .msi + Authenticode 签名
-- [ ] Intune 部署脚本适配原生客户端
+- [ ] MDM 部署脚本适配原生客户端
 - [ ] 自动更新通道 (灰度 → 全量)

@@ -13,7 +13,7 @@
 #   --uninstall        卸载 Agent
 #   --help             显示帮助
 #
-# 部署方式: Intune Shell Script / 手动 sudo / MDM 推送
+# 部署方式: MDM Shell Script / 手动 sudo / MDM 推送
 # ═══════════════════════════════════════════════════════════
 set -eu
 
