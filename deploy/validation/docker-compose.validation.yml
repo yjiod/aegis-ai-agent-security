@@ -1,0 +1,46 @@
+# 开源候选产品验证栈（docker-compose）。
+# 用途：在任意主机（VPS / lab / 本地）拉起 Fleet / Wazuh / PacketFence 服务端，
+#       供 aegis_4a_reference_adapters.py 对接验证。与生产控制台隔离（独立端口+内存上限）。
+# 注意：PacketFence 真实准入(802.1X/Portal)需办公网位置；此处仅验证其 REST/节点契约。
+# 用法：docker compose -f deploy/validation/docker-compose.validation.yml up -d
+services:
+  fleet-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: fleet
+      MYSQL_USER: fleet
+      MYSQL_PASSWORD: fleet-validation-only
+      MYSQL_ROOT_PASSWORD: root-validation-only
+    volumes: ["fleet-db:/var/lib/mysql"]
+    deploy: { resources: { limits: { memory: 512m } } }
+    restart: unless-stopped
+
+  fleet:
+    image: fleetdm/fleet:latest
+    command: >
+      fleet serve --mysql_address=fleet-db:3306 --mysql_username=fleet
+      --mysql_password=fleet-validation-only --mysql_database=fleet
+      --server_address=0.0.0.0:8080 --server_tls=false --auth_jwt_key=validation-only
+    ports: ["18080:8080"]
+    depends_on: [fleet-db]
+    deploy: { resources: { limits: { memory: 512m } } }
+    restart: unless-stopped
+
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.9.0
+    environment:
+      INDEXER_URL: https://wazuh-indexer:9200
+      API_USERNAME: aegis
+      API_PASSWORD: validation-only
+    ports: ["15500:55000", "1514:1514"]
+    deploy: { resources: { limits: { memory: 1024m } } }
+    restart: unless-stopped
+
+  packetfence:
+    image: packetfence/packetfence:latest
+    ports: ["19999:9999", "18443:443"]
+    deploy: { resources: { limits: { memory: 1024m } } }
+    restart: unless-stopped
+
+volumes:
+  fleet-db:
