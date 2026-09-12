@@ -1,25 +1,25 @@
-# 传音用户中心 (UAC) 统一身份集成指南
+# 企业用户中心 (UAC) 统一身份集成指南
 
-Aegis 控制台通过可插拔认证提供者对接传音企业身份。当前支持：
+Aegis 控制台通过可插拔认证提供者对接企业企业身份。当前支持：
 
 | 提供者 | 配置值 | 适用 |
 |--------|--------|------|
 | `local` | 默认 | 独立部署、无 IdP |
 | `oidc` | `AEGIS_AUTH_PROVIDER=oidc` | 标准 OIDC IdP（Keycloak/Casdoor/Authing/AzureAD/自建4A） |
-| `uac` | `AEGIS_AUTH_PROVIDER=uac` | **传音用户中心 (UAC)** — 企业统一身份 |
+| `uac` | `AEGIS_AUTH_PROVIDER=uac` | **企业用户中心 (UAC)** — 企业统一身份 |
 
 ---
 
-## UAC 接入（传音企业身份）
+## UAC 接入（企业企业身份）
 
 ### 前置准备（对接指南 §一）
-1. 在传音开放平台创建应用，获取 **App ID** 和 **App Secret**。
+1. 在企业开放平台创建应用，获取 **App ID** 和 **App Secret**。
 2. 申请接口访问权限及数据范围权限（校验 Token、获取用户信息）。
 
 ### UAC 门户环境推导
 UAT 环境 = 二级域名末尾加 `uat`：
-- 生产门户: `https://pfuac.transsion.com/#/c-login`
-- UAT 门户:  `https://pfuacuat.transsion.com:10201/#/c-login` （**带端口 10201**，443 返回 503）
+- 生产门户: `<SSO_GATEWAY>`
+- UAT 门户:  `<SSO_GATEWAY>` （**带端口 10201**，443 返回 503）
 - 门户参数（新版指引）: `?appId&lang&companyId&account&type&redirect`
   必填 appId/lang/redirect；type 默认 simple；companyId 默认 100（可空）
 - 回跳参数: token / rtoken / employeeNo / lang
@@ -28,29 +28,29 @@ UAT 环境 = 二级域名末尾加 `uat`：
 ### 网关环境（对接指南 §一.1，务必用 `-intra-` 内网域名）
 | 环境 | 网关 |
 |------|------|
-| DEV | https://dev-paas.transsion.com |
-| TEST | https://test-paas.transsion.com |
-| UAT | https://uat-intra-paas.transsion.com |
-| PROD-深圳 | https://sz-intra-paas.transsion.com |
-| PROD-香港 | https://hk-intra-paas.transsion.com |
-| PROD-法兰克福 | https://fra-intra-paas.transsion.com |
+| DEV | <SSO_GATEWAY> |
+| TEST | <SSO_GATEWAY> |
+| UAT | <SSO_GATEWAY> |
+| PROD-深圳 | <SSO_GATEWAY> |
+| PROD-香港 | <SSO_GATEWAY> |
+| PROD-法兰克福 | <SSO_GATEWAY> |
 
 ### 配置（服务器 `/etc/aegis/console.env`）
 ```bash
 AEGIS_AUTH_PROVIDER=uac
-AEGIS_UAC_GATEWAY=https://sz-intra-paas.transsion.com   # 按部署地域选择
+AEGIS_UAC_GATEWAY=<SSO_GATEWAY>   # 按部署地域选择
 AEGIS_UAC_APP_ID=<开放平台 App ID>
 AEGIS_UAC_APP_SECRET=<开放平台 App Secret>
-AEGIS_UAC_PORTAL=https://pfuac.transsion.com/#/c-login   # 可选, 默认此值
+AEGIS_UAC_PORTAL=<SSO_GATEWAY>   # 可选, 默认此值
 AEGIS_SESSION_SECRET=<随机 64 位 hex>
 ```
-然后 `sh scripts/deploy-console.sh`。登录页自动出现「传音统一身份登录」按钮。
+然后 `sh scripts/deploy-console.sh`。登录页自动出现「企业统一身份登录」按钮。
 
 ### SSO 流程（对接指南 §二.1 登录门户）
 ```
-1. 未登录用户访问控制台 → 登录页显示「传音统一身份登录」
+1. 未登录用户访问控制台 → 登录页显示「企业统一身份登录」
 2. 点击 → 重定向 UAC 门户:
-   https://pfuac.transsion.com/#/c-login?appId=<APP_ID>&redirect=<控制台回调>
+   <SSO_GATEWAY>
 3. 用户在 UAC 完成登录
 4. UAC 回跳 redirect 并追加 token / rtoken / employeeNo
 5. 控制台回调 /api/auth/uac/callback:

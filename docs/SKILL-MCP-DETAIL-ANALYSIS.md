@@ -5,6 +5,42 @@
 
 ---
 
+## 〇、如何读懂告警里的"信号"和"代码"（人话版）
+
+告警里会出现 `风险信号 exec=8, score=6` 这类字样。它们不是代码，是**扫描器在 Skill/MCP 包里
+数出来的"危险动作次数"**。逐个解释：
+
+| 信号 | 扫描器在找什么（人话） | 举例（什么样的内容会被数到） | 为什么危险 |
+|---|---|---|---|
+| exec | 这个 Skill 会不会"执行命令/跑程序" | 文档里写了 subprocess.run(...)、os.system(...)、bash -c ...、eval(...) | 能执行命令 = 能替你做任意操作（删文件、装软件、改系统） |
+| cred | 这个 Skill 会不会"碰密码/密钥" | 文档/脚本里出现 api_key、secret、password、token、读 .env、读钥匙串 | 碰密钥 = 可能偷走你的账号凭据 |
+| network | 这个 Skill 会不会"联网" | 出现 curl、fetch(、requests.、http://、https://、websocket | 联网 = 可能把数据传出去或从外面拉恶意代码 |
+| filewrite | 这个 Skill 会不会"写/删文件" | 出现 open(...,'w')、write(、rm 删除、unlink、shutil.rmtree | 写/删文件 = 可能改坏或删掉你的东西 |
+
+score = 把上面四项加权相加（exec+2、cred+2、network+1、filewrite+1）。
+**score 越高 = 这个 Skill 能力越"大"、越危险**：
+- score 大于等于 4 = high（高危）：能力大到一旦作恶危害严重，默认告警/考虑禁用
+- score 2-3 = medium（中危）：有一定能力但属常见工具行为，观察
+- score 小于 2 = low（低危）：基本只读/纯文档，可加白
+
+**告警种类（kind）人话解释：**
+- unknown_skill：终端上装了一个 Skill，但它**不在企业批准名单**里。不代表它一定坏，
+  只是"没备案"。结合 score 判断它能力多大。
+- unapproved_mcp_command：某个 MCP Server 用的**启动命令**不在批准名单（如用 ChatGPT 主程序当命令）。
+- unapproved_mcp_command_path：MCP 的**可执行文件路径**不在批准名单（如 Codex.app 里的二进制）。
+- unapproved_mcp_invocation：MCP 的"命令+参数"组合不在批准名单（如 SkyComputerUseClient + mcp 这个组合）。
+- blocked_command：命中了企业明令禁止的命令（如 rm -rf 类）。
+- credential_access：发现访问凭据的行为。
+
+**处置三档（人话）：**
+- allow（加白）：确认安全，加入批准名单，以后不再告警。适合纯文档/只读 Skill。
+- monitor（观察）：暂不加白也不禁，保持告警，安全运营看一眼再决定。适合钉钉类 CLI 工具。
+- deny（禁用/高危告警）：能力太大或来路不明，保持 high 告警，业务不需要就禁用。
+
+
+
+---
+
 ## 一、MCP 发现（5 类，均 high）
 
 ### 1. `cua_repl` — Codex Computer-Use REPL

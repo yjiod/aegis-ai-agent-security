@@ -6,15 +6,15 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/auth/uac/callback?token=...&rtoken=...&employeeNo=...
  *
- * 传音用户中心 (UAC) SSO 回调。流程（对接指南 §二.1 登录门户）:
- *   1. 登录页重定向到 UAC 门户 (pfuac.transsion.com/#/c-login?appId&redirect)
+ * Token-based enterprise SSO callback (vendor-neutral). Flow:
+ *   1. Login page redirects to the SSO portal (config-driven portal URL)
  *   2. 用户在 UAC 完成登录
  *   3. UAC 回跳 redirect 地址并追加 token / rtoken / employeeNo
  *   4. 本回调校验 token (rtoken/check) → 获取用户信息 (utoken/getUserInfo)
  *   5. 签发 Aegis 会话 cookie
  *
  * 受限接口需 Header: P-Auth / P-Rtoken / P-AppId。
- * 网关: AEGIS_UAC_GATEWAY (如 https://sz-intra-paas.transsion.com)。
+ * Gateway: AEGIS_UAC_GATEWAY (config-driven, no vendor default).
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);

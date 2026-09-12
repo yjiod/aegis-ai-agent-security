@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * - local: username/password against AEGIS_CONSOLE_PASSWORD (default)
  * - oidc:  standard OIDC IdP (Authelia/Keycloak/Casdoor/Authing/AzureAD/4A).
  *          Enabled when AEGIS_AUTH_PROVIDER=oidc + issuer + client_id.
- * - uac:   传音用户中心 (Transsion UAC) SSO. Enabled when
+ * - uac:   token-based enterprise SSO (vendor-neutral). Enabled when
  *          AEGIS_AUTH_PROVIDER=uac + AEGIS_UAC_GATEWAY + AEGIS_UAC_APP_ID.
  *          Redirects to UAC portal; callback validates token + fetches user.
  */
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     authorizeUrl = authorize.toString();
   }
 
-  // UAC (传音用户中心)
+  // Token-based enterprise SSO (vendor-neutral)
   const uacGateway = (process.env.AEGIS_UAC_GATEWAY ?? '').replace(/\/$/, '');
   const uacAppId = process.env.AEGIS_UAC_APP_ID ?? '';
   const uacEnabled = provider === 'uac' && Boolean(uacGateway) && Boolean(uacAppId);
@@ -46,8 +46,8 @@ export async function GET(request: Request) {
     const redirectBase = process.env.AEGIS_UAC_REDIRECT_BASE || publicOrigin;
     const redirectUri = `${redirectBase.replace(/\/$/, '')}/api/auth/uac/callback`;
     // UAC portal (new guide): {portal}?appId&lang&companyId&account&type&redirect
-    // UAT portal carries a port, e.g. https://pfuacuat.transsion.com:10201/#/c-login
-    const portal = process.env.AEGIS_UAC_PORTAL || 'https://pfuac.transsion.com/#/c-login';
+    // Portal URL is config-driven (AEGIS_UAC_PORTAL); no vendor default.
+    const portal = process.env.AEGIS_UAC_PORTAL || '';
     const lang = process.env.AEGIS_UAC_LANG || 'zh';
     const companyId = process.env.AEGIS_UAC_COMPANY_ID || '';
     const type = process.env.AEGIS_UAC_TYPE || 'simple';
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
   }
 
   const ssoEnabled = oidcEnabled || uacEnabled;
-  const defaultLabel = uacEnabled ? '传音统一身份登录' : '统一身份登录';
+  const defaultLabel = process.env.AEGIS_SSO_LABEL || (uacEnabled ? '统一身份登录' : '统一身份登录');
   return NextResponse.json(
     {
       provider,
