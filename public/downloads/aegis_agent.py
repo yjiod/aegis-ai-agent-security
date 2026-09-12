@@ -217,6 +217,20 @@ def skill_risk_score(skill_file):
     sig={"exec":len(_SKILL_EXEC.findall(text)),"cred":len(_SKILL_CRED.findall(text)),"network":len(_SKILL_NET.findall(text)),"filewrite":len(_SKILL_FW.findall(text))}
     score=(2 if sig["exec"] else 0)+(2 if sig["cred"] else 0)+(1 if sig["network"] else 0)+(1 if sig["filewrite"] else 0)
     return score,sig
+SKILL_CATEGORY_RULES={
+  "dingtalk-cli":{"label":"钉钉 CLI 集成类","action":"monitor","severity":"medium","tags":["cli","network","credential-pass"],"desc":"通过 dws CLI 调用钉钉 OpenAPI；exec/network/cred 为正常 CLI 调用模式。预制规则: 保持 monitor + 记录每次调用审计; 只读子能力可个案加白, 写操作(审批/写表)保持告警。"},
+  "doc-processing":{"label":"文档处理类","action":"monitor","severity":"medium","tags":["filewrite","network-deps"],"desc":"文档读写/转换技能, 含文件写与依赖下载。预制规则: monitor + 锁定版本 + 监控文件写范围; 业务必需可加白+监控。"},
+  "cloud-service":{"label":"云服务/平台类","action":"monitor","severity":"medium","tags":["network","cloud-api"],"desc":"调用云平台 API (Pages/Supabase/媒体生成)。预制规则: monitor + 监控外联域名白名单。"},
+  "dev-assist":{"label":"开发辅助/方法论类","action":"monitor","severity":"low","tags":["read-mostly"],"desc":"方法论/示例/调试辅助, 以只读为主。预制规则: monitor 低危, 研判后可批量加白。"},
+  "unknown":{"label":"未分类","action":"monitor","severity":"medium","tags":[],"desc":"未匹配任何预制类别, 按通用 monitor 处理, 待人工归类。"},
+}
+def skill_category(name):
+    n=(name or "").lower()
+    if n.startswith("dingtalk") or n.startswith("dws"): return "dingtalk-cli"
+    if any(k in n for k in ["pdf","pptx","xlsx","docx","document","html-markdown"]): return "doc-processing"
+    if any(k in n for k in ["qw-pages","supabase","media-generation","mini-program"]): return "cloud-service"
+    if any(k in n for k in ["debug","test","standards","java","python","frontend","markdown-lint","bootstrapping","feature-council","deeplearning","create-adaptable","working-with"]): return "dev-assist"
+    return "unknown"
 def scan_skill(skill_file,policy,max_files=500):
     """Scan the complete Skill package without following links outside its root."""
     root=skill_file.parent; out=[]; scanned=0; name=root.name
@@ -224,11 +238,13 @@ def scan_skill(skill_file,policy,max_files=500):
     if "allowed_skills" in policy and name not in allowed:
         action=policy.get("enforcement",{}).get("unknown_skill","audit")
         score,sig=skill_risk_score(skill_file)
-        # Refined alerting: severity by risk signals, not uniform.
-        if action=="block": severity="high" if score>=4 else ("medium" if score>=2 else "low")
-        else: severity="high" if score>=4 else ("medium" if score>=2 else "low")
-        dom=max(sig,key=sig.get); 
-        out.append(finding("unknown_skill",severity,skill_file,f"未批准的 Skill: {name} (风险信号 {dom}={sig[dom]}, score={score})"))
+        cat=skill_category(name); rule=SKILL_CATEGORY_RULES.get(cat,SKILL_CATEGORY_RULES["unknown"])
+        # severity = max(risk-signal severity, category preset severity)
+        sig_sev="high" if score>=4 else ("medium" if score>=2 else "low")
+        order={"low":0,"medium":1,"high":2}
+        severity=sig_sev if order[sig_sev]>=order[rule["severity"]] else rule["severity"]
+        dom=max(sig,key=sig.get)
+        out.append(finding("unknown_skill",severity,skill_file,f"未批准的 Skill: {name} [类别:{rule['label']}] (风险信号 {dom}={sig[dom]}, score={score}) 预制规则: {rule['desc']}"))
     readable={".md",".txt",".py",".js",".ts",".tsx",".jsx",".sh",".ps1",".json",".toml",".yaml",".yml"}
     root_resolved=root.resolve()
     for current,dirs,files in os.walk(root,followlinks=False):

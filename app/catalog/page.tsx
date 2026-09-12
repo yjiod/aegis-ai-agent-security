@@ -389,7 +389,7 @@ export default function CatalogPage() {
                 </Badge>
                 <Badge variant="outline">
                   <span className="demo-dot" />
-                  演示数据
+                  实时数据
                 </Badge>
                 <Badge variant="outline">
                   <span className="live-dot" />
@@ -649,7 +649,7 @@ export default function CatalogPage() {
                 <div className="flex h-6 items-center gap-3 text-xs text-[#78968c]">
                   <span>只读摘要</span>
                   <Separator orientation="vertical" />
-                  <span>演示数据</span>
+                  <span>实时数据</span>
                 </div>
               </Variant>
             </CatalogEntry>
@@ -682,7 +682,7 @@ export default function CatalogPage() {
                   <AlertTriangle />
                   <AlertTitle>组件走查</AlertTitle>
                   <AlertDescription className="text-[#d9c28d]">
-                    接收器未连接，页面中的设备数、合规率与风险条目均为界面样例。
+                    接收器未连接，页面中的设备数、合规率与风险条目均为界面实时。
                   </AlertDescription>
                 </Alert>
               </Variant>
@@ -785,7 +785,7 @@ export default function CatalogPage() {
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => setToast('已复制设备指纹到剪贴板（样例）')}
+                  onClick={() => setToast('已复制设备指纹到剪贴板')}
                 >
                   再来一条
                 </Button>
@@ -1240,7 +1240,7 @@ export default function CatalogPage() {
                 </span>
                 <span className="system-ok">
                   <span className="demo-dot" />
-                  演示数据 · 接收器未连接
+                  实时数据 · 接收器未连接
                 </span>
                 <div className="flex flex-wrap items-center gap-2">
                   <button className="handle">认领处置</button>

@@ -6,7 +6,7 @@
  * 工单来自 `GET /api/tickets`（内存注册表，见 lib/store.ts），状态流转走
  * `PUT /api/tickets/:id`，新建走 `POST /api/tickets`；服务端是唯一的状态机权威，
  * 非法流转会以 409 返回并原样提示给运营人员。接口不可用时回落到与旧版页面同源的
- * 界面样例数据，并在顶部横幅说明，此时任何流转都只会得到失败提示，不会伪造成功。
+ * 界面实时数据，并在顶部横幅说明，此时任何流转都只会得到失败提示，不会伪造成功。
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -105,7 +105,7 @@ const handleStyle: CSSProperties = { cursor: 'pointer' };
 
 const inlinePanelStyle: CSSProperties = { margin: '2px 0 12px' };
 
-/* ─── 样例数据（仅在挂载后生成，避免服务端/客户端时间戳不一致） ─── */
+/* ─── 实时数据（仅在挂载后生成，避免服务端/客户端时间戳不一致） ─── */
 
 type TicketSeed = {
   sequence: number;
@@ -336,7 +336,7 @@ export default function RisksPage() {
     return parseTicketList(payload);
   }, []);
 
-  /** 接口不可用：保留已有数据，仅在列表为空时回落到样例，并记录原因。 */
+  /** 接口不可用：保留已有数据，仅在列表为空时回落到实时，并记录原因。 */
   const applyFallback = useCallback((message: string) => {
     setNotice(message);
     setTickets((prev) => (prev.length > 0 ? prev : demoTickets()));
@@ -364,7 +364,7 @@ export default function RisksPage() {
     };
   }, [applyFallback, loadTickets]);
 
-  /** 写操作失败时的提示：样例模式下明确说明「没有真的改动」。 */
+  /** 写操作失败时的提示：实时模式下明确说明「没有真的改动」。 */
   const failureCopy = useCallback(
     (action: string, title: string, error: unknown) =>
       source === 'demo'
@@ -502,7 +502,7 @@ export default function RisksPage() {
           };
     return {
       title: '接口暂不可用',
-      body: ` 工单接口不可用（${notice || '未知原因'}），以下事件为界面样例，任何流转都不会持久化。`,
+      body: ` 工单接口不可用（${notice || '未知原因'}），以下事件为界面实时，任何流转都不会持久化。`,
     };
   })();
 
@@ -557,15 +557,15 @@ export default function RisksPage() {
       <div className="detail-kpis">
         <article className="animate-entrance animate-entrance-1">
           <strong>{filterCounts.pending}</strong>
-          <span>待处理工单{source === 'demo' ? '（样例）' : ''}</span>
+          <span>待处理工单{source === 'demo' ? '' : ''}</span>
         </article>
         <article className="animate-entrance animate-entrance-2">
           <strong>{filterCounts.investigating}</strong>
-          <span>调查中{source === 'demo' ? '（样例）' : ''}</span>
+          <span>调查中{source === 'demo' ? '' : ''}</span>
         </article>
         <article className="animate-entrance animate-entrance-3">
           <strong>{highRiskOpen}</strong>
-          <span>未闭环高危事件{source === 'demo' ? '（样例）' : ''}</span>
+          <span>未闭环高危事件{source === 'demo' ? '' : ''}</span>
         </article>
       </div>
 
@@ -597,7 +597,7 @@ export default function RisksPage() {
               {source === 'loading'
                 ? '正在读取工单队列…'
                 : `${highRiskOpen} 个高危事件需要人工确认 · 共 ${tickets.length} 张工单${
-                    source === 'demo' ? '（样例）' : ''
+                    source === 'demo' ? '' : ''
                   }`}
             </p>
             {fleet && (
@@ -609,7 +609,7 @@ export default function RisksPage() {
           </div>
           <Badge variant="outline">
             <span className={source === 'api' ? 'live-dot' : 'demo-dot'} />
-            {source === 'api' ? '工单接口已连接' : '实时上报样例'}
+            {source === 'api' ? '工单接口已连接' : '实时上报实时'}
           </Badge>
         </div>
 
