@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, Network, RefreshCw } from 'lucide-react';
+import { Network, RefreshCw } from 'lucide-react';
 import {
   BarChart,
   Bar,

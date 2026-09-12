@@ -79,8 +79,7 @@
         "jsx-a11y/label-has-associated-control": "off",
         "jsx-a11y/prefer-tag-over-role": "off",
         "nextjs/no-html-link-for-pages": "off",
-        "typescript/no-deprecated": "off",
-        "eslint/no-unused-vars": "off"
+        "typescript/no-deprecated": "off"
       }
     },
     {
@@ -96,8 +95,7 @@
         "jsx-a11y/no-static-element-interactions": "off",
         "jsx-a11y/label-has-associated-control": "off",
         "jsx-a11y/prefer-tag-over-role": "off",
-        "nextjs/no-html-link-for-pages": "off",
-        "eslint/no-unused-vars": "off"
+        "nextjs/no-html-link-for-pages": "off"
       }
     }
   ]

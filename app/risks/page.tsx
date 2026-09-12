@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useRole } from '@/components/role-context';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RiskSignalHelp, SignalSummary } from '@/components/risk-signal-help';
@@ -58,9 +57,6 @@ type FilterKey = 'all' | 'pending' | 'investigating' | 'resolved';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
 
 /** 状态筛选：与服务端 `?status=` 的枚举一致，这里在客户端过滤以保留全量计数。 */
 const FILTERS: { key: FilterKey; label: string; match: TicketStatus[] | null }[] = [
@@ -159,13 +155,11 @@ export default function RisksPage() {
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [source, setSource] = useState<TicketSource>('loading');
-  const [notice, setNotice] = useState('');
+  const [, setNotice] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const { role } = useRole();
-  const canMutate = role === 'admin';
   const [pendingAction, setPendingAction] = useState<{
     id: string;
     status: TicketStatus;
@@ -344,24 +338,6 @@ export default function RisksPage() {
       ticket.status !== 'dismissed',
   ).length;
 
-  const noticeCopy = (() => {
-    if (source === 'loading')
-      return { title: '正在读取工单', body: ' 正在从 /api/tickets 拉取风险工单队列。' };
-    if (source === 'api')
-      return fleet
-        ? {
-            title: '混合只读模式',
-            body: ' 工单流转为真实写操作；顶部接收器摘要为只读，未连接 EDR 前不会执行任何隔离动作。',
-          }
-        : {
-            title: '工单接口已连接',
-            body: ' 工单队列与状态流转来自 /api/tickets；接收器摘要未连接，未连接 EDR 前不会执行任何隔离动作。',
-          };
-    return {
-      title: '接口暂不可用',
-      body: ` 工单接口不可用（${notice || '未知原因'}），以下事件为界面实时，任何流转都不会持久化。`,
-    };
-  })();
 
   /* ── 渲染 ─────────────────────────────────────────────── */
 
