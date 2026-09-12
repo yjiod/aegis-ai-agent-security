@@ -37,7 +37,7 @@ async function fetchCollectorAudit(): Promise<CollectorAuditEntry[] | null> {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = (await res.json()) as Record<string, unknown>;
     return Array.isArray(data?.entries) ? data.entries : Array.isArray(data) ? data : null;
   } catch {
     return null;
