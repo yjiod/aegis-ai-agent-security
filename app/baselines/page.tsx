@@ -5,7 +5,7 @@
  * 数据源: /api/baselines, /api/baselines/sync, /api/settings/scan-mode (PG 持久化)。
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2, RefreshCw, Upload } from 'lucide-react';
+import { Trash2, RefreshCw, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
