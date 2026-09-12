@@ -19,7 +19,7 @@
               └────────┬────────┘
                        ▼
               ┌─────────────────┐
-              │  Adapter Worker │ → <EDR_VENDOR_CN> EDR / <MDM_VENDOR_CN>桌管
+              │  Adapter Worker │ → 厂商 EDR / 厂商桌管
               └─────────────────┘
 ```
 
