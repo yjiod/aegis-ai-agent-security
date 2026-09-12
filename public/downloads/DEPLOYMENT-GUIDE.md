@@ -1,6 +1,6 @@
 # Aegis 企业部署指南
 
-私有站点当前提供经验证的发行物下载、架构说明和治理界面样例，但尚未连接客户报告接收器或 MDM/EDR/联软任务 API。页面以“演示模式”明确标识所有样例指标，任何按钮都不会声称已执行外部变更。只有完成企业私有 API、身份认证、授权与审计接入后，才能将其作为实时运营控制台启用。
+私有站点当前提供经验证的发行物下载、架构说明和治理界面样例，但尚未连接客户报告接收器或 MDM/EDR/厂商桌管任务 API。页面以“演示模式”明确标识所有样例指标，任何按钮都不会声称已执行外部变更。只有完成企业私有 API、身份认证、授权与审计接入后，才能将其作为实时运营控制台启用。
 
 0.48.0 起，站点提供只读同源 `/api/summary` 代理。服务端配置 `AEGIS_COLLECTOR_URL`、精确主机名 `AEGIS_COLLECTOR_ALLOWED_HOST` 和至少 32 字符的 `AEGIS_COLLECTOR_TOKEN` 后，顶部四项指标读取接收器摘要；令牌不会进入浏览器。代理只允许 HTTPS、拒绝 URL 凭据/查询参数、五秒超时、禁用缓存并严格复核汇总计数。未配置、上游异常或契约不符时自动回到明确标识的演示模式。
 
@@ -9,8 +9,8 @@
 ## 推荐职责
 
 - Microsoft MDM：Windows/macOS 安装、周期检测、修复与合规状态。
-- 深信服 EDR：接收高危事件后执行主机隔离、查杀和取证；接口以客户实际版本的 OpenAPI 为准。
-- 联软 UniAccess/LeagView：资产映射、软件统一分发，以及未安装 Aegis 终端的准入限制。
+- 厂商 EDR：接收高危事件后执行主机隔离、查杀和取证；接口以客户实际版本的 OpenAPI 为准。
+- 厂商桌管控制台：资产映射、软件统一分发，以及未安装 Aegis 终端的准入限制。
 
 ## MDM Windows
 
@@ -24,7 +24,7 @@
 
 macOS 自定义合规上传 `mdm-macos-compliance.sh` 与 `mdm-macos-compliance-policy.json`，发现脚本使用 Bash、UTF-8 无 BOM，并设置为不使用已登录用户凭据运行，以便读取受 root 保护的运行文件和报告；启用签名检查及隐藏通知。规则验证安装、三项固定哈希、LaunchDaemon、策略版本、24 小时内扫描和 critical/high 数量，并同时包含 MDM 要求的 `en_US` 与中文修复文案。按微软限制，脚本与输出均须小于 1 MB、运行不超过 10 分钟。
 
-## 深信服 EDR
+## 厂商 EDR
 
 Aegis 报告使用 `aegis.report/v1`。由中转服务将 critical/high finding 转换为当前 EDR 版本支持的告警或联动请求。隔离、查杀等动作必须经 EDR 控制台策略授权。不要把管理口令写入终端脚本。
 
@@ -54,19 +54,19 @@ Aegis 报告使用 `aegis.report/v1`。由中转服务将 critical/high finding 
 
 接收器 0.9 在监听端口前校验运行密钥：每个 Bearer Token 和 HMAC 密钥至少 32 个字符，同一用途内不得重复，认证 Token 与签名密钥不得复用。任一条件不满足时进程以明确的非敏感错误类别退出，不在错误信息中打印秘密。建议由企业密码系统生成至少 32 字节随机值，并通过服务环境或密钥管理器注入。
 
-使用 `aegis-adapters.example.json` 创建不含凭据的配置副本，并用 `aegis_adapter.py <报告> --config <配置> --dry-run` 检查事件映射。适配器默认关闭；只允许 HTTPS 且目标主机名必须精确列入顶层 `allowed_hosts`，URL 中不得携带凭据。深信服动作仅允许 `observe`、`alert`、`isolate_pending_approval` 和 `block_pending_approval`；直接隔离、查杀或封禁会被拒绝，必须由现有审批与响应平台执行。确认现网 API 字段后再设置 URL、环境变量令牌并去掉 `--dry-run`。
+使用 `aegis-adapters.example.json` 创建不含凭据的配置副本，并用 `aegis_adapter.py <报告> --config <配置> --dry-run` 检查事件映射。适配器默认关闭；只允许 HTTPS 且目标主机名必须精确列入顶层 `allowed_hosts`，URL 中不得携带凭据。厂商 EDR动作仅允许 `observe`、`alert`、`isolate_pending_approval` 和 `block_pending_approval`；直接隔离、查杀或封禁会被拒绝，必须由现有审批与响应平台执行。确认现网 API 字段后再设置 URL、环境变量令牌并去掉 `--dry-run`。
 
-三个输出通道彼此隔离：某个厂商接口不可用时，其事件以 0600 权限写入 `AEGIS_ADAPTER_SPOOL`，不阻塞其他通道；网络恢复后运行 `aegis_adapter.py --config <配置> --spool-dir <目录> --flush-only` 重放。队列默认最多保留 500 个事件，可用 `AEGIS_ADAPTER_SPOOL_MAX_EVENTS` 设置 10–10000；同秒事件不会覆盖，损坏记录会隔离并最多保留 20 份，不阻塞有效事件。队列不保存令牌，凭据只从环境变量读取。当前包定义的是安全边界与通用 Webhook 契约，深信服和联软的最终路径、鉴权头与字段映射仍需按客户现网产品版本的正式 API 文档完成验收。
+三个输出通道彼此隔离：某个厂商接口不可用时，其事件以 0600 权限写入 `AEGIS_ADAPTER_SPOOL`，不阻塞其他通道；网络恢复后运行 `aegis_adapter.py --config <配置> --spool-dir <目录> --flush-only` 重放。队列默认最多保留 500 个事件，可用 `AEGIS_ADAPTER_SPOOL_MAX_EVENTS` 设置 10–10000；同秒事件不会覆盖，损坏记录会隔离并最多保留 20 份，不阻塞有效事件。队列不保存令牌，凭据只从环境变量读取。当前包定义的是安全边界与通用 Webhook 契约，厂商 EDR和厂商桌管的最终路径、鉴权头与字段映射仍需按客户现网产品版本的正式 API 文档完成验收。
 
-适配器 0.6 对顶层配置、目标对象、字段集合、启用标志和动作表执行严格校验。深信服、联软和安全 Webhook 的凭据变量必须分别使用 `VENDOR_EDR_`、`VENDOR_MDM_`、`AEGIS_` 前缀，避免错误配置把 `PATH` 等无关环境变量作为令牌外发。只有整数 2xx 响应会确认投递并删除队列事件；其他返回值与网络错误均保留事件等待重放。
+适配器 0.6 对顶层配置、目标对象、字段集合、启用标志和动作表执行严格校验。厂商 EDR、厂商桌管和安全 Webhook 的凭据变量必须分别使用 `VENDOR_EDR_`、`VENDOR_MDM_`、`AEGIS_` 前缀，避免错误配置把 `PATH` 等无关环境变量作为令牌外发。只有整数 2xx 响应会确认投递并删除队列事件；其他返回值与网络错误均保留事件等待重放。
 
-适配器 0.7 新增自动派发 Worker。将 `aegis_adapter_worker.py` 与 `aegis_adapter.py` 放入 `/opt/aegis/`，从示例生成 `/etc/aegis/adapters.json` 和 `/etc/aegis/adapter.env`，仅启用已完成厂商验收的目标，再安装 `aegis-adapter-worker.service`。Worker 启动时会验证精确 HTTPS 主机、凭据变量和安全动作；配置无启用目标或缺少凭据时拒绝启动。它从 Collector 数据库读取尚未派发的已验证报告，失败投递进入有界 spool，成功接受后写入不含 payload 或设备标识的最小派发账本。每个 HTTP 请求携带基于规范化请求体 SHA-256 的稳定 `Idempotency-Key`；深信服和联软接收端应按该键去重，以覆盖“远端已接收、Worker 在写账本前重启”的边界。
+适配器 0.7 新增自动派发 Worker。将 `aegis_adapter_worker.py` 与 `aegis_adapter.py` 放入 `/opt/aegis/`，从示例生成 `/etc/aegis/adapters.json` 和 `/etc/aegis/adapter.env`，仅启用已完成厂商验收的目标，再安装 `aegis-adapter-worker.service`。Worker 启动时会验证精确 HTTPS 主机、凭据变量和安全动作；配置无启用目标或缺少凭据时拒绝启动。它从 Collector 数据库读取尚未派发的已验证报告，失败投递进入有界 spool，成功接受后写入不含 payload 或设备标识的最小派发账本。每个 HTTP 请求携带基于规范化请求体 SHA-256 的稳定 `Idempotency-Key`；厂商 EDR和厂商桌管接收端应按该键去重，以覆盖“远端已接收、Worker 在写账本前重启”的边界。
 
 厂商联调顺序为：先使用 `aegis_adapter.py --dry-run` 让双方确认字段和动作只表示“待审批”，再在隔离测试地址启用 Worker；验证同一报告不会被账本重复发送、网络失败会排队且恢复后补发、非 2xx 不会确认、错误主机和明文 HTTP 会被拒绝。未经厂商确认不得把 `isolate_pending_approval` 映射为自动隔离指令。
 
-适配器 0.5 在任何通道处理前执行完整 `aegis.report/v1` 白名单、类型、长度、数量和摘要一致性校验；额外字段不会透传到安全 Webhook。深信服与联软投影也使用精确字段集合验证，离线队列重放前再次验证；被篡改、`null` 或结构异常的载荷进入隔离区而不发网，报告或事件构建失败也不会排队空载荷。
+适配器 0.5 在任何通道处理前执行完整 `aegis.report/v1` 白名单、类型、长度、数量和摘要一致性校验；额外字段不会透传到安全 Webhook。厂商 EDR与厂商桌管投影也使用精确字段集合验证，离线队列重放前再次验证；被篡改、`null` 或结构异常的载荷进入隔离区而不发网，报告或事件构建失败也不会排队空载荷。
 
-## 联软桌管
+## 厂商桌管
 
 将 Windows 脚本或后续签名 MSI 作为软件分发包。使用软件资产规则检查 `%ProgramData%\AegisAgent\aegis-policy.json`，未安装或策略过期的设备进入修复组；若启用准入隔离，先以观察模式验证误报率。
 

@@ -62,7 +62,7 @@ public partial class TrayIcon : Window
 
         var about = new MenuItem { Header = "关于 Aegis Agent" };
         about.Click += (_, _) => MessageBox.Show(
-            "Aegis Agent for Windows\n版本 0.30.0\n\n企业 AI Coding 安全治理终端客户端\n发现 Cursor / Claude Code / Codex / Windsurf\n加载安全基线 · 扫描 Skill / MCP / 代码\n上报至 Collector · 联动深信服 EDR",
+            "Aegis Agent for Windows\n版本 0.30.0\n\n企业 AI Coding 安全治理终端客户端\n发现 Cursor / Claude Code / Codex / Windsurf\n加载安全基线 · 扫描 Skill / MCP / 代码\n上报至 Collector · 联动厂商 EDR",
             "关于", MessageBoxButton.OK, MessageBoxImage.Information);
         menu.Items.Add(about);
 

@@ -1,6 +1,6 @@
 # Aegis AI Agent Security
 
-Aegis 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft MDM 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex 和 Windsurf，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与深信服 EDR、联软桌管协同。
+Aegis 是面向企业终端的 AI Coding 安全治理工具。它通过 Microsoft MDM 部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex 和 Windsurf，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告可进入受认证的接收器，并通过安全适配边界与厂商 EDR、厂商桌管协同。
 
 当前发行：产品 `0.63.0`，Endpoint Agent `0.30.0`，策略 `4.8.0`，Collector `0.15`，Adapter `0.7`。
 
@@ -32,4 +32,4 @@ python3 public/downloads/aegis_release_verify.py public/downloads
 - [企业部署指南](public/downloads/DEPLOYMENT-GUIDE.md)
 - [安全响应说明](SECURITY.md)
 
-真实 MDM、深信服 EDR、联软及 Collector 凭据不得提交到 Git。
+真实 MDM、厂商 EDR、厂商桌管及 Collector 凭据不得提交到 Git。

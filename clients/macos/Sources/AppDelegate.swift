@@ -85,7 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showAbout() {
-        NSAlert.run(message: "Aegis Agent for macOS", info: "版本 \(AgentConfig.version)\n企业 AI Coding 安全治理终端客户端\n\n发现 Cursor / Claude Code / Codex / Windsurf\n加载安全基线 · 扫描 Skill / MCP / 代码\n上报至 Collector · 联动深信服 EDR")
+        NSAlert.run(message: "Aegis Agent for macOS", info: "版本 \(AgentConfig.version)\n企业 AI Coding 安全治理终端客户端\n\n发现 Cursor / Claude Code / Codex / Windsurf\n加载安全基线 · 扫描 Skill / MCP / 代码\n上报至 Collector · 联动厂商 EDR")
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
