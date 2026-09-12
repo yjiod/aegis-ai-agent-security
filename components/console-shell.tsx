@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Tags,
   Users,
   Wrench,
 } from 'lucide-react';
@@ -52,6 +53,7 @@ const navSections: NavSection[] = [
       { href: '/onboarding', label: '接入中心', icon: Bot },
       { href: '/devices', label: '设备与 Agent', icon: Laptop },
       { href: '/risks', label: '风险中心', icon: AlertTriangle },
+      { href: '/dispositions', label: '处置中心', icon: Tags },
     ],
   },
   {

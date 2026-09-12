@@ -211,3 +211,38 @@ export function pgAddAdmin(emp: string): void {
 export function pgRemoveAdmin(emp: string): void {
   scheduleWrite('removeAdmin', (c) => c.query('DELETE FROM admins WHERE employee_no=$1', [emp]));
 }
+
+/* ─── 资产标签 / 处置（skill / MCP 打标 + 加白/观察/拉黑） ─────────────── */
+export interface AssetLabelRow {
+  asset_type: string;
+  asset_key: string;
+  tags: string; // JSON array string
+  disposition: string; // '' | allow | monitor | deny
+  note: string;
+  updated_by: string;
+  updated_at: number;
+}
+
+export async function pgLoadLabels(): Promise<AssetLabelRow[] | null> {
+  const r = await withClient('loadLabels', (c) =>
+    c.query('SELECT asset_type,asset_key,tags,disposition,note,updated_by,updated_at FROM asset_labels ORDER BY asset_type, asset_key'),
+  );
+  return r.ok ? (r.value.rows as AssetLabelRow[]) : null;
+}
+
+export function pgUpsertLabel(row: AssetLabelRow): void {
+  scheduleWrite('upsertLabel', (c) =>
+    c.query(
+      `INSERT INTO asset_labels(asset_type,asset_key,tags,disposition,note,updated_by,updated_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT(asset_type,asset_key) DO UPDATE SET tags=$3,disposition=$4,note=$5,updated_by=$6,updated_at=$7`,
+      [row.asset_type, row.asset_key, row.tags, row.disposition, row.note, row.updated_by, row.updated_at],
+    ),
+  );
+}
+
+export function pgDeleteLabel(assetType: string, assetKey: string): void {
+  scheduleWrite('deleteLabel', (c) =>
+    c.query('DELETE FROM asset_labels WHERE asset_type=$1 AND asset_key=$2', [assetType, assetKey]),
+  );
+}
