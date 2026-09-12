@@ -693,4 +693,16 @@ class AegisTests(unittest.TestCase):
             res=su.check_and_apply('file://'+str(man),'0.31.0','dev1','aegis_agent.py',str(Path(d)/'agent.py'))
             self.assertFalse(res['updated']); self.assertEqual(res['reason'],'up_to_date')
 
+    def test_reference_adapters_implement_foura_interface(self):
+        ad=load('refadapters','aegis_4a_reference_adapters.py'); import aegis_4a_interface as iface
+        for name,cls in ad.ADAPTERS.items():
+            inst=cls(base_url='http://127.0.0.1:1')
+            self.assertIsInstance(inst, iface.FourAInterface)
+            self.assertTrue(len(inst.capabilities())>0)
+            self.assertFalse(inst.health_check()['ok'])
+        fleet=ad.FleetAdapter(base_url='http://127.0.0.1:1')
+        task=iface.DeploymentTask(task_id='t1', device_id='d1', action='install')
+        out=fleet.deploy_agent(task)
+        self.assertEqual(out.status,'failed'); self.assertIsNot(out, task)
+
 if __name__=='__main__': unittest.main()
