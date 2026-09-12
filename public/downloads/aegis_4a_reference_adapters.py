@@ -84,13 +84,13 @@ class FleetAdapter:
 
     def health_check(self):
         try:
-            me = _request(self._base, _token(self._token_env), "/api/v1/me")
+            me = _request(self._base, _token(self._token_env), "/api/latest/me")
             return {"ok": True, "user": (me.get("user") or {}).get("email", "")}
         except AdapterError as e:
             return {"ok": False, "error": str(e)}
 
     def list_devices(self, query: str = "", limit: int = 100, offset: int = 0):
-        d = _request(self._base, _token(self._token_env), f"/api/v1/fleet/hosts?per_page={limit}&page={offset // max(limit, 1)}")
+        d = _request(self._base, _token(self._token_env), f"/api/latest/fleet/hosts?per_page={limit}&page={offset // max(limit, 1)}")
         out = []
         for h in (d.get("hosts") or []):
             out.append(DeviceRecord(device_id=str(h.get("uuid") or h.get("id")), hostname=h.get("hostname", ""),
@@ -105,7 +105,7 @@ class FleetAdapter:
         return None
 
     def check_compliance(self, device_id: str, policy_id: str) -> ComplianceResult:
-        d = _request(self._base, _token(self._token_env), f"/api/v1/fleet/hosts/identifier/{device_id}")
+        d = _request(self._base, _token(self._token_env), f"/api/latest/fleet/hosts/identifier/{device_id}")
         host = d.get("host") or {}
         ok = bool(host) and host.get("status") == "online"
         return ComplianceResult(device_id=device_id, policy_id=policy_id, compliant=ok,
@@ -114,7 +114,7 @@ class FleetAdapter:
 
     def report_compliance(self, result: ComplianceResult) -> bool:
         try:
-            _request(self._base, _token(self._token_env), "/api/v1/fleet/labels", "POST",
+            _request(self._base, _token(self._token_env), "/api/latest/fleet/labels", "POST",
                      {"name": f"aegis-{result.policy_id}", "query": "select 1;"})
             return True
         except AdapterError:
@@ -125,7 +125,7 @@ class FleetAdapter:
 
     def deploy_agent(self, task: DeploymentTask) -> DeploymentTask:
         try:
-            d = _request(self._base, _token(self._token_env), "/api/v1/fleet/spec/enroll_secret", "GET")
+            d = _request(self._base, _token(self._token_env), "/api/latest/fleet/spec/enroll_secret", "GET")
             return replace(task, status="in_progress")
         except AdapterError as e:
             return replace(task, status="failed", error=str(e))
@@ -135,7 +135,7 @@ class FleetAdapter:
 
     def push_policy(self, device_ids, policy_json) -> dict:
         try:
-            _request(self._base, _token(self._token_env), "/api/v1/fleet/spec/packs", "POST", {"packs": [json.loads(policy_json)]})
+            _request(self._base, _token(self._token_env), "/api/latest/fleet/spec/packs", "POST", {"packs": [json.loads(policy_json)]})
             return {"pushed": len(device_ids), "channel": "fleet_pack"}
         except AdapterError as e:
             return {"pushed": 0, "error": str(e)}
