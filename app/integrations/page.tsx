@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Plug, ShieldCheck, AlertTriangle, HelpCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
 interface Integration {
@@ -25,6 +26,8 @@ const HEALTH_META: Record<Integration['health'], { label: string; icon: typeof S
 
 export default function IntegrationsPage() {
   const [items, setItems] = useState<Integration[] | null>(null);
+  const [cfg, setCfg] = useState<Record<string, string>>({});
+  const [cfgMsg, setCfgMsg] = useState('');
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -41,7 +44,18 @@ export default function IntegrationsPage() {
 
   useEffect(() => {
     void load();
+    fetch('/api/integrations/config', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setCfg(d as Record<string, string>))
+      .catch(() => {});
   }, [load]);
+
+  async function saveCfg() {
+    setCfgMsg('');
+    const r = await fetch('/api/integrations/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) });
+    setCfgMsg(r.ok ? '已保存' : `保存失败 HTTP ${r.status}`);
+    void load();
+  }
 
   return (
     <>
@@ -58,6 +72,26 @@ export default function IntegrationsPage() {
       <div className="panel animate-entrance animate-entrance-2" style={{ padding: 14, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--muted-foreground)' }}>
         <Plug size={15} />
         单端原则：员工终端只推送 <b style={{ color: 'var(--text)' }}>Aegis 一个 agent</b>；Fleet/Wazuh/PacketFence 的 agent 由各自平台或桌管下发，Aegis 不代推。
+      </div>
+
+      <div className="panel animate-entrance animate-entrance-3" style={{ padding: 14, marginBottom: 14 }}>
+        <strong style={{ fontSize: 14 }}>集成配置（settings 优先, 留空回退环境变量）</strong>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 8, marginTop: 10 }}>
+          {['fleet_url','fleet_token','wazuh_url','wazuh_user','wazuh_pass','pf_url','pf_token'].map((k) => (
+            <label key={k} style={{ fontSize: 12, color: 'var(--muted-foreground)', display: 'grid', gap: 4 }}>
+              {k}
+              <input
+                value={cfg[k] ?? ''}
+                onChange={(e) => setCfg((c) => ({ ...c, [k]: e.target.value }))}
+                style={{ padding: 6, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}
+              />
+            </label>
+          ))}
+        </div>
+        <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Button onClick={() => void saveCfg()}>保存配置</Button>
+          {cfgMsg && <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{cfgMsg}</span>}
+        </div>
       </div>
 
       <div style={{ display: 'grid', gap: 12 }}>

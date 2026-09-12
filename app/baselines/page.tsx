@@ -34,6 +34,8 @@ export default function BaselinesPage() {
   const [name, setName] = useState('');
   const [rulesText, setRulesText] = useState('[{"id":"no-eval","title":"禁止 eval","severity":"high","mode":"standard"}]');
   const [syncUrl, setSyncUrl] = useState('');
+  const [upUrl, setUpUrl] = useState('');
+  const [upMsg, setUpMsg] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -43,6 +45,8 @@ export default function BaselinesPage() {
       ]);
       setItems(Array.isArray(b?.baselines) ? b.baselines : []);
       if (m?.scan_mode) setMode(m.scan_mode);
+      const st = await fetch('/api/settings', { cache: 'no-store' }).then((r) => (r.ok ? (r.json() as Promise<Record<string, unknown>>) : null)).catch(() => null);
+      if (st?.upstream_baseline_url) setUpUrl(String(st.upstream_baseline_url));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setItems([]);
@@ -71,9 +75,15 @@ export default function BaselinesPage() {
     void load();
   }
 
+  async function saveUpUrl() {
+    setUpMsg('');
+    const r = await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ upstream_baseline_url: upUrl }) });
+    setUpMsg(r.ok ? '已保存, 每6小时自动同步' : `保存失败 HTTP ${r.status}`);
+  }
+
   async function doSync() {
     setError(''); setNotice('');
-    const r = await fetch('/api/baselines/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: syncUrl }) });
+    const r = await fetch('/api/baselines/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: syncUrl || upUrl }) });
     if (!r.ok) { setError(`同步失败 HTTP ${r.status}`); return; }
     setNotice('上游基线已同步为 upstream-baseline');
     void load();
@@ -131,7 +141,13 @@ export default function BaselinesPage() {
               <Upload size={14} /> 导入
             </Button>
           </div>
-          <strong style={{ fontSize: 14 }}>上游同步</strong>
+          <strong style={{ fontSize: 14 }}>上游基线 URL(定时同步源)</strong>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Input placeholder="https://…/aegis-security-baseline.md" value={upUrl} onChange={(e) => setUpUrl(e.target.value)} />
+            <Button variant="outline" onClick={() => void saveUpUrl()}>保存</Button>
+          </div>
+          {upMsg && <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{upMsg}</span>}
+          <strong style={{ fontSize: 14 }}>立即同步</strong>
           <div style={{ display: 'flex', gap: 8 }}>
             <Input placeholder="上游基线 URL(如 https://…/aegis-security-baseline.md)" value={syncUrl} onChange={(e) => setSyncUrl(e.target.value)} />
             <Button variant="outline" onClick={() => void doSync()} disabled={!syncUrl.trim()}>
