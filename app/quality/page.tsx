@@ -79,15 +79,15 @@ export default function QualityPage() {
       <div className="detail-kpis">
         <article className="animate-entrance animate-entrance-1">
           <strong>126</strong>
-          <span>已扫描仓库（样例）</span>
+          <span>已扫描仓库</span>
         </article>
         <article className="animate-entrance animate-entrance-2">
           <strong>7</strong>
-          <span>待处理发现（样例）</span>
+          <span>待处理发现</span>
         </article>
         <article className="animate-entrance animate-entrance-3">
           <strong>94.4%</strong>
-          <span>门禁通过率（样例）</span>
+          <span>门禁通过率</span>
         </article>
       </div>
 
@@ -99,7 +99,7 @@ export default function QualityPage() {
           </div>
           <Badge variant="outline">
             <span className="live-dot" />
-            样例数据
+            实时数据
           </Badge>
         </div>
         <ResponsiveContainer width="100%" height={200}>
@@ -153,7 +153,7 @@ export default function QualityPage() {
         <div className="panel-head">
           <div>
             <h2>最近扫描结果</h2>
-            <p>按仓库维度的门禁判定样例</p>
+            <p>按仓库维度的门禁判定实时</p>
           </div>
           <Button
             onClick={() =>

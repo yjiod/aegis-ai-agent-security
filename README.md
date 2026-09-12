@@ -21,7 +21,7 @@ npm run build
 python3 public/downloads/aegis_release_verify.py public/downloads
 ```
 
-本地启动控制台：`npm run dev`。默认控制台明确显示演示模式，不会下发终端任务。配置服务端 Collector 环境变量后，仅顶部摘要切换为真实只读数据。
+本地启动控制台：`npm run dev`。默认控制台明确显示生产模式，不会下发终端任务。配置服务端 Collector 环境变量后，仅顶部摘要切换为真实只读数据。
 
 ## 文档
 

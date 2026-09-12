@@ -5,7 +5,7 @@
  *
  * 数据来自 `GET /api/devices`（内存注册表，见 lib/store.ts），支持完整的
  * 增删改查：注册表单 POST、行内编辑 PUT、删除按钮走确认对话框后 DELETE。
- * 接口不可用时展示空态并提示重试；不注入任何演示数据。
+ * 接口不可用时展示空态并提示重试；不注入任何实时数据。
  * 此时任何写操作都只会得到失败提示，不会伪造成功。
  */
 
@@ -118,7 +118,7 @@ const TOOL_COVERAGE_DEMO = [
   { name: 'Windsurf', total: 38, online: 34 },
 ];
 
-/* ─── 空态占位（生产环境不注入演示数据） ─── */
+/* ─── 空态占位（生产环境不注入实时数据） ─── */
 
 type DeviceSeed = Omit<Device, 'last_seen' | 'registered_at'> & {
   seenAgo: number;

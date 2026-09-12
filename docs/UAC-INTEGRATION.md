@@ -102,7 +102,7 @@ UAC 解决**认证 (Authentication)**。授权/审计可叠加：
 - 80 → 301 https（未备案域名 80 端口可能被云厂商拦截，用户直接走 https）
 - **必须** `proxy_set_header X-Forwarded-Proto https`：控制台 SSO redirect_uri 依赖它
   （TLS 在 nginx 终止，后端 worker 否则看到 http origin）
-- 证书：Let's Encrypt，`/etc/nginx/ssl/tx.yjiod.com.{crt,key}`
+- 证书：Let's Encrypt，`/etc/nginx/ssl/<your-console-host>.{crt,key}`
   （可从 Caddy 存储复制过渡，或 certbot 申请/续期）
 nginx<1.25.1 用 `listen 443 ssl http2;`；≥1.25.1 用 `http2 on;`。
 

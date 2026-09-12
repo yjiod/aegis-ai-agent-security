@@ -75,3 +75,19 @@
 1. 将 ALLOW 列表加入 aegis-policy.json 的 allowed_skills（消除 13 个低危误报）
 2. MONITOR 保持告警，安全运营逐个研判（钉钉类 skill 多为 exec+cred，属正常 CLI 调用，可酌情加白）
 3. DENY 中 pdf/pptx/xlsx/docx 为文档处理 skill（exec+net+cred+fw 高），若业务必需则加白并监控；否则禁用
+
+---
+
+## 六、monitor 类分类 + 标签 + 预制规则（不批量加白）
+
+monitor 类不做批量加白，而是**按类别打标签 + 预制规则**，逐类研判：
+
+| 类别 | 标签 | 数量 | 预制规则（action/severity） | 成员示例 |
+|---|---|---|---|---|
+| 钉钉 CLI 集成类 | cli, network, credential-pass | 9 | monitor / medium；记录每次调用审计；只读子能力个案加白，写操作保持告警 | dingtalk-chat/doc/mail/calendar |
+| 文档处理类 | filewrite, network-deps | 1 | monitor / medium；锁版本 + 监控文件写范围；业务必需加白+监控 | html-markdown |
+| 云服务/平台类 | network, cloud-api | 3 | monitor / medium；监控外联域名白名单 | qw-pages, media-generation |
+| 开发辅助/方法论类 | read-mostly | 15 | monitor / low；研判后可批量加白 | *-debugger, *-testing, standards-* |
+
+告警消息现在带 `[类别:xxx]` 标签 + 该类别预制规则说明，运营按类别批量研判而非逐个。
+类别判定在 aegis_agent.skill_category()，预制规则在 SKILL_CATEGORY_RULES。

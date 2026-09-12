@@ -68,7 +68,7 @@ export default function BaselinePage() {
       <div className="baseline-banner animate-entrance animate-entrance-1">
         <div>
           <h2>企业 AI Coding 安全基线 v4.8</h2>
-          <p>规则应用范围与合规率为界面样例</p>
+          <p>规则应用范围与合规率为界面实时</p>
         </div>
         <strong>
           98.2%<span>合规率</span>
