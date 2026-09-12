@@ -246,3 +246,50 @@ export function pgDeleteLabel(assetType: string, assetKey: string): void {
     c.query('DELETE FROM asset_labels WHERE asset_type=$1 AND asset_key=$2', [assetType, assetKey]),
   );
 }
+
+/* ─── 阶段E: 基线(baselines) + 全局设置(settings) ─────────────────────── */
+export interface BaselineRow {
+  name: string;
+  source: string;
+  version: string;
+  rules_json: string;
+  scan_modes: string;
+  updated_by: string;
+  updated_at: number;
+}
+
+export async function pgLoadBaselines(): Promise<BaselineRow[] | null> {
+  const r = await withClient('loadBaselines', (c) =>
+    c.query('SELECT name,source,version,rules_json,scan_modes,updated_by,updated_at FROM baselines ORDER BY name'),
+  );
+  return r.ok ? (r.value.rows as BaselineRow[]) : null;
+}
+
+export function pgUpsertBaseline(b: BaselineRow): void {
+  scheduleWrite('upsertBaseline', (c) =>
+    c.query(
+      `INSERT INTO baselines(name,source,version,rules_json,scan_modes,updated_by,updated_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT(name) DO UPDATE SET source=$2,version=$3,rules_json=$4,scan_modes=$5,updated_by=$6,updated_at=$7`,
+      [b.name, b.source, b.version, b.rules_json, b.scan_modes, b.updated_by, b.updated_at],
+    ),
+  );
+}
+
+export function pgDeleteBaseline(name: string): void {
+  scheduleWrite('deleteBaseline', (c) => c.query('DELETE FROM baselines WHERE name=$1', [name]));
+}
+
+export async function pgGetSettings(): Promise<Record<string, string> | null> {
+  const r = await withClient('getSettings', (c) => c.query('SELECT key,value FROM settings'));
+  if (!r.ok) return null;
+  const out: Record<string, string> = {};
+  for (const row of r.value.rows) out[row.key] = row.value;
+  return out;
+}
+
+export function pgSetSetting(key: string, value: string): void {
+  scheduleWrite('setSetting', (c) =>
+    c.query('INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=$2', [key, value]),
+  );
+}
