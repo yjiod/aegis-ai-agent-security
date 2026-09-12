@@ -55,7 +55,7 @@ Adapter Worker 从 Collector 的已验证报告生成最小厂商事件，以派
 
 ```
 POST https://{edr-host}/api/edr/open/v1/event/custom
-Authorization: Bearer {SANGFOR_EDR_TOKEN}
+Authorization: Bearer {VENDOR_EDR_TOKEN}
 Content-Type: application/json
 
 {
@@ -91,7 +91,7 @@ Content-Type: application/json
 1. 向厂商 EDR 管理员申请服务账号 + API Token
 2. 确认现网 EDR 版本号（不同版本 API 路径可能不同）
 3. 确认 EDR 管理面 HTTPS 地址，加入 `allowed_hosts`
-4. 设置环境变量 `SANGFOR_EDR_TOKEN=<实际token>`
+4. 设置环境变量 `VENDOR_EDR_TOKEN=<实际token>`
 5. 修改 `aegis-adapters.json` 中 `vendor_edr.enabled: true`
 6. 先用 `--dry-run` 验证配置，再正式启用
 
@@ -101,7 +101,7 @@ Content-Type: application/json
 
 ```
 POST https://{vendor_mdm-host}/api/aegis/posture
-Authorization: Bearer {LEAGSOFT_TOKEN}
+Authorization: Bearer {VENDOR_MDM_TOKEN}
 Content-Type: application/json
 
 {
@@ -131,7 +131,7 @@ Content-Type: application/json
 1. 向厂商桌管管理员申请 API 服务账号
 2. 确认厂商桌管控制台 版本及 API 端点路径
 3. 确认 HTTPS 地址，加入 `allowed_hosts`
-4. 设置环境变量 `LEAGSOFT_TOKEN=<实际token>`
+4. 设置环境变量 `VENDOR_MDM_TOKEN=<实际token>`
 5. 修改 `aegis-adapters.json` 中 `vendor_mdm.enabled: true`
 6. 配置 `compliance.max_policy_age_hours` (默认 24h)
 
