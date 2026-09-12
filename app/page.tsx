@@ -493,7 +493,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.42.0'}</h2>
+                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.43.0'}</h2>
                 <p>厂商无关部署 · 企业 4A 标准接口 · 可插拔兼容适配器</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
@@ -528,6 +528,8 @@ function DetailPanel({
                 <a href="/downloads/sentinel-collector.openapi.json" download>Collector API 规范</a>
                 <a href="/downloads/sentinel-enterprise-4a.openapi.json" download>企业 4A OpenAPI</a>
                 <a href="/downloads/ENTERPRISE-4A-INTEGRATION.md" download>企业 4A 接入指南</a>
+                <a href="/downloads/ENTERPRISE-INTEGRATION-CONTRACT.md" download>统一身份 / 4A 能力契约</a>
+                <a href="/downloads/sentinel_4a_interface.py" download>厂商中立接口定义</a>
                 <a href="/downloads/sentinel_4a_probe.py" download>企业 4A 验收探针</a>
                 <a href="/downloads/deployment-platform-evidence.example.json" download>通用部署验收模板</a>
                 <a href="/downloads/sentinel_deployment_preflight.py" download>通用部署预检</a>
@@ -623,11 +625,11 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>企业 AI Coding 安全基线 v{releaseMetadata?.component_versions.policy ?? '5.0.0'}</h2>
-                <p>20 条可热更新扩展规则 · 第三方引擎隔离更新 · 摘要校验与自动回退</p>
+                <h2>企业 AI Coding 安全基线 v{releaseMetadata?.component_versions.policy ?? '5.1.0'}</h2>
+                <p>20 条可热更新扩展规则 · Skill/MCP 四态处置与 deny 优先 · 摘要校验与自动回退</p>
               </div>
               <strong>
-                v{releaseMetadata?.component_versions.policy ?? '5.0.0'}<span>策略版本</span>
+                v{releaseMetadata?.component_versions.policy ?? '5.1.0'}<span>策略版本</span>
               </strong>
             </div>
             <div className="policy-grid">

@@ -17,7 +17,7 @@ def max_file_bytes(policy):
 def validate_policy(data):
     if not isinstance(data,dict) or data.get("schema")!="sentinel.policy/v1" or not isinstance(data.get("version"),str) or not data["version"]: raise ValueError("invalid_policy_contract")
     if not isinstance(data.get("limits",{}),dict) or not isinstance(data.get("enforcement",{}),dict): raise ValueError("invalid_policy_objects")
-    string_lists=("allowed_skills","allowed_mcp_transports","allowed_mcp_servers","allowed_mcp_commands","allowed_mcp_command_paths","allowed_mcp_domains","blocked_commands","secret_patterns","skill_rules","mcp_rules","code_rules")
+    string_lists=("allowed_skills","monitored_skills","blocked_skills","allowed_mcp_transports","allowed_mcp_servers","monitored_mcp_servers","blocked_mcp_servers","blocked_mcp_fingerprints","allowed_mcp_commands","allowed_mcp_command_paths","allowed_mcp_domains","blocked_commands","secret_patterns","skill_rules","mcp_rules","code_rules")
     for key in string_lists:
         values=data.get(key,[])
         if not isinstance(values,list) or any(not isinstance(value,str) for value in values): raise ValueError("invalid_policy_list:"+key)
@@ -26,6 +26,11 @@ def validate_policy(data):
         except re.error as exc: raise ValueError("invalid_policy_regex") from exc
     invocations=data.get("allowed_mcp_invocations",[])
     if not isinstance(invocations,list) or any(not isinstance(item,list) or len(item)<2 or any(not isinstance(value,str) or not value for value in item) for item in invocations): raise ValueError("invalid_mcp_invocations")
+    for value in data.get("blocked_mcp_fingerprints",[]):
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}",value): raise ValueError("invalid_mcp_fingerprint")
+    for prefix in ("skill","mcp"):
+        groups=[set(data.get(f"{state}_{prefix}{'_servers' if prefix=='mcp' else 's'}",[])) for state in ("allowed","monitored","blocked")]
+        if groups[0]&groups[1] or groups[0]&groups[2] or groups[1]&groups[2]: raise ValueError("conflicting_disposition:"+prefix)
     rules=data.get("custom_rules",[])
     if not isinstance(rules,list) or len(rules)>500: raise ValueError("invalid_custom_rules")
     seen=set()
@@ -55,7 +60,7 @@ def sync_policy(path,report_url,token,timeout=10):
     """Fetch an authenticated policy from the Collector and atomically promote only valid non-downgrades."""
     parsed=urlsplit(report_url)
     if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password: raise ValueError("invalid_policy_origin")
-    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.42.0"})
+    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.43.0"})
     with urllib.request.urlopen(request,timeout=timeout) as response:
         if response.geturl()!=endpoint: raise ValueError("policy_redirect_rejected")
         raw=response.read(2_000_001)
@@ -169,7 +174,10 @@ def scan_text(path,text,policy):
     return out
 def scan_mcp_server(path,name,cfg,policy):
     out=[]; allowed=set(policy.get("allowed_mcp_servers",[])); allowed_commands=set(policy.get("allowed_mcp_commands",[])); allowed_paths={os.path.normcase(os.path.normpath(str(x))) for x in policy.get("allowed_mcp_command_paths",[])}; allowed_domains={x.lower().rstrip(".") for x in policy.get("allowed_mcp_domains",[])}; allowed_transports=set(policy.get("allowed_mcp_transports",[]))
-    if "allowed_mcp_servers" in policy and name not in allowed: out.append(finding("unknown_mcp","medium",path,f"未在允许列表中的 MCP Server: {name}"))
+    monitored=set(policy.get("monitored_mcp_servers",[])); blocked=set(policy.get("blocked_mcp_servers",[]))
+    disposition="deny" if name in blocked else "allow" if name in allowed else "monitor" if name in monitored else "unknown"
+    if disposition=="deny": out.append(finding("blocked_mcp","critical",path,f"已拉黑的 MCP Server: {name}","[REDACTED]"))
+    elif disposition=="unknown": out.append(finding("unknown_mcp","medium",path,f"未在允许列表中的 MCP Server: {name}"))
     command=str(cfg.get("command","")).strip(); base=re.split(r"[\\/]",command)[-1]
     url=str(cfg.get("url",cfg.get("httpUrl",cfg.get("serverUrl","")))).strip(); explicit=str(cfg.get("transport",cfg.get("type",""))).lower()
     if explicit=="local": explicit="stdio"
@@ -182,6 +190,8 @@ def scan_mcp_server(path,name,cfg,policy):
     if not isinstance(raw_args,list):
         out.append(finding("invalid_mcp_arguments","high",path,f"MCP {name} 的 args 必须是数组")); raw_args=[]
     args=[str(x) for x in raw_args if isinstance(x,(str,int,float))]
+    identity=json.dumps({"name":str(name),"command":command,"args":args,"url":url,"transport":transport},sort_keys=True,separators=(",",":"),ensure_ascii=False).encode(); fingerprint="sha256:"+hashlib.sha256(identity).hexdigest()
+    if fingerprint in set(policy.get("blocked_mcp_fingerprints",[])): out.append(finding("blocked_mcp_fingerprint","critical",path,f"MCP {name} 与已拉黑配置指纹一致",fingerprint))
     if command and ("/" in command or "\\" in command) and os.path.normcase(os.path.normpath(command)) not in allowed_paths: out.append(finding("unapproved_mcp_command_path","high",path,f"MCP {name} 使用未批准的可执行路径"))
     allowed_invocations={tuple(str(value) for value in item) for item in policy.get("allowed_mcp_invocations",[]) if isinstance(item,list)}
     if command and args and tuple([base]+args) not in allowed_invocations: out.append(finding("unapproved_mcp_invocation","high",path,f"MCP {name} 的命令参数组合未获批准"))
@@ -252,8 +262,10 @@ def scan_dependency_manifest(path,text):
 def scan_skill(skill_file,policy,max_files=500):
     """Scan the complete Skill package without following links outside its root."""
     root=skill_file.parent; out=[]; scanned=0; name=root.name
-    allowed=set(policy.get("allowed_skills",[]))
-    if "allowed_skills" in policy and name not in allowed:
+    allowed=set(policy.get("allowed_skills",[])); monitored=set(policy.get("monitored_skills",[])); blocked=set(policy.get("blocked_skills",[]))
+    if name in blocked:
+        out.append(finding("blocked_skill","critical",skill_file,f"已拉黑的 Skill: {name}","[REDACTED]"))
+    elif name not in allowed and name not in monitored:
         action=policy.get("enforcement",{}).get("unknown_skill","audit"); severity="high" if action=="block" else "medium"
         out.append(finding("unknown_skill",severity,skill_file,f"未批准的 Skill: {name}"))
     readable={".md",".txt",".py",".js",".ts",".tsx",".jsx",".sh",".ps1",".json",".toml",".yaml",".yml"}
@@ -450,7 +462,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.42.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.43.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -517,7 +529,7 @@ def build_report(root,policy,verify_baselines=False):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.42.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.43.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

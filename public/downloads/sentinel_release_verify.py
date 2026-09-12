@@ -11,7 +11,7 @@ HASH_CONSUMERS={
     "sentinel-security-baseline.md":("install-sentinel.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
-    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
+    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
     "sentinel_agent.py","sentinel_collector.py","sentinel-windows.ps1","install-sentinel.sh","intune-windows-detect.ps1",
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py","sentinel_4a_probe.py","sentinel_vendor_probe.py","sentinel_vendor_evidence_sign.py","sentinel_vendor_keyring.py","sentinel_production_preflight.py","sentinel_production_evidence_prepare.py","sentinel_production_evidence_sign.py","sentinel_production_keyring.py","production-acceptance-evidence.example.json",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf","sentinel_collector_maintenance.py","sentinel-collector-maintenance.service","sentinel-collector-maintenance.timer",
     "sentinel-rule-sources.json","sentinel_rule_updater.py","sentinel-rule-update.service","sentinel-rule-update.timer",
-    "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example","sentinel_4a_receiver.py","sentinel-4a-receiver.service",
+    "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example","sentinel_4a_interface.py","sentinel_4a_receiver.py","sentinel-4a-receiver.service",
     "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","sentinel_deployment_preflight.py","deployment-platform-evidence.example.json","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","sentinel_intune_graph_normalize.py","intune-rollout-evidence.example.json","intune-device-export.example.json","intune-graph-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel-enterprise-4a.openapi.json","ENTERPRISE-4A-INTEGRATION.md","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
 )
 RELEASE_MANIFEST_FILES=tuple(name for name in BUNDLE_FILES if name!="RELEASE-MANIFEST.sha256")
@@ -42,7 +42,7 @@ def verify(downloads):
     try: release=json.loads((downloads/"release.json").read_text())
     except (OSError,ValueError) as exc: return [f"invalid_release_json:{type(exc).__name__}"]
     if not re.fullmatch(r"\d+\.\d+\.\d+",str(release.get("release",""))): errors.append("invalid_release_version")
-    if release.get("component_versions")!={"endpoint_agent":"0.42.0","policy":"5.0.0","collector":"0.20","adapter":"0.19"}: errors.append("release_component_version_drift")
+    if release.get("component_versions")!={"endpoint_agent":"0.43.0","policy":"5.1.0","collector":"0.20","adapter":"0.19"}: errors.append("release_component_version_drift")
     try: release_manifest=parse_digest_manifest(downloads/"RELEASE-MANIFEST.sha256")
     except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_release_manifest:{type(exc).__name__}"); release_manifest={}
     if set(release_manifest)!=set(RELEASE_MANIFEST_FILES): errors.append("release_manifest_file_set_mismatch")
@@ -76,7 +76,22 @@ def verify(downloads):
     except (OSError,ValueError) as exc: errors.append(f"invalid_policy_json:{type(exc).__name__}"); policy={}
     patterns=policy.get("secret_patterns",[]) if isinstance(policy,dict) else []
     required_secret_patterns={"AKIA[0-9A-Z]{16}","sk-[A-Za-z0-9_-]{20,}","ghp_[A-Za-z0-9]{30,}","AIza[0-9A-Za-z_-]{35}","xox[baprs]-[0-9A-Za-z-]{10,}","glpat-[0-9A-Za-z_-]{20,}","npm_[0-9A-Za-z]{36}","-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"}
-    if policy.get("version")!="5.0.0" or set(patterns)!=required_secret_patterns: errors.append("policy_secret_pattern_drift")
+    if policy.get("version")!="5.1.0" or set(patterns)!=required_secret_patterns: errors.append("policy_secret_pattern_drift")
+    for prefix,suffix in (("skill","skills"),("mcp","mcp_servers")):
+        groups=[]
+        for state in ("allowed","monitored","blocked"):
+            values=policy.get(f"{state}_{suffix}",[])
+            if not isinstance(values,list) or any(not isinstance(value,str) or not value for value in values): errors.append(f"invalid_{state}_{prefix}_disposition"); values=[]
+            groups.append(set(values))
+        if groups[0]&groups[1] or groups[0]&groups[2] or groups[1]&groups[2]: errors.append(f"conflicting_{prefix}_disposition")
+    fingerprints=policy.get("blocked_mcp_fingerprints",[])
+    if not isinstance(fingerprints,list) or any(not isinstance(value,str) or not re.fullmatch(r"sha256:[0-9a-f]{64}",value) for value in fingerprints): errors.append("invalid_blocked_mcp_fingerprints")
+    try: integration_contract=(downloads/"ENTERPRISE-INTEGRATION-CONTRACT.md").read_text(encoding="utf-8"); integration_interface=(downloads/"sentinel_4a_interface.py").read_text(encoding="utf-8")
+    except (OSError,UnicodeError) as exc: errors.append(f"invalid_enterprise_integration_contract:{type(exc).__name__}"); integration_contract=integration_interface=""
+    for directive in ("能力而非厂商","Windows/macOS 上只新增 Sentinel Endpoint Agent","强制加载安全编码基线","allow / monitor / deny / unknown","SHA-256 指纹拉黑"):
+        if directive not in integration_contract: errors.append(f"incomplete_enterprise_integration_contract:{directive}")
+    for directive in ("sentinel.integration/v1","IDENTITY_AUTHENTICATION","SOFTWARE_DISTRIBUTION","CONTAINMENT_REQUEST","privileged_capability_requires_approval","missing_capabilities"):
+        if directive not in integration_interface: errors.append(f"unsafe_enterprise_integration_interface:{directive}")
     if not isinstance(patterns,list): errors.append("invalid_secret_patterns_type")
     else:
         for index,pattern in enumerate(patterns):
@@ -284,9 +299,9 @@ def verify(downloads):
         if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
     for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid"):
         if directive not in python_agent: errors.append(f"missing_python_reporting_loader:{directive}")
-    for directive in ('"gemini_cli"','"github_copilot_cli"','".gemini/settings.json"','".copilot/mcp-config.json"','".gemini/GEMINI.md"','".copilot/copilot-instructions.md"','cfg.get("httpUrl"','".gemini/skills"','".copilot/skills"','def verify_user_baselines','"agent_baseline_not_loaded"','"type":"agent_baseline"','SentinelAgent/0.42.0','not path.is_symlink()','if root.is_symlink(): return []','if home.is_symlink() or not home.is_dir(): continue','not marker.is_symlink()','def atomic_managed_write','atomic_managed_write(home,path,updated)','os.fchown','os.fsync(handle.fileno())','os.replace(temp,path)'):
+    for directive in ('"gemini_cli"','"github_copilot_cli"','".gemini/settings.json"','".copilot/mcp-config.json"','".gemini/GEMINI.md"','".copilot/copilot-instructions.md"','cfg.get("httpUrl"','".gemini/skills"','".copilot/skills"','def verify_user_baselines','"agent_baseline_not_loaded"','"type":"agent_baseline"','SentinelAgent/0.43.0','not path.is_symlink()','if root.is_symlink(): return []','if home.is_symlink() or not home.is_dir(): continue','not marker.is_symlink()','def atomic_managed_write','atomic_managed_write(home,path,updated)','os.fchown','os.fsync(handle.fileno())','os.replace(temp,path)'):
         if directive not in python_agent: errors.append(f"missing_python_agent_coverage:{directive}")
-    for directive in ("gemini_cli=@(","github_copilot_cli=@(",".gemini\\GEMINI.md","copilot-instructions.md","$cfg.httpUrl","'.gemini','.copilot'","Get-SentinelUserBaselineStatus","type='agent_baseline'","agent_baseline_not_loaded","agent_version='0.42.0'","foreach ($userHome in $userHomes)","function Get-SentinelUserBaselineStatus([string]$userHomePath","[string]$ManagedUsersRoot = 'C:\\Users'","Get-ChildItem $ManagedUsersRoot","Attributes -band [IO.FileAttributes]::ReparsePoint","function Set-SentinelManagedTextAtomic","$encoding.GetPreamble()","$stream.Write($preamble,0,$preamble.Length)","$stream.Flush($true)","Set-Acl -Path $temp -AclObject $existingAcl","Move-Item -LiteralPath $temp -Destination $target -Force","foreach($secretPattern in @($policy.secret_patterns))","[regex]::new([string]$secretPattern","[TimeSpan]::FromMilliseconds(250)","RegexMatchTimeoutException","scan_rule_timeout","Kind='credential_access'","Kind='dynamic_eval'"):
+    for directive in ("gemini_cli=@(","github_copilot_cli=@(",".gemini\\GEMINI.md","copilot-instructions.md","$cfg.httpUrl","'.gemini','.copilot'","Get-SentinelUserBaselineStatus","type='agent_baseline'","agent_baseline_not_loaded","agent_version='0.43.0'","foreach ($userHome in $userHomes)","function Get-SentinelUserBaselineStatus([string]$userHomePath","[string]$ManagedUsersRoot = 'C:\\Users'","Get-ChildItem $ManagedUsersRoot","Attributes -band [IO.FileAttributes]::ReparsePoint","function Set-SentinelManagedTextAtomic","$encoding.GetPreamble()","$stream.Write($preamble,0,$preamble.Length)","$stream.Flush($true)","Set-Acl -Path $temp -AclObject $existingAcl","Move-Item -LiteralPath $temp -Destination $target -Force","foreach($secretPattern in @($policy.secret_patterns))","[regex]::new([string]$secretPattern","[TimeSpan]::FromMilliseconds(250)","RegexMatchTimeoutException","scan_rule_timeout","Kind='credential_access'","Kind='dynamic_eval'"):
         if directive not in windows_agent: errors.append(f"missing_windows_agent_coverage:{directive}")
     for directive in ('$null=Set-SentinelManagedTextAtomic $repo $target $managed','$null=Set-SentinelManagedTextAtomic $repo $target $updated','$null=Set-SentinelManagedTextAtomic $repo $shared $managed'):
         if directive not in windows_agent: errors.append(f"unsafe_windows_repository_baseline_write:{directive}")
@@ -302,7 +317,7 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
     for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
-    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"','"0.42.0"','"5.0.0"',"SentinelCollector/0.20"):
+    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"','"0.43.0"','"5.1.0"',"SentinelCollector/0.20"):
         if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
     try: openapi=json.loads((downloads/"sentinel-collector.openapi.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_collector_openapi:{type(exc).__name__}"); openapi={}
