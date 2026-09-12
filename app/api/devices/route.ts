@@ -70,7 +70,7 @@ export async function GET(request: Request) {
     let devices = collectorDevices.map((d) => ({
       device_id: d.device_id,
       hostname: (d as Record<string, unknown>).hostname as string ?? d.device_id,
-      owner: ((d as Record<string, unknown>).owner as string) || '待分配',
+      owner: ((d as Record<string, unknown>).owner as string) || ((d as Record<string, unknown>).os_user as string) || '待分配',
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',
