@@ -1,0 +1,73 @@
+{
+  "schema": "aegis.production-acceptance/v3",
+  "release_version": "0.65.0",
+  "release_manifest_sha256": "REPLACE_WITH_RELEASE_MANIFEST_SHA256",
+  "git_commit_sha": "REPLACE_WITH_40_CHARACTER_GIT_COMMIT_SHA",
+  "site_version": 0,
+  "generated_at": 0,
+  "checks": {
+    "release_verified": false,
+    "ci_gates_passed": false,
+    "collector_probe_passed": false,
+    "collector_backup_restore_tested": false,
+    "deployment_platform_preflight_passed": false,
+    "windows_upgrade_rollback_tested": false,
+    "macos_upgrade_rollback_tested": false,
+    "enterprise_4a_interface_accepted": false,
+    "optional_adapters_disabled_or_accepted": false,
+    "console_read_only_connected": false
+  },
+  "evidence_files": {
+    "release_verified": "release-verification.json",
+    "ci_gates_passed": "ci-gates.json",
+    "collector_probe_passed": "collector-probe.json",
+    "collector_backup_restore_tested": "collector-backup-restore.json",
+    "deployment_platform_preflight_passed": "deployment-platform-preflight.json",
+    "windows_upgrade_rollback_tested": "windows-upgrade-rollback.json",
+    "macos_upgrade_rollback_tested": "macos-upgrade-rollback.json",
+    "enterprise_4a_interface_accepted": "enterprise-4a-interface.json",
+    "optional_adapters_disabled_or_accepted": "optional-adapters.json",
+    "console_read_only_connected": "console-read-only.json"
+  },
+  "evidence_sha256": {
+    "release_verified": "REPLACE_WITH_SHA256",
+    "ci_gates_passed": "REPLACE_WITH_SHA256",
+    "collector_probe_passed": "REPLACE_WITH_SHA256",
+    "collector_backup_restore_tested": "REPLACE_WITH_SHA256",
+    "deployment_platform_preflight_passed": "REPLACE_WITH_SHA256",
+    "windows_upgrade_rollback_tested": "REPLACE_WITH_SHA256",
+    "macos_upgrade_rollback_tested": "REPLACE_WITH_SHA256",
+    "enterprise_4a_interface_accepted": "REPLACE_WITH_SHA256",
+    "optional_adapters_disabled_or_accepted": "REPLACE_WITH_SHA256",
+    "console_read_only_connected": "REPLACE_WITH_SHA256"
+  },
+  "approvals": {
+    "security_owner": {
+      "identity": "",
+      "evidence_file": "security-owner-approval.json",
+      "evidence_sha256": "REPLACE_WITH_SHA256"
+    },
+    "endpoint_owner": {
+      "identity": "",
+      "evidence_file": "endpoint-owner-approval.json",
+      "evidence_sha256": "REPLACE_WITH_SHA256"
+    },
+    "platform_owner": {
+      "identity": "",
+      "evidence_file": "platform-owner-approval.json",
+      "evidence_sha256": "REPLACE_WITH_SHA256"
+    },
+    "business_owner": {
+      "identity": "",
+      "evidence_file": "business-owner-approval.json",
+      "evidence_sha256": "REPLACE_WITH_SHA256"
+    }
+  },
+  "integrity": {
+    "algorithm": "hmac-sha256",
+    "key_id": "REPLACE_WITH_KEY_ID",
+    "signature": "REPLACE_WITH_HMAC_SHA256"
+  },
+  "secrets_embedded": false,
+  "device_identifiers_embedded": false
+}

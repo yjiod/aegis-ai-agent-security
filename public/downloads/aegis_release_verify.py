@@ -23,6 +23,11 @@ BUNDLE_FILES=(
     "aegis_production_preflight.py","aegis_release_build.py","aegis_vendor_probe.py","aegis_4a_interface.py","aegis_engine_framework.py","aegis-vendor-contracts.json","ENTERPRISE-4A-INTEGRATION.md","aegis_vendor_preflight.py","aegis_vendor_keyring.py","aegis_vendor_evidence_sign.py","aegis_production_keyring.py","aegis_production_evidence_sign.py","aegis_production_evidence_prepare.py","aegis_intune_preflight.py","aegis_intune_graph_normalize.py","aegis_intune_evidence.py","aegis_deployment_preflight.py","aegis_4a_receiver.py","aegis_4a_probe.py",
 )
 
+# Compatibility shim: aegis_release_build.py generates RELEASE-MANIFEST.sha256
+# over every bundle file except the manifest itself. Defined identically to the
+# upstream verifier so the newer build script runs against this verify contract.
+RELEASE_MANIFEST_FILES=tuple(name for name in BUNDLE_FILES if name!="RELEASE-MANIFEST.sha256")
+
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 def verify(downloads):
     downloads=Path(downloads); errors=[]

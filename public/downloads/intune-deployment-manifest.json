@@ -1,0 +1,104 @@
+{
+  "schema": "aegis.intune-deployment/v1",
+  "execution": {
+    "windows_run_as": "system",
+    "windows_run_as_32_bit": false,
+    "macos_run_as": "root",
+    "macos_hide_notifications": true,
+    "script_signature_state": "pilot_unsigned",
+    "production_signature_required": true
+  },
+  "artifacts": {
+    "windows_detection": {
+      "file": "intune-windows-detect.ps1",
+      "sha256": "50bbec946eb91b9acce6862fb796ef839490c9ec639cf6f11e4bca9418bbe398"
+    },
+    "windows_remediation": {
+      "file": "intune-windows-remediate.ps1",
+      "sha256": "b7469bb32fb48af541bebe47f5de34c9e696678302e83e8f4fc2078b84cd047a"
+    },
+    "windows_compliance_discovery": {
+      "file": "intune-compliance-discovery.ps1",
+      "sha256": "7f926f05aa7b919ddec6cd9474ba5766d8405282f6095568b94a72b6b452f23c"
+    },
+    "windows_compliance_rules": {
+      "file": "intune-compliance-policy.json",
+      "sha256": "9427c77fb628e4c52339dcda8da99032d6240c8accf40ac83edb222df1857f56"
+    },
+    "windows_reporting_configuration": {
+      "file": "aegis-configure-windows.ps1",
+      "sha256": "c067d06297234d76676f444de3db88813a0722942c2107423ecd4ca07be9af15"
+    },
+    "windows_rollback": {
+      "file": "rollback-aegis-windows.ps1",
+      "sha256": "940d60616b78d47e11be3238f033b2095b589d851852a0b2e956ad0b8cf4ef8b"
+    },
+    "windows_uninstall": {
+      "file": "uninstall-aegis-windows.ps1",
+      "sha256": "f4c14eeb02a365a1fa8e7042f3cca7dd9d88784b428759066f335d9d8ef00a4d"
+    },
+    "macos_install": {
+      "file": "intune-macos-install.sh",
+      "sha256": "7b1c78e77450cdad1dc62373a0650b17abb1226b12ca2e1af1a5634fa88b83fd"
+    },
+    "macos_compliance_discovery": {
+      "file": "intune-macos-compliance.sh",
+      "sha256": "7e8e6eb8af7b9fa7f959f7f141b36fb9a8479b97e4d68c81788a01e4fdd1ac2b"
+    },
+    "macos_compliance_rules": {
+      "file": "intune-macos-compliance-policy.json",
+      "sha256": "2f9b1c95aeae142231216b81facee77005cbf893c653f716ae7fc1eec18a3d8e"
+    },
+    "macos_reporting_configuration": {
+      "file": "aegis-configure-macos.sh",
+      "sha256": "af5c8b9daab9018f4de11565330bec1189614248356ca1b2737e28ed5fa68d94"
+    },
+    "macos_rollback": {
+      "file": "rollback-aegis-macos.sh",
+      "sha256": "c91f373eb056a9965875f9dbf82cfb32d42543c42143d110417c08b181ce3933"
+    },
+    "macos_uninstall": {
+      "file": "uninstall-aegis-macos.sh",
+      "sha256": "ac1d1d6d010de04e36354654be96bfef5dbface03d4c3e369eb4fd8922a7236f"
+    }
+  },
+  "deployment_order": [
+    "collector_and_tls",
+    "reporting_credentials",
+    "endpoint_installation",
+    "reporting_configuration",
+    "custom_compliance",
+    "conditional_access"
+  ],
+  "rollout_rings": [
+    {
+      "name": "lab",
+      "maximum_percent": 1,
+      "minimum_observation_hours": 24
+    },
+    {
+      "name": "pilot",
+      "maximum_percent": 5,
+      "minimum_observation_hours": 48
+    },
+    {
+      "name": "broad",
+      "maximum_percent": 25,
+      "minimum_observation_hours": 72
+    },
+    {
+      "name": "production",
+      "maximum_percent": 100,
+      "minimum_observation_hours": 168
+    }
+  ],
+  "gates": [
+    "collector_probe_read_only_passed",
+    "release_verifier_passed",
+    "reporting_credentials_delivered_out_of_band",
+    "rollback_tested_in_ring",
+    "no_critical_findings",
+    "reporting_healthy_24h"
+  ],
+  "secrets_embedded": false
+}
