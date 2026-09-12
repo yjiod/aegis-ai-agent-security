@@ -743,6 +743,7 @@ export default function RisksPage() {
                       onAction={(status, note) => transition(ticket, status, note)}
                       onClose={() => setExpandedId(null)}
                     />
+                    {ticket.device_id && <LinkedFindings deviceId={ticket.device_id} />}
                   </div>
                 )}
               </Fragment>
@@ -1003,5 +1004,53 @@ function CreateTicketForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/** 关联发现：按 device_id 拉取该设备最新报告的 critical/high 发现明细。 */
+function LinkedFindings({ deviceId }: { deviceId: string }) {
+  const [findings, setFindings] = useState<Array<Record<string, unknown>> | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(`/api/devices/${encodeURIComponent(deviceId)}/findings?limit=200`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled) return;
+        const all = (d?.findings ?? []) as Array<Record<string, unknown>>;
+        setFindings(all.filter((f) => f.severity === 'critical' || f.severity === 'high'));
+      })
+      .catch(() => !cancelled && setFindings([]))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceId]);
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <h4 style={{ fontSize: 13, margin: '0 0 10px' }}>关联发现（critical/high 明细）</h4>
+      {loading ? (
+        <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>加载发现明细…</p>
+      ) : findings && findings.length > 0 ? (
+        <div className="data-table">
+          <div className="data-head">
+            <span>等级</span><span>类型</span><span>路径</span><span>说明</span>
+          </div>
+          {findings.slice(0, 100).map((f, i) => (
+            <div className="data-row" key={i}>
+              <i className={f.severity === 'critical' ? 'fail' : 'warn'}>{String(f.severity)}</i>
+              <span>{String(f.kind)}</span>
+              <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{String(f.path ?? '')}</span>
+              <span style={{ fontSize: 11 }}>{String(f.message ?? '')}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>该设备最新报告无 critical/high 发现明细。</p>
+      )}
+    </div>
   );
 }

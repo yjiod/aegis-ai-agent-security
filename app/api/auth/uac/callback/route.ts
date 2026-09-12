@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { adminAllowlist } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,6 +96,14 @@ export async function GET(request: Request) {
     }
   } catch {
     return NextResponse.redirect(new URL('/login?error=uac_unreachable', url.origin));
+  }
+
+  // Whitelist-only access: non-admin employee numbers are DENIED login entirely
+  // (not downgraded to viewer). Only AEGIS_ADMIN_USERS may enter the console.
+  if (!adminAllowlist().has(subject)) {
+    return NextResponse.redirect(
+      new URL(`/login?error=not_authorized&subject=${encodeURIComponent(subject)}`, url.origin),
+    );
   }
 
   // 3) 签发 Aegis 会话 cookie (HMAC, 与 local/oidc 同机制)
