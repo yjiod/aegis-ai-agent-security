@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import ThemeToggle from '@/components/theme-toggle';
 import { PasswordModal } from '@/components/password-modal';
+import { RoleProvider, useFetchRole } from '@/components/role-context';
 import {
   CollectorProvider,
   type CollectorState,
@@ -121,9 +122,11 @@ export default function ConsoleShell({
   }, []);
 
   const collectorState = collectorStateProp ?? internalState;
+  const roleState = useFetchRole();
 
   return (
-    <CollectorProvider value={{ fleet, collectorState }}>
+    <RoleProvider value={roleState}>
+      <CollectorProvider value={{ fleet, collectorState }}>
       <div className="min-h-screen bg-[var(--background)] text-[color:var(--foreground)]">
         <header className="topbar">
           <div className="brand">
@@ -143,6 +146,7 @@ export default function ConsoleShell({
                   ? '正在检查接收器'
                   : '演示数据 · 接收器未连接'}
             </span>
+            <span className="system-ok" style={{ fontSize: 11, padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 6 }}>{roleState.role === "admin" ? "管理员" : "只读"}</span>
             <button className="icon-btn" aria-label="搜索">
               <Search size={18} />
             </button>
@@ -221,5 +225,6 @@ export default function ConsoleShell({
         </div>
       </div>
     </CollectorProvider>
+      </RoleProvider>
   );
 }

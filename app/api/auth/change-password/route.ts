@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,8 @@ function json(data: unknown, status = 200) {
  * deployment wrapper (see docs/DEPLOYMENT.md).
  */
 export async function POST(request: Request) {
+  const __denied = requireAdmin(request);
+  if (__denied) return __denied;
   let body: Record<string, unknown>;
   try {
     body = await request.json();

@@ -11,6 +11,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth';
 import { getDeviceStore } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
@@ -108,6 +109,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const __denied = requireAdmin(request);
+  if (__denied) return __denied;
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
 
@@ -137,6 +140,8 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  const __denied = requireAdmin(request);
+  if (__denied) return __denied;
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return json({ error: 'invalid_json' }, 400); }
 
@@ -170,6 +175,8 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const __denied = requireAdmin(request);
+  if (__denied) return __denied;
   const url = new URL(request.url);
   const device_id = url.searchParams.get('device_id')?.trim();
   if (!device_id) return json({ error: 'missing_device_id' }, 400);

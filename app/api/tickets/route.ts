@@ -13,6 +13,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { requireAdmin } from '@/lib/auth';
 import {
   apiError,
   boundedString,
@@ -293,6 +294,8 @@ export async function GET(request: Request): Promise<NextResponse> {
  * a dangling reference.
  */
 export async function POST(request: Request): Promise<NextResponse> {
+  const __denied = requireAdmin(request);
+  if (__denied) return __denied;
   const parsed = await readJsonObject(request);
   if (!parsed.ok) return parsed.response;
   const body = parsed.value;
