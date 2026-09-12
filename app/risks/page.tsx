@@ -876,7 +876,7 @@ function LinkedFindings({ deviceId }: { deviceId: string }) {
     setLoading(true);
     fetch(`/api/devices/${encodeURIComponent(deviceId)}/findings?limit=200`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
+      .then((d: any) => {
         if (cancelled) return;
         const all = (d?.findings ?? []) as Array<Record<string, unknown>>;
         setFindings(all.filter((f) => f.severity === 'critical' || f.severity === 'high'));

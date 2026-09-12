@@ -19,7 +19,7 @@ export default function TeamPage() {
   async function loadAdmins() {
     try {
       const r = await fetch('/api/admins', { cache: 'no-store' });
-      if (r.ok) { const d = (await r.json()) as Record<string, unknown>; setAdmins(d.admins ?? []); }
+      if (r.ok) { const d = (await r.json()) as any; setAdmins(d.admins ?? []); }
     } catch { /* ignore */ }
   }
   useEffect(() => { void loadAdmins(); }, []);

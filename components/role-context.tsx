@@ -10,7 +10,7 @@ export function useFetchRole() {
   const [state, setState] = useState<{ role: Role; subject: string }>({ role: 'viewer', subject: '' });
   useEffect(() => {
     fetch('/api/auth/me', { cache: 'no-store' })
-      .then((r) => (r.ok ? (r.json() as Promise<Record<string, unknown>>) : null))
+      .then((r) => (r.ok ? (r.json() as Promise<any>) : null))
       .then((d) => {
         if (d && d.authenticated) setState({ role: d.role, subject: d.subject });
       })

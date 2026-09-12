@@ -44,7 +44,7 @@ async function fetchCollectorDevices(): Promise<CollectorDevice[] | null> {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as Record<string, unknown>;
+    const data = (await res.json()) as any;
     return Array.isArray(data?.devices) ? data.devices : null;
   } catch {
     return null;
@@ -70,8 +70,8 @@ export async function GET(request: Request) {
   if (collectorDevices && collectorDevices.length > 0) {
     let devices = collectorDevices.map((d) => ({
       device_id: d.device_id,
-      hostname: (d as Record<string, unknown>).hostname as string ?? d.device_id,
-      owner: ((d as Record<string, unknown>).owner as string) || ((d as Record<string, unknown>).os_user as string) || '待分配',
+      hostname: (d as any).hostname as string ?? d.device_id,
+      owner: ((d as any).owner as string) || ((d as any).os_user as string) || '待分配',
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',
