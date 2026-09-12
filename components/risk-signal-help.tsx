@@ -41,7 +41,7 @@ export function SignalSummary({ text }: { text: string }) {
   if (signal === undefined || count === undefined || score === undefined) return null;
   const band = scoreBand(score);
   return (
-    <span style={{ fontSize: 12, color: 'var(--muted)' }} title="数字=该能力被发现几处；综合分=能力组合(执行/凭据各2分, 外联/写文件各1分)，≥4高危">
+    <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }} title="数字=该能力被发现几处；综合分=能力组合(执行/凭据各2分, 外联/写文件各1分)，≥4高危">
       {SIGNAL_LABEL[signal] ?? signal} 发现 <b>{count}</b> 处 · 综合分 <b>{score}</b>（{band.label}）
     </span>
   );
@@ -62,7 +62,7 @@ export function RiskSignalHelp() {
         <ChevronDown size={14} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }} />
       </button>
       {open && (
-        <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.8, color: 'var(--muted)' }}>
+        <div style={{ marginTop: 10, fontSize: 13, lineHeight: 1.8, color: 'var(--muted-foreground)' }}>
           <p>扫描器不看 Skill/MCP"坏不坏"，而是看它<b>拥有哪些能力</b>。有能力≠恶意，但能力越大、被利用危害越大。</p>
           <p>
             <b>exec</b>=会执行命令/代码；<b>cred</b>=会读凭据/密钥；<b>network</b>=会对外联网；<b>filewrite</b>=会写文件。

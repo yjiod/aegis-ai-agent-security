@@ -54,7 +54,7 @@ export default function IntegrationsPage() {
 
       {error && <p style={{ color: '#ff685f', marginBottom: 12, fontSize: 13 }}>加载失败：{error}</p>}
 
-      <div className="panel animate-entrance animate-entrance-2" style={{ padding: 14, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--muted)' }}>
+      <div className="panel animate-entrance animate-entrance-2" style={{ padding: 14, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--muted-foreground)' }}>
         <Plug size={15} />
         单端原则：员工终端只推送 <b style={{ color: 'var(--text)' }}>Aegis 一个 agent</b>；Fleet/Wazuh/PacketFence 的 agent 由各自平台或桌管下发，Aegis 不代推。
       </div>
@@ -76,9 +76,9 @@ export default function IntegrationsPage() {
                     <Icon size={12} />
                     {meta.label}
                   </Badge>
-                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>{it.detail ?? ''}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>{it.detail ?? ''}</span>
                 </div>
-                <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>{it.role}</p>
+                <p style={{ fontSize: 13, color: 'var(--muted-foreground)', marginBottom: 8 }}>{it.role}</p>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {it.capabilities.map((c) => (
                     <Badge key={c} variant="outline">

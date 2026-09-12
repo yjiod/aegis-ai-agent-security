@@ -110,7 +110,7 @@ export default function BaselinesPage() {
             </Button>
           ))}
         </div>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+        <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 8 }}>
           quick=密钥+依赖；standard=+核心 SAST；deep=+污点/CodeQL+AI 审查；custom=仅自定义规则。
         </p>
       </div>
@@ -154,7 +154,7 @@ export default function BaselinesPage() {
                 <strong>{b.name}</strong>
                 <Badge variant="outline">{b.source}</Badge>
                 <Badge variant="outline">v{b.version}</Badge>
-                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>
                   {b.updated_by} · {new Date(b.updated_at).toLocaleString()}
                 </span>
                 {isAdmin && b.source === 'custom' && (
@@ -170,7 +170,7 @@ export default function BaselinesPage() {
                   </Badge>
                 ))}
               </div>
-              <ul style={{ fontSize: 12, color: 'var(--muted)', paddingLeft: 18, margin: 0 }}>
+              <ul style={{ fontSize: 12, color: 'var(--muted-foreground)', paddingLeft: 18, margin: 0 }}>
                 {b.rules.slice(0, 8).map((r, i) => (
                   <li key={r.id ?? i}>
                     {r.title} {r.severity ? `(${r.severity})` : ''}

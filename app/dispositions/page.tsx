@@ -217,7 +217,7 @@ export default function DispositionsPage() {
                   <Icon size={12} />
                   {meta.label}
                 </Badge>
-                <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
                   {l.updated_by} · {relTime(l.updated_at)}
                 </span>
                 {isAdmin && (
@@ -257,7 +257,7 @@ export default function DispositionsPage() {
       {/* policy preview */}
       <div className="panel animate-entrance animate-entrance-4" style={{ padding: 16, marginTop: 16 }}>
         <h2 style={{ fontSize: 15, marginBottom: 8 }}>策略发布预览</h2>
-        <p style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
+        <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 10 }}>
           若按当前处置发布，策略列表将变为（实际发布走发行级联，由管理员执行）：
         </p>
         <p style={{ fontSize: 13 }}>
