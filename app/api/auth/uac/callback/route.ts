@@ -47,10 +47,15 @@ export async function GET(request: Request) {
     });
     if (!checkRes.ok) return NextResponse.redirect(new URL('/login?error=uac_token_invalid', url.origin));
 
-    // 2) 获取用户信息: POST /uac-auth-service/v2/api/uac-auth/utoken/getUserInfo
-    const infoRes = await fetch(`${gateway}/uac-auth-service/v2/api/uac-auth/utoken/getUserInfo`, {
+    // 2) 获取用户信息: getUserInfo (doc: POST in SSO flow, GET in login-interface flow; try both)
+    let infoRes = await fetch(`${gateway}/uac-auth-service/v2/api/uac-auth/utoken/getUserInfo`, {
       method: 'POST', headers: uacHeaders, body: JSON.stringify({}),
     });
+    if (!infoRes.ok) {
+      infoRes = await fetch(`${gateway}/uac-auth-service/v2/api/uac-auth/utoken/getUserInfo`, {
+        method: 'GET', headers: uacHeaders,
+      });
+    }
     if (infoRes.ok) {
       const info = (await infoRes.json()) as Record<string, unknown>;
       const data = (info.data ?? info) as Record<string, unknown>;
