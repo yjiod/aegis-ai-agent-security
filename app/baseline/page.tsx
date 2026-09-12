@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import {
-  AlertTriangle,
   Code2,
   FileText,
   RefreshCw,
