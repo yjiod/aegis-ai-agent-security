@@ -38,6 +38,61 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Auto-create an open ticket for any Collector device reporting critical/high
+ * findings that has no existing open ticket. Best-effort: failures are ignored
+ * so a Collector outage never blocks ticket reads. This closes the loop
+ * Collector findings -> console tickets in production.
+ */
+async function syncTicketsFromCollector(): Promise<void> {
+  const url = process.env.AEGIS_COLLECTOR_URL;
+  const token = process.env.AEGIS_COLLECTOR_TOKEN;
+  if (!url || !token) return;
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/v1/devices?limit=500`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as { devices?: Array<Record<string, unknown>> };
+    const store = getTicketStore();
+    for (const d of data.devices ?? []) {
+      const deviceId = String(d.device_id ?? '');
+      if (!deviceId) continue;
+      const sev = (d.latest_severity ?? {}) as Record<string, number>;
+      const critical = Number(sev.critical ?? 0);
+      const high = Number(sev.high ?? 0);
+      if (critical + high <= 0) continue;
+      // Skip if an open ticket already exists for this device
+      const hasOpen = [...store.values()].some(
+        (t) => t.device_id === deviceId && t.status !== 'resolved' && t.status !== 'dismissed',
+      );
+      if (hasOpen) continue;
+      const severity: TicketSeverity = critical > 0 ? 'critical' : 'high';
+      const now = Date.now();
+      const ticket: Ticket = {
+        ticket_id: nextTicketId(store, now),
+        title: `设备 ${deviceId} 存在 ${critical} 个 critical / ${high} 个 high 发现`,
+        severity,
+        status: 'open',
+        source: 'aegis-collector.auto',
+        device_id: deviceId,
+        description: `Collector 上报 latest_severity: critical=${critical}, high=${high}。自动生成工单待研判。`,
+        created_at: now,
+        updated_at: now,
+        history: [
+          { action: 'create', actor: 'aegis-collector', timestamp: now, note: '由 Collector 发现自动生成' },
+        ],
+      };
+      store.set(ticket.ticket_id, ticket);
+      logAudit({ actor: 'aegis-collector', action: 'ticket:create', resource_type: 'ticket', resource_id: ticket.ticket_id, detail: `auto from collector findings critical=${critical} high=${high}` });
+    }
+  } catch {
+    /* best-effort sync */
+  }
+}
+
 /** Methods this collection resource really implements (used for the 405 Allow). */
 const ALLOW = 'GET, POST';
 
@@ -156,6 +211,7 @@ function readOptional(
  * `tickets` is only the requested slice.
  */
 export async function GET(request: Request): Promise<NextResponse> {
+  await syncTicketsFromCollector();
   const searchParams = new URL(request.url).searchParams;
   const problems: string[] = [];
 
