@@ -274,6 +274,9 @@ export default function DevicesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Device | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [findings, setFindings] = useState<Array<Record<string, unknown>> | null>(null);
+  const [findingsLoading, setFindingsLoading] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<number | null>(null);
 
@@ -443,6 +446,28 @@ export default function DevicesPage() {
       notify(failureCopy('删除', target.device_id, error), 'error');
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function toggleFindings(deviceId: string) {
+    if (expandedId === deviceId) {
+      setExpandedId(null);
+      setFindings(null);
+      return;
+    }
+    setExpandedId(deviceId);
+    setFindingsLoading(true);
+    setFindings(null);
+    try {
+      const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/findings?limit=100`, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`findings ${res.status}`);
+      const data = (await res.json()) as { findings?: Array<Record<string, unknown>> };
+      setFindings(data.findings ?? []);
+    } catch {
+      setFindings([]);
+      notify('发现项加载失败（Collector 不可达）。', 'error');
+    } finally {
+      setFindingsLoading(false);
     }
   }
 
@@ -746,6 +771,18 @@ export default function DevicesPage() {
                     <Button
                       variant="ghost"
                       size="icon-xs"
+                      aria-label={`发现项 ${device.device_id}`}
+                      aria-expanded={expandedId === device.device_id}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void toggleFindings(device.device_id);
+                      }}
+                    >
+                      <Search />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
                       aria-label={`编辑 ${device.device_id}`}
                       aria-expanded={editing}
                       onClick={(event) => {
@@ -778,6 +815,34 @@ export default function DevicesPage() {
                       onSubmit={updateDevice}
                       onCancel={() => setEditingId(null)}
                     />
+                  </div>
+                )}
+
+                {expandedId === device.device_id && (
+                  <div className="animate-entrance" style={inlinePanelStyle}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <h3 style={{ fontSize: 14, margin: 0 }}>最新扫描发现项</h3>
+                      <button onClick={() => void toggleFindings(device.device_id)} style={{ background: 'none', border: 0, color: 'var(--muted-foreground)', cursor: 'pointer', fontSize: 12 }}>收起</button>
+                    </div>
+                    {findingsLoading ? (
+                      <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>加载发现项…</p>
+                    ) : findings && findings.length > 0 ? (
+                      <div className="data-table">
+                        <div className="data-head">
+                          <span>等级</span><span>类型</span><span>路径</span><span>说明</span>
+                        </div>
+                        {findings.slice(0, 50).map((f, i) => (
+                          <div className="data-row" key={i}>
+                            <i className={f.severity === 'critical' || f.severity === 'high' ? 'fail' : f.severity === 'medium' ? 'warn' : 'pass'}>{String(f.severity)}</i>
+                            <span>{String(f.kind)}</span>
+                            <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{String(f.path ?? '')}</span>
+                            <span style={{ fontSize: 11 }}>{String(f.message ?? '')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>该设备最新报告无发现项。</p>
+                    )}
                   </div>
                 )}
               </Fragment>
