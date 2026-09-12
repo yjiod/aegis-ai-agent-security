@@ -83,9 +83,15 @@ class FleetAdapter:
         return {Cap.ASSET_INVENTORY, Cap.AGENT_DEPLOYMENT, Cap.SOFTWARE_DISTRIBUTION, Cap.POLICY_DISTRIBUTION, Cap.ACCESS_CONTROL}
 
     def health_check(self):
+        for path in ("/api/latest/me", "/api/v1/me"):
+            try:
+                me = _request(self._base, _token(self._token_env), path)
+                return {"ok": True, "user": (me.get("user") or {}).get("email", "")}
+            except AdapterError:
+                continue
         try:
-            me = _request(self._base, _token(self._token_env), "/api/latest/me")
-            return {"ok": True, "user": (me.get("user") or {}).get("email", "")}
+            _request(self._base, _token(self._token_env), "/api/latest/fleet/hosts?per_page=1")
+            return {"ok": True, "via": "hosts"}
         except AdapterError as e:
             return {"ok": False, "error": str(e)}
 
