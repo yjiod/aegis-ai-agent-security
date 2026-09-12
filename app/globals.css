@@ -283,7 +283,7 @@
 /* Empty-state helper text for real-data panels (no fabricated values). */
 .empty-hint {
   padding: 18px 4px;
-  color: var(--muted, #8a9a94);
+  color: var(--muted-foreground, #8a9a94);
   font-size: 13px;
   line-height: 1.6;
 }
