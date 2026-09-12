@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
+import { RiskSignalHelp } from '@/components/risk-signal-help';
 
 interface Label {
   asset_type: 'skill' | 'mcp';
@@ -168,6 +169,8 @@ export default function DispositionsPage() {
           )}
         </div>
       </div>
+
+      <RiskSignalHelp />
 
       {error && (
         <p style={{ color: '#ff685f', marginBottom: 12, fontSize: 13 }}>操作失败：{error}</p>
