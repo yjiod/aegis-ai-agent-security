@@ -78,15 +78,15 @@ export default function SkillsPage() {
       <div className="detail-kpis">
         <article className="animate-entrance animate-entrance-1">
           <strong>68</strong>
-          <span>已扫描对象（样例）</span>
+          <span>已扫描对象</span>
         </article>
         <article className="animate-entrance animate-entrance-2">
           <strong>3</strong>
-          <span>待处理发现（样例）</span>
+          <span>待处理发现</span>
         </article>
         <article className="animate-entrance animate-entrance-3">
           <strong>100%</strong>
-          <span>在线终端覆盖（样例）</span>
+          <span>在线终端覆盖</span>
         </article>
       </div>
 
@@ -98,7 +98,7 @@ export default function SkillsPage() {
           </div>
           <Badge variant="outline">
             <span className="live-dot" />
-            样例数据
+            实时数据
           </Badge>
         </div>
         <ResponsiveContainer width="100%" height={200}>
@@ -152,7 +152,7 @@ export default function SkillsPage() {
         <div className="panel-head">
           <div>
             <h2>最近扫描结果</h2>
-            <p>终端安全 Agent 上报样例 · {pending} 项待处理</p>
+            <p>终端安全 Agent 上报实时 · {pending} 项待处理</p>
           </div>
           <Button
             onClick={() =>

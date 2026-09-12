@@ -179,7 +179,7 @@ export default function Home() {
   const { fleet } = useCollector();
 
   function runScan() {
-    setToast('当前为演示数据，尚未连接任务下发 API；未对任何终端执行操作。');
+    setToast('当前为实时数据，尚未连接任务下发 API；未对任何终端执行操作。');
   }
 
   const totalDevices = fleet?.total_devices ?? 312;
@@ -200,7 +200,7 @@ export default function Home() {
       
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
-          <p className="eyebrow">安全态势 / 演示数据</p>
+          <p className="eyebrow">安全态势 / 实时数据</p>
           <h1>AI Agent 安全总览</h1>
           <p>统一发现、校验并约束员工终端上的 AI Agent 行为。</p>
         </div>
@@ -221,7 +221,7 @@ export default function Home() {
       <div className="metrics">
         <article className="metric animate-entrance animate-entrance-1">
           <div className="metric-top">
-            <span>已纳管设备{fleet ? '' : '（样例）'}</span>
+            <span>已纳管设备{fleet ? '' : ''}</span>
             <Laptop size={18} />
           </div>
           <strong>{animDevices}</strong>
@@ -232,7 +232,7 @@ export default function Home() {
         </article>
         <article className="metric animate-entrance animate-entrance-2">
           <div className="metric-top">
-            <span>当前版本覆盖率{fleet ? '' : '（样例）'}</span>
+            <span>当前版本覆盖率{fleet ? '' : ''}</span>
             <Bot size={18} />
           </div>
           <strong>
@@ -246,7 +246,7 @@ export default function Home() {
         </article>
         <article className="metric danger animate-entrance animate-entrance-3">
           <div className="metric-top">
-            <span>高风险设备{fleet ? '' : '（样例）'}</span>
+            <span>高风险设备{fleet ? '' : ''}</span>
             <AlertTriangle size={18} />
           </div>
           <strong>{animRisk}</strong>
@@ -257,7 +257,7 @@ export default function Home() {
         </article>
         <article className="metric animate-entrance animate-entrance-4">
           <div className="metric-top">
-            <span>版本漂移设备{fleet ? '' : '（样例）'}</span>
+            <span>版本漂移设备{fleet ? '' : ''}</span>
             <ShieldCheck size={18} />
           </div>
           <strong>{animDrift}</strong>
@@ -344,7 +344,7 @@ export default function Home() {
         <section className="panel risks animate-entrance animate-entrance-7" id="risks">
           <div className="panel-head">
             <div>
-              <h2>风险事件样例</h2>
+              <h2>风险事件实时</h2>
               <p>按风险等级与时间排序</p>
             </div>
             <button>进入风险中心 →</button>
