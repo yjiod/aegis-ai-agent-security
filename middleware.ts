@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { ensurePgHydrated } from '@/lib/store';
+import { startUpstreamSyncLoop } from '@/lib/baselines';
 
 /**
  * Session guard: all console pages require a valid aegis_session cookie.
@@ -15,6 +16,7 @@ import { ensurePgHydrated } from '@/lib/store';
  */
 export async function middleware(request: NextRequest) {
   await ensurePgHydrated().catch(() => {});
+  startUpstreamSyncLoop();
   const { pathname } = request.nextUrl;
 
   // Exempt paths
