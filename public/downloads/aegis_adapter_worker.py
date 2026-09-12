@@ -31,9 +31,9 @@ def preflight(config,adapter):
         target=config.get(name,{})
         if not target.get("enabled"): continue
         enabled+=1; adapter.validate_target(name,target,config)
-        if name=="sangfor":
+        if name=="vendor_edr":
             for action in target.get("actions",{}).values():
-                if action not in adapter.SAFE_ACTIONS: raise ValueError(f"unsafe_sangfor_action:{action}")
+                if action not in adapter.SAFE_ACTIONS: raise ValueError(f"unsafe_vendor_edr_action:{action}")
     if not enabled: raise ValueError("no_enabled_adapters")
 
 @contextmanager

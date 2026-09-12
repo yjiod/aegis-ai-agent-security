@@ -45,10 +45,10 @@ const orchestrationSteps = [
 ];
 
 const downloadAssets = [
-  { href: '/downloads/intune-windows-detect.ps1', label: 'Windows 检测脚本' },
-  { href: '/downloads/intune-windows-remediate.ps1', label: 'Windows 修复脚本' },
-  { href: '/downloads/intune-macos-install.sh', label: 'macOS 商用 MDM 脚本' },
-  { href: '/downloads/intune-macos-compliance.sh', label: 'macOS 合规脚本' },
+  { href: '/downloads/mdm-windows-detect.ps1', label: 'Windows 检测脚本' },
+  { href: '/downloads/mdm-windows-remediate.ps1', label: 'Windows 修复脚本' },
+  { href: '/downloads/mdm-macos-install.sh', label: 'macOS 商用 MDM 脚本' },
+  { href: '/downloads/mdm-macos-compliance.sh', label: 'macOS 合规脚本' },
   { href: '/downloads/aegis-policy.json', label: '策略基线' },
   {
     href: '/downloads/aegis_device_credentials.py',

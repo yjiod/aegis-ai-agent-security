@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Secret-free production enablement gate for Sangfor and Leagsoft adapters."""
+"""Secret-free production enablement gate for VendorEdr and VendorMdm adapters."""
 import argparse, hmac, json, os, re, stat, sys, time
 from pathlib import Path
 
 SCHEMA="aegis.vendor-acceptance/v3"
 UNSIGNED_SCHEMA="aegis.vendor-acceptance/v2"
-VENDORS=("sangfor","leagsoft")
+VENDORS=("vendor_edr","vendor_mdm")
 ROOT_FIELDS={"schema","generated_at","adapter_version","vendors","secrets_embedded","integrity"}
 UNSIGNED_ROOT_FIELDS=ROOT_FIELDS-{"integrity"}
 INTEGRITY_FIELDS={"algorithm","key_id","signature"}
@@ -104,7 +104,7 @@ def evaluate(config,evidence,adapter_version="0.19",now=None,max_age_seconds=604
         if not isinstance(probe,dict) or set(probe)!=PROBE_FIELDS:
             blockers.append(f"invalid_vendor_probe:{name}"); continue
         probe_generated=probe.get("generated_at"); statuses=probe.get("statuses"); digest=probe.get("payload_sha256"); key=probe.get("idempotency_key")
-        expected_action="observe" if name=="sangfor" else "compliance_posture_only"
+        expected_action="observe" if name=="vendor_edr" else "compliance_posture_only"
         if probe.get("schema")!="aegis.vendor-probe/v1" or probe.get("adapter_version")!=adapter_version or probe.get("vendor")!=name or probe.get("endpoint_url")!=target.get("url") or probe.get("safe_action")!=expected_action or probe.get("live") is not True or probe.get("secrets_embedded") is not False:
             blockers.append(f"vendor_probe_binding_failed:{name}")
         if isinstance(probe_generated,bool) or not isinstance(probe_generated,int) or probe_generated>now+300 or now-probe_generated>86400 or (isinstance(generated,int) and probe_generated>generated): blockers.append(f"vendor_probe_not_current:{name}")

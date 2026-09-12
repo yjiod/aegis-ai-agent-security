@@ -36,4 +36,4 @@ PLIST
 chown root:wheel "$PLIST"; chmod 644 "$PLIST"
 launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
 launchctl bootstrap system "$PLIST"
-echo "Aegis Agent installed for Intune macOS deployment."
+echo "Aegis Agent installed for MDM macOS deployment."

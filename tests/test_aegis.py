@@ -92,8 +92,8 @@ class AegisTests(unittest.TestCase):
             first=self.agent.install_user_baselines([active,untouched]); second=self.agent.install_user_baselines([active,untouched])
             text=target.read_text(); self.assertEqual(first,[str(target)]); self.assertEqual(second,[])
             self.assertIn('Personal rules',text); self.assertEqual(text.count(self.agent.USER_BASELINE_START),1); self.assertFalse((untouched/'.codex').exists())
-        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); self.assertIn('function Sync-AegisUserBaselines',windows); self.assertIn('Sync-AegisUserBaselines $userHomes',windows); self.assertIn("kind='malformed_user_baseline_block'",windows); self.assertIn('baseline markers malformed',remediation)
-        remediation=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); remediation=(DOWNLOADS/'mdm-windows-remediate.ps1').read_text(); self.assertIn('function Sync-AegisUserBaselines',windows); self.assertIn('Sync-AegisUserBaselines $userHomes',windows); self.assertIn("kind='malformed_user_baseline_block'",windows); self.assertIn('baseline markers malformed',remediation)
+        remediation=(DOWNLOADS/'mdm-windows-remediate.ps1').read_text()
         self.assertIn('aegis-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('ReparsePoint',remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
         mac=(DOWNLOADS/'uninstall-aegis-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-aegis-windows.ps1').read_text()
@@ -475,13 +475,13 @@ class AegisTests(unittest.TestCase):
             (install/'aegis-policy.json').unlink()
             subprocess.run(['/bin/sh',script],env=env,check=True,capture_output=True,text=True)
             self.assertEqual(snapshot,{name:(previous/name).read_bytes() for name in snapshot})
-        windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text()
+        windows=(DOWNLOADS/'mdm-windows-remediate.ps1').read_text(); mac=(DOWNLOADS/'mdm-macos-install.sh').read_text()
         self.assertIn("'.previous-stage-'",windows); self.assertIn('$currentComplete',windows); self.assertIn('.previous-stage.$$',mac); self.assertIn('CURRENT_COMPLETE',mac)
         rollback_mac=(DOWNLOADS/'rollback-aegis-macos.sh').read_text(); rollback_windows=(DOWNLOADS/'rollback-aegis-windows.ps1').read_text()
         self.assertIn('checksum manifest has an unexpected file set',rollback_mac); self.assertGreaterEqual(rollback_mac.count('shasum -a 256 -c'),2); self.assertLess(rollback_mac.rindex('shasum -a 256 -c'),rollback_mac.index('launchctl bootstrap'))
         self.assertIn('checksum manifest has an unexpected file set',rollback_windows); self.assertIn('Restored version integrity verification failed',rollback_windows); self.assertLess(rollback_windows.index('Restored version integrity verification failed'),rollback_windows.index('Start-ScheduledTask'))
     def test_installers_bound_each_network_download(self):
-        generic=(DOWNLOADS/'install-aegis.sh').read_text(); mac=(DOWNLOADS/'intune-macos-install.sh').read_text(); windows=(DOWNLOADS/'intune-windows-remediate.ps1').read_text()
+        generic=(DOWNLOADS/'install-aegis.sh').read_text(); mac=(DOWNLOADS/'mdm-macos-install.sh').read_text(); windows=(DOWNLOADS/'mdm-windows-remediate.ps1').read_text()
         for script in (generic,mac):
             self.assertIn('--connect-timeout 15',script); self.assertIn('--max-time 120',script); self.assertIn('shasum -a 256 -c -',script)
         self.assertIn('-TimeoutSec 120',windows); self.assertIn('Get-FileHash',windows)
@@ -509,27 +509,27 @@ class AegisTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'aegis-collector.service').write_text(service.replace('ProtectSystem=strict','ProtectSystem=false'))
             self.assertIn('unsafe_collector_service:ProtectSystem=strict',self.verifier.verify(copy))
-    def test_intune_compliance_checks_integrity_task_and_policy(self):
+    def test_mdm_compliance_checks_integrity_task_and_policy(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
-        discovery=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'intune-windows-detect.ps1').read_text()
+        discovery=(DOWNLOADS/'mdm-compliance-discovery.ps1').read_text(); detection=(DOWNLOADS/'mdm-windows-detect.ps1').read_text()
         for name in ('aegis-windows.ps1','aegis-policy.json','aegis-security-baseline.md'):
             self.assertIn(manifest[name],discovery); self.assertIn(manifest[name],detection)
-        rules=json.loads((DOWNLOADS/'intune-compliance-policy.json').read_text())['Rules']; names={x['SettingName'] for x in rules}
+        rules=json.loads((DOWNLOADS/'mdm-compliance-policy.json').read_text())['Rules']; names={x['SettingName'] for x in rules}
         self.assertTrue({'AegisIntegrityValid','AegisScheduledTaskHealthy','AegisReportingConfigured','AegisReportingHealthy','AegisPolicyVersion','AegisReportValid','AegisScanRecent'}.issubset(names))
         self.assertIn('ProtectedData]::Unprotect',discovery); self.assertIn('AegisReportingConfigured=$reportingConfigured',discovery); self.assertIn('AegisReportingHealthy=$reportingHealthy',discovery)
         version=next(x['Operand'] for x in rules if x['SettingName']=='AegisPolicyVersion'); self.assertEqual(version,self.policy['version'])
         self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
-    def test_intune_macos_compliance_contract(self):
+    def test_mdm_macos_compliance_contract(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
-        discovery=(DOWNLOADS/'intune-macos-compliance.sh').read_text(); rules=json.loads((DOWNLOADS/'intune-macos-compliance-policy.json').read_text())['Rules']
+        discovery=(DOWNLOADS/'mdm-macos-compliance.sh').read_text(); rules=json.loads((DOWNLOADS/'mdm-macos-compliance-policy.json').read_text())['Rules']
         for name in ('aegis_agent.py','aegis-policy.json','aegis-security-baseline.md'): self.assertIn(manifest[name],discovery)
         names={rule['SettingName'] for rule in rules}; self.assertTrue({'AegisInstalled','AegisIntegrityValid','AegisLaunchDaemonHealthy','AegisReportingConfigured','AegisReportingHealthy','AegisPolicyVersion','AegisReportValid','AegisScanRecent','AegisCriticalFindings','AegisHighFindings'}.issubset(names))
         self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
         version=next(rule['Operand'] for rule in rules if rule['SettingName']=='AegisPolicyVersion'); self.assertEqual(version,self.policy['version'])
         with zipfile.ZipFile(DOWNLOADS/'aegis-enterprise-bundle.zip') as bundle:
-            self.assertTrue({'intune-macos-compliance.sh','intune-macos-compliance-policy.json'}.issubset(bundle.namelist()))
+            self.assertTrue({'mdm-macos-compliance.sh','mdm-macos-compliance-policy.json'}.issubset(bundle.namelist()))
     def test_macos_compliance_recomputes_report_summary(self):
-        script=(DOWNLOADS/'intune-macos-compliance.sh').read_text().split("<<'PY'\n",1)[1].split("\nPY",1)[0]
+        script=(DOWNLOADS/'mdm-macos-compliance.sh').read_text().split("<<'PY'\n",1)[1].split("\nPY",1)[0]
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'aegis.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'aegis.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
@@ -539,7 +539,7 @@ class AegisTests(unittest.TestCase):
             reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportingConfigured']); reporting.chmod(0o600)
             value['summary']['high']=0; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportValid'])
             value['summary']['high']=1; value['agent_version']='0.22.0'; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportValid'])
-        windows=(DOWNLOADS/'intune-compliance-discovery.ps1').read_text(); self.assertIn('$actualCritical',windows); self.assertIn('AegisReportValid=$reportValid',windows)
+        windows=(DOWNLOADS/'mdm-compliance-discovery.ps1').read_text(); self.assertIn('$actualCritical',windows); self.assertIn('AegisReportValid=$reportValid',windows)
     def test_windows_scanner_covers_codex_toml_mcp_contract(self):
         script=(DOWNLOADS/'aegis-windows.ps1').read_text()
         self.assertIn('function Inspect-AegisMcpToml',script); self.assertIn("$_.Name -eq 'config.toml'",script)
@@ -573,12 +573,12 @@ class AegisTests(unittest.TestCase):
             self.assertEqual(count,10); self.assertEqual(len(sent),10); self.assertTrue(list(spool.glob('*.invalid')))
     def test_vendor_adapter_is_explicit_and_dry_run(self):
         report=vendor_report('critical')
-        config={'allowed_hosts':['invalid'],'sangfor':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'leagsoft':{'enabled':True,'url':'https://invalid'}}
+        config={'allowed_hosts':['invalid'],'vendor_edr':{'enabled':True,'url':'https://invalid','actions':{'critical':'isolate_pending_approval'}},'vendor_mdm':{'enabled':True,'url':'https://invalid'}}
         outputs=self.adapter.process(report,config,dry_run=True)
         self.assertEqual(outputs[0]['payload']['recommended_action'],'isolate_pending_approval')
         self.assertFalse(outputs[1]['payload']['compliant'])
     def test_vendor_http_delivery_has_stable_idempotency_key(self):
-        payload=self.adapter.sangfor_event(vendor_report('high'),{})
+        payload=self.adapter.vendor_edr_event(vendor_report('high'),{})
         class Response:
             status=202
             def __enter__(self): return self
@@ -589,8 +589,8 @@ class AegisTests(unittest.TestCase):
         request,timeout=captured[0]; body=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
         self.assertEqual(request.get_header('Idempotency-key'),hashlib.sha256(body).hexdigest()); self.assertEqual(request.get_header('Authorization'),'Bearer secret'); self.assertEqual(timeout,15)
     def test_adapter_worker_dispatches_each_collector_report_once(self):
-        config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
-        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l'}):
+        config={'allowed_hosts':['edr.invalid','leag.invalid'],'vendor_edr':{'enabled':True,'url':'https://edr.invalid/events','token_env':'VENDOR_EDR_TOKEN'},'vendor_mdm':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'VENDOR_MDM_TOKEN'}}
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'VENDOR_EDR_TOKEN':'s','VENDOR_MDM_TOKEN':'l'}):
             root=Path(d); db=root/'aegis.db'; report=vendor_report('high'); self.collector.store_report(db,json.dumps(report).encode(),report,now=100)
             sent=[]; sender=lambda url,payload,token='',secret='': sent.append((url,payload,token,secret)) or 202
             first=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=101); second=self.worker.dispatch_once(db,config,root/'spool',adapter=self.adapter,sender=sender,now=102)
@@ -601,52 +601,52 @@ class AegisTests(unittest.TestCase):
             self.assertNotIn('payload',stored); self.assertNotIn(report['device_id'],stored)
     def test_vendor_adapter_rejects_unsafe_actions_and_targets(self):
         report=vendor_report('critical')
-        unsafe={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid','actions':{'critical':'isolate'}}}
-        spoof={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid.evil','actions':{'critical':'alert'}}}
-        insecure={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'http://edr.invalid','actions':{'critical':'alert'}}}
-        embedded={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://user:pass@edr.invalid','actions':{'critical':'alert'}}}
-        self.assertEqual(self.adapter.process(report,unsafe,dry_run=True)[0]['error'],'unsafe_sangfor_action:isolate')
-        self.assertEqual(self.adapter.process(report,spoof,dry_run=True)[0]['error'],'unapproved_adapter_host:sangfor')
-        self.assertEqual(self.adapter.process(report,insecure,dry_run=True)[0]['error'],'invalid_https_url:sangfor')
-        self.assertEqual(self.adapter.process(report,embedded,dry_run=True)[0]['error'],'credentials_in_adapter_url:sangfor')
+        unsafe={'allowed_hosts':['edr.invalid'],'vendor_edr':{'enabled':True,'url':'https://edr.invalid','actions':{'critical':'isolate'}}}
+        spoof={'allowed_hosts':['edr.invalid'],'vendor_edr':{'enabled':True,'url':'https://edr.invalid.evil','actions':{'critical':'alert'}}}
+        insecure={'allowed_hosts':['edr.invalid'],'vendor_edr':{'enabled':True,'url':'http://edr.invalid','actions':{'critical':'alert'}}}
+        embedded={'allowed_hosts':['edr.invalid'],'vendor_edr':{'enabled':True,'url':'https://user:pass@edr.invalid','actions':{'critical':'alert'}}}
+        self.assertEqual(self.adapter.process(report,unsafe,dry_run=True)[0]['error'],'unsafe_vendor_edr_action:isolate')
+        self.assertEqual(self.adapter.process(report,spoof,dry_run=True)[0]['error'],'unapproved_adapter_host:vendor_edr')
+        self.assertEqual(self.adapter.process(report,insecure,dry_run=True)[0]['error'],'invalid_https_url:vendor_edr')
+        self.assertEqual(self.adapter.process(report,embedded,dry_run=True)[0]['error'],'credentials_in_adapter_url:vendor_edr')
     def test_vendor_adapter_rejects_config_confusion_and_non_2xx_delivery(self):
         report=vendor_report('high')
         self.assertEqual(self.adapter.process(report,[],dry_run=True)[0]['error'],'invalid_adapter_config')
-        scalar={'allowed_hosts':['edr.invalid'],'sangfor':'not-an-object'}; self.assertEqual(self.adapter.process(report,scalar,dry_run=True)[0]['error'],'invalid_adapter_target:sangfor')
-        confused={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'PATH'}}; self.assertEqual(self.adapter.process(report,confused,dry_run=True)[0]['error'],'invalid_adapter_credential_env:sangfor')
-        config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'}}
-        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'token'}):
+        scalar={'allowed_hosts':['edr.invalid'],'vendor_edr':'not-an-object'}; self.assertEqual(self.adapter.process(report,scalar,dry_run=True)[0]['error'],'invalid_adapter_target:vendor_edr')
+        confused={'allowed_hosts':['edr.invalid'],'vendor_edr':{'enabled':True,'url':'https://edr.invalid/events','token_env':'PATH'}}; self.assertEqual(self.adapter.process(report,confused,dry_run=True)[0]['error'],'invalid_adapter_credential_env:vendor_edr')
+        config={'allowed_hosts':['edr.invalid'],'vendor_edr':{'enabled':True,'url':'https://edr.invalid/events','token_env':'VENDOR_EDR_TOKEN'}}
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'VENDOR_EDR_TOKEN':'token'}):
             result=self.adapter.process(report,config,spool_dir=d,sender=lambda *args,**kwargs:500); self.assertEqual(result[0]['result'],'queued'); self.assertEqual(len(list(Path(d).glob('*.json'))),1)
             replay=self.adapter.flush_spool(config,Path(d),sender=lambda *args,**kwargs:500); self.assertEqual(replay[0]['result'],'retained')
     def test_vendor_failure_isolation_and_offline_retry(self):
         report=vendor_report('high')
-        config={'allowed_hosts':['edr.invalid','leag.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'},'leagsoft':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'LEAGSOFT_TOKEN'}}
+        config={'allowed_hosts':['edr.invalid','leag.invalid'],'vendor_edr':{'enabled':True,'url':'https://edr.invalid/events','token_env':'VENDOR_EDR_TOKEN'},'vendor_mdm':{'enabled':True,'url':'https://leag.invalid/posture','token_env':'VENDOR_MDM_TOKEN'}}
         def sender(url,payload,token='',secret=''):
             if 'edr.invalid' in url: raise OSError('offline')
             return 202
-        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SANGFOR_TOKEN':'s','LEAGSOFT_TOKEN':'l'}):
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'VENDOR_EDR_TOKEN':'s','VENDOR_MDM_TOKEN':'l'}):
             outputs=self.adapter.process(report,config,spool_dir=d,sender=sender)
             self.assertEqual([x['result'] for x in outputs],['queued','sent'])
             queued=list(Path(d).glob('*.json')); self.assertEqual(len(queued),1); self.assertEqual(queued[0].stat().st_mode & 0o777,0o600)
             flushed=self.adapter.flush_spool(config,Path(d),sender=lambda url,payload,token='',secret='':204)
             self.assertEqual(flushed[0]['result'],'sent_from_spool'); self.assertFalse(list(Path(d).glob('*.json')))
     def test_vendor_spool_is_bounded_and_corruption_does_not_block(self):
-        config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'}}
-        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'SANGFOR_TOKEN':'s'}):
+        config={'allowed_hosts':['edr.invalid'],'vendor_edr':{'enabled':True,'url':'https://edr.invalid/events','token_env':'VENDOR_EDR_TOKEN'}}
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'VENDOR_EDR_TOKEN':'s'}):
             spool=Path(d)
-            payload=self.adapter.sangfor_event(vendor_report('high'),{})
-            for index in range(12): self.adapter.queue_delivery(spool,'sangfor',payload,limit=10)
+            payload=self.adapter.vendor_edr_event(vendor_report('high'),{})
+            for index in range(12): self.adapter.queue_delivery(spool,'vendor_edr',payload,limit=10)
             self.assertEqual(len(list(spool.glob('*.json'))),10)
             corrupt=spool/'000-corrupt.json'; corrupt.write_text('{broken')
             results=self.adapter.flush_spool(config,spool,sender=lambda url,payload,token='',secret='':202)
             self.assertEqual(results[0]['result'],'quarantined'); self.assertEqual(sum(x['result']=='sent_from_spool' for x in results),10)
             self.assertFalse(list(spool.glob('*.json'))); self.assertTrue(list(spool.glob('*.invalid')))
     def test_vendor_boundary_rejects_invalid_reports_and_quarantines_tampered_payloads(self):
-        config={'allowed_hosts':['edr.invalid'],'sangfor':{'enabled':True,'url':'https://edr.invalid/events','token_env':'SANGFOR_TOKEN'}}
+        config={'allowed_hosts':['edr.invalid'],'vendor_edr':{'enabled':True,'url':'https://edr.invalid/events','token_env':'VENDOR_EDR_TOKEN'}}
         invalid={**vendor_report(),'unexpected':'secret-data'}
-        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'SANGFOR_TOKEN':'token'}):
+        with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'VENDOR_EDR_TOKEN':'token'}):
             spool=Path(d); self.assertEqual(self.adapter.process(invalid,config,spool_dir=spool)[0]['error'],'invalid_report_contract'); self.assertFalse(list(spool.iterdir()))
-            self.adapter.queue_delivery(spool,'sangfor',{'unexpected':'payload'})
+            self.adapter.queue_delivery(spool,'vendor_edr',{'unexpected':'payload'})
             sent=[]; results=self.adapter.flush_spool(config,spool,sender=lambda *args,**kwargs:sent.append(args))
             self.assertEqual(results[0]['result'],'quarantined'); self.assertEqual(sent,[]); self.assertTrue(list(spool.glob('*.invalid')))
     def test_auto_enroll_only_git_repositories(self):

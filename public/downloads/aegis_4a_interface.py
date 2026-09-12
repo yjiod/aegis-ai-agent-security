@@ -4,7 +4,7 @@ Aegis 4A Enterprise Interface — Vendor-Neutral Abstraction Layer.
 
 4A = Authentication, Authorization, Accounting, Audit.
 This module defines the standard enterprise integration contract WITHOUT
-binding to any specific vendor (Intune, Sangfor, Leagsoft, etc.).
+binding to any specific vendor (MDM, VendorEdr, VendorMdm, etc.).
 
 Deployments implement one or more adapters behind this interface.
 The Aegis console and adapter worker only depend on THIS contract.
@@ -127,7 +127,7 @@ class FourAInterface(Protocol):
     """
     Vendor-neutral 4A integration interface.
 
-    Any enterprise platform adapter (Intune, Sangfor EDR, Leagsoft,
+    Any enterprise platform adapter (MDM, VendorEdr EDR, VendorMdm,
     CrowdStrike, Jamf, SCCM, or custom) implements this protocol.
     Aegis core never imports vendor-specific modules directly.
     """

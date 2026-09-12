@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline, secret-free Intune rollout promotion preflight."""
+"""Offline, secret-free MDM rollout promotion preflight."""
 import argparse, hashlib, hmac, json, os, re, stat, sys, time
 from pathlib import Path
 
@@ -11,34 +11,34 @@ EVIDENCE_FIELDS={
     "rollback_tested_in_ring","critical_findings","reporting_healthy_since",
     "production_signature_verified",
 }
-MAX_INTUNE_EVIDENCE_BYTES=65_536
-MAX_INTUNE_MANIFEST_BYTES=262_144
-MAX_INTUNE_RELEASE_BYTES=65_536
-MAX_INTUNE_ARTIFACT_BYTES=2_000_000
+MAX_MDM_EVIDENCE_BYTES=65_536
+MAX_MDM_MANIFEST_BYTES=262_144
+MAX_MDM_RELEASE_BYTES=65_536
+MAX_MDM_ARTIFACT_BYTES=2_000_000
 EXPECTED_ARTIFACT_ROLES={"windows_detection","windows_remediation","windows_compliance_discovery","windows_compliance_rules","windows_reporting_configuration","windows_rollback","windows_uninstall","macos_install","macos_compliance_discovery","macos_compliance_rules","macos_reporting_configuration","macos_rollback","macos_uninstall"}
 EXPECTED_DEPLOYMENT_ORDER=["collector_and_tls","reporting_credentials","endpoint_installation","reporting_configuration","custom_compliance","conditional_access"]
 EXPECTED_ROLLOUT_RINGS=[{"name":"lab","maximum_percent":1,"minimum_observation_hours":24},{"name":"pilot","maximum_percent":5,"minimum_observation_hours":48},{"name":"broad","maximum_percent":25,"minimum_observation_hours":72},{"name":"production","maximum_percent":100,"minimum_observation_hours":168}]
 EXPECTED_GATES=["collector_probe_read_only_passed","release_verifier_passed","reporting_credentials_delivered_out_of_band","rollback_tested_in_ring","no_critical_findings","reporting_healthy_24h"]
-SIGNABLE_FILES={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","aegis-configure-windows.ps1","rollback-aegis-windows.ps1","uninstall-aegis-windows.ps1"}
+SIGNABLE_FILES={"mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1","aegis-configure-windows.ps1","rollback-aegis-windows.ps1","uninstall-aegis-windows.ps1"}
 
 def read_bytes_bounded(path,max_bytes):
     path=Path(path); before=path.lstat()
-    if not stat.S_ISREG(before.st_mode): raise ValueError("unsafe_intune_input")
-    if before.st_size>max_bytes: raise ValueError("oversized_intune_input")
+    if not stat.S_ISREG(before.st_mode): raise ValueError("unsafe_mdm_input")
+    if before.st_size>max_bytes: raise ValueError("oversized_mdm_input")
     fd=os.open(path,os.O_RDONLY|getattr(os,"O_NOFOLLOW",0))
     try:
         opened=os.fstat(fd)
-        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino): raise ValueError("unsafe_intune_input")
-        if opened.st_size>max_bytes: raise ValueError("oversized_intune_input")
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino): raise ValueError("unsafe_mdm_input")
+        if opened.st_size>max_bytes: raise ValueError("oversized_mdm_input")
         with os.fdopen(fd,"rb") as handle: fd=-1; raw=handle.read(max_bytes+1)
     finally:
         if fd>=0: os.close(fd)
-    if len(raw)>max_bytes: raise ValueError("oversized_intune_input")
+    if len(raw)>max_bytes: raise ValueError("oversized_mdm_input")
     return raw
 def read_json_bounded(path,max_bytes): return json.loads(read_bytes_bounded(path,max_bytes).decode("utf-8"))
-def digest(path): return hashlib.sha256(read_bytes_bounded(path,MAX_INTUNE_ARTIFACT_BYTES)).hexdigest()
+def digest(path): return hashlib.sha256(read_bytes_bounded(path,MAX_MDM_ARTIFACT_BYTES)).hexdigest()
 def valid_manifest_contract(manifest):
-    if not isinstance(manifest,dict) or manifest.get("schema")!="aegis.intune-deployment/v1" or manifest.get("secrets_embedded") is not False: return False
+    if not isinstance(manifest,dict) or manifest.get("schema")!="aegis.mdm-deployment/v1" or manifest.get("secrets_embedded") is not False: return False
     execution=manifest.get("execution"); state=execution.get("script_signature_state") if isinstance(execution,dict) else None
     expected_execution={"windows_run_as":"system","windows_run_as_32_bit":False,"macos_run_as":"root","macos_hide_notifications":True,"script_signature_state":state,"production_signature_required":True}
     if state not in {"pilot_unsigned","production_signed"} or execution!=expected_execution: return False
@@ -55,14 +55,14 @@ def evaluate(downloads,evidence,target_ring,now=None):
     downloads=Path(downloads); now=int(time.time() if now is None else now); blockers=[]
     if target_ring not in RINGS: return ["invalid_target_ring"]
     try:
-        manifest_raw=read_bytes_bounded(downloads/"intune-deployment-manifest.json",MAX_INTUNE_MANIFEST_BYTES); manifest=json.loads(manifest_raw.decode("utf-8"))
-        release=read_json_bounded(downloads/"release.json",MAX_INTUNE_RELEASE_BYTES)
-    except (OSError,ValueError,UnicodeError,json.JSONDecodeError) as exc: return [f"invalid_intune_manifest:{type(exc).__name__}"]
-    if not valid_manifest_contract(manifest): return ["invalid_intune_manifest_contract"]
+        manifest_raw=read_bytes_bounded(downloads/"mdm-deployment-manifest.json",MAX_MDM_MANIFEST_BYTES); manifest=json.loads(manifest_raw.decode("utf-8"))
+        release=read_json_bounded(downloads/"release.json",MAX_MDM_RELEASE_BYTES)
+    except (OSError,ValueError,UnicodeError,json.JSONDecodeError) as exc: return [f"invalid_mdm_manifest:{type(exc).__name__}"]
+    if not valid_manifest_contract(manifest): return ["invalid_mdm_manifest_contract"]
     release_version=release.get("release") if isinstance(release,dict) else None
     if not isinstance(release_version,str) or not re.fullmatch(r"\d+\.\d+\.\d+",release_version): return ["invalid_release_metadata"]
     if not isinstance(evidence,dict) or set(evidence)!=EVIDENCE_FIELDS: blockers.append("invalid_evidence_contract"); return blockers
-    if evidence.get("schema")!="aegis.intune-evidence/v3": blockers.append("invalid_evidence_schema")
+    if evidence.get("schema")!="aegis.mdm-evidence/v3": blockers.append("invalid_evidence_schema")
     if evidence.get("release_version")!=release_version: blockers.append("evidence_release_version_mismatch")
     manifest_sha=evidence.get("manifest_sha256")
     if not isinstance(manifest_sha,str) or not re.fullmatch(r"[0-9a-f]{64}",manifest_sha) or not hmac.compare_digest(manifest_sha,hashlib.sha256(manifest_raw).hexdigest()): blockers.append("evidence_manifest_digest_mismatch")
@@ -119,7 +119,7 @@ def main():
     parser.add_argument("--evidence",required=True)
     parser.add_argument("--target-ring",required=True,choices=RINGS)
     args=parser.parse_args()
-    try: evidence=read_json_bounded(args.evidence,MAX_INTUNE_EVIDENCE_BYTES)
+    try: evidence=read_json_bounded(args.evidence,MAX_MDM_EVIDENCE_BYTES)
     except (OSError,ValueError,UnicodeError,json.JSONDecodeError) as exc:
         print(json.dumps({"ok":False,"target_ring":args.target_ring,"blockers":[f"invalid_evidence:{type(exc).__name__}"]},separators=(",",":"))); return 1
     blockers=evaluate(args.downloads,evidence,args.target_ring)

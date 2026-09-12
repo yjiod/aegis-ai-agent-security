@@ -18,7 +18,7 @@
     "live_probe_schema": "aegis.vendor-probe/v1",
     "maximum_probe_age_seconds": 86400,
     "maximum_evidence_age_seconds": 604800,
-    "required_for": ["sangfor", "leagsoft"],
+    "required_for": ["vendor_edr", "vendor_mdm"],
     "secrets_allowed": false
   },
   "transport": {
@@ -55,8 +55,8 @@
   },
   "credential_boundaries": {
     "enterprise_4a": {"header": "Authorization: Bearer <AEGIS_4A_* env>", "allowed_env_prefix": "AEGIS_4A_", "contract": "aegis-enterprise-4a.openapi.json"},
-    "sangfor": {"header": "Authorization: Bearer <SANGFOR_* env>", "allowed_env_prefix": "SANGFOR_"},
-    "leagsoft": {"header": "Authorization: Bearer <LEAGSOFT_* env>", "allowed_env_prefix": "LEAGSOFT_"},
+    "vendor_edr": {"header": "Authorization: Bearer <VENDOR_EDR_* env>", "allowed_env_prefix": "VENDOR_EDR_"},
+    "vendor_mdm": {"header": "Authorization: Bearer <VENDOR_MDM_* env>", "allowed_env_prefix": "VENDOR_MDM_"},
     "security_webhook": {"headers": ["X-Aegis-Timestamp", "X-Aegis-Signature"], "allowed_env_prefix": "AEGIS_", "signature_input": "<timestamp>.<raw-body>"}
   },
   "enterprise_4a": {
@@ -66,7 +66,7 @@
     "direct_access_enforcement_allowed": false,
     "additional_properties": false
   },
-  "sangfor": {
+  "vendor_edr": {
     "additional_properties": false,
     "required": ["event_type", "source", "device_id", "severity", "recommended_action", "finding_count", "policy_version", "occurred_at"],
     "constants": {"event_type": "ai_agent_security_finding", "source": "aegis"},
@@ -74,7 +74,7 @@
     "safe_actions": ["observe", "alert", "isolate_pending_approval", "block_pending_approval"],
     "direct_destructive_actions_allowed": false
   },
-  "leagsoft": {
+  "vendor_mdm": {
     "additional_properties": false,
     "required": ["source", "device_id", "compliant", "risk_level", "policy_version", "last_scan", "reason"],
     "constants": {"source": "aegis"},

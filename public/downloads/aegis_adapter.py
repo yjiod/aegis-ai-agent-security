@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Fail-safe vendor boundary for Sangfor EDR and Leagsoft. Disabled by default."""
+"""Fail-safe vendor boundary for VendorEdr EDR and VendorMdm. Disabled by default."""
 import argparse, hashlib, hmac, json, os, re, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 SAFE_ACTIONS={"observe","alert","isolate_pending_approval","block_pending_approval"}
-ADAPTERS=("sangfor","leagsoft","security_webhook")
-TARGET_FIELDS={"sangfor":{"enabled","mode","url","token_env","actions"},"leagsoft":{"enabled","mode","url","token_env","compliance"},"security_webhook":{"enabled","mode","url","secret_env"}}
-CREDENTIAL_PREFIX={"sangfor":"SANGFOR_","leagsoft":"LEAGSOFT_","security_webhook":"AEGIS_"}
+ADAPTERS=("vendor_edr","vendor_mdm","security_webhook")
+TARGET_FIELDS={"vendor_edr":{"enabled","mode","url","token_env","actions"},"vendor_mdm":{"enabled","mode","url","token_env","compliance"},"security_webhook":{"enabled","mode","url","secret_env"}}
+CREDENTIAL_PREFIX={"vendor_edr":"VENDOR_EDR_","vendor_mdm":"VENDOR_MDM_","security_webhook":"AEGIS_"}
 
 def validate_config(config):
     if not isinstance(config,dict) or not set(config).issubset({"allowed_hosts",*ADAPTERS}): raise ValueError("invalid_adapter_config")
@@ -19,9 +19,9 @@ def validate_config(config):
         if "enabled" in target and not isinstance(target["enabled"],bool): raise ValueError(f"invalid_adapter_enabled:{name}")
         env_name=target.get("secret_env" if name=="security_webhook" else "token_env","")
         if env_name and (not isinstance(env_name,str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,127}",env_name) or not env_name.startswith(CREDENTIAL_PREFIX[name])): raise ValueError(f"invalid_adapter_credential_env:{name}")
-        if name=="sangfor":
+        if name=="vendor_edr":
             actions=target.get("actions",{})
-            if not isinstance(actions,dict) or not set(actions).issubset({"critical","high","medium","low","normal"}) or any(not isinstance(action,str) for action in actions.values()): raise ValueError("invalid_sangfor_actions")
+            if not isinstance(actions,dict) or not set(actions).issubset({"critical","high","medium","low","normal"}) or any(not isinstance(action,str) for action in actions.values()): raise ValueError("invalid_vendor_edr_actions")
     return config
 
 def valid_report(report):
@@ -48,12 +48,12 @@ def valid_report(report):
 def valid_payload(name,payload):
     if name=="security_webhook": return valid_report(payload)
     if not isinstance(payload,dict): return False
-    fields={"sangfor":{"event_type","source","device_id","severity","recommended_action","finding_count","policy_version","occurred_at"},"leagsoft":{"source","device_id","compliant","risk_level","policy_version","last_scan","reason"}}
+    fields={"vendor_edr":{"event_type","source","device_id","severity","recommended_action","finding_count","policy_version","occurred_at"},"vendor_mdm":{"source","device_id","compliant","risk_level","policy_version","last_scan","reason"}}
     if name not in fields or set(payload)!=fields[name]: return False
     if payload.get("source")!="aegis" or not isinstance(payload.get("device_id"),str) or not 8<=len(payload["device_id"])<=128: return False
     if not isinstance(payload.get("policy_version"),str) or not 1<=len(payload["policy_version"])<=64: return False
     if payload.get("severity",payload.get("risk_level")) not in {"critical","high","medium","low","normal"}: return False
-    if name=="sangfor": return payload.get("event_type")=="ai_agent_security_finding" and payload.get("recommended_action") in SAFE_ACTIONS and isinstance(payload.get("finding_count"),int) and not isinstance(payload["finding_count"],bool) and 0<=payload["finding_count"]<=10000 and isinstance(payload.get("occurred_at"),int) and not isinstance(payload["occurred_at"],bool)
+    if name=="vendor_edr": return payload.get("event_type")=="ai_agent_security_finding" and payload.get("recommended_action") in SAFE_ACTIONS and isinstance(payload.get("finding_count"),int) and not isinstance(payload["finding_count"],bool) and 0<=payload["finding_count"]<=10000 and isinstance(payload.get("occurred_at"),int) and not isinstance(payload["occurred_at"],bool)
     expected=payload["risk_level"] not in {"critical","high"}; reason="policy_pass" if expected else "critical_or_high_finding"
     return payload.get("compliant") is expected and payload.get("reason")==reason and isinstance(payload.get("last_scan"),int) and not isinstance(payload["last_scan"],bool)
 
@@ -61,11 +61,11 @@ def severity(report):
     for level in ["critical","high","medium","low"]:
         if int(report.get("summary",{}).get(level,0))>0: return level
     return "normal"
-def sangfor_event(report,config):
+def vendor_edr_event(report,config):
     level=severity(report); action=config.get("actions",{}).get(level,"observe")
-    if action not in SAFE_ACTIONS: raise ValueError(f"unsafe_sangfor_action:{action}")
+    if action not in SAFE_ACTIONS: raise ValueError(f"unsafe_vendor_edr_action:{action}")
     return {"event_type":"ai_agent_security_finding","source":"aegis","device_id":report["device_id"],"severity":level,"recommended_action":action,"finding_count":len(report.get("findings",[])),"policy_version":report.get("policy_version"),"occurred_at":report.get("scanned_at")}
-def leagsoft_posture(report,config):
+def vendor_mdm_posture(report,config):
     level=severity(report); return {"source":"aegis","device_id":report["device_id"],"compliant":level not in ["critical","high"],"risk_level":level,"policy_version":report.get("policy_version"),"last_scan":report.get("scanned_at"),"reason":"critical_or_high_finding" if level in ["critical","high"] else "policy_pass"}
 def validate_target(name,target,config,dry_run=False):
     if target.get("mode","webhook")!="webhook": raise ValueError(f"unsupported_adapter_mode:{name}")
@@ -124,7 +124,7 @@ def process(report,config,dry_run=False,spool_dir=None,sender=send):
     try: validate_config(config)
     except ValueError as exc: return [{"adapter":"boundary","result":"rejected","error":str(exc)}]
     outputs=[]; spool=Path(spool_dir) if spool_dir else Path(os.getenv("AEGIS_ADAPTER_SPOOL",Path.home()/".aegis-adapter/spool"))
-    builders={"sangfor":sangfor_event,"leagsoft":leagsoft_posture,"security_webhook":lambda value,_config:value}
+    builders={"vendor_edr":vendor_edr_event,"vendor_mdm":vendor_mdm_posture,"security_webhook":lambda value,_config:value}
     for name in ADAPTERS:
         target=config.get(name,{})
         if not target.get("enabled"): continue

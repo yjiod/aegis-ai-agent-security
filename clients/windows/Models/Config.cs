@@ -34,7 +34,7 @@ public sealed class AgentConfig
     [JsonPropertyName("scan_root")] public string ScanRoot { get; set; } =
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-    /// 企业策略文件路径（Intune 下发）。
+    /// 企业策略文件路径（MDM 下发）。
     [JsonPropertyName("policy_path")] public string PolicyPath { get; set; } =
         Path.Combine(ProgramDataDirectory, "policy.json");
 

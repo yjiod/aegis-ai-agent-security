@@ -1,10 +1,10 @@
 {
   "allowed_hosts": ["127.0.0.1"],
-  "sangfor": {
+  "vendor_edr": {
     "enabled": true,
     "mode": "webhook",
     "url": "http://127.0.0.1:9443/api/aegis/events",
-    "token_env": "SANGFOR_EDR_TOKEN",
+    "token_env": "VENDOR_EDR_EDR_TOKEN",
     "actions": {
       "critical": "isolate_pending_approval",
       "high": "alert",
@@ -13,11 +13,11 @@
       "normal": "observe"
     }
   },
-  "leagsoft": {
+  "vendor_mdm": {
     "enabled": true,
     "mode": "webhook",
     "url": "http://127.0.0.1:9443/api/aegis/posture",
-    "token_env": "LEAGSOFT_TOKEN",
+    "token_env": "VENDOR_MDM_TOKEN",
     "compliance": {
       "max_policy_age_hours": 24,
       "critical_allowed": 0

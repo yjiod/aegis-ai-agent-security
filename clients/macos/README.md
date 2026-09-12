@@ -41,11 +41,11 @@ swift run --disable-sandbox
 
 `~/Library/Application Support/AegisAgent/policy.json`
 
-由 Intune 或手动部署。支持热重载（修改后自动生效），解析失败时保留 last-known-good。
+由 MDM 或手动部署。支持热重载（修改后自动生效），解析失败时保留 last-known-good。
 
-## 部署 (Intune)
+## 部署 (MDM)
 
-使用 `public/downloads/intune-macos-install.sh` 脚本，将编译产物放到：
+使用 `public/downloads/mdm-macos-install.sh` 脚本，将编译产物放到：
 `/Library/Application Support/AegisAgent/AegisAgent`
 
 LaunchDaemon plist 负责开机自启和周期保活。
