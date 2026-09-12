@@ -13,7 +13,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     fetch('/api/auth/providers', { cache: 'no-store' })
-      .then((r) => (r.ok ? (r.json() as Promise<Record<string, unknown>>) : null))
+      .then((r) => (r.ok ? (r.json() as Promise<any>) : null))
       .then((d) => {
         if (d && d.sso_enabled) setOidc({ enabled: true, url: d.authorize_url, label: d.idp_label || '统一身份登录' });
       })
@@ -51,7 +51,7 @@ export default function LoginPage() {
         const params = new URLSearchParams(window.location.search);
         window.location.href = params.get('from') ?? '/';
       } else {
-        const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        const data = (await res.json().catch(() => ({}))) as any;
         setError(data.error === 'invalid_credentials' ? '用户名或密码错误' : data.error === 'auth_not_configured' ? '服务端未配置登录凭据' : '登录失败');
       }
     } catch {

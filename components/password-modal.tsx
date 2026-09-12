@@ -28,7 +28,7 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
         setSuccess(true);
         setTimeout(onClose, 1500);
       } else {
-        const data = await res.json().catch(() => ({}));
+        const data = (await res.json().catch(() => ({}))) as any;
         setError(data.error === 'invalid_current_password' ? '当前密码错误' : data.error ?? '修改失败');
       }
     } catch {
