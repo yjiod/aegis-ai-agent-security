@@ -17,13 +17,26 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const token = url.searchParams.get('token') ?? '';
-  const rtoken = url.searchParams.get('rtoken') ?? '';
-  const employeeNo = url.searchParams.get('employeeNo') ?? '';
+  const token =
+    url.searchParams.get('token') ??
+    url.searchParams.get('utoken') ??
+    url.searchParams.get('accessToken') ??
+    url.searchParams.get('access_token') ??
+    '';
+  const rtoken =
+    url.searchParams.get('rtoken') ??
+    url.searchParams.get('urtoken') ??
+    url.searchParams.get('refreshToken') ??
+    '';
+  const employeeNo = url.searchParams.get('employeeNo') ?? url.searchParams.get('jobNumber') ?? '';
   const err = url.searchParams.get('error');
 
   if (err) return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(err)}`, url.origin));
-  if (!token && !rtoken) return NextResponse.redirect(new URL('/login?error=missing_uac_token', url.origin));
+  if (!token && !rtoken) {
+    // Diagnose: report which query params the UAC portal actually appended.
+    const got = [...url.searchParams.keys()].join(',') || '(none)';
+    return NextResponse.redirect(new URL(`/login?error=missing_uac_token&got=${encodeURIComponent(got)}`, url.origin));
+  }
 
   const gateway = (process.env.AEGIS_UAC_GATEWAY ?? '').replace(/\/$/, '');
   const appId = process.env.AEGIS_UAC_APP_ID ?? '';

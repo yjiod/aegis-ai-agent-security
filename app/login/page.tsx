@@ -20,6 +20,22 @@ export default function LoginPage() {
       .catch(() => setOidc({ enabled: false, url: '', label: '统一身份登录' }));
   }, []);
 
+  // Surface SSO callback errors passed via URL (?error=...&got=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get('error');
+    const got = params.get('got');
+    if (err) {
+      const map: Record<string, string> = {
+        missing_uac_token: 'UAC 回跳未携带 token/rtoken',
+        uac_token_invalid: 'UAC token 校验失败',
+        uac_not_configured: '服务端未配置 UAC',
+        uac_unreachable: 'UAC 网关不可达',
+      };
+      setError(`${map[err] ?? err}${got ? `（UAC 实际回传参数: ${got}）` : ''}`);
+    }
+  }, []);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
