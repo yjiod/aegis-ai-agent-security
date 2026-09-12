@@ -10,6 +10,7 @@
  * allowlist on EVERY request — never trusted from a cookie.
  */
 import { NextResponse } from 'next/server';
+import { getAdminStore } from '@/lib/store';
 
 export type Role = 'admin' | 'viewer';
 
@@ -19,8 +20,12 @@ export interface Session {
 }
 
 export function adminAllowlist(): Set<string> {
+  // merge env allowlist + persisted admins (SSO admin management)
   const raw = process.env.AEGIS_ADMIN_USERS ?? '';
   const set = new Set<string>(['admin']); // local admin always admin
+  try {
+    for (const a of getAdminStore()) set.add(a);
+  } catch { /* store unavailable */ }
   for (const part of raw.split(',')) {
     const v = part.trim();
     if (v) set.add(v);
