@@ -28,7 +28,7 @@ def valid_report(d,now=None):
     """Validate the published v1 contract without a third-party JSON Schema runtime."""
     if not isinstance(d,dict): return False
     required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}
-    allowed=required|{"scan_root","inventory","hostname"}
+    allowed=required|{"scan_root","inventory","hostname","os_user"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
     if d.get("schema")!="aegis.report/v1": return False
     if not all(isinstance(d.get(k),str) and 1<=len(d[k])<=64 for k in ("agent_version","policy_version")): return False
@@ -252,6 +252,7 @@ class Handler(BaseHTTPRequestHandler):
                     body=json.loads(r[4]) if r[4] else {}
                     if isinstance(body,dict):
                         if isinstance(body.get("hostname"),str): dev["hostname"]=body["hostname"][:128]
+                        if isinstance(body.get("os_user"),str): dev["os_user"]=body["os_user"][:64]
                         if isinstance(body.get("agent_version"),str): dev["agent_version"]=body["agent_version"][:32]
                         if isinstance(body.get("policy_version"),str): dev["policy_version"]=body["policy_version"][:32]
                         inv=body.get("inventory")
