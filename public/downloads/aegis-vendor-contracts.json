@@ -1,0 +1,89 @@
+{
+  "schema": "aegis.vendor-contracts/v1",
+  "adapter_version": "0.19",
+  "production_enablement": {
+    "evidence_schema": "aegis.vendor-acceptance/v3",
+    "signing_input_schema": "aegis.vendor-acceptance/v2",
+    "integrity_algorithm": "hmac-sha256",
+    "signing_secret_env": "AEGIS_VENDOR_ACCEPTANCE_SIGNING_SECRET",
+    "offline_signing_keyring_argument": "--keyring",
+    "offline_signing_output_argument": "--output",
+    "offline_signing_output_semantics": "private_metadata_preserving_fsync_atomic_replace_directory_fsync",
+    "offline_keyring_manager": "aegis_vendor_keyring.py",
+    "key_retirement_requires_current_acceptance_signed_by_retained_key": true,
+    "verification_keyring_env": "AEGIS_VENDOR_ACCEPTANCE_SIGNING_KEYS",
+    "verification_keyring_file_env": "AEGIS_VENDOR_ACCEPTANCE_SIGNING_KEYS_FILE",
+    "maximum_verification_keys": 5,
+    "maximum_verification_keyring_bytes": 65536,
+    "live_probe_schema": "aegis.vendor-probe/v1",
+    "maximum_probe_age_seconds": 86400,
+    "maximum_evidence_age_seconds": 604800,
+    "required_for": ["sangfor", "leagsoft"],
+    "secrets_allowed": false
+  },
+  "transport": {
+    "method": "POST",
+    "scheme": "https",
+    "content_type": "application/json",
+    "timeout_seconds": 15,
+    "success_status": "200-299",
+    "idempotency_header": "Idempotency-Key",
+    "idempotency_value": "sha256(canonical_request_body)",
+    "maximum_payload_bytes": 2000000,
+    "credentials_in_url_allowed": false
+  },
+  "delivery_queue": {
+    "overflow_behavior": "retain_source_report_and_retry",
+    "silent_eviction_allowed": false,
+    "credentials_stored": false,
+    "write_semantics": "private_fsync_atomic_replace_directory_fsync",
+    "read_semantics": "nofollow_regular_file_inode_bound_bounded_read",
+    "directory_owner": "effective_service_user",
+    "directory_mode_maximum": "0700",
+    "symlink_directory_allowed": false,
+    "symlink_event_allowed": false,
+    "maximum_queue_file_bytes": 2100000
+  },
+  "local_inputs": {
+    "read_semantics": "nofollow_regular_file_inode_bound_bounded_read",
+    "adapter_config_maximum_bytes": 65536,
+    "acceptance_evidence_maximum_bytes": 262144,
+    "report_maximum_bytes": 2000000,
+    "strict_utf8": true,
+    "regular_file_required": true,
+    "symlink_allowed": false
+  },
+  "credential_boundaries": {
+    "enterprise_4a": {"header": "Authorization: Bearer <AEGIS_4A_* env>", "allowed_env_prefix": "AEGIS_4A_", "contract": "aegis-enterprise-4a.openapi.json"},
+    "sangfor": {"header": "Authorization: Bearer <SANGFOR_* env>", "allowed_env_prefix": "SANGFOR_"},
+    "leagsoft": {"header": "Authorization: Bearer <LEAGSOFT_* env>", "allowed_env_prefix": "LEAGSOFT_"},
+    "security_webhook": {"headers": ["X-Aegis-Timestamp", "X-Aegis-Signature"], "allowed_env_prefix": "AEGIS_", "signature_input": "<timestamp>.<raw-body>"}
+  },
+  "enterprise_4a": {
+    "schema": "aegis.enterprise-4a.event/v1",
+    "purpose": ["account_subject_mapping", "authentication_service_identity", "authorization_recommendation", "audit_correlation"],
+    "safe_actions": ["observe", "alert", "access_review_pending", "containment_pending_approval"],
+    "direct_access_enforcement_allowed": false,
+    "additional_properties": false
+  },
+  "sangfor": {
+    "additional_properties": false,
+    "required": ["event_type", "source", "device_id", "severity", "recommended_action", "finding_count", "policy_version", "occurred_at"],
+    "constants": {"event_type": "ai_agent_security_finding", "source": "aegis"},
+    "severity": ["critical", "high", "medium", "low", "normal"],
+    "safe_actions": ["observe", "alert", "isolate_pending_approval", "block_pending_approval"],
+    "direct_destructive_actions_allowed": false
+  },
+  "leagsoft": {
+    "additional_properties": false,
+    "required": ["source", "device_id", "compliant", "risk_level", "policy_version", "last_scan", "reason"],
+    "constants": {"source": "aegis"},
+    "risk_level": ["critical", "high", "medium", "low", "normal"],
+    "compliant_when": "risk_level not in [critical, high] and last_scan is within max_policy_age_hours and no more than 300 seconds in the future",
+    "reason": ["policy_pass", "critical_or_high_finding", "stale_policy"],
+    "future_clock_tolerance_seconds": 300,
+    "compliance_configuration": {"max_policy_age_hours_min": 1, "max_policy_age_hours_max": 168, "critical_allowed": 0}
+  },
+  "security_webhook": {"payload_ref": "aegis-report.schema.json"},
+  "secrets_embedded": false
+}

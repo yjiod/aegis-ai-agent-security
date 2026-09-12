@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="C20D760E-E252-4F9A-A24B-8EDB71B8BCB3" Name="Aegis AI Agent Security" Language="2052" Version="4.3.1" Manufacturer="YJIOD" UpgradeCode="82B0A41B-266C-4EE8-A5EF-BC8BE05B028F">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
+    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 Aegis Agent。" />
+    <Media Id="1" Cabinet="aegis.cab" EmbedCab="yes" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="AegisAgent">
+          <Component Id="AgentFiles" Guid="18524589-B119-42B1-88A7-60FA14A1B2BE" Win64="yes">
+        <File Id="InstallScript" Source="Install-Aegis.ps1" KeyPath="yes" />
+        <File Id="Scanner" Source="aegis-windows.ps1" />
+        <File Id="Policy" Source="aegis-policy.json" />
+        <File Id="Baseline" Source="aegis-security-baseline.md" />
+            <File Id="Configurator" Source="aegis-configure-windows.ps1" />
+            <File Id="Bootstrap" Source="AegisBootstrap.exe" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+    <Feature Id="MainFeature" Title="Aegis Agent" Level="1">
+      <ComponentRef Id="AgentFiles" />
+    </Feature>
+    <CustomAction Id="ConfigureAegis" FileKey="Bootstrap" ExeCommand="" Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="ConfigureAegis" After="InstallFiles">NOT Installed</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>

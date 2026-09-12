@@ -1,0 +1,17 @@
+{
+  "allowed_hosts": ["al.yjiod.com"],
+  "enterprise_4a": {
+    "enabled": true,
+    "mode": "webhook",
+    "url": "https://al.yjiod.com/api/v1/security-events",
+    "token_env": "AEGIS_4A_ACCESS_TOKEN",
+    "tenant": "yjiod",
+    "actions": {
+      "critical": "containment_pending_approval",
+      "high": "access_review_pending",
+      "medium": "alert",
+      "low": "observe",
+      "normal": "observe"
+    }
+  }
+}

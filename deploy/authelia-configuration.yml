@@ -1,0 +1,48 @@
+theme: dark
+server:
+  address: tcp://127.0.0.1:9091/authelia
+  endpoints:
+    authz:
+      auth-request:
+        implementation: AuthRequest
+log:
+  level: info
+  format: json
+identity_validation:
+  reset_password:
+    jwt_lifespan: 5 minutes
+authentication_backend:
+  file:
+    path: /etc/authelia/users.yml
+    watch: true
+access_control:
+  default_policy: deny
+  rules:
+    - domain: al.yjiod.com
+      resources:
+        - '^/aegis-admin(?:/.*)?$'
+      subject: group:aegis-admins
+      policy: one_factor
+session:
+  cookies:
+    - domain: al.yjiod.com
+      authelia_url: https://al.yjiod.com/authelia/
+      default_redirection_url: https://al.yjiod.com/aegis-admin/
+      same_site: lax
+      inactivity: 10 minutes
+      expiration: 1 hour
+      remember_me: 1 day
+regulation:
+  modes:
+    - user
+    - ip
+  max_retries: 3
+  find_time: 2 minutes
+  ban_time: 15 minutes
+storage:
+  local:
+    path: /var/lib/authelia/db.sqlite3
+notifier:
+  disable_startup_check: true
+  filesystem:
+    filename: /var/lib/authelia/notification.txt
