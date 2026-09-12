@@ -1,8 +1,12 @@
 {
-  "release": "0.66.0",
+  "release": "0.67.0",
   "channel": "pilot",
-  "published_at": "2026-09-12T18:30:00+08:00",
+  "published_at": "2026-09-13T00:30:00+08:00",
   "features": [
+    "custom_baseline_import",
+    "upstream_baseline_sync",
+    "scan_modes",
+    "sast_ai_tool_catalog",
     "agent_self_update_fallback",
     "update_manifest",
     "mdm_push_primary",
