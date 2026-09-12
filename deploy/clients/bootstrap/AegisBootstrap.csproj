@@ -7,5 +7,6 @@
     <PublishSingleFile>true</PublishSingleFile>
     <InvariantGlobalization>true</InvariantGlobalization>
     <AssemblyName>AegisBootstrap</AssemblyName>
+    <Version>0.31.0</Version>
   </PropertyGroup>
 </Project>
