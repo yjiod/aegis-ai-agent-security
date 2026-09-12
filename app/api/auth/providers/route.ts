@@ -16,6 +16,9 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   const provider = process.env.AEGIS_AUTH_PROVIDER ?? 'local';
   const url = new URL(request.url);
+  // Behind a TLS-terminating proxy (Caddy) url.origin is http; use forwarded proto.
+  const proto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
+  const publicOrigin = `${proto}://${url.host}`;
 
   // OIDC
   const issuer = process.env.AEGIS_OIDC_ISSUER ?? '';
@@ -23,7 +26,7 @@ export async function GET(request: Request) {
   const oidcEnabled = provider === 'oidc' && Boolean(issuer) && Boolean(clientId);
   let authorizeUrl = '';
   if (oidcEnabled) {
-    const redirectUri = `${url.origin}/api/auth/oidc/callback`;
+    const redirectUri = `${publicOrigin}/api/auth/oidc/callback`;
     const authorize = new URL(`${issuer.replace(/\/$/, '')}/authorize`);
     authorize.searchParams.set('response_type', 'code');
     authorize.searchParams.set('client_id', clientId);
@@ -39,20 +42,21 @@ export async function GET(request: Request) {
   const uacEnabled = provider === 'uac' && Boolean(uacGateway) && Boolean(uacAppId);
   let uacUrl = '';
   if (uacEnabled) {
-    const redirectUri = `${url.origin}/api/auth/uac/callback`;
+    const redirectUri = `${publicOrigin}/api/auth/uac/callback`;
     // UAC portal: https://pfuac.transsion.com/#/c-login?appId&redirect
-    const portal = process.env.AEGIS_UAC_PORTAL ?? 'https://pfuac.transsion.com/#/c-login';
+    const portal = process.env.AEGIS_UAC_PORTAL || 'https://pfuac.transsion.com/#/c-login';
     uacUrl = `${portal}?appId=${encodeURIComponent(uacAppId)}&redirect=${encodeURIComponent(redirectUri)}`;
   }
 
   const ssoEnabled = oidcEnabled || uacEnabled;
+  const defaultLabel = uacEnabled ? '传音统一身份登录' : '统一身份登录';
   return NextResponse.json(
     {
       provider,
       oidc_enabled: oidcEnabled,
       uac_enabled: uacEnabled,
       authorize_url: oidcEnabled ? authorizeUrl : uacEnabled ? uacUrl : '',
-      idp_label: process.env.AEGIS_OIDC_LABEL ?? (uacEnabled ? '传音统一身份登录' : '统一身份登录'),
+      idp_label: process.env.AEGIS_OIDC_LABEL || defaultLabel,
       sso_enabled: ssoEnabled,
     },
     { headers: { 'Cache-Control': 'no-store' } },
