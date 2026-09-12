@@ -105,149 +105,6 @@ const handleStyle: CSSProperties = { cursor: 'pointer' };
 
 const inlinePanelStyle: CSSProperties = { margin: '2px 0 12px' };
 
-/* ─── 实时数据（仅在挂载后生成，避免服务端/客户端时间戳不一致） ─── */
-
-type TicketSeed = {
-  sequence: number;
-  title: string;
-  severity: TicketSeverity;
-  status: TicketStatus;
-  source: string;
-  device_id: string;
-  description: string;
-  finding_ref: string;
-  assignee?: string;
-  ageMs: number;
-  trail?: { action: string; actor: string; offsetMs: number; note?: string }[];
-};
-
-const TICKET_SEEDS: TicketSeed[] = [
-  {
-    sequence: 5,
-    title: 'MCP Server 请求了未授权文件目录',
-    severity: 'high',
-    status: 'open',
-    source: 'cursor-mcp-filesystem',
-    device_id: 'MKT-LT-2841',
-    description:
-      'filesystem MCP Server 尝试读取声明作用域之外的目录，已被本地策略拦截并上报，等待安全运营研判。',
-    finding_ref: 'mcp_unauthorized_path:/Users/linyan/.cursor/mcp.json',
-    ageMs: 2 * MINUTE,
-  },
-  {
-    sequence: 3,
-    title: '未签名的 MCP 出站连接被放行',
-    severity: 'high',
-    status: 'acknowledged',
-    source: 'postgres-mcp · 45.83.12.7',
-    device_id: 'OPS-MBP-0314',
-    description:
-      'postgres-mcp 向未在企业白名单内的公网地址发起出站连接，且二进制缺少可信发布者签名。设备随后离线，需先恢复上报再研判。',
-    finding_ref: 'unsigned_mcp_server:/Users/luoning/.cursor/mcp.json',
-    assignee: '罗宁',
-    ageMs: 46 * MINUTE,
-    trail: [
-      {
-        action: 'acknowledge',
-        actor: '罗宁',
-        offsetMs: 9 * MINUTE,
-        note: '已认领；设备当前离线，等待 EDR 侧确认出站目标归属。',
-      },
-    ],
-  },
-  {
-    sequence: 4,
-    title: 'Skill 包含可疑的隐藏指令覆盖',
-    severity: 'medium',
-    status: 'open',
-    source: 'prompt-helper.skill',
-    device_id: 'ENG-MBP-1032',
-    description:
-      'prompt-helper Skill 在系统提示中嵌入了不可见的指令覆盖片段，可能改变 Agent 的工具调用边界。',
-    finding_ref:
-      'prompt_injection_artifact:/Users/chenhao/.cursor/skills/prompt-helper/SKILL.md',
-    ageMs: 18 * MINUTE,
-  },
-  {
-    sequence: 2,
-    title: '生成代码使用弱随机数创建会话令牌',
-    severity: 'medium',
-    status: 'investigating',
-    source: 'payment-service / PR #184',
-    device_id: 'ENG-LT-0948',
-    description:
-      'Codex CLI 在 payment-service PR #184 中使用非加密安全随机数生成会话令牌，需确认是否已合入主干。',
-    finding_ref: 'weak_crypto_in_generated_code:payment-service/src/session/token.ts',
-    assignee: '周航',
-    ageMs: 31 * MINUTE,
-    trail: [
-      { action: 'acknowledge', actor: '周航', offsetMs: 6 * MINUTE },
-      {
-        action: 'investigate',
-        actor: '周航',
-        offsetMs: 14 * MINUTE,
-        note: '拉取 PR 差异与 CI 记录中。',
-      },
-    ],
-  },
-  {
-    sequence: 1,
-    title: '依赖包命中 CVE-2026-1847',
-    severity: 'low',
-    status: 'open',
-    source: 'data-pipeline / requirements.txt',
-    device_id: 'ENG-LT-0948',
-    description:
-      'Agent 生成的依赖清单固定了一个存在已知 CVE 的传递依赖版本，建议升级并锁定补丁版本。',
-    finding_ref: 'vulnerable_dependency:data-pipeline/requirements.txt',
-    ageMs: 1 * HOUR,
-  },
-];
-
-/** 与服务端一致的 `TKT-YYYYMMDD-NNNN` 编号（UTC 日）。 */
-function demoTicketId(now: number, sequence: number): string {
-  const day = new Date(now).toISOString().slice(0, 10).replaceAll('-', '');
-  return `TKT-${day}-${String(sequence).padStart(4, '0')}`;
-}
-
-function demoTickets(): Ticket[] {
-  const now = Date.now();
-  const tickets = TICKET_SEEDS.map((seed) => {
-    const createdAt = now - seed.ageMs;
-    const history = [
-      {
-        action: 'create',
-        actor: 'aegis-collector',
-        timestamp: createdAt,
-        note: `由 ${seed.source} 自动上报生成。`,
-      },
-      ...(seed.trail ?? []).map((step) => ({
-        action: step.action,
-        actor: step.actor,
-        timestamp: createdAt + step.offsetMs,
-        ...(step.note === undefined ? {} : { note: step.note }),
-      })),
-    ];
-    const updatedAt = history.at(-1)?.timestamp ?? createdAt;
-    const closed = seed.status === 'resolved' || seed.status === 'dismissed';
-    return {
-      ticket_id: demoTicketId(now, seed.sequence),
-      title: seed.title,
-      severity: seed.severity,
-      status: seed.status,
-      source: seed.source,
-      device_id: seed.device_id,
-      description: seed.description,
-      finding_ref: seed.finding_ref,
-      assignee: seed.assignee ?? '',
-      created_at: createdAt,
-      updated_at: updatedAt,
-      resolved_at: closed ? updatedAt : null,
-      history,
-    } satisfies Ticket;
-  });
-  return tickets.sort(compareTickets);
-}
 
 function compareTickets(left: Ticket, right: Ticket): number {
   const bySeverity =
@@ -336,11 +193,10 @@ export default function RisksPage() {
     return parseTicketList(payload);
   }, []);
 
-  /** 接口不可用：保留已有数据，仅在列表为空时回落到实时，并记录原因。 */
+  /** 接口不可用：保留已有真实数据, 绝不注入演示工单; 用 notice 说明原因, 列表为空则显示空状态。 */
   const applyFallback = useCallback((message: string) => {
     setNotice(message);
-    setTickets((prev) => (prev.length > 0 ? prev : demoTickets()));
-    setSource((prev) => (prev === 'api' ? 'api' : 'demo'));
+    setSource('api');
   }, []);
 
   useEffect(() => {
@@ -952,7 +808,7 @@ function CreateTicketForm({
           id="ticket-device"
           value={draft.device_id}
           onChange={(event) => patch({ device_id: event.target.value })}
-          placeholder="MKT-LT-2841"
+          placeholder="终端设备 ID（可选）"
           autoComplete="off"
           spellCheck={false}
           disabled={submitting}

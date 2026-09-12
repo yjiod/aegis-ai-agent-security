@@ -280,6 +280,14 @@
 [data-theme="light"] .coverage-row:hover .tool-logo { border-color: #b8d4ca; box-shadow: none; }
 [data-theme="light"] .coverage-data span { color: #527469; }
 
+/* Empty-state helper text for real-data panels (no fabricated values). */
+.empty-hint {
+  padding: 18px 4px;
+  color: var(--muted, #8a9a94);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 /* Risk table. */
 [data-theme="light"] .risk-row { border-top-color: #e8f0ed; }
 [data-theme="light"] .risk-row:hover {
