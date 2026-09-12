@@ -16,7 +16,12 @@
 set -eu
 
 SERVER="${1:-root@tx.yjiod.com}"
-SSH_OPTS="-i ~/key -p 1022"
+# NOTE: 必须用 $HOME/key(赋值时展开)。写 "~/key" 不会做 tilde 展开,
+# ssh/scp 会收到字面 "~/key" 导致认证失败, set -e 下脚本中途 abort。
+# 端口旗标两者不同: ssh 用 -p, scp 用 -P(scp 的 -p 是保留时间戳),
+# 故分开定义, 否则 scp 会把 "1022" 当成源文件报错。
+SSH_OPTS="-i $HOME/key -p 1022"
+SCP_OPTS="-i $HOME/key -P 1022"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 echo "═══ 构建控制台 ═══"
@@ -29,9 +34,9 @@ ssh $SSH_OPTS "$SERVER" 'cp -a /opt/aegis/console-server/wrangler.json /tmp/aegi
 
 echo "═══ 上传 server + client ═══"
 ssh $SSH_OPTS "$SERVER" "mkdir -p /opt/aegis/console-server /opt/aegis/client"
-scp $SSH_OPTS -r dist/server/* "$SERVER:/opt/aegis/console-server/" >/dev/null 2>&1
+scp $SCP_OPTS -r dist/server/* "$SERVER:/opt/aegis/console-server/" >/dev/null
 ssh $SSH_OPTS "$SERVER" "rm -rf /opt/aegis/client && mkdir -p /opt/aegis/client"
-scp $SSH_OPTS -r dist/client/* "$SERVER:/opt/aegis/client/" >/dev/null 2>&1
+scp $SCP_OPTS -r dist/client/* "$SERVER:/opt/aegis/client/" >/dev/null
 echo "  ✓ uploaded"
 
 echo "═══ 合并 vars (备份 + /etc/aegis/console.env 全量) 并重启 ═══"

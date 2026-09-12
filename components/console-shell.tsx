@@ -144,7 +144,7 @@ export default function ConsoleShell({
                 ? '只读摘要已连接'
                 : collectorState === 'checking'
                   ? '正在检查接收器'
-                  : '演示数据 · 接收器未连接'}
+                  : '接收器未连接'}
             </span>
             <span className="system-ok" style={{ fontSize: 11, padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 6 }}>{roleState.role === "admin" ? "管理员" : "只读"}</span>
             <button className="icon-btn" aria-label="搜索">
