@@ -1,7 +1,7 @@
 {
   "schema": "aegis.policy/v1",
   "version": "4.8.0",
-  "updated_at": "2026-09-06T11:30:00+08:00",
+  "updated_at": "2026-09-12T14:00:00+08:00",
   "limits": {
     "project_files": 10000,
     "max_file_bytes": 1000000,
@@ -37,13 +37,16 @@
     "postgres"
   ],
   "allowed_mcp_commands": [
+    "docker",
     "node",
+    "node_repl",
     "npx",
     "python3",
-    "uvx",
-    "docker"
+    "uvx"
   ],
-  "allowed_mcp_command_paths": [],
+  "allowed_mcp_command_paths": [
+    "/Applications/Codex.app/Contents/Resources/cua_node/bin/node_repl"
+  ],
   "allowed_mcp_invocations": [],
   "allowed_mcp_domains": [],
   "blocked_commands": [
@@ -93,5 +96,8 @@
     "dependency_unpinned",
     "dependency_untrusted_source",
     "missing_lockfile"
-  ]
+  ],
+  "monitor_notes": {
+    "node_repl": "approved+monitor: computer-use 必需能力, 已加白但保持调用审计与 TRUSTED_CODE_PATHS 约束"
+  }
 }
