@@ -1,10 +1,10 @@
 {
-  "release": "4.6.0",
+  "release": "4.7.0",
   "channel": "pilot",
   "published_at": "2026-09-13T12:00:00+08:00",
   "component_versions": {"endpoint_agent":"0.43.0","policy":"5.1.0","collector":"0.20","adapter":"0.19"},
   "features": [
-    "executable_integration_registry", "capability_gated_provider_enablement", "secret_reference_only_auth", "vendor_neutral_capability_contract", "unified_identity_capability", "single_endpoint_boundary", "mandatory_baseline_non_bypass", "skill_mcp_disposition", "deny_precedence", "mcp_config_fingerprint_deny",
+    "multi_platform_client_roadmap", "external_lifecycle_internal_content_distribution", "native_service_shell_plan", "shared_memory_safe_core_plan", "binary_policy_rule_separate_rollback", "controlled_self_update_optional", "executable_integration_registry", "capability_gated_provider_enablement", "secret_reference_only_auth", "vendor_neutral_capability_contract", "unified_identity_capability", "single_endpoint_boundary", "mandatory_baseline_non_bypass", "skill_mcp_disposition", "deny_precedence", "mcp_config_fingerprint_deny",
     "dynamic_policy_distribution", "authenticated_policy_hot_update", "policy_downgrade_rejection", "policy_digest_verification", "last_known_good_policy", "twenty_extended_native_rules", "upstream_rule_source_quarantine", "cisco_skill_scanner_tracking", "cisco_mcp_scanner_tracking", "semgrep_rule_tracking", "gitleaks_release_tracking", "snyk_agent_scan_advisory_tracking",
     "windows_x64_msi_validation_client", "workbuddy_discovery", "qwen_enterprise_discovery", "tongyi_lingma_discovery", "codebuddy_discovery", "china_ai_agent_mcp_and_skill_scanning", "cross_platform_agent_0_41",
     "production_collector_deployment", "reference_4a_audit_receiver", "strict_4a_event_contract", "idempotent_4a_audit_ingestion", "authelia_nginx_authrequest_reference", "production_console_without_sample_fallback",

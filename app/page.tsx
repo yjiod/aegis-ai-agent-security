@@ -501,15 +501,16 @@ function DetailPanel({
             <div className="panel inset onboarding">
               <h2>企业部署编排</h2>
               <div className="control-planes">
-                <article><b>终端部署层</b><span>厂商无关</span><p>支持任意 MDM、桌管、软件分发或受控本地流程；Intune 制品作为可选兼容实现保留。</p></article>
+                <article><b>终端部署层</b><span>负责推送 Sentinel</span><p>MDM、桌管或软件分发负责首次安装、二进制升级、回滚和卸载。</p></article>
                 <article><b>企业 4A</b><span>标准主接口</span><p>以最小安全事件对接账号、认证、授权和审计平台，影响访问的动作必须经外部审批。</p></article>
-                <article><b>兼容适配层</b><span>按需启用</span><p>深信服、联软与安全 Webhook 默认关闭，不影响 Sentinel 核心部署、扫描和报告。</p></article>
+                <article><b>Sentinel 内容层</b><span>只管理自身内容</span><p>拉取签名策略、规则、恶意 Skill/MCP 情报和 AI Coding 基线，不安装其他控制客户端。</p></article>
               </div>
               <ol><li><b>自动发现</b><span>周期检测 Cursor、Claude Code、Codex、Windsurf、Gemini、Copilot、WorkBuddy、千问企业版、通义灵码与 CodeBuddy。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>4A 联动</b><span>以匿名设备主体输出标准安全姿态、待审批授权建议和可追踪审计关联号。</span></li></ol>
               <div className="download-actions">
                 <a className="download-primary" href="/downloads/sentinel-enterprise-bundle.zip" download>下载完整部署包</a>
                 <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>
                 <a className="download-primary" href="/downloads/PRODUCTION-READINESS.md" download>生产就绪清单</a>
+                <a className="download-primary" href="/downloads/CLIENT-ARCHITECTURE-ROADMAP.md" download>多端统一客户端规划</a>
                 <a href="/downloads/production-acceptance-evidence.example.json" download>生产验收证据模板</a>
                 <a href="/downloads/sentinel_production_preflight.py" download>生产最终预检</a>
                 <a href="/downloads/sentinel_production_evidence_prepare.py" download>生产验收证据准备器</a>

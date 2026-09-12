@@ -11,7 +11,7 @@ HASH_CONSUMERS={
     "sentinel-security-baseline.md":("install-sentinel.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
-    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
+    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","CLIENT-ARCHITECTURE-ROADMAP.md","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
     "sentinel_agent.py","sentinel_collector.py","sentinel-windows.ps1","install-sentinel.sh","intune-windows-detect.ps1",
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
@@ -90,6 +90,10 @@ def verify(downloads):
     except (OSError,UnicodeError) as exc: errors.append(f"invalid_enterprise_integration_contract:{type(exc).__name__}"); integration_contract=integration_interface=""
     for directive in ("能力而非厂商","Windows/macOS 上只新增 Sentinel Endpoint Agent","强制加载安全编码基线","allow / monitor / deny / unknown","SHA-256 指纹拉黑"):
         if directive not in integration_contract: errors.append(f"incomplete_enterprise_integration_contract:{directive}")
+    try: client_roadmap=(downloads/"CLIENT-ARCHITECTURE-ROADMAP.md").read_text(encoding="utf-8")
+    except (OSError,UnicodeError) as exc: errors.append(f"invalid_client_architecture_roadmap:{type(exc).__name__}"); client_roadmap=""
+    for directive in ("外部平台部署 Sentinel","Sentinel 不安装、不升级、不卸载 MDM、EDR、4A、NAC 或桌管客户端","Windows Service","LaunchDaemon","allow / monitor / deny / unknown","为什么不让 Sentinel 推送其他客户端","何时允许 Sentinel 自更新","自动回滚 + 熔断本版本","不可变安全原则"):
+        if directive not in client_roadmap: errors.append(f"incomplete_client_architecture_roadmap:{directive}")
     for directive in ("sentinel.integration/v1","IDENTITY_AUTHENTICATION","SOFTWARE_DISTRIBUTION","CONTAINMENT_REQUEST","privileged_capability_requires_approval","missing_capabilities"):
         if directive not in integration_interface: errors.append(f"unsafe_enterprise_integration_interface:{directive}")
     try: registry_source=(downloads/"sentinel_integration_registry.py").read_text(encoding="utf-8"); registry_example=json.loads((downloads/"sentinel-integration-providers.example.json").read_text(encoding="utf-8"))
