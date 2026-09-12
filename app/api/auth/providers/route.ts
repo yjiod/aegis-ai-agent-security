@@ -42,7 +42,9 @@ export async function GET(request: Request) {
   const uacEnabled = provider === 'uac' && Boolean(uacGateway) && Boolean(uacAppId);
   let uacUrl = '';
   if (uacEnabled) {
-    const redirectUri = `${publicOrigin}/api/auth/uac/callback`;
+    // Redirect base: override (e.g. http://<IP> for UAT trust testing) or public origin
+    const redirectBase = process.env.AEGIS_UAC_REDIRECT_BASE || publicOrigin;
+    const redirectUri = `${redirectBase.replace(/\/$/, '')}/api/auth/uac/callback`;
     // UAC portal (new guide): {portal}?appId&lang&companyId&account&type&redirect
     // UAT portal carries a port, e.g. https://pfuacuat.transsion.com:10201/#/c-login
     const portal = process.env.AEGIS_UAC_PORTAL || 'https://pfuac.transsion.com/#/c-login';

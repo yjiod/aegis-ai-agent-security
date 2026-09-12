@@ -76,8 +76,11 @@ export async function GET(request: Request) {
   const sigHex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
 
   const response = NextResponse.redirect(new URL('/', url.origin));
+  // secure cookie only over https; http (IP-based UAT redirect) needs non-secure to persist
+  const proto = request.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
+  const isHttps = proto === 'https';
   response.cookies.set('aegis_session', `${payloadStr}.${sigHex}`, {
-    httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60,
+    httpOnly: true, secure: isHttps, sameSite: 'lax', path: '/', maxAge: 7 * 24 * 60 * 60,
   });
   response.cookies.set('aegis_user', encodeURIComponent(email || subject), { path: '/', maxAge: 7 * 24 * 60 * 60 });
   if (department) response.cookies.set('aegis_dept', encodeURIComponent(department), { path: '/', maxAge: 7 * 24 * 60 * 60 });
