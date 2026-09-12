@@ -10,6 +10,17 @@ interface Integration {
   capabilities: string[];
   health: 'ok' | 'down' | 'unconfigured';
   detail?: string;
+  alerts?: number;
+}
+
+async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<any> {
+  try {
+    const r = await fetch(url, { headers, cache: 'no-store', signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
 }
 
 async function probe(url: string, opts: RequestInit = {}): Promise<{ up: boolean; status?: number }> {
@@ -36,7 +47,7 @@ export async function GET(request: Request) {
   const fleetTok = env.AEGIS_INT_FLEET_TOKEN ?? '';
   if (fleetUrl) {
     const pr = await probe(`${fleetUrl.replace(/\/$/, '')}/api/latest/me`, { headers: fleetTok ? { Authorization: `Bearer ${fleetTok}` } : {} });
-    out.push({ name: 'Fleet', role: '桌管/MDM + osquery telemetry', capabilities: ['asset_inventory', 'device_management', 'policy_distribution', 'software_dist'], health: pr.up ? 'ok' : 'down', detail: `${fleetUrl} (http ${pr.status ?? 'n/a'})` });
+    out.push({ name: 'Fleet', role: '桌管/MDM + osquery telemetry', capabilities: ['asset_inventory', 'device_management', 'policy_distribution', 'software_dist'], health: pr.up ? 'ok' : 'down', detail: `${fleetUrl} (http ${pr.status ?? 'n/a'})`, alerts: pr.up ? ((await fetchJson(`${fleetUrl.replace(/\/$/, '')}/api/latest/fleet/hosts`, fleetTok ? { Authorization: `Bearer ${fleetTok}` } : {}))?.hosts ?? []).filter((h: any) => h.status !== 'online').length : 0 });
   } else out.push({ name: 'Fleet', role: '桌管/MDM + osquery telemetry', capabilities: ['asset_inventory', 'device_management', 'policy_distribution', 'software_dist'], health: 'unconfigured' });
 
   const wazuhUrl = env.AEGIS_INT_WAZUH_URL ?? '';
@@ -45,14 +56,14 @@ export async function GET(request: Request) {
   if (wazuhUrl) {
     const auth = wazuhUser && wazuhPass ? `Basic ${Buffer.from(`${wazuhUser}:${wazuhPass}`).toString('base64')}` : '';
     const pr = await probe(`${wazuhUrl.replace(/\/$/, '')}/manager/info`, { headers: auth ? { Authorization: auth } : {} });
-    out.push({ name: 'Wazuh', role: 'EDR / SIEM / active-response', capabilities: ['asset_inventory', 'event_forwarding', 'incident_response', 'compliance_check'], health: pr.up ? 'ok' : 'down', detail: `${wazuhUrl} (http ${pr.status ?? 'n/a'})` });
+    out.push({ name: 'Wazuh', role: 'EDR / SIEM / active-response', capabilities: ['asset_inventory', 'event_forwarding', 'incident_response', 'compliance_check'], health: pr.up ? 'ok' : 'down', detail: `${wazuhUrl} (http ${pr.status ?? 'n/a'})`, alerts: pr.up ? ((await fetchJson(`${wazuhUrl.replace(/\/$/, '')}/agents`, auth ? { Authorization: auth } : {}))?.data?.affected_items ?? []).filter((a: any) => a.status !== 'active').length : 0 });
   } else out.push({ name: 'Wazuh', role: 'EDR / SIEM / active-response', capabilities: ['asset_inventory', 'event_forwarding', 'incident_response', 'compliance_check'], health: 'unconfigured' });
 
   const pfUrl = env.AEGIS_INT_PF_URL ?? '';
   const pfTok = env.AEGIS_INT_PF_TOKEN ?? '';
   if (pfUrl) {
     const pr = await probe(`${pfUrl.replace(/\/$/, '')}/api/v1/config/switches`, { headers: pfTok ? { Authorization: `Bearer ${pfTok}` } : {} });
-    out.push({ name: 'PacketFence', role: '准入 NAC(需办公网)', capabilities: ['access_control', 'device_identity', 'asset_inventory'], health: pr.up ? 'ok' : 'down', detail: `${pfUrl} (http ${pr.status ?? 'n/a'})` });
+    out.push({ name: 'PacketFence', role: '准入 NAC(需办公网)', capabilities: ['access_control', 'device_identity', 'asset_inventory'], health: pr.up ? 'ok' : 'down', detail: `${pfUrl} (http ${pr.status ?? 'n/a'})`, alerts: pr.up ? ((await fetchJson(`${pfUrl.replace(/\/$/, '')}/api/v1/nodes`, pfTok ? { Authorization: `Bearer ${pfTok}` } : {}))?.items ?? []).filter((n: any) => n.status !== 'reg').length : 0 });
   } else out.push({ name: 'PacketFence', role: '准入 NAC(需办公网)', capabilities: ['access_control', 'device_identity', 'asset_inventory'], health: 'unconfigured' });
 
   out.push({ name: 'Aegis(本端)', role: 'AI-Agent 安全治理(单端)', capabilities: ['ai_agent_discovery', 'skill_mcp_scan', 'policy_enforcement', 'reporting'], health: 'ok', detail: '员工终端唯一推送端' });

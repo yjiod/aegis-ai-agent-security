@@ -14,6 +14,7 @@ interface Integration {
   capabilities: string[];
   health: 'ok' | 'down' | 'unconfigured';
   detail?: string;
+  alerts?: number;
 }
 
 const HEALTH_META: Record<Integration['health'], { label: string; icon: typeof ShieldCheck; tone: string }> = {
@@ -76,6 +77,12 @@ export default function IntegrationsPage() {
                     <Icon size={12} />
                     {meta.label}
                   </Badge>
+                  {(it.alerts ?? 0) > 0 && (
+                    <Badge variant="outline" style={{ borderColor: '#ff685f', color: '#ff685f' }}>
+                      <AlertTriangle size={12} />
+                      {it.alerts} 告警
+                    </Badge>
+                  )}
                   <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>{it.detail ?? ''}</span>
                 </div>
                 <p style={{ fontSize: 13, color: 'var(--muted-foreground)', marginBottom: 8 }}>{it.role}</p>

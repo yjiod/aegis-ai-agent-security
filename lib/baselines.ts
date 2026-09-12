@@ -140,6 +140,32 @@ export function getScanMode(): ScanMode {
   return SCAN_MODES.includes(v) ? v : DEFAULT_SCAN_MODE;
 }
 
+export function getSetting(key: string): string {
+  return settings()[key] ?? '';
+}
+
+export function setSetting(key: string, value: string, updatedBy: string): void {
+  settings()[key] = value;
+  pgSetSetting(key, value);
+  void updatedBy;
+}
+
+/* ─── 上游基线定时同步(阶段E 收尾) ───────────────────────────────────────
+ * settings['upstream_baseline_url'] 有值时, 每 6 小时拉取上游基线存为
+ * source=upstream; 自定义基线不受影响(合并时自定义优先)。每 isolate 只起一个定时器。 */
+const UPSTREAM_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let syncLoopStarted = false;
+
+export function startUpstreamSyncLoop(): void {
+  if (syncLoopStarted) return;
+  syncLoopStarted = true;
+  const tick = () => {
+    const url = getSetting('upstream_baseline_url');
+    if (url) syncUpstream(url, 'upstream-sync').catch(() => {});
+  };
+  setInterval(tick, UPSTREAM_SYNC_INTERVAL_MS);
+}
+
 export function setScanMode(mode: ScanMode, updatedBy: string): boolean {
   if (!SCAN_MODES.includes(mode)) return false;
   settings().scan_mode = mode;
