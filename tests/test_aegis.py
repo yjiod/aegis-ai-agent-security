@@ -20,7 +20,10 @@ class AegisTests(unittest.TestCase):
         page=(ROOT/'app/page.tsx').read_text()
         shell=(ROOT/'components/console-shell.tsx').read_text()
         console=page+shell
-        self.assertIn('演示模式',page); self.assertIn('接收器未连接',shell); self.assertIn('未对任何终端执行操作',page)
+        # Production: console must NOT contain demo mode or fake dispatch.
+        self.assertNotIn('演示模式',console); self.assertNotIn('界面样例',console)
+        # Auth gate present (middleware + login page)
+        self.assertTrue((ROOT/'middleware.ts').exists()); self.assertTrue((ROOT/'app/login/page.tsx').exists())
         self.assertNotIn('start_enterprise_security_scan',console); self.assertNotIn('status: \'dispatched\'',console); self.assertNotIn('系统运行正常',console); self.assertNotIn('实时上报',console); self.assertNotIn('已强制应用',console)
         route=(ROOT/'app/api/summary/route.ts').read_text(); self.assertIn("base.protocol !== 'https:'",route); self.assertIn('base.hostname.toLowerCase() !== allowedHost.toLowerCase()',route); self.assertIn('AbortSignal.timeout(5000)',route); self.assertIn("'Cache-Control': 'no-store'",route)
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)

@@ -1,0 +1,40 @@
+[Unit]
+Description=Authelia authentication and authorization server
+Documentation=https://www.authelia.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=authelia
+Group=authelia
+UMask=0027
+Environment=AUTHELIA_SERVER_DISABLE_HEALTHCHECK=true
+EnvironmentFile=/etc/authelia/authelia.env
+ExecStart=/usr/bin/authelia --config /etc/authelia/configuration.yml
+Restart=on-failure
+RestartSec=5s
+StateDirectory=authelia
+StateDirectoryMode=0700
+CapabilityBoundingSet=
+NoNewPrivileges=true
+RestrictNamespaces=true
+ProtectHome=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
