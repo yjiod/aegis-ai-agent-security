@@ -13,17 +13,17 @@ import { Toast } from '@/components/toast';
 
 const controlPlanes = [
   {
-    name: 'Microsoft Intune',
+    name: '商用 MDM',
     role: '主部署通道',
     desc: 'Windows Remediations 与 macOS Shell Script，负责安装、版本检测、周期修复和自定义合规。',
   },
   {
-    name: '深信服 EDR',
+    name: '厂商 EDR',
     role: '响应处置',
     desc: '接收高危事件，按现网版本能力执行隔离、查杀或 IOC 取证。',
   },
   {
-    name: '联软桌管',
+    name: '厂商桌管',
     role: '资产与兜底',
     desc: '软件分发、资产核验及未安装终端的准入修复。',
   },
@@ -32,7 +32,7 @@ const controlPlanes = [
 const orchestrationSteps = [
   {
     title: '自动发现',
-    desc: 'Intune 周期任务检测 Cursor、Claude Code、Codex 与 Windsurf 配置。',
+    desc: '商用 MDM 周期任务检测 Cursor、Claude Code、Codex 与 Windsurf 配置。',
   },
   {
     title: '加载基线',
@@ -40,14 +40,14 @@ const orchestrationSteps = [
   },
   {
     title: '联动处置',
-    desc: '以 device_id 关联深信服 EDR 与联软资产，按风险等级分级响应。',
+    desc: '以 device_id 关联厂商 EDR 与厂商桌管资产，按风险等级分级响应。',
   },
 ];
 
 const downloadAssets = [
   { href: '/downloads/intune-windows-detect.ps1', label: 'Windows 检测脚本' },
   { href: '/downloads/intune-windows-remediate.ps1', label: 'Windows 修复脚本' },
-  { href: '/downloads/intune-macos-install.sh', label: 'macOS Intune 脚本' },
+  { href: '/downloads/intune-macos-install.sh', label: 'macOS 商用 MDM 脚本' },
   { href: '/downloads/intune-macos-compliance.sh', label: 'macOS 合规脚本' },
   { href: '/downloads/aegis-policy.json', label: '策略基线' },
   {
@@ -68,17 +68,17 @@ export default function OnboardingPage() {
         <div>
           <p className="eyebrow">接入中心 / 部署编排</p>
           <h1>接入中心</h1>
-          <p>一次下载已验证发行包，由 Intune 与桌管完成静默部署。</p>
+          <p>一次下载已验证发行包，由 商用 MDM 与桌管完成静默部署。</p>
         </div>
         <div className="head-actions">
           <Button
             variant="outline"
             onClick={() =>
-              setToast('提示：发行通道固定为 Intune + 联软桌管，未切换。')
+              setToast('提示：发行通道固定为 商用 MDM + 厂商桌管，未切换。')
             }
           >
             <ChevronDown />
-            Intune 发行通道
+            商用 MDM 发行通道
           </Button>
           <Button
             onClick={() =>
@@ -96,7 +96,7 @@ export default function OnboardingPage() {
       <div className="baseline-banner animate-entrance animate-entrance-1">
         <div>
           <h2>Aegis Endpoint Agent 0.30.0</h2>
-          <p>Intune 部署 · 深信服 EDR 联动 · 联软桌管兜底</p>
+          <p>商用 MDM 部署 · 厂商 EDR 联动 · 厂商桌管兜底</p>
         </div>
         <strong>
           可验证<span>本地执行</span>
@@ -165,7 +165,7 @@ export default function OnboardingPage() {
 
         <p className="safety-note">
           <LockKeyhole size={15} />
-          部署脚本不包含深信服或联软管理凭据；正式联动需按现网版本申请服务账号与接口授权。
+          部署脚本不包含厂商 EDR或厂商桌管管理凭据；正式联动需按现网版本申请服务账号与接口授权。
         </p>
       </div>
     </section>

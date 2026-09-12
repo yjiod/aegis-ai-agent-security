@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { useRole } from '@/components/role-context';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RiskSignalHelp, SignalSummary } from '@/components/risk-signal-help';
 import {
   NativeSelect,
   NativeSelectOption,
@@ -389,6 +390,8 @@ export default function RisksPage() {
         </div>
       </div>
 
+      <RiskSignalHelp />
+
       {toast && (
         <div
           className="toast"
@@ -624,7 +627,7 @@ export default function RisksPage() {
           <b>→</b>
           <span>安全运营认领</span>
           <b>→</b>
-          <span>深信服 EDR 隔离</span>
+          <span>厂商 EDR 隔离</span>
           <b>→</b>
           <span>基线复核</span>
           <b>→</b>
@@ -900,7 +903,11 @@ function LinkedFindings({ deviceId }: { deviceId: string }) {
               <i className={f.severity === 'critical' ? 'fail' : 'warn'}>{String(f.severity)}</i>
               <span>{String(f.kind)}</span>
               <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{String(f.path ?? '')}</span>
-              <span style={{ fontSize: 11 }}>{String(f.message ?? '')}</span>
+              <span style={{ fontSize: 11 }}>
+                {String(f.message ?? '')}
+                <br />
+                <SignalSummary text={String(f.message ?? '')} />
+              </span>
             </div>
           ))}
         </div>

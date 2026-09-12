@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Mock vendor server for local Aegis adapter testing.
 
-Simulates Sangfor EDR and Leagsoft desktop management API endpoints.
+Simulates VendorEdr EDR and VendorMdm desktop management API endpoints.
 Run alongside dev-collector.sh to test the full adapter pipeline locally.
 
 Usage:
     python3 scripts/mock-vendor-server.py [--port 9443]
 
 Endpoints:
-    POST /api/aegis/events     — Sangfor EDR event ingestion (returns 200 + JSON ack)
-    POST /api/aegis/posture    — Leagsoft compliance posture update (returns 200 + JSON ack)
+    POST /api/aegis/events     — VendorEdr EDR event ingestion (returns 200 + JSON ack)
+    POST /api/aegis/posture    — VendorMdm compliance posture update (returns 200 + JSON ack)
     POST /hooks/aegis          — Generic security webhook (returns 200 + JSON ack)
     GET  /health               — Health check
 
@@ -23,8 +23,8 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 # Demo tokens matching .dev/vendor.env
-SANGFOR_TOKEN = "mock-sangfor-edr-token-for-local-dev-only-32chars"
-LEAGSOFT_TOKEN = "mock-leagsoft-token-for-local-dev-only-32chars-min"
+VENDOR_EDR_TOKEN = "mock-vendor_edr-edr-token-for-local-dev-only-32chars"
+VENDOR_MDM_TOKEN = "mock-vendor_mdm-token-for-local-dev-only-32chars-min"
 WEBHOOK_SECRET = "mock-aegis-webhook-secret-for-local-dev-32chars-min"
 
 received_events = []
@@ -84,8 +84,8 @@ class MockVendorHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/api/aegis/events":
-            # Sangfor EDR event ingestion
-            if not self._check_auth(SANGFOR_TOKEN):
+            # VendorEdr EDR event ingestion
+            if not self._check_auth(VENDOR_EDR_TOKEN):
                 return
             payload = self._read_body()
             if payload is None:
@@ -100,13 +100,13 @@ class MockVendorHandler(BaseHTTPRequestHandler):
                 return
             event_id = f"edr-{int(time.time()*1000)}-{len(received_events)+1:04d}"
             record = {
-                "vendor": "sangfor_edr",
+                "vendor": "vendor_edr_edr",
                 "event_id": event_id,
                 "received_at": int(time.time()),
                 "payload": payload,
             }
             received_events.append(record)
-            print(f"  [Sangfor EDR] {payload.get('severity','?').upper()} | "
+            print(f"  [VendorEdr EDR] {payload.get('severity','?').upper()} | "
                   f"{payload.get('device_id','?')} | "
                   f"action={payload.get('recommended_action','?')} | "
                   f"findings={payload.get('finding_count',0)}")
@@ -118,8 +118,8 @@ class MockVendorHandler(BaseHTTPRequestHandler):
             })
 
         elif self.path == "/api/aegis/posture":
-            # Leagsoft compliance posture
-            if not self._check_auth(LEAGSOFT_TOKEN):
+            # VendorMdm compliance posture
+            if not self._check_auth(VENDOR_MDM_TOKEN):
                 return
             payload = self._read_body()
             if payload is None:
@@ -130,14 +130,14 @@ class MockVendorHandler(BaseHTTPRequestHandler):
                 return
             event_id = f"leag-{int(time.time()*1000)}-{len(received_events)+1:04d}"
             record = {
-                "vendor": "leagsoft",
+                "vendor": "vendor_mdm",
                 "event_id": event_id,
                 "received_at": int(time.time()),
                 "payload": payload,
             }
             received_events.append(record)
             status = "合规" if payload.get("compliant") else "不合规"
-            print(f"  [联软桌管] {status} | "
+            print(f"  [厂商桌管] {status} | "
                   f"{payload.get('device_id','?')} | "
                   f"risk={payload.get('risk_level','?')} | "
                   f"reason={payload.get('reason','?')}")
@@ -145,7 +145,7 @@ class MockVendorHandler(BaseHTTPRequestHandler):
                 "accepted": True,
                 "event_id": event_id,
                 "compliance_updated": True,
-                "message": "Mock Leagsoft: posture recorded, no real enforcement applied",
+                "message": "Mock VendorMdm: posture recorded, no real enforcement applied",
             })
 
         elif self.path == "/hooks/aegis":
@@ -185,8 +185,8 @@ def write_vendor_env(dev_dir: Path):
     env_file = dev_dir / "vendor.env"
     env_file.write_text(f"""# Mock vendor credentials for local adapter testing
 # Source this file or export these vars before running aegis_adapter_worker.py
-SANGFOR_EDR_TOKEN={SANGFOR_TOKEN}
-LEAGSOFT_TOKEN={LEAGSOFT_TOKEN}
+VENDOR_EDR_EDR_TOKEN={VENDOR_EDR_TOKEN}
+VENDOR_MDM_TOKEN={VENDOR_MDM_TOKEN}
 AEGIS_WEBHOOK_SECRET={WEBHOOK_SECRET}
 
 # Mock vendor server URL (HTTPS not enforced in mock mode)
@@ -215,22 +215,22 @@ def main():
 ║  Aegis Mock Vendor Server                                   ║
 ║  Listening: http://127.0.0.1:{args.port}                          ║
 ╠══════════════════════════════════════════════════════════════╣
-║  POST /api/aegis/events   — Sangfor EDR (Bearer token)      ║
-║  POST /api/aegis/posture  — Leagsoft 桌管 (Bearer token)    ║
+║  POST /api/aegis/events   — VendorEdr EDR (Bearer token)      ║
+║  POST /api/aegis/posture  — VendorMdm 桌管 (Bearer token)    ║
 ║  POST /hooks/aegis        — Security Webhook (Bearer secret) ║
 ║  GET  /health             — Health check                    ║
 ║  GET  /events             — View received events (debug)    ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Tokens (also in .dev/vendor.env):                          ║
-║    SANGFOR_EDR_TOKEN={SANGFOR_TOKEN[:20]}...  ║
-║    LEAGSOFT_TOKEN={LEAGSOFT_TOKEN[:20]}...     ║
+║    VENDOR_EDR_EDR_TOKEN={VENDOR_EDR_TOKEN[:20]}...  ║
+║    VENDOR_MDM_TOKEN={VENDOR_MDM_TOKEN[:20]}...     ║
 ║    AEGIS_WEBHOOK_SECRET={WEBHOOK_SECRET[:16]}...  ║
 ╚══════════════════════════════════════════════════════════════╝
 
 Adapter config for local testing (aegis-adapters.example.json):
   allowed_hosts: ["127.0.0.1"]
-  sangfor.url:   http://127.0.0.1:{args.port}/api/aegis/events
-  leagsoft.url:  http://127.0.0.1:{args.port}/api/aegis/posture
+  vendor_edr.url:   http://127.0.0.1:{args.port}/api/aegis/events
+  vendor_mdm.url:  http://127.0.0.1:{args.port}/api/aegis/posture
   webhook.url:   http://127.0.0.1:{args.port}/hooks/aegis
 
 NOTE: The production adapter enforces HTTPS. For local mock testing,
