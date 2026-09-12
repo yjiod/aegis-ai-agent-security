@@ -43,9 +43,19 @@ export async function GET(request: Request) {
   let uacUrl = '';
   if (uacEnabled) {
     const redirectUri = `${publicOrigin}/api/auth/uac/callback`;
-    // UAC portal: https://pfuac.transsion.com/#/c-login?appId&redirect
+    // UAC portal (new guide): {portal}?appId&lang&companyId&account&type&redirect
+    // UAT portal carries a port, e.g. https://pfuacuat.transsion.com:10201/#/c-login
     const portal = process.env.AEGIS_UAC_PORTAL || 'https://pfuac.transsion.com/#/c-login';
-    uacUrl = `${portal}?appId=${encodeURIComponent(uacAppId)}&redirect=${encodeURIComponent(redirectUri)}`;
+    const lang = process.env.AEGIS_UAC_LANG || 'zh';
+    const companyId = process.env.AEGIS_UAC_COMPANY_ID || '';
+    const type = process.env.AEGIS_UAC_TYPE || 'simple';
+    uacUrl =
+      `${portal}?appId=${encodeURIComponent(uacAppId)}` +
+      `&lang=${encodeURIComponent(lang)}` +
+      `&companyId=${encodeURIComponent(companyId)}` +
+      `&account=` +
+      `&type=${encodeURIComponent(type)}` +
+      `&redirect=${encodeURIComponent(redirectUri)}`;
   }
 
   const ssoEnabled = oidcEnabled || uacEnabled;

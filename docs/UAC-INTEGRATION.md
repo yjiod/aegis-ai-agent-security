@@ -19,7 +19,10 @@ Aegis 控制台通过可插拔认证提供者对接传音企业身份。当前�
 ### UAC 门户环境推导
 UAT 环境 = 二级域名末尾加 `uat`：
 - 生产门户: `https://pfuac.transsion.com/#/c-login`
-- UAT 门户:  `https://pfuacuat.transsion.com/#/c-login` （内网/VPN 可达）
+- UAT 门户:  `https://pfuacuat.transsion.com:10201/#/c-login` （**带端口 10201**，443 返回 503）
+- 门户参数（新版指引）: `?appId&lang&companyId&account&type&redirect`
+  必填 appId/lang/redirect；type 默认 simple；companyId 默认 100（可空）
+- 回跳参数: token / rtoken / employeeNo / lang
 配置 `AEGIS_UAC_PORTAL` 指向对应环境门户。**UAT appId 必须配 UAT 门户**，否则门户报「APPID 无效」。
 
 ### 网关环境（对接指南 §一.1，务必用 `-intra-` 内网域名）
