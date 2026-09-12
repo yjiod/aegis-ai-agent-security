@@ -199,13 +199,36 @@ def scan_dependency_manifest(path,text):
             elif value.startswith(("-r ","--requirement ")): out.append(finding("dependency_external_manifest","medium",path,"Python 依赖引用其他清单，需纳入审核",value[:80]))
             elif "==" not in value: out.append(finding("dependency_unpinned","medium",path,"Python 依赖未固定到精确版本",value[:80]))
     return out
+_SKILL_NET=re.compile(r"\b(curl|wget|fetch\(|requests\.|urllib|https?://|websocket|socket\.)",re.I)
+_SKILL_EXEC=re.compile(r"\b(subprocess|os\.system|exec\(|eval\(|bash\s+-c|os\.popen|Popen|shell=True)",re.I)
+_SKILL_CRED=re.compile(r"\b(api[_-]?key|secret|password|token|credential|\.env|keychain)",re.I)
+_SKILL_FW=re.compile(r"\b(open\([^)]*['\"]w|write\(|rm\s+-|shutil\.rmtree|unlink|remove\()",re.I)
+def skill_risk_score(skill_file):
+    """Score a Skill package by risk signals: exec+2, cred+2, network+1, filewrite+1."""
+    root=skill_file.parent; text=""; 
+    readable={".md",".txt",".py",".js",".ts",".tsx",".jsx",".sh",".ps1",".json",".toml",".yaml",".yml"}
+    n=0
+    for current,dirs,files in os.walk(root,followlinks=False):
+        dirs[:]=[x for x in dirs if x not in [".git","node_modules","vendor","dist","build"]]
+        for f in files:
+            if Path(f).suffix.lower() in readable and n<200:
+                try: text+=Path(current,f).read_text(errors="ignore")[:200000]; n+=1
+                except OSError: pass
+    sig={"exec":len(_SKILL_EXEC.findall(text)),"cred":len(_SKILL_CRED.findall(text)),"network":len(_SKILL_NET.findall(text)),"filewrite":len(_SKILL_FW.findall(text))}
+    score=(2 if sig["exec"] else 0)+(2 if sig["cred"] else 0)+(1 if sig["network"] else 0)+(1 if sig["filewrite"] else 0)
+    return score,sig
 def scan_skill(skill_file,policy,max_files=500):
     """Scan the complete Skill package without following links outside its root."""
     root=skill_file.parent; out=[]; scanned=0; name=root.name
     allowed=set(policy.get("allowed_skills",[]))
     if "allowed_skills" in policy and name not in allowed:
-        action=policy.get("enforcement",{}).get("unknown_skill","audit"); severity="high" if action=="block" else "medium"
-        out.append(finding("unknown_skill",severity,skill_file,f"未批准的 Skill: {name}"))
+        action=policy.get("enforcement",{}).get("unknown_skill","audit")
+        score,sig=skill_risk_score(skill_file)
+        # Refined alerting: severity by risk signals, not uniform.
+        if action=="block": severity="high" if score>=4 else ("medium" if score>=2 else "low")
+        else: severity="high" if score>=4 else ("medium" if score>=2 else "low")
+        dom=max(sig,key=sig.get); 
+        out.append(finding("unknown_skill",severity,skill_file,f"未批准的 Skill: {name} (风险信号 {dom}={sig[dom]}, score={score})"))
     readable={".md",".txt",".py",".js",".ts",".tsx",".jsx",".sh",".ps1",".json",".toml",".yaml",".yml"}
     root_resolved=root.resolve()
     for current,dirs,files in os.walk(root,followlinks=False):
