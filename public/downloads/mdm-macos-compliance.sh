@@ -5,8 +5,8 @@ REPORT="$INSTALL_DIR/reports/latest.json"
 REPORTING="$INSTALL_DIR/reporting.json"
 UPLOAD_STATUS="$INSTALL_DIR/reports/upload-status.json"
 PLIST="/Library/LaunchDaemons/com.company.aegis-agent.plist"
-AGENT_SHA="48528f1820bab5fd14fbaa63ee44f356ddbf83df322024b8112115c8516f9c1c"
-POLICY_SHA="9b5dd46b4fdcfeb3472ea008b61e202fd0077f5fa76759bfd10cd7aac36942ff"
+AGENT_SHA="8df281794182ebae26624ab84fbcf52de7c510a6d078546c9b77fadb03d72b11"
+POLICY_SHA="a8935b03ae59c08002a428d524b46ee69bde6042a5173c510d184f62d6737740"
 BASELINE_SHA="5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806"
 installed=false; integrity=false; runtime=false
 if [[ -f "$INSTALL_DIR/aegis_agent.py" && -f "$INSTALL_DIR/aegis-policy.json" && -f "$INSTALL_DIR/aegis-security-baseline.md" ]]; then installed=true; fi

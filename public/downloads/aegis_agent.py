@@ -100,7 +100,13 @@ def scan_text(path,text,policy):
         ("debug_mode_enabled","medium",r"(?is)\b(?:app|application)\.run\s*\([^)]{0,300}\bdebug\s*=\s*true"),
         ("empty_exception_handler","medium",r"(?m)^\s*except(?:\s+[^:]+)?:\s*(?:#.*\n\s*)?pass\s*$|\bcatch\s*\{\s*\}"),
     ]
-    enabled=set(policy.get("code_rules",[]))
+    mode = policy.get("scan_mode", "standard")
+    if mode == "quick":
+        enabled = set()
+    elif mode == "custom":
+        enabled = set(policy.get("custom_baseline_rules", []))
+    else:
+        enabled = set(policy.get("code_rules", []))
     for kind,sev,pat in quality_checks:
         if kind not in enabled: continue
         hit=re.search(pat,text)

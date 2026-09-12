@@ -105,5 +105,7 @@
     "channel": "pilot",
     "rollout_percent": 25,
     "note": "自更新仅为无桌管环境兜底; 主通道为桌管/MDM 推送。下载强制 SHA-256 校验+原子替换+可回滚。"
-  }
+  },
+  "scan_mode": "standard",
+  "custom_baseline_rules": []
 }
