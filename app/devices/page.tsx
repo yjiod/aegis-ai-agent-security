@@ -42,6 +42,7 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { useCollector } from '@/components/collector-context';
+import { useRole } from '@/components/role-context';
 import DeviceForm, {
   AGENT_TYPE_OPTIONS,
   agentTypeLabel,
@@ -279,6 +280,8 @@ export default function DevicesPage() {
   const [findingsLoading, setFindingsLoading] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<number | null>(null);
+  const { role } = useRole();
+  const canMutate = role === 'admin';
 
   const notify = useCallback((text: string, tone: ToastTone = 'info') => {
     setToast({ text, tone });
@@ -787,7 +790,7 @@ export default function DevicesPage() {
                       aria-expanded={editing}
                       onClick={(event) => {
                         event.stopPropagation();
-                        setEditingId(editing ? null : device.device_id);
+                        if (canMutate) setEditingId(editing ? null : device.device_id);
                       }}
                     >
                       <Pencil />
@@ -799,7 +802,7 @@ export default function DevicesPage() {
                       style={{ color: 'var(--destructive)' }}
                       onClick={(event) => {
                         event.stopPropagation();
-                        setPendingDelete(device);
+                        if (canMutate) setPendingDelete(device);
                       }}
                     >
                       <Trash2 />

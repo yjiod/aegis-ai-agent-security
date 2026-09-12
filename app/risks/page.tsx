@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useRole } from '@/components/role-context';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -305,6 +306,8 @@ export default function RisksPage() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const { role } = useRole();
+  const canMutate = role === 'admin';
   const [pendingAction, setPendingAction] = useState<{
     id: string;
     status: TicketStatus;
