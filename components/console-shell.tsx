@@ -50,7 +50,7 @@ const navSections: NavSection[] = [
     label: '控制台',
     items: [
       { href: '/', label: '总览', icon: Activity },
-      { href: '/onboarding', label: '接入中心', icon: Bot },
+      { href: '/integrations', label: '接入中心', icon: Bot },
       { href: '/devices', label: '设备与 Agent', icon: Laptop },
       { href: '/risks', label: '风险中心', icon: AlertTriangle },
       { href: '/dispositions', label: '处置中心', icon: Tags },
