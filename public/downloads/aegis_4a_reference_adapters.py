@@ -47,8 +47,13 @@ def _request(base_url: str, token: str, path: str, method: str = "GET", body: di
     req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", "Bearer " + token)
+    # 仅验证期: 实验室自签证书可显式关闭校验(AEGIS_ADAPTER_INSECURE_TLS=1); 生产默认强制校验。
+    ctx = None
+    if os.environ.get("AEGIS_ADAPTER_INSECURE_TLS") == "1":
+        import ssl
+        ctx = ssl._create_unverified_context()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec: scheme/host allowlisted
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:  # nosec: scheme/host allowlisted
             raw = resp.read().decode("utf-8")
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
