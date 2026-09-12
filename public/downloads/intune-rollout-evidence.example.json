@@ -1,0 +1,20 @@
+{
+  "schema": "aegis.intune-evidence/v3",
+  "release_version": "0.65.0",
+  "manifest_sha256": "d8ca5c78364c9c52a4ca83577ec1a7deaca54dd0a926ef35b4d07664acaeb05f",
+  "generated_at": 0,
+  "current_ring": "lab",
+  "current_ring_entered_at": 0,
+  "fleet_total_devices": 0,
+  "ring_assigned_devices": 0,
+  "reporting_devices": 0,
+  "compliant_devices": 0,
+  "installation_failures": 0,
+  "collector_probe_read_only_passed": false,
+  "release_verifier_passed": false,
+  "reporting_credentials_delivered_out_of_band": false,
+  "rollback_tested_in_ring": false,
+  "critical_findings": 0,
+  "reporting_healthy_since": 0,
+  "production_signature_verified": false
+}

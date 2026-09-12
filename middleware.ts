@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { ensurePgHydrated } from '@/lib/store';
 
 /**
  * Session guard: all console pages require a valid aegis_session cookie.
  * Exempt: /login, /api/auth/*, static assets (_next, favicon), /aegis/* (Collector API).
+ *
+ * Also triggers one-time PostgreSQL hydration. workerd rejects async I/O at
+ * module/global scope, so the stores cannot hydrate at import time; middleware
+ * runs per-request in handler scope (and its matcher covers /api routes), so it
+ * is the correct place to lazily load durable state from PG before any route
+ * handler reads the stores. Cached after the first request; a PG failure is
+ * swallowed so it never blocks traffic (console degrades to file/in-memory).
  */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
+  await ensurePgHydrated().catch(() => {});
   const { pathname } = request.nextUrl;
 
   // Exempt paths

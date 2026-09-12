@@ -20,6 +20,17 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import {
+  pgEnabled,
+  pgLoadAll,
+  pgUpsertDevice,
+  pgDeleteDevice,
+  pgUpsertTicket,
+  pgInsertAudit,
+  pgAddAdmin,
+  pgRemoveAdmin,
+  pgProbe,
+} from './pg-store';
 
 /* ------------------------------------------------------------------ *
  * File-backed persistence (production durability on VPS)
@@ -79,6 +90,40 @@ class PersistentMap<K, V> extends Map<K, V> {
     const r = super.delete(key);
     if (r) saveState();
     return r;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * PostgreSQL write-through (production durability on VPS)
+ *
+ * When AEGIS_PG_URL is set, every device/ticket/audit/admin mutation is
+ * mirrored into Postgres in addition to the JSON file. PG is the durable
+ * source of truth across worker restarts; the file remains a fast local
+ * cache. Write-through is best-effort (errors are swallowed inside
+ * pg-store) so a PG outage degrades to file-only instead of breaking the
+ * console. `pgHydrating` suppresses write-back while we are loading rows
+ * OUT of PG (or constructing from the file mirror) to avoid echo loops.
+ * ------------------------------------------------------------------ */
+let pgHydrating = false;
+
+class PersistentDeviceMap extends PersistentMap<string, Device> {
+  override set(key: string, value: Device): this {
+    super.set(key, value);
+    if (!pgHydrating) pgUpsertDevice(value);
+    return this;
+  }
+  override delete(key: string): boolean {
+    const r = super.delete(key);
+    if (r && !pgHydrating) pgDeleteDevice(key);
+    return r;
+  }
+}
+
+class PersistentTicketMap extends PersistentMap<string, Ticket> {
+  override set(key: string, value: Ticket): this {
+    super.set(key, value);
+    if (!pgHydrating) pgUpsertTicket(value);
+    return this;
   }
 }
 
@@ -628,7 +673,9 @@ export function getDeviceStore(): Map<string, Device> {
   if (existing) return existing;
 
   const persisted = loadState();
-  const store = new PersistentMap<string, Device>(persisted?.devices ?? []);
+  pgHydrating = true;
+  const store = new PersistentDeviceMap(persisted?.devices ?? []);
+  pgHydrating = false;
   globals.__aegis_devices = store;
   return store;
 }
@@ -639,7 +686,9 @@ export function getTicketStore(): Map<string, Ticket> {
   if (existing) return existing;
 
   const persisted = loadState();
-  const store = new PersistentMap<string, Ticket>(persisted?.tickets ?? []);
+  pgHydrating = true;
+  const store = new PersistentTicketMap(persisted?.tickets ?? []);
+  pgHydrating = false;
   globals.__aegis_tickets = store;
   return store;
 }
@@ -796,6 +845,7 @@ export function logAudit(
   // Drop oldest first once the cap is reached, keeping the trail bounded.
   if (store.length > MAX_AUDIT_ENTRIES)
     store.splice(0, store.length - MAX_AUDIT_ENTRIES);
+  if (!pgHydrating) pgInsertAudit(record);
   saveState();
   return record;
 }
@@ -817,6 +867,7 @@ export function addAdmin(employeeNo: string): boolean {
   const store = getAdminStore();
   if (store.includes(employeeNo)) return false;
   store.push(employeeNo);
+  if (!pgHydrating) pgAddAdmin(employeeNo);
   saveState();
   return true;
 }
@@ -826,6 +877,99 @@ export function removeAdmin(employeeNo: string): boolean {
   const idx = store.indexOf(employeeNo);
   if (idx === -1) return false;
   store.splice(idx, 1);
+  if (!pgHydrating) pgRemoveAdmin(employeeNo);
   saveState();
   return true;
+}
+
+/* ------------------------------------------------------------------ *
+ * PostgreSQL hydration (request-scoped, lazy)
+ *
+ * workerd forbids asynchronous I/O (connect/query) at global/module scope, so
+ * hydration CANNOT run at module load — it must be triggered from inside a
+ * request handler. ensurePgHydrated() is called from middleware on every
+ * request; the first call (in request scope) pulls the durable state out of
+ * Postgres and merges it into the live in-memory stores, then caches the
+ * promise so it runs exactly once per isolate. Subsequent requests await an
+ * already-resolved promise (no latency).
+ *
+ * PG rows win over the JSON file mirror for overlapping keys (the file is a
+ * cache; PG is the source of truth). The merge is wrapped in pgHydrating so we
+ * never echo freshly-loaded rows back into PG. If PG is unreachable, pgLoadAll
+ * resolves null and we keep the file-backed state — pgStatus() makes that
+ * degradation visible.
+ * ------------------------------------------------------------------ */
+let pgHydrated: { ok: boolean; devices: number; tickets: number; audit: number; admins: number } | null =
+  null;
+let pgHydratePromise: Promise<void> | null = null;
+
+/**
+ * Hydrate the in-memory stores from PG exactly once. MUST be called from within
+ * a request handler (middleware or a route) — never at module scope — because
+ * workerd rejects async I/O in global scope. Safe to call on every request.
+ */
+export function ensurePgHydrated(): Promise<void> {
+  if (!pgEnabled()) return Promise.resolve();
+  if (!pgHydratePromise) {
+    pgHydratePromise = (async () => {
+      const data = await pgLoadAll();
+      if (!data) {
+        pgHydrated = { ok: false, devices: 0, tickets: 0, audit: 0, admins: 0 };
+        return;
+      }
+      pgHydrating = true;
+      try {
+        const devices = getDeviceStore();
+        for (const [k, v] of data.devices) devices.set(k, v);
+        const tickets = getTicketStore();
+        for (const [k, v] of data.tickets) tickets.set(k, v);
+        const audit = getAuditStore();
+        for (const e of data.audit) audit.push(e);
+        const admins = getAdminStore();
+        for (const a of data.admins) if (!admins.includes(a)) admins.push(a);
+        pgHydrated = {
+          ok: true,
+          devices: data.devices.length,
+          tickets: data.tickets.length,
+          audit: data.audit.length,
+          admins: data.admins.length,
+        };
+      } finally {
+        pgHydrating = false;
+      }
+    })();
+  }
+  return pgHydratePromise;
+}
+
+/**
+ * Operator-visible PostgreSQL health. Reported by /api/admin/pg-status so a
+ * silent PG outage can never masquerade as durability. `configured` is false
+ * when AEGIS_PG_URL is unset (file-only mode); `reachable` is a live probe.
+ */
+export async function pgStatus(): Promise<{
+  configured: boolean;
+  reachable: boolean;
+  hydrated: boolean;
+  rows: { devices: number; tickets: number; audit: number; admins: number };
+  error?: string;
+}> {
+  const configured = pgEnabled();
+  const rows = {
+    devices: getDeviceStore().size,
+    tickets: getTicketStore().size,
+    audit: getAuditStore().length,
+    admins: getAdminStore().length,
+  };
+  if (!configured) {
+    return { configured, reachable: false, hydrated: false, rows };
+  }
+  const probe = await pgProbe();
+  return {
+    configured,
+    reachable: probe.ok,
+    hydrated: pgHydrated?.ok === true,
+    rows,
+    ...(probe.ok ? {} : { error: probe.error ?? 'unreachable' }),
+  };
 }

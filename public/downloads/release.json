@@ -1,8 +1,12 @@
 {
-  "release": "0.64.0",
+  "release": "0.65.0",
   "channel": "pilot",
-  "published_at": "2026-09-12T13:54:37+08:00",
+  "published_at": "2026-09-12T14:05:00+08:00",
   "features": [
+    "postgres_console_persistence",
+    "pg_health_probe",
+    "node_repl_approved_monitor",
+    "mcp_node_repl_allowlist",
     "client_0_31",
     "native_macos_pkg",
     "native_windows_exe",
