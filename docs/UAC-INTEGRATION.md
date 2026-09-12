@@ -90,3 +90,15 @@ UAC 解决**认证 (Authentication)**。授权/审计可叠加：
 
 ## 回退
 若 UAC 不可达，改 `AEGIS_AUTH_PROVIDER=local` 并重启即回本地密码登录，不影响已签发会话。
+
+
+## 反向代理交付（标准 nginx）
+生产反向代理标准交付为 **nginx**（非 Caddy）。配置见 `deploy/nginx/aegis.nginx.conf`：
+- 443 TLS → wrangler console (127.0.0.1:8787)
+- `/aegis/` → Collector (127.0.0.1:8931)，剥离前缀
+- 80 → 301 https（未备案域名 80 端口可能被云厂商拦截，用户直接走 https）
+- **必须** `proxy_set_header X-Forwarded-Proto https`：控制台 SSO redirect_uri 依赖它
+  （TLS 在 nginx 终止，后端 worker 否则看到 http origin）
+- 证书：Let's Encrypt，`/etc/nginx/ssl/tx.yjiod.com.{crt,key}`
+  （可从 Caddy 存储复制过渡，或 certbot 申请/续期）
+nginx<1.25.1 用 `listen 443 ssl http2;`；≥1.25.1 用 `http2 on;`。
