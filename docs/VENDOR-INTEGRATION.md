@@ -1,17 +1,22 @@
 # 厂商适配器集成指南
 
+> **厂商中立说明**：本文一律使用通用代称（厂商 EDR / 厂商桌管 / `vendor_edr` / `vendor_mdm`），
+> 不指向任何具体商用或开源产品，避免在公开仓库暴露现网安全栈。这些是**适配器角色**，
+> 经厂商中立契约 `aegis_4a_interface.py`（FourAInterface）绑定；每个部署在本地配置中
+> 把角色映射到自家实际产品（商用或开源均可），替换产品无需改核心代码。
+
 ## 架构概览
 
 ```
 终端 Agent → Collector (验证+存储) → Adapter Worker (派发) → 厂商 API
-                                          ├─ 深信服 EDR (事件响应)
-                                          ├─ 联软桌管 (合规姿态)
+                                          ├─ 厂商 EDR (事件响应)
+                                          ├─ 厂商桌管 (合规姿态)
                                           └─ Security Webhook (通用 SOC)
 ```
 
 Adapter Worker 从 Collector 的已验证报告生成最小厂商事件，以派发账本、稳定幂等键和有界失败队列连接各目标。各厂商相互隔离，单目标故障不影响其他。
 
-## 深信服 EDR 接口契约
+## 厂商 EDR 接口契约
 
 ### 现网版本 (2026-09-06 确认)
 
@@ -27,7 +32,7 @@ Adapter Worker 从 Collector 的已验证报告生成最小厂商事件，以派
 
 ### 6.x 系列 API 适配要点
 
-深信服 EDR 6.x 与 5.x 的主要差异：
+厂商 EDR 6.x 与 5.x 的主要差异：
 
 1. **API 基础路径**：6.x 使用 `/api/edr/open/v1/` 前缀（5.x 为 `/api/edr/v1/`）
 2. **鉴权方式**：6.x 支持 `Authorization: Bearer <token>` 和 HMAC 签名双模式；
@@ -83,19 +88,19 @@ Content-Type: application/json
 
 ### 接入步骤
 
-1. 向深信服 EDR 管理员申请服务账号 + API Token
+1. 向厂商 EDR 管理员申请服务账号 + API Token
 2. 确认现网 EDR 版本号（不同版本 API 路径可能不同）
 3. 确认 EDR 管理面 HTTPS 地址，加入 `allowed_hosts`
 4. 设置环境变量 `SANGFOR_EDR_TOKEN=<实际token>`
-5. 修改 `aegis-adapters.json` 中 `sangfor.enabled: true`
+5. 修改 `aegis-adapters.json` 中 `vendor_edr.enabled: true`
 6. 先用 `--dry-run` 验证配置，再正式启用
 
-## 联软桌管接口契约
+## 厂商桌管接口契约
 
 ### 请求
 
 ```
-POST https://{leagsoft-host}/api/aegis/posture
+POST https://{vendor_mdm-host}/api/aegis/posture
 Authorization: Bearer {LEAGSOFT_TOKEN}
 Content-Type: application/json
 
@@ -123,11 +128,11 @@ Content-Type: application/json
 
 ### 接入步骤
 
-1. 向联软桌管管理员申请 API 服务账号
-2. 确认联软 LeagView 版本及 API 端点路径
+1. 向厂商桌管管理员申请 API 服务账号
+2. 确认厂商桌管控制台 版本及 API 端点路径
 3. 确认 HTTPS 地址，加入 `allowed_hosts`
 4. 设置环境变量 `LEAGSOFT_TOKEN=<实际token>`
-5. 修改 `aegis-adapters.json` 中 `leagsoft.enabled: true`
+5. 修改 `aegis-adapters.json` 中 `vendor_mdm.enabled: true`
 6. 配置 `compliance.max_policy_age_hours` (默认 24h)
 
 ## Security Webhook (通用 SOC)
@@ -158,8 +163,8 @@ scripts/dev-collector.sh
 
 # 4. 配置适配器指向 mock (修改 aegis-adapters.json)
 #    allowed_hosts: ["127.0.0.1"]
-#    sangfor.url: "http://127.0.0.1:9443/api/aegis/events"
-#    leagsoft.url: "http://127.0.0.1:9443/api/aegis/posture"
+#    vendor_edr.url: "http://127.0.0.1:9443/api/aegis/events"
+#    vendor_mdm.url: "http://127.0.0.1:9443/api/aegis/posture"
 #    注意: 本地测试需设置 AEGIS_ADAPTER_ALLOW_HTTP=1
 
 # 5. 运行 Adapter Worker
@@ -183,10 +188,10 @@ curl http://127.0.0.1:9443/events | python3 -m json.tool
 
 ## 生产部署检查清单
 
-- [ ] 深信服 EDR 正式 API 路径、鉴权方式已确认
-- [ ] 联软桌管正式 API 端点、服务账号已申请
+- [ ] 厂商 EDR 正式 API 路径、鉴权方式已确认
+- [ ] 厂商桌管正式 API 端点、服务账号已申请
 - [ ] `allowed_hosts` 仅包含正式管理面域名
-- [ ] 环境变量通过 Intune/Secret Manager 注入，非明文
+- [ ] 环境变量通过 商用 MDM/Secret Manager 注入，非明文
 - [ ] Adapter Worker 以 systemd service 运行（见 aegis-adapter-worker.service）
 - [ ] 派发账本目录权限 700，定期备份
 - [ ] 监控：Adapter 健康检查 + 失败队列深度告警
