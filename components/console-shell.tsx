@@ -72,6 +72,7 @@ const navSections: NavSection[] = [
     gap: true,
     items: [
       { href: '/policies', label: '策略配置', icon: SlidersHorizontal },
+      { href: '/baselines', label: '基线管理', icon: Code2 },
       { href: '/audit', label: '审计日志', icon: ScrollText },
       { href: '/team', label: '团队与权限', icon: Users },
       { href: '/settings', label: '系统设置', icon: Settings },
@@ -97,7 +98,7 @@ export default function ConsoleShell({
 
   useEffect(() => {
     fetch('/api/tickets?limit=1', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => (r.ok ? (r.json() as Promise<Record<string, unknown>>) : null))
       .then((d) => { if (d && typeof d.total === 'number') setTicketCount(d.total); })
       .catch(() => setTicketCount(null));
   }, []);
