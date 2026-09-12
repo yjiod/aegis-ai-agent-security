@@ -28,6 +28,7 @@ export default function LoginPage() {
     if (err) {
       const map: Record<string, string> = {
         missing_uac_token: 'UAC 回跳未携带 token/rtoken',
+        not_authorized: '该工号不在管理员白名单，拒绝登录',
         uac_token_invalid: 'UAC token 校验失败',
         uac_not_configured: '服务端未配置 UAC',
         uac_unreachable: 'UAC 网关不可达',

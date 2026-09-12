@@ -18,7 +18,7 @@ export interface Session {
   role: Role;
 }
 
-function adminAllowlist(): Set<string> {
+export function adminAllowlist(): Set<string> {
   const raw = process.env.AEGIS_ADMIN_USERS ?? '';
   const set = new Set<string>(['admin']); // local admin always admin
   for (const part of raw.split(',')) {
