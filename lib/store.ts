@@ -18,6 +18,68 @@
  * Collector uses epoch seconds; convert at that boundary, not here.
  */
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+/* ------------------------------------------------------------------ *
+ * File-backed persistence (production durability on VPS)
+ *
+ * globalThis keeps state alive across module reloads inside ONE process, but
+ * a worker restart loses it. For production we mirror the stores to a JSON
+ * file on the VPS filesystem (node:fs is available under nodejs_compat).
+ * Set AEGIS_CONSOLE_STATE_FILE to override the path.
+ * ------------------------------------------------------------------ */
+const STATE_FILE =
+  process.env.AEGIS_CONSOLE_STATE_FILE || '/var/lib/aegis/console-state.json';
+
+interface PersistedState {
+  devices: [string, Device][];
+  tickets: [string, Ticket][];
+  audit: AuditEntry[];
+}
+
+function loadState(): PersistedState | null {
+  try {
+    if (!existsSync(STATE_FILE)) return null;
+    return JSON.parse(readFileSync(STATE_FILE, 'utf8')) as PersistedState;
+  } catch {
+    return null;
+  }
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+function saveState(): void {
+  // Debounce to avoid a write per mutation.
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      const state: PersistedState = {
+        devices: [...(globals.__aegis_devices ?? new Map())],
+        tickets: [...(globals.__aegis_tickets ?? new Map())],
+        audit: globals.__aegis_audit ?? [],
+      };
+      mkdirSync(dirname(STATE_FILE), { recursive: true });
+      writeFileSync(STATE_FILE, JSON.stringify(state), 'utf8');
+    } catch {
+      /* persistence is best-effort; in-memory remains authoritative */
+    }
+  }, 250);
+}
+
+/** A Map that persists to STATE_FILE on every mutation. */
+class PersistentMap<K, V> extends Map<K, V> {
+  override set(key: K, value: V): this {
+    super.set(key, value);
+    saveState();
+    return this;
+  }
+  override delete(key: K): boolean {
+    const r = super.delete(key);
+    if (r) saveState();
+    return r;
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Domain types
  * ------------------------------------------------------------------ */
@@ -557,25 +619,24 @@ export function seedTickets(): Ticket[] {
  * Store accessors (seed on first access)
  * ------------------------------------------------------------------ */
 
-/** The live device registry, seeded with six demo devices on first access. */
+/** The live device registry; loads persisted state, else empty. */
 export function getDeviceStore(): Map<string, Device> {
   const existing = globals.__aegis_devices;
   if (existing) return existing;
 
-  // Start EMPTY — real device data comes from the Collector.
-  // Console-side registry is only for manually registered devices.
-  const store = new Map<string, Device>();
+  const persisted = loadState();
+  const store = new PersistentMap<string, Device>(persisted?.devices ?? []);
   globals.__aegis_devices = store;
   return store;
 }
 
-/** The live ticket registry. Starts empty; tickets are created from real findings. */
+/** The live ticket registry; loads persisted state, else empty. */
 export function getTicketStore(): Map<string, Ticket> {
   const existing = globals.__aegis_tickets;
   if (existing) return existing;
 
-  // Start EMPTY — no fake demo tickets.
-  const store = new Map<string, Ticket>();
+  const persisted = loadState();
+  const store = new PersistentMap<string, Ticket>(persisted?.tickets ?? []);
   globals.__aegis_tickets = store;
   return store;
 }
@@ -703,7 +764,8 @@ export function getAuditStore(): AuditEntry[] {
   const existing = globals.__aegis_audit;
   if (existing) return existing;
 
-  const store: AuditEntry[] = [];
+  const persisted = loadState();
+  const store: AuditEntry[] = persisted?.audit ?? [];
   globals.__aegis_audit = store;
   return store;
 }
@@ -731,5 +793,6 @@ export function logAudit(
   // Drop oldest first once the cap is reached, keeping the trail bounded.
   if (store.length > MAX_AUDIT_ENTRIES)
     store.splice(0, store.length - MAX_AUDIT_ENTRIES);
+  saveState();
   return record;
 }
