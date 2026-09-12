@@ -15,7 +15,7 @@ export default function LoginPage() {
     fetch('/api/auth/providers', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d && d.oidc_enabled) setOidc({ enabled: true, url: d.authorize_url, label: d.idp_label || '统一身份登录' });
+        if (d && d.sso_enabled) setOidc({ enabled: true, url: d.authorize_url, label: d.idp_label || '统一身份登录' });
       })
       .catch(() => setOidc({ enabled: false, url: '', label: '统一身份登录' }));
   }, []);
