@@ -1,6 +1,6 @@
 {
   "schema": "aegis.production-acceptance/v3",
-  "release_version": "0.66.0",
+  "release_version": "0.67.0",
   "release_manifest_sha256": "REPLACE_WITH_RELEASE_MANIFEST_SHA256",
   "git_commit_sha": "REPLACE_WITH_40_CHARACTER_GIT_COMMIT_SHA",
   "site_version": 0,

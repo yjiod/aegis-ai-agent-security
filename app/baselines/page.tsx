@@ -38,8 +38,8 @@ export default function BaselinesPage() {
   const load = useCallback(async () => {
     try {
       const [b, m] = await Promise.all([
-        fetch('/api/baselines', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
-        fetch('/api/settings/scan-mode', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
+        fetch('/api/baselines', { cache: 'no-store' }).then((r) => (r.ok ? (r.json() as Promise<any>) : null)),
+        fetch('/api/settings/scan-mode', { cache: 'no-store' }).then((r) => (r.ok ? (r.json() as Promise<any>) : null)),
       ]);
       setItems(Array.isArray(b?.baselines) ? b.baselines : []);
       if (m?.scan_mode) setMode(m.scan_mode);

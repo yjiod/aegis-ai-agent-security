@@ -1,0 +1,47 @@
+# ARM lab 验证栈：Fleet(MDM/osquery) + Wazuh manager(EDR) + PacketFence 契约 mock(NAC)。
+# 真实 PacketFence 无 arm64 镜像，用 pf-contract-mock 验证适配器链路；真实准入待 x86/办公网。
+# 用法(lab 上): docker compose -f docker-compose.lab.yml up -d
+services:
+  fleet-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: fleet
+      MYSQL_USER: fleet
+      MYSQL_PASSWORD: fleet-validation-only
+      MYSQL_ROOT_PASSWORD: root-validation-only
+    volumes: ["fleet-db:/var/lib/mysql"]
+    deploy: { resources: { limits: { memory: 768m } } }
+    restart: unless-stopped
+
+  fleet:
+    image: fleetdm/fleet:latest
+    command: >
+      fleet serve --mysql_address=fleet-db:3306 --mysql_username=fleet
+      --mysql_password=fleet-validation-only --mysql_database=fleet
+      --server_address=0.0.0.0:8080 --server_tls=false --auth_jwt_key=validation-only-key
+    ports: ["18080:8080"]
+    depends_on: [fleet-db]
+    deploy: { resources: { limits: { memory: 768m } } }
+    restart: unless-stopped
+
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.9.0
+    environment:
+      API_USERNAME: aegis
+      API_PASSWORD: Wazuh-validation-123
+    ports: ["15500:55000", "1514:1514"]
+    deploy: { resources: { limits: { memory: 1536m } } }
+    restart: unless-stopped
+
+  pf-mock:
+    image: python:3.12-slim
+    environment:
+      VENDOR_NAC_TOKEN: mock-nac-token
+    command: python /mock/pf-contract-mock.py
+    volumes: ["./pf-contract-mock.py:/mock/pf-contract-mock.py:ro"]
+    ports: ["19999:9999"]
+    deploy: { resources: { limits: { memory: 128m } } }
+    restart: unless-stopped
+
+volumes:
+  fleet-db:

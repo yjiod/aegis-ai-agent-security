@@ -732,9 +732,8 @@ export default function DevicesPage() {
           {visibleDevices.map((device, index) => {
             const meta = STATUS_META[device.status] ?? STATUS_META.offline;
             const editing = editingId === device.device_id;
-            const findings = device.findings_summary;
             const openFindings = findings
-              ? findings.critical + findings.high + findings.medium + findings.low
+              ? (device.findings_summary?.critical ?? 0) + (device.findings_summary?.high ?? 0) + (device.findings_summary?.medium ?? 0) + (device.findings_summary?.low ?? 0)
               : 0;
             return (
               <Fragment key={device.device_id}>

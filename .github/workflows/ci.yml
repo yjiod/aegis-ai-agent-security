@@ -86,7 +86,7 @@ jobs:
         run: |
           status=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/)
           echo "console HTTP status: $status"
-          [ "$status" = "200" ]
+          [ "$status" = "200" ] || [ "$status" = "307" ]  # 未登录 307 跳 /login 属正常
       - name: Verify collector connection through /api/summary
         run: |
           curl -fsS http://127.0.0.1:3000/api/summary | tee /tmp/aegis-api-summary.json
