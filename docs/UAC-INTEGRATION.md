@@ -16,6 +16,12 @@ Aegis 控制台通过可插拔认证提供者对接传音企业身份。当前�
 1. 在传音开放平台创建应用，获取 **App ID** 和 **App Secret**。
 2. 申请接口访问权限及数据范围权限（校验 Token、获取用户信息）。
 
+### UAC 门户环境推导
+UAT 环境 = 二级域名末尾加 `uat`：
+- 生产门户: `https://pfuac.transsion.com/#/c-login`
+- UAT 门户:  `https://pfuacuac.transsion.com/#/c-login` （内网/VPN 可达）
+配置 `AEGIS_UAC_PORTAL` 指向对应环境门户。**UAT appId 必须配 UAT 门户**，否则门户报「APPID 无效」。
+
 ### 网关环境（对接指南 §一.1，务必用 `-intra-` 内网域名）
 | 环境 | 网关 |
 |------|------|
