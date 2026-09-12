@@ -105,3 +105,13 @@ UAC 解决**认证 (Authentication)**。授权/审计可叠加：
 - 证书：Let's Encrypt，`/etc/nginx/ssl/tx.yjiod.com.{crt,key}`
   （可从 Caddy 存储复制过渡，或 certbot 申请/续期）
 nginx<1.25.1 用 `listen 443 ssl http2;`；≥1.25.1 用 `http2 on;`。
+
+
+## 控制台状态持久化
+控制台侧状态（设备 owner 覆盖 / 手动工单 / 审计）默认挂 `globalThis`（单进程内跨请求存活）。
+- `lib/store.ts` 含 best-effort 文件持久化（node:fs → AEGIS_CONSOLE_STATE_FILE）。
+  **注意**: wrangler-dev(miniflare) 虚拟 fs 下不落盘，VPS 演示态重启会重置。
+- 真实生产部署到 Cloudflare Workers 时改用 **D1**：`lib/d1-store.ts` 已实现
+  d1ListDevices/d1CreateDevice/d1ListAudit/d1LogAudit 等，配合 `migrations/0001_init.sql`
+  （devices/tickets/ticket_history/audit_log 四表）。配置 d1_databases binding 后路由切到 D1 即持久。
+- Collector 侧报告/设备数据本就存 SQLite（/var/lib/aegis/aegis-collector.db），重启不丢。
