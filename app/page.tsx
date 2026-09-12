@@ -530,6 +530,8 @@ function DetailPanel({
                 <a href="/downloads/ENTERPRISE-4A-INTEGRATION.md" download>企业 4A 接入指南</a>
                 <a href="/downloads/ENTERPRISE-INTEGRATION-CONTRACT.md" download>统一身份 / 4A 能力契约</a>
                 <a href="/downloads/sentinel_4a_interface.py" download>厂商中立接口定义</a>
+                <a href="/downloads/sentinel-integration-providers.example.json" download>企业能力注册表示例</a>
+                <a href="/downloads/sentinel_integration_registry.py" download>企业能力准入校验器</a>
                 <a href="/downloads/sentinel_4a_probe.py" download>企业 4A 验收探针</a>
                 <a href="/downloads/deployment-platform-evidence.example.json" download>通用部署验收模板</a>
                 <a href="/downloads/sentinel_deployment_preflight.py" download>通用部署预检</a>

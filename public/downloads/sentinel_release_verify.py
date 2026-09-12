@@ -19,7 +19,7 @@ BUNDLE_FILES=(
     "sentinel-adapters.example.json","sentinel_release_verify.py","sentinel_collector_backup.py","sentinel_collector_restore.py","sentinel_4a_probe.py","sentinel_vendor_probe.py","sentinel_vendor_evidence_sign.py","sentinel_vendor_keyring.py","sentinel_production_preflight.py","sentinel_production_evidence_prepare.py","sentinel_production_evidence_sign.py","sentinel_production_keyring.py","production-acceptance-evidence.example.json",
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf","sentinel_collector_maintenance.py","sentinel-collector-maintenance.service","sentinel-collector-maintenance.timer",
     "sentinel-rule-sources.json","sentinel_rule_updater.py","sentinel-rule-update.service","sentinel-rule-update.timer",
-    "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example","sentinel_4a_interface.py","sentinel_4a_receiver.py","sentinel-4a-receiver.service",
+    "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example","sentinel_4a_interface.py","sentinel_integration_registry.py","sentinel-integration-providers.example.json","sentinel-integration-registry.conf","sentinel_4a_receiver.py","sentinel-4a-receiver.service",
     "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","sentinel_deployment_preflight.py","deployment-platform-evidence.example.json","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","sentinel_intune_graph_normalize.py","intune-rollout-evidence.example.json","intune-device-export.example.json","intune-graph-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel-enterprise-4a.openapi.json","ENTERPRISE-4A-INTEGRATION.md","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
 )
 RELEASE_MANIFEST_FILES=tuple(name for name in BUNDLE_FILES if name!="RELEASE-MANIFEST.sha256")
@@ -92,6 +92,14 @@ def verify(downloads):
         if directive not in integration_contract: errors.append(f"incomplete_enterprise_integration_contract:{directive}")
     for directive in ("sentinel.integration/v1","IDENTITY_AUTHENTICATION","SOFTWARE_DISTRIBUTION","CONTAINMENT_REQUEST","privileged_capability_requires_approval","missing_capabilities"):
         if directive not in integration_interface: errors.append(f"unsafe_enterprise_integration_interface:{directive}")
+    try: registry_source=(downloads/"sentinel_integration_registry.py").read_text(encoding="utf-8"); registry_example=json.loads((downloads/"sentinel-integration-providers.example.json").read_text(encoding="utf-8"))
+    except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_integration_registry:{type(exc).__name__}"); registry_source=""; registry_example={}
+    for directive in ("sentinel.integration-registry/v1","oauth2_client_credentials","mtls","unsafe_endpoint","credential_env","approval_enforced"):
+        if directive not in registry_source: errors.append(f"unsafe_integration_registry:{directive}")
+    if registry_example.get("schema")!="sentinel.integration-registry/v1" or not isinstance(registry_example.get("providers"),list) or len(registry_example["providers"])<2: errors.append("invalid_integration_registry_example")
+    try: registry_dropin=(downloads/"sentinel-integration-registry.conf").read_text(encoding="utf-8")
+    except (OSError,UnicodeError) as exc: errors.append(f"invalid_integration_registry_dropin:{type(exc).__name__}"); registry_dropin=""
+    if registry_dropin!="[Service]\nExecStartPre=/usr/bin/python3 /opt/sentinel/sentinel_integration_registry.py /etc/sentinel/integration-providers.json\n": errors.append("unsafe_integration_registry_dropin")
     if not isinstance(patterns,list): errors.append("invalid_secret_patterns_type")
     else:
         for index,pattern in enumerate(patterns):

@@ -27,3 +27,5 @@ Sentinel 不假设“4A”是一套固定产品。企业可以把认证、账号
 ## 适配器准入
 
 适配器必须通过：精确 HTTPS 主机、凭据不入 URL、最小事件、幂等、超时/重试、敏感字段最小化、审批边界、审计关联、失效关闭和回滚测试。缺少所需能力时由核心拒绝启用，而不是猜测产品行为。
+
+生产服务器使用 `sentinel_integration_registry.py` 校验 `/etc/sentinel/integration-providers.json`。适配器服务通过 `sentinel-integration-registry.conf` 在启动前执行校验；注册表格式错误、端点不安全、能力未知或特权能力未声明审批时，适配器不得启动。

@@ -1,0 +1,21 @@
+{
+  "schema": "sentinel.integration-registry/v1",
+  "providers": [
+    {
+      "provider_id": "enterprise-identity-4a",
+      "enabled": false,
+      "endpoint_url": "https://identity.example.internal/sentinel/v1/events",
+      "auth": {"scheme": "oauth2_client_credentials", "credential_env": "SENTINEL_IDENTITY_4A_CREDENTIAL"},
+      "capabilities": ["identity.authentication", "identity.resolution", "authorization.decision", "authorization.access_review", "audit.accounting", "device.posture"],
+      "approval_enforced": true
+    },
+    {
+      "provider_id": "enterprise-endpoint-distribution",
+      "enabled": false,
+      "endpoint_url": "https://endpoint.example.internal/sentinel/v1/deployments",
+      "auth": {"scheme": "mtls", "credential_env": "SENTINEL_ENDPOINT_MTLS_IDENTITY"},
+      "capabilities": ["device.policy_distribution", "device.software_distribution"],
+      "approval_enforced": true
+    }
+  ]
+}
