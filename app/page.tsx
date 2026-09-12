@@ -1,176 +1,142 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+
+/**
+ * Dashboard (生产实时数据版).
+ *
+ * 本页所有数字均来自真实数据源, 不再有硬编码演示值:
+ *  - 顶部指标卡  : useCollector() -> /api/summary (接收器实时汇总); 未连接时显示 0, 不造假。
+ *  - 终端覆盖    : /api/devices 按 agent_type 聚合 在线/总数。
+ *  - 风险事件    : /api/tickets 取待处置工单(按时间倒序)。
+ *  - 版本姿态    : /api/summary 的 version_posture 真实分类计数。
+ *  - 近期动态    : /api/audit 真实审计条目。
+ * 无数据时显示空状态, 绝不展示虚构数字。
+ */
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
-  ArrowDownRight,
-  ArrowUpRight,
-  Bot,
-  Check,
-  ChevronDown,
-  Code2,
-  Cpu,
   Laptop,
-  Network,
-  Play,
-  RefreshCw,
+  Bot,
+  AlertTriangle,
   ShieldCheck,
+  ChevronDown,
+  Play,
+  Check,
   Sparkles,
+  Network,
+  Code2,
   TrendingUp,
+  Activity,
+  ScanLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import {
-  AreaChart,
-  Area,
-  RadialBarChart,
-  RadialBar,
-  PolarAngleAxis,
-  ResponsiveContainer,
-} from 'recharts';
-import { useCollector } from '@/components/collector-context';
 import { Toast } from '@/components/toast';
+import { useCollector } from '@/components/collector-context';
 
-/* ─── Animated Number Hook ─────────────────────────────────────────────── */
-function useAnimatedNumber(target: number, duration = 800): number {
+/* ─── Animated number ──────────────────────────────────────────────────── */
+function useAnimatedNumber(target: number) {
   const [value, setValue] = useState(0);
-  const startTime = useRef<number | null>(null);
-  const raf = useRef<number>(0);
-
+  const raf = useRef(0);
   useEffect(() => {
-    startTime.current = null;
-    const easeOutExpo = (t: number) => (t === 1 ? 1 : 1 - Math.pow(2, -10 * t));
-    function step(ts: number) {
-      if (startTime.current === null) startTime.current = ts;
-      const elapsed = ts - startTime.current;
-      const progress = Math.min(elapsed / duration, 1);
-      setValue(Math.round(easeOutExpo(progress) * target));
-      if (progress < 1) raf.current = requestAnimationFrame(step);
-    }
-    raf.current = requestAnimationFrame(step);
+    const from = value;
+    const start = performance.now();
+    const dur = 700;
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / dur);
+      setValue(Math.round(from + (target - from) * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf.current);
-  }, [target, duration]);
-
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target]);
   return value;
 }
 
-/* ─── Demo Data ────────────────────────────────────────────────────────── */
-const sparkDevices = [280, 295, 310, 305, 312, 308, 312];
-const sparkCoverage = [91.2, 92.4, 93.1, 94.0, 95.2, 96.1, 96.8];
-const sparkRisk = [18, 16, 15, 14, 13, 12, 12];
-const sparkDrift = [22, 19, 17, 15, 13, 11, 10];
+/* ─── 展示映射(仅标签/样式, 不含任何虚构数值) ─────────────────────────── */
+const AGENT_LABEL: Record<string, string> = {
+  cursor: 'Cursor',
+  claude_code: 'Claude Code',
+  codex_cli: 'Codex CLI',
+  windsurf: 'Windsurf',
+  gemini_cli: 'Gemini CLI',
+  github_copilot_cli: 'GitHub Copilot',
+  qwen_enterprise: 'Qwen 企业版',
+  tongyi_lingma: '通义灵码',
+  codebuddy: 'CodeBuddy',
+  workbuddy: 'WorkBuddy',
+  other: '其他',
+};
 
-const coverageTrends: { name: string; total: number; online: number; delta: number }[] = [
-  { name: 'Cursor', total: 124, online: 100, delta: 3.2 },
-  { name: 'Claude Code', total: 86, online: 78, delta: 5.1 },
-  { name: 'Codex CLI', total: 64, online: 58, delta: -1.4 },
-  { name: 'Windsurf', total: 38, online: 34, delta: 2.8 },
-];
+const SEVERITY_META: Record<string, { label: string; color: string }> = {
+  critical: { label: '严重', color: 'red' },
+  high: { label: '高危', color: 'red' },
+  medium: { label: '中危', color: 'orange' },
+  low: { label: '低危', color: 'blue' },
+};
 
-const radialScoreData = [
-  { name: '综合评分', value: 92, fill: '#49e8a5' },
-  { name: '配置合规', value: 98, fill: '#37c48c' },
-  { name: 'Agent 行为', value: 94, fill: '#2fae7c' },
-  { name: '代码安全', value: 87, fill: '#28976c' },
-];
+const AUDIT_VERB: Record<string, string> = {
+  'device:create': '终端注册',
+  'device:update': '终端更新',
+  'device:delete': '终端移除',
+  'ticket:create': '工单创建',
+  'ticket:transition': '工单流转',
+  'ticket:assign': '工单指派',
+  'policy:publish': '策略发布',
+  'admin:add': '管理员添加',
+  'admin:remove': '管理员移除',
+};
 
-const scoreData = [
-  { name: '配置合规', value: 98, fill: '#49e8a5' },
-  { name: 'Agent 行为', value: 94, fill: '#49e8a5' },
-  { name: '代码安全', value: 87, fill: '#49e8a5' },
-];
+function relTime(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s} 秒前`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} 小时前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
 
-const activityTimeline = [
-  { time: '14:32', icon: Laptop, label: '新设备接入', desc: 'ENG-LT-1205 完成注册并通过基线校验' },
-  { time: '13:58', icon: RefreshCw, label: '策略同步完成', desc: 'v4.8 基线已推送至 312 台在线终端' },
-  { time: '12:45', icon: ShieldCheck, label: '高危事件已处置', desc: 'MCP 越权访问已隔离，工单 #R-2841 关闭' },
-  { time: '11:20', icon: Code2, label: '基线更新推送', desc: 'SEC-DEP-04 规则阈值调整为 critical 阻断' },
-  { time: '10:05', icon: Cpu, label: 'Agent 版本升级', desc: 'Endpoint Agent 0.30.0 → 0.30.1 灰度 15%' },
-];
+/* ─── 轻量数据类型(仅本页展示所需字段) ────────────────────────────────── */
+interface DeviceLite {
+  device_id: string;
+  agent_type?: string;
+  status?: string;
+}
+interface TicketLite {
+  ticket_id: string;
+  title: string;
+  severity: string;
+  status: string;
+  device_id?: string;
+  created_at: number;
+}
+interface AuditLite {
+  id: number;
+  timestamp: number;
+  actor: string;
+  action: string;
+  resource_type?: string;
+  detail?: string;
+}
 
+/* ─── 防护能力(功能描述, 非指标) ──────────────────────────────────────── */
 const modules = [
-  {
-    icon: ShieldCheck,
-    title: '安全编码基线',
-    desc: '企业规则基线 · v4.8',
-    status: '已打包',
-    tone: 'green',
-  },
-  {
-    icon: Sparkles,
-    title: 'Skill 扫描器',
-    desc: '权限、指令与依赖',
-    status: '已打包',
-    tone: 'blue',
-  },
-  {
-    icon: Network,
-    title: 'MCP 扫描器',
-    desc: '工具、密钥与外联',
-    status: '已启用',
-    tone: 'green',
-  },
-  {
-    icon: Code2,
-    title: '代码质量扫描',
-    desc: 'SAST、依赖与密钥',
-    status: '已启用',
-    tone: 'green',
-  },
-];
-const risks = [
-  {
-    severity: '高危',
-    title: 'MCP Server 请求了未授权文件目录',
-    source: 'cursor-mcp-filesystem',
-    device: 'MKT-LT-2841',
-    time: '2 分钟前',
-    color: 'red',
-  },
-  {
-    severity: '中危',
-    title: 'Skill 包含可疑的隐藏指令覆盖',
-    source: 'prompt-helper.skill',
-    device: 'ENG-MBP-1032',
-    time: '18 分钟前',
-    color: 'orange',
-  },
-  {
-    severity: '中危',
-    title: '生成代码使用弱随机数创建会话令牌',
-    source: 'payment-service / PR #184',
-    device: 'ENG-LT-0948',
-    time: '31 分钟前',
-    color: 'orange',
-  },
+  { icon: ScanLine, title: '终端 Agent 发现', desc: '清点已安装的 AI 编码工具', status: '已启用', tone: 'green' },
+  { icon: Sparkles, title: 'Skill 扫描器', desc: '权限、指令与依赖', status: '已打包', tone: 'blue' },
+  { icon: Network, title: 'MCP 扫描器', desc: '工具、密钥与外联', status: '已启用', tone: 'green' },
+  { icon: Code2, title: '代码质量扫描', desc: 'SAST、依赖与密钥', status: '已启用', tone: 'green' },
 ];
 
-/* ─── Sparkline Component ──────────────────────────────────────────────── */
-function Sparkline({ data, color = '#49e8a5' }: { data: number[]; color?: string }) {
-  const chartData = data.map((v, i) => ({ x: i, y: v }));
-  return (
-    <div className="sparkline-wrap">
-      <ResponsiveContainer width="100%" height={40}>
-        <AreaChart data={chartData} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-          <defs>
-            <linearGradient id={`spark-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.25} />
-              <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-            </linearGradient>
-          </defs>
-          <Area
-            type="monotone"
-            dataKey="y"
-            stroke={color}
-            strokeWidth={1.5}
-            fill={`url(#spark-${color.replace('#', '')})`}
-            dot={false}
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
+/* ─── Typed fetch helper (avoids untyped r.json() '{}') ───────────────── */
+async function getJson<T>(url: string): Promise<T | null> {
+  try {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return null;
+    return (await r.json()) as T;
+  } catch {
+    return null;
+  }
 }
 
 /* ─── Overview Page ────────────────────────────────────────────────────── */
@@ -178,26 +144,75 @@ export default function Home() {
   const [toast, setToast] = useState('');
   const { fleet } = useCollector();
 
+  const [devices, setDevices] = useState<DeviceLite[] | null>(null);
+  const [tickets, setTickets] = useState<TicketLite[] | null>(null);
+  const [audit, setAudit] = useState<AuditLite[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getJson<{ devices?: DeviceLite[] }>('/api/devices?limit=2000').then((d) => {
+      if (alive) setDevices(Array.isArray(d?.devices) ? (d.devices as DeviceLite[]) : []);
+    });
+    getJson<{ tickets?: TicketLite[] }>('/api/tickets?limit=6').then((d) => {
+      if (alive) setTickets(Array.isArray(d?.tickets) ? (d.tickets as TicketLite[]) : []);
+    });
+    getJson<{ entries?: AuditLite[] }>('/api/audit?limit=6').then((d) => {
+      if (alive) setAudit(Array.isArray(d?.entries) ? (d.entries as AuditLite[]) : []);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   function runScan() {
     setToast('当前为实时数据，尚未连接任务下发 API；未对任何终端执行操作。');
   }
 
-  const totalDevices = fleet?.total_devices ?? 312;
-  const activeDevices = fleet?.active_devices ?? 284;
-  const staleDevices = fleet?.stale_devices ?? 28;
-  const currentDevices = fleet?.version_posture.current ?? 302;
+  /* 真实指标: 未连接接收器时为 0, 不使用任何虚构回退值 */
+  const totalDevices = fleet?.total_devices ?? 0;
+  const activeDevices = fleet?.active_devices ?? 0;
+  const staleDevices = fleet?.stale_devices ?? 0;
+  const currentDevices = fleet?.version_posture?.current ?? 0;
   const coverage = totalDevices ? (currentDevices / totalDevices) * 100 : 0;
-  const highRiskDevices = fleet ? fleet.latest_severity.critical + fleet.latest_severity.high : 12;
-  const driftDevices = fleet ? totalDevices - currentDevices : 10;
+  const highRiskDevices = fleet ? fleet.latest_severity.critical + fleet.latest_severity.high : 0;
+  const driftDevices = fleet ? totalDevices - currentDevices : 0;
 
   const animDevices = useAnimatedNumber(totalDevices);
   const animCoverage = useAnimatedNumber(Math.round(coverage * 10));
   const animRisk = useAnimatedNumber(highRiskDevices);
   const animDrift = useAnimatedNumber(driftDevices);
 
+  /* 真实分工具覆盖: 由 /api/devices 按 agent_type 聚合 */
+  const toolCoverage = useMemo(() => {
+    const map = new Map<string, { total: number; online: number }>();
+    for (const d of devices ?? []) {
+      const key = d.agent_type || 'other';
+      const entry = map.get(key) ?? { total: 0, online: 0 };
+      entry.total += 1;
+      if (d.status === 'online') entry.online += 1;
+      map.set(key, entry);
+    }
+    return [...map.entries()]
+      .map(([type, v]) => ({ type, ...v }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+  }, [devices]);
+
+  /* 真实待处置风险: 开放态工单按时间倒序 */
+  const openTickets = useMemo(
+    () =>
+      (tickets ?? [])
+        .filter((t) => ['open', 'acknowledged', 'investigating'].includes(t.status))
+        .sort((a, b) => b.created_at - a.created_at)
+        .slice(0, 5),
+    [tickets],
+  );
+
+  /* 真实版本姿态 */
+  const posture = fleet?.version_posture;
+
   return (
     <>
-      
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">安全态势 / 实时数据</p>
@@ -217,54 +232,49 @@ export default function Home() {
       </div>
       <Toast message={toast} />
 
-      {/* ─── Metric Cards with Sparklines ──────────────────────────── */}
+      {/* ─── Metric Cards (real fleet summary; 0 when disconnected) ─── */}
       <div className="metrics">
         <article className="metric animate-entrance animate-entrance-1">
           <div className="metric-top">
-            <span>已纳管设备{fleet ? '' : ''}</span>
+            <span>已纳管设备</span>
             <Laptop size={18} />
           </div>
           <strong>{animDevices}</strong>
           <p>
             <em>{activeDevices}</em> 活跃 · {staleDevices} 过期
           </p>
-          <Sparkline data={sparkDevices} />
         </article>
         <article className="metric animate-entrance animate-entrance-2">
           <div className="metric-top">
-            <span>当前版本覆盖率{fleet ? '' : ''}</span>
+            <span>当前版本覆盖率</span>
             <Bot size={18} />
           </div>
           <strong>
-            {(animCoverage / 10).toFixed(1)}<small>%</small>
+            {(animCoverage / 10).toFixed(1)}
+            <small>%</small>
           </strong>
           <Progress value={coverage} />
           <p>
             当前版本设备 <em>{currentDevices}</em> 台
           </p>
-          <Sparkline data={sparkCoverage} />
         </article>
         <article className="metric danger animate-entrance animate-entrance-3">
           <div className="metric-top">
-            <span>高风险设备{fleet ? '' : ''}</span>
+            <span>高风险设备</span>
             <AlertTriangle size={18} />
           </div>
           <strong>{animRisk}</strong>
           <p>
-            <i>{fleet?.latest_severity.critical ?? 3} 严重</i> · {fleet?.latest_severity.high ?? 9} 高危
+            <i>{fleet?.latest_severity?.critical ?? 0} 严重</i> · {fleet?.latest_severity?.high ?? 0} 高危
           </p>
-          <Sparkline data={sparkRisk} color="#ff685f" />
         </article>
         <article className="metric animate-entrance animate-entrance-4">
           <div className="metric-top">
-            <span>版本漂移设备{fleet ? '' : ''}</span>
+            <span>版本漂移设备</span>
             <ShieldCheck size={18} />
           </div>
           <strong>{animDrift}</strong>
-          <p>
-            Agent 或策略版本不一致
-          </p>
-          <Sparkline data={sparkDrift} />
+          <p>Agent 或策略版本不一致</p>
         </article>
       </div>
 
@@ -312,124 +322,120 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ─── Coverage Panel with Trend Indicators ─────────────────── */}
+        {/* ─── Coverage Panel (real per-agent from /api/devices) ───── */}
         <section className="panel coverage animate-entrance animate-entrance-6">
           <div className="panel-head">
             <div>
               <h2>终端覆盖</h2>
               <p>按 Agent 工具</p>
             </div>
-            <button>查看全部</button>
+            <a href="/devices">查看全部</a>
           </div>
-          {coverageTrends.map(({ name, total, online, delta }) => (
-            <div className="coverage-row" key={name}>
-              <div className="tool-logo">{name.slice(0, 1)}</div>
-              <div className="coverage-data">
-                <div>
-                  <strong>{name}</strong>
-                  <span>
-                    {online}/{total} 在线
-                  </span>
-                  <span className={`trend-badge ${delta >= 0 ? 'up' : 'down'}`}>
-                    {delta >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                    {Math.abs(delta)}%
-                  </span>
+          {devices === null ? (
+            <p className="empty-hint">加载终端数据…</p>
+          ) : toolCoverage.length === 0 ? (
+            <p className="empty-hint">暂无纳管终端；Agent 上报后此处按工具显示在线覆盖。</p>
+          ) : (
+            toolCoverage.map(({ type, total, online }) => (
+              <div className="coverage-row" key={type}>
+                <div className="tool-logo">{(AGENT_LABEL[type] ?? type).slice(0, 1)}</div>
+                <div className="coverage-data">
+                  <div>
+                    <strong>{AGENT_LABEL[type] ?? type}</strong>
+                    <span>
+                      {online}/{total} 在线
+                    </span>
+                    <span className="trend-badge up">{total ? Math.round((online / total) * 100) : 0}%</span>
+                  </div>
+                  <Progress value={total ? (online / total) * 100 : 0} />
                 </div>
-                <Progress value={(online / total) * 100} />
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </section>
 
+        {/* ─── Risks Panel (real open tickets) ─────────────────────── */}
         <section className="panel risks animate-entrance animate-entrance-7" id="risks">
           <div className="panel-head">
             <div>
               <h2>风险事件实时</h2>
               <p>按风险等级与时间排序</p>
             </div>
-            <button>进入风险中心 →</button>
+            <a href="/risks">进入风险中心 →</a>
           </div>
           <div className="risk-table">
-            {risks.map((r) => (
-              <div className="risk-row" key={r.title}>
-                <span className={`severity ${r.color}`}>{r.severity}</span>
-                <div className="risk-main">
-                  <strong>{r.title}</strong>
-                  <span>{r.source}</span>
-                </div>
-                <span className="device">{r.device}</span>
-                <span className="time">{r.time}</span>
-                <button
-                  className="handle"
-                  onClick={() => setToast(`已打开「${r.title}」处置详情。`)}
-                >
-                  处置
-                </button>
-              </div>
-            ))}
+            {tickets === null ? (
+              <p className="empty-hint">加载风险事件…</p>
+            ) : openTickets.length === 0 ? (
+              <p className="empty-hint">暂无待处置风险事件；新的上报会自动进入该队列。</p>
+            ) : (
+              openTickets.map((t) => {
+                const meta = SEVERITY_META[t.severity] ?? { label: t.severity, color: 'orange' };
+                return (
+                  <div className="risk-row" key={t.ticket_id}>
+                    <span className={`severity ${meta.color}`}>{meta.label}</span>
+                    <div className="risk-main">
+                      <strong>{t.title}</strong>
+                      <span>{t.ticket_id}</span>
+                    </div>
+                    <span className="device">{t.device_id || '—'}</span>
+                    <span className="time">{relTime(t.created_at)}</span>
+                    <a className="handle" href="/risks">
+                      处置
+                    </a>
+                  </div>
+                );
+              })
+            )}
           </div>
         </section>
 
-        {/* ─── Score Panel with RadialBarChart ────────────────────── */}
+        {/* ─── Version Posture Panel (real summary counts) ─────────── */}
         <section className="panel score animate-entrance animate-entrance-7">
           <div className="panel-head">
             <div>
-              <h2>安全评分</h2>
-              <p>企业基线综合得分</p>
+              <h2>版本姿态</h2>
+              <p>接收器实时版本分类</p>
             </div>
           </div>
           <div className="score-body">
-            <div className="score-ring-chart">
-              <ResponsiveContainer width={180} height={180}>
-                <RadialBarChart
-                  cx="50%"
-                  cy="50%"
-                  innerRadius="30%"
-                  outerRadius="95%"
-                  barSize={10}
-                  data={radialScoreData}
-                  startAngle={90}
-                  endAngle={-270}
-                >
-                  <PolarAngleAxis
-                    type="number"
-                    domain={[0, 100]}
-                    angleAxisId={0}
-                    tick={false}
-                    axisLine={false}
-                  />
-                  <RadialBar
-                    background={{ fill: '#1a2e28' }}
-                    dataKey="value"
-                    cornerRadius={6}
-                    angleAxisId={0}
-                  />
-                </RadialBarChart>
-              </ResponsiveContainer>
-              <div className="score-center-text">
-                <strong>92</strong>
-                <span>/ 100</span>
-              </div>
-            </div>
-            <div className="score-list">
-              {scoreData.map((item) => (
-                <p key={item.name}>
-                  <span className="score-dot" style={{ background: item.fill }} />
-                  <span>{item.name}</span>
-                  <b>{item.value}</b>
-                </p>
-              ))}
+            <div className="score-list" style={{ width: '100%' }}>
+              <p>
+                <span className="score-dot" style={{ background: '#49e8a5' }} />
+                <span>当前版本</span>
+                <b>{posture?.current ?? 0}</b>
+              </p>
+              <p>
+                <span className="score-dot" style={{ background: '#ffb454' }} />
+                <span>Agent 版本不一致</span>
+                <b>{posture?.agent_mismatch ?? 0}</b>
+              </p>
+              <p>
+                <span className="score-dot" style={{ background: '#ff8f6b' }} />
+                <span>策略版本不一致</span>
+                <b>{posture?.policy_mismatch ?? 0}</b>
+              </p>
+              <p>
+                <span className="score-dot" style={{ background: '#ff685f' }} />
+                <span>两者均不一致</span>
+                <b>{posture?.both_mismatch ?? 0}</b>
+              </p>
+              <p>
+                <span className="score-dot" style={{ background: '#8a9a94' }} />
+                <span>未知</span>
+                <b>{posture?.unknown ?? 0}</b>
+              </p>
             </div>
           </div>
         </section>
       </div>
 
-      {/* ─── Recent Activity Timeline ──────────────────────────────── */}
+      {/* ─── Recent Activity Timeline (real audit entries) ─────────── */}
       <section className="panel activity-timeline animate-entrance animate-entrance-7">
         <div className="panel-head">
           <div>
             <h2>近期动态</h2>
-            <p>最近 24 小时安全事件与操作</p>
+            <p>最近的安全事件与操作</p>
           </div>
           <Badge variant="outline">
             <TrendingUp size={13} />
@@ -437,30 +443,36 @@ export default function Home() {
           </Badge>
         </div>
         <div className="timeline">
-          {activityTimeline.map((event, idx) => {
-            const Icon = event.icon;
-            return (
+          {audit === null ? (
+            <p className="empty-hint">加载动态…</p>
+          ) : audit.length === 0 ? (
+            <p className="empty-hint">暂无动态；治理操作与终端上报会实时记录在此。</p>
+          ) : (
+            audit.map((event, idx) => (
               <div
                 className="timeline-item animate-entrance"
-                key={idx}
+                key={event.id}
                 style={{ animationDelay: `${idx * 80 + 500}ms` }}
               >
                 <div className="timeline-marker">
                   <span className="timeline-dot">
-                    <Icon size={12} />
+                    <Activity size={12} />
                   </span>
-                  {idx < activityTimeline.length - 1 && <span className="timeline-line" />}
+                  {idx < audit.length - 1 && <span className="timeline-line" />}
                 </div>
                 <div className="timeline-content">
                   <div className="timeline-header">
-                    <strong>{event.label}</strong>
-                    <span className="timeline-time">{event.time}</span>
+                    <strong>{AUDIT_VERB[event.action] ?? event.action}</strong>
+                    <span className="timeline-time">{relTime(event.timestamp)}</span>
                   </div>
-                  <p>{event.desc}</p>
+                  <p>
+                    {event.actor}
+                    {event.detail ? ` · ${event.detail}` : ''}
+                  </p>
                 </div>
               </div>
-            );
-          })}
+            ))
+          )}
         </div>
       </section>
     </>
