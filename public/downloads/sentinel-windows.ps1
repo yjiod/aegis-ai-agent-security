@@ -15,6 +15,19 @@ $roots = @()
 $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $baselinePath = Join-Path $installDir 'sentinel-security-baseline.md'
 $policyPath = Join-Path $installDir 'sentinel-policy.json'
+$policySyncFailed=$false
+if($reportConfig -and $ReportUrl){
+  try{
+    $reportUri=[Uri]$ReportUrl;$policyUri=[Uri]::new($reportUri.GetLeftPart([UriPartial]::Authority)+'/v1/policy');$headers=@{Authorization='Bearer '+[string]$reportConfig.report_token;Accept='application/json'}
+    $response=Invoke-WebRequest -UseBasicParsing -Uri $policyUri.AbsoluteUri -Method Get -Headers $headers -TimeoutSec 15 -MaximumRedirection 0
+    $bytes=[Text.Encoding]::UTF8.GetBytes([string]$response.Content);if($response.StatusCode -ne 200 -or $bytes.Length -gt 2000000){throw 'invalid policy response'}
+    $sha256=[Security.Cryptography.SHA256]::Create();try{$actual=([BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace('-','').ToLower()}finally{$sha256.Dispose()}
+    if(([string]$response.Headers['X-Sentinel-Policy-SHA256']) -cne $actual){throw 'policy digest mismatch'}
+    $remote=([string]$response.Content)|ConvertFrom-Json;if($remote.schema -cne 'sentinel.policy/v1' -or -not ([string]$remote.version)){throw 'invalid remote policy'}
+    $local=Get-Content $policyPath -Raw|ConvertFrom-Json;if(([version]$remote.version) -lt ([version]$local.version)){throw 'policy downgrade rejected'}
+    if(([version]$remote.version) -gt ([version]$local.version)){$temp=$policyPath+'.'+[Guid]::NewGuid().ToString('N')+'.tmp';try{[IO.File]::WriteAllBytes($temp,$bytes);Move-Item -LiteralPath $temp -Destination $policyPath -Force}finally{Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}}
+  }catch{$policySyncFailed=$true}
+}
 $policy=$null;$policyInvalid=$false
 try {
   if(-not (Test-Path $policyPath)){throw 'missing policy'}
@@ -27,6 +40,13 @@ try {
   }
   foreach($invocation in @($candidate.allowed_mcp_invocations)){if($invocation -isnot [System.Array] -or @($invocation).Count -lt 2 -or @($invocation|Where-Object{-not ($_ -is [string]) -or -not $_}).Count){throw 'invalid MCP invocation policy'}}
   foreach($secretPattern in @($candidate.secret_patterns)){$null=[regex]::new([string]$secretPattern,[Text.RegularExpressions.RegexOptions]::None,[TimeSpan]::FromMilliseconds(250))}
+  if($null -ne $candidate.custom_rules -and $candidate.custom_rules -isnot [System.Array]){throw 'invalid custom rules'}
+  if(@($candidate.custom_rules).Count -gt 500){throw 'too many custom rules'}
+  $customIds=@{}
+  foreach($rule in @($candidate.custom_rules)){
+    if($rule -isnot [PSCustomObject] -or ([string]$rule.id) -notmatch '^[a-z0-9][a-z0-9_.-]{2,79}$' -or $customIds.ContainsKey([string]$rule.id) -or $rule.scope -notin @('all','code','skill','mcp') -or $rule.severity -notin @('critical','high','medium','low') -or -not ([string]$rule.message) -or ([string]$rule.message).Length -gt 240 -or -not ([string]$rule.pattern) -or ([string]$rule.pattern).Length -gt 1000){throw 'invalid custom rule'}
+    $customIds[[string]$rule.id]=$true;$null=[regex]::new([string]$rule.pattern,[Text.RegularExpressions.RegexOptions]::None,[TimeSpan]::FromMilliseconds(250))
+  }
   $policy=$candidate
 } catch {$policyInvalid=$true}
 $maxFileBytes=1000000
@@ -52,6 +72,7 @@ $compiledPatterns=@();foreach($rule in $patterns){$compiledPatterns += @{Kind=$r
 $findings = @(); $inventory = @()
 if($policyInvalid){$findings += @{kind='policy_load_failed';severity='high';path=$policyPath;message='安全策略缺失或契约无效；MCP 策略检查采用失败关闭状态'}}
 if($reportConfigInvalid){$findings += @{kind='reporting_config_invalid';severity='high';path='reporting.dpapi';message='受保护上报配置无法解密或契约无效；本轮拒绝上报'}}
+if($policySyncFailed){$findings += @{kind='policy_sync_failed';severity='medium';path='sentinel-policy.json';message='动态策略同步失败，继续使用上一份有效策略'}}
 function Send-SentinelReport([string]$json,[string]$url) {
   $bytes=[Text.Encoding]::UTF8.GetBytes($json);$headers=@{}
   try{$sentReport=$json|ConvertFrom-Json;$sentDeviceId=[string]$sentReport.device_id}catch{throw 'Report device identity is invalid'}
@@ -315,6 +336,12 @@ foreach ($root in $roots) {
         try{$matched=$rule.Compiled.IsMatch($text)}catch [Text.RegularExpressions.RegexMatchTimeoutException]{$findings += @{kind='scan_rule_timeout';severity='high';path=(Protect-SentinelPath $_.FullName);message='安全扫描规则超过执行时限'};continue}
         if ($matched) { $findings += @{ kind=$rule.Kind; severity=$rule.Severity; path=(Protect-SentinelPath $_.FullName); message='Policy match' } }
       }
+      $normalized=$_.FullName.Replace('\','/').ToLower();$scope=if($_.Name -eq 'SKILL.md' -or $normalized.Contains('/skills/')){'skill'}elseif($_.Name -in @('mcp.json','mcp_config.json','mcp-config.json','.mcp.json') -or $normalized.Contains('/mcp')){'mcp'}else{'code'}
+      foreach($rule in @($policy.custom_rules)){
+        if($rule.scope -notin @('all',$scope)){continue};if(@($rule.extensions).Count -and $_.Extension.ToLower() -notin @($rule.extensions)){continue}
+        try{$match=[regex]::Match($text,[string]$rule.pattern,[Text.RegularExpressions.RegexOptions]::None,[TimeSpan]::FromMilliseconds(250))}catch [Text.RegularExpressions.RegexMatchTimeoutException]{$findings += @{kind='scan_rule_timeout';severity='high';path=(Protect-SentinelPath $_.FullName);message='动态安全扫描规则超过执行时限'};continue}
+        if($match.Success){$evidence=if($rule.redact){'[REDACTED]'}else{$match.Value.Substring(0,[Math]::Min(80,$match.Value.Length))};$findings += @{kind=[string]$rule.id;severity=[string]$rule.severity;path=(Protect-SentinelPath $_.FullName);message=[string]$rule.message;evidence=$evidence}}
+      }
       if ($_.Name -in @('mcp.json','mcp_config.json','mcp-config.json','.mcp.json') -or ($_.Name -eq 'settings.json' -and $_.Directory.Name -eq '.gemini')) { Inspect-SentinelMcpJson $_ $text }
       if ($_.Name -eq 'config.toml' -and $_.FullName -match '\\\.codex\\') { Inspect-SentinelMcpToml $_ $text }
       if ($_.Name -eq 'package.json' -or $_.Name -like 'requirements*.txt') { $inventory += @{type='dependency_manifest';path=(Protect-SentinelPath $_.FullName)}; Inspect-SentinelDependencies $_ $text }
@@ -328,7 +355,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.41.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.42.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

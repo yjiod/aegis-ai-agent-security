@@ -1,0 +1,17 @@
+[Unit]
+Description=Sentinel upstream rule source tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sentinel
+Group=sentinel
+ExecStart=/usr/bin/python3 /opt/sentinel/sentinel_rule_updater.py --catalog /opt/sentinel/sentinel-rule-sources.json --output /var/lib/sentinel/rule-source-status.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sentinel
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native

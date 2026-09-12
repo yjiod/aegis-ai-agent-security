@@ -1,7 +1,7 @@
 {
   "schema": "sentinel.policy/v1",
-  "version": "4.9.0",
-  "updated_at": "2026-09-08T13:00:00+08:00",
+  "version": "5.0.0",
+  "updated_at": "2026-09-13T12:00:00+08:00",
   "limits": {"project_files": 10000, "max_file_bytes": 1000000, "inventory_items": 5000, "findings": 10000},
   "enforcement": {"unknown_skill": "block", "unknown_mcp": "audit", "critical_finding": "block"},
   "allowed_skills": [],
@@ -15,5 +15,35 @@
   "secret_patterns": ["AKIA[0-9A-Z]{16}", "sk-[A-Za-z0-9_-]{20,}", "ghp_[A-Za-z0-9]{30,}", "AIza[0-9A-Za-z_-]{35}", "xox[baprs]-[0-9A-Za-z-]{10,}", "glpat-[0-9A-Za-z_-]{20,}", "npm_[0-9A-Za-z]{36}", "-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"],
   "skill_rules": ["unknown_skill", "prompt_override", "hidden_instruction", "credential_access", "unbounded_shell", "skill_symlink_escape"],
   "mcp_rules": ["unknown_mcp", "unapproved_mcp_transport", "ambiguous_mcp_transport", "unapproved_mcp_domain", "unapproved_mcp_command_path", "unapproved_mcp_invocation", "invalid_mcp_arguments", "invalid_mcp_server", "invalid_mcp_environment", "mcp_url_credentials", "broad_filesystem_scope", "literal_mcp_secret"],
-  "code_rules": ["hardcoded_secret", "shell_true", "dynamic_eval", "weak_random_token", "blocked_command", "insecure_tls_verification", "unsafe_deserialization", "debug_mode_enabled", "empty_exception_handler", "oversized_file_skipped", "dependency_unpinned", "dependency_untrusted_source", "missing_lockfile"]
+  "code_rules": ["hardcoded_secret", "shell_true", "dynamic_eval", "weak_random_token", "blocked_command", "insecure_tls_verification", "unsafe_deserialization", "debug_mode_enabled", "empty_exception_handler", "oversized_file_skipped", "dependency_unpinned", "dependency_untrusted_source", "missing_lockfile"],
+  "rule_sources": [
+    {"id":"cisco-skill-scanner","role":"skill_engine","license":"Apache-2.0","upstream":"https://github.com/cisco-ai-defense/skill-scanner","update_channel":"release","execution":"local_optional"},
+    {"id":"cisco-mcp-scanner","role":"mcp_engine","license":"Apache-2.0","upstream":"https://github.com/cisco-ai-defense/mcp-scanner","update_channel":"release","execution":"sandbox_required"},
+    {"id":"semgrep-community","role":"code_engine","license":"Semgrep-Rules-License-1.0","upstream":"https://github.com/semgrep/semgrep-rules","update_channel":"commit","execution":"local_optional"},
+    {"id":"gitleaks-core","role":"secret_engine","license":"MIT","upstream":"https://github.com/gitleaks/gitleaks","update_channel":"release","execution":"local_optional"},
+    {"id":"snyk-agent-scan","role":"skill_mcp_advisory","license":"Apache-2.0-client-terms-apply-api","upstream":"https://github.com/snyk/agent-scan","update_channel":"release","execution":"disabled_until_token_and_terms_approved"},
+    {"id":"owasp-agentic-2026","role":"governance_mapping","license":"CC-BY-SA-4.0","upstream":"https://genai.owasp.org/","update_channel":"quarterly","execution":"mapping_only"}
+  ],
+  "custom_rules": [
+    {"id":"code.sql.string-concat","scope":"code","severity":"high","pattern":"(?i)(?:select|insert|update|delete).{0,160}(?:\\+|format\\(|f[\"'])","message":"疑似通过字符串拼接构造 SQL；应使用参数化查询","extensions":[".py",".js",".ts",".java",".cs",".go"],"source":"CWE-89 / Semgrep category"},
+    {"id":"code.shell.dynamic-input","scope":"code","severity":"high","pattern":"(?i)(?:os\\.system|runtime\\.getruntime\\(\\)\\.exec|child_process\\.(?:exec|spawn))\\s*\\([^\\n]{0,180}(?:req\\.|request|input\\(|argv|params)","message":"外部输入可能进入系统命令；应使用固定命令和参数白名单","source":"CWE-78 / Semgrep category"},
+    {"id":"code.xss.unsafe-dom-sink","scope":"code","severity":"high","pattern":"(?i)(?:innerhtml|outerhtml|document\\.write)\\s*(?:=|\\()","message":"检测到不安全 DOM 输出点；必须进行上下文编码或使用安全 API","extensions":[".js",".ts",".jsx",".tsx",".html"],"source":"CWE-79 / Semgrep category"},
+    {"id":"code.yaml.unsafe-load","scope":"code","severity":"high","pattern":"(?i)yaml\\.load\\s*\\([^\\n]{0,240}(?!loader\\s*=\\s*(?:safe|csafe)loader)","message":"不可信 YAML 可能触发任意对象构造；请使用 safe_load","extensions":[".py"],"source":"CWE-502 / Semgrep category"},
+    {"id":"code.crypto.weak-hash","scope":"code","severity":"medium","pattern":"(?i)(?:hashlib\\.(?:md5|sha1)|messageDigest\\.getInstance\\(\\s*[\"'](?:MD5|SHA-?1)|createHash\\(\\s*[\"'](?:md5|sha1))","message":"安全敏感场景疑似使用弱哈希算法 MD5/SHA-1","source":"CWE-327 / CWE Top 25"},
+    {"id":"code.crypto.ecb-mode","scope":"code","severity":"high","pattern":"(?i)(?:AES|DES)(?:/|_)(?:ECB)|MODE_ECB","message":"检测到 ECB 分组模式；应使用带认证的加密模式","source":"CWE-327 / OWASP ASVS"},
+    {"id":"code.log.sensitive-value","scope":"code","severity":"high","pattern":"(?i)(?:log(?:ger)?\\.(?:debug|info|warn|error)|console\\.log|print)\\s*\\([^\\n]{0,180}(?:password|passwd|token|secret|api[_-]?key)","message":"日志可能输出凭据或令牌","source":"CWE-532 / OWASP ASVS"},
+    {"id":"code.cors.wildcard-credentials","scope":"code","severity":"high","pattern":"(?is)(?:access-control-allow-origin.{0,60}\\*|origin\\s*[:=]\\s*[\"']\\*[\"']).{0,240}(?:credentials|allow_credentials)\\s*[:=]\\s*true","message":"CORS 通配来源与凭据同时启用","source":"CWE-942 / Semgrep category"},
+    {"id":"code.jwt.no-verification","scope":"code","severity":"critical","pattern":"(?i)jwt\\.decode\\s*\\([^\\n]{0,240}(?:verify_signature[\"']?\\s*[:=]\\s*false|algorithms?\\s*[:=]\\s*\\[[\"']none)","message":"JWT 验签疑似被关闭或允许 none 算法","source":"CWE-347 / Semgrep category"},
+    {"id":"code.path.traversal-sink","scope":"code","severity":"high","pattern":"(?i)(?:open|readFile|writeFile|send_file|FileInputStream)\\s*\\([^\\n]{0,160}(?:req\\.|request|params|query|argv|input\\()","message":"外部输入可能直接进入文件路径操作","source":"CWE-22 / Semgrep category"},
+    {"id":"skill.encoded-instruction","scope":"skill","severity":"high","pattern":"(?i)(?:base64\\s+(?:-d|--decode)|frombase64string|atob\\s*\\().{0,200}(?:system|prompt|instruction|execute|shell)","message":"Skill 疑似解码并执行隐藏指令","source":"Cisco skill-scanner category / OWASP LLM01"},
+    {"id":"skill.remote-pipe-exec","scope":"skill","severity":"critical","pattern":"(?im)^\\s*(?:curl|wget)\\b[^\\r\\n|]{0,300}\\|\\s*(?:sh|bash|zsh|python|powershell)\\b","message":"Skill 从网络下载内容后直接交给解释器执行","source":"Cisco skill-scanner category"},
+    {"id":"skill.sensitive-file-access","scope":"skill","severity":"high","pattern":"(?i)(?:~/|\\$HOME/|%USERPROFILE%[\\\\/])(?:\\.ssh|\\.aws|\\.azure|\\.kube|\\.docker|Library/Keychains)|(?:cookies|login data|keychain-db)","message":"Skill 尝试访问凭据目录或浏览器/系统密钥存储","source":"Cisco skill-scanner category / OWASP LLM06"},
+    {"id":"skill.persistence-mechanism","scope":"skill","severity":"high","pattern":"(?i)(?:launchagents|launchdaemons|scheduledtasks|schtasks(?:\\.exe)?|crontab\\s+-|systemctl\\s+enable|runonce)","message":"Skill 包含持久化机制，需显式审批","source":"Cisco skill-scanner malware category"},
+    {"id":"skill.security-control-bypass","scope":"skill","severity":"critical","pattern":"(?i)(?:disable|bypass|exclude|turn off).{0,80}(?:antivirus|defender|edr|gatekeeper|firewall|security scan)","message":"Skill 疑似尝试关闭或绕过安全控制","source":"Cisco skill-scanner malware category"},
+    {"id":"mcp.package.unpinned-runner","scope":"mcp","severity":"high","pattern":"(?i)[\"'](?:npx|uvx)[\"']\\s*[:,].{0,180}[\"'][^\"'@\\s]+(?:@latest)?[\"']","message":"MCP 使用未固定版本的运行时包，存在供应链漂移风险","source":"Cisco MCP scanner / OWASP LLM05"},
+    {"id":"mcp.env.command-substitution","scope":"mcp","severity":"critical","pattern":"(?i)[\"'][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|KEY)[A-Z0-9_]*[\"']\\s*:\\s*[\"'][^\"']*(?:\\$\\(|`|powershell\\s+-|cmd\\s+/c)","message":"MCP 敏感环境变量包含命令替换或解释器调用","source":"Cisco MCP scanner category"},
+    {"id":"mcp.tool.poisoning-description","scope":"mcp","severity":"high","pattern":"(?i)(?:ignore|override).{0,40}(?:previous|system).{0,40}(?:instruction|prompt)|do not (?:tell|show|reveal).{0,40}(?:user|operator)","message":"MCP 工具描述疑似包含提示注入或隐藏行为指令","source":"Snyk agent-scan / MCP tool-poisoning category"},
+    {"id":"all.private-key-material","scope":"all","severity":"critical","pattern":"-----BEGIN (?:ENCRYPTED |RSA |EC |OPENSSH )?PRIVATE KEY-----","message":"检测到私钥材料","source":"Gitleaks core category","redact":true},
+    {"id":"all.generic-bearer-token","scope":"all","severity":"high","pattern":"(?i)authorization[\"' ]{0,4}[:=][\"' ]{0,4}bearer\\s+[A-Za-z0-9._~+/=-]{20,}","message":"检测到硬编码 Bearer Token","source":"Gitleaks core category","redact":true}
+  ]
 }

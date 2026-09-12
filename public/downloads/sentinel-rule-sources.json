@@ -1,0 +1,12 @@
+{
+  "schema": "sentinel.rule-sources/v1",
+  "updated_at": "2026-09-13T12:00:00+08:00",
+  "allowed_api_hosts": ["api.github.com"],
+  "sources": [
+    {"id":"cisco-skill-scanner","api_url":"https://api.github.com/repos/cisco-ai-defense/skill-scanner/releases/latest","mode":"release","license":"Apache-2.0","use":"skill_engine","promotion":"quarantine"},
+    {"id":"cisco-mcp-scanner","api_url":"https://api.github.com/repos/cisco-ai-defense/mcp-scanner/releases/latest","mode":"release","license":"Apache-2.0","use":"mcp_engine","promotion":"quarantine_sandbox"},
+    {"id":"semgrep-community","api_url":"https://api.github.com/repos/semgrep/semgrep-rules/commits/develop","mode":"commit","license":"Semgrep-Rules-License-1.0","use":"code_rules","promotion":"license_reviewed_quarantine"},
+    {"id":"gitleaks-core","api_url":"https://api.github.com/repos/gitleaks/gitleaks/releases/latest","mode":"release","license":"MIT","use":"secret_engine","promotion":"quarantine"},
+    {"id":"snyk-agent-scan","api_url":"https://api.github.com/repos/snyk/agent-scan/releases/latest","mode":"release","license":"Apache-2.0-client-terms-apply-api","use":"skill_mcp_advisory","promotion":"manual_terms_and_token_approval"}
+  ]
+}

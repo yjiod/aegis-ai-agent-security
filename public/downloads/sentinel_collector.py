@@ -185,7 +185,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.41.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","4.9.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.42.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.0.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
     supported_agents=("cursor","claude_code","codex","windsurf","gemini_cli","github_copilot_cli","workbuddy","qwen_enterprise","tongyi_lingma","codebuddy")
     agent_coverage={name:{"total":0,"active":0} for name in supported_agents}
@@ -211,11 +211,20 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.19"
+    server_version="SentinelCollector/0.20"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
         self.end_headers(); self.wfile.write(body)
+    def reply_policy(self):
+        path=os.getenv("SENTINEL_POLICY_FILE","")
+        try:
+            candidate=Path(path)
+            if not path or candidate.is_symlink() or not candidate.is_file() or candidate.stat().st_size>2_000_000: raise OSError("invalid policy file")
+            body=candidate.read_bytes(); data=json.loads(body)
+            if not isinstance(data,dict) or data.get("schema")!="sentinel.policy/v1" or not isinstance(data.get("version"),str): raise ValueError("invalid policy")
+        except (OSError,ValueError,TypeError,json.JSONDecodeError,UnicodeError): return self.reply(503,{"error":"policy_unavailable"})
+        digest=hashlib.sha256(body).hexdigest(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","private, max-age=300"); self.send_header("ETag",'"'+digest+'"'); self.send_header("X-Sentinel-Policy-SHA256",digest); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body)
     def rate_limited(self):
         limiter=getattr(self.server,"rate_limiter",None)
         if limiter is None: return False
@@ -247,6 +256,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.rate_limited(): return
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         parsed=urlsplit(self.path)
+        if parsed.path=="/v1/policy" and not parsed.query:
+            audit_event(self.server.db_path,"policy_read"); return self.reply_policy()
         if parsed.path=="/v1/devices":
             query=parse_qs(parsed.query,keep_blank_values=True)
             if set(query)-{"limit","view"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})

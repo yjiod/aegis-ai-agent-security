@@ -26,6 +26,21 @@ def validate_policy(data):
         except re.error as exc: raise ValueError("invalid_policy_regex") from exc
     invocations=data.get("allowed_mcp_invocations",[])
     if not isinstance(invocations,list) or any(not isinstance(item,list) or len(item)<2 or any(not isinstance(value,str) or not value for value in item) for item in invocations): raise ValueError("invalid_mcp_invocations")
+    rules=data.get("custom_rules",[])
+    if not isinstance(rules,list) or len(rules)>500: raise ValueError("invalid_custom_rules")
+    seen=set()
+    for item in rules:
+        if not isinstance(item,dict) or set(item)-{"id","scope","severity","pattern","message","extensions","source","redact"}: raise ValueError("invalid_custom_rule")
+        rule_id=item.get("id"); scope=item.get("scope"); severity=item.get("severity"); pattern=item.get("pattern"); extensions=item.get("extensions",[])
+        if not isinstance(rule_id,str) or not re.fullmatch(r"[a-z0-9][a-z0-9_.-]{2,79}",rule_id) or rule_id in seen: raise ValueError("invalid_custom_rule_id")
+        if scope not in {"all","code","skill","mcp"} or severity not in {"critical","high","medium","low"}: raise ValueError("invalid_custom_rule_metadata")
+        if not isinstance(pattern,str) or not pattern or len(pattern)>1000: raise ValueError("invalid_custom_rule_pattern")
+        if not isinstance(item.get("message"),str) or not item["message"] or len(item["message"])>240: raise ValueError("invalid_custom_rule_message")
+        if "redact" in item and type(item["redact"]) is not bool: raise ValueError("invalid_custom_rule_redaction")
+        if not isinstance(extensions,list) or len(extensions)>32 or any(not isinstance(value,str) or not re.fullmatch(r"\.[a-z0-9]{1,12}",value) for value in extensions): raise ValueError("invalid_custom_rule_extensions")
+        try: re.compile(pattern)
+        except re.error as exc: raise ValueError("invalid_custom_rule_regex") from exc
+        seen.add(rule_id)
     return data
 def load_policy(path):
     data=json.loads(Path(path).read_text())
@@ -33,6 +48,25 @@ def load_policy(path):
 def reload_policy(path,current=None):
     try: return load_policy(path),False
     except (OSError,ValueError,RecursionError,UnicodeError): return current,True
+def version_tuple(value):
+    match=re.fullmatch(r"(\d+)\.(\d+)\.(\d+)",str(value))
+    return tuple(map(int,match.groups())) if match else None
+def sync_policy(path,report_url,token,timeout=10):
+    """Fetch an authenticated policy from the Collector and atomically promote only valid non-downgrades."""
+    parsed=urlsplit(report_url)
+    if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password: raise ValueError("invalid_policy_origin")
+    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.42.0"})
+    with urllib.request.urlopen(request,timeout=timeout) as response:
+        if response.geturl()!=endpoint: raise ValueError("policy_redirect_rejected")
+        raw=response.read(2_000_001)
+        if len(raw)>2_000_000: raise ValueError("policy_too_large")
+        expected=response.headers.get("X-Sentinel-Policy-SHA256","")
+    if not re.fullmatch(r"[0-9a-f]{64}",expected) or not hmac.compare_digest(hashlib.sha256(raw).hexdigest(),expected): raise ValueError("policy_digest_mismatch")
+    candidate=validate_policy(json.loads(raw))
+    current=load_policy(path)
+    if not version_tuple(candidate["version"]) or version_tuple(candidate["version"])<version_tuple(current["version"]): raise ValueError("policy_downgrade_rejected")
+    if candidate["version"]==current["version"] and raw==Path(path).read_bytes(): return False
+    write_private_atomic(path,raw.decode("utf-8")); return True
 AGENT_HOME_MARKERS={
     "cursor":[".cursor/mcp.json","Library/Application Support/Cursor/User/settings.json",".config/Cursor/User/settings.json"],
     "codex":[".codex/config.toml",".local/bin/codex"],
@@ -125,6 +159,13 @@ def scan_text(path,text,policy):
         except re.error:
             out.append(finding("invalid_policy_regex","high",path,"策略包含无效的敏感信息正则",hashlib.sha256(str(pat).encode()).hexdigest()[:12])); continue
         if hit: out.append(finding("hardcoded_secret","critical",path,"疑似硬编码凭据",hit.group(0)[:8]+"…"))
+    normalized=str(path).replace("\\","/").lower(); name=Path(path).name.lower(); suffix=Path(path).suffix.lower()
+    scope="skill" if name=="skill.md" or "/skills/" in normalized else "mcp" if name in {"mcp.json","mcp_config.json","mcp-config.json",".mcp.json"} or "/mcp" in normalized else "code"
+    for rule in policy.get("custom_rules",[]):
+        if rule["scope"] not in {"all",scope}: continue
+        if rule.get("extensions") and suffix not in rule["extensions"]: continue
+        hit=re.search(rule["pattern"],text)
+        if hit: out.append(finding(rule["id"],rule["severity"],path,rule["message"],"[REDACTED]" if rule.get("redact") else hit.group(0).strip()[:80]))
     return out
 def scan_mcp_server(path,name,cfg,policy):
     out=[]; allowed=set(policy.get("allowed_mcp_servers",[])); allowed_commands=set(policy.get("allowed_mcp_commands",[])); allowed_paths={os.path.normcase(os.path.normpath(str(x))) for x in policy.get("allowed_mcp_command_paths",[])}; allowed_domains={x.lower().rstrip(".") for x in policy.get("allowed_mcp_domains",[])}; allowed_transports=set(policy.get("allowed_mcp_transports",[]))
@@ -409,7 +450,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.41.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.42.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -476,7 +517,7 @@ def build_report(root,policy,verify_baselines=False):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.41.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.42.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -494,6 +535,10 @@ def main():
         except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): reporting_error=True; args.report_url=""
     if args.install_baseline: install_baseline(root)
     while True:
+        policy_sync_error=False
+        if reporting:
+            try: sync_policy(args.policy,args.report_url,reporting["report_token"])
+            except Exception: policy_sync_error=True
         policy,reload_failed=reload_policy(args.policy,policy)
         if args.auto_enroll: auto_enroll(root)
         report=build_report(root,policy,verify_baselines=args.auto_enroll); data=json.dumps(report,ensure_ascii=False,indent=2)
@@ -501,6 +546,8 @@ def main():
             add_report_finding(report,finding("policy_reload_failed","high",args.policy,"策略热加载失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reporting_error:
             add_report_finding(report,finding("reporting_config_invalid","high",args.report_config,"受保护上报配置权限、所有者或契约无效；本轮拒绝上报")); data=json.dumps(report,ensure_ascii=False,indent=2)
+        if policy_sync_error:
+            add_report_finding(report,finding("policy_sync_failed","medium",args.policy,"动态策略同步失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if args.output: write_private_atomic(args.output,data)
         if args.report_url:
             token=reporting["report_token"] if reporting else os.getenv("SENTINEL_REPORT_TOKEN",""); signing=reporting["signing_secret"] if reporting else None; spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".sentinel-agent/spool")

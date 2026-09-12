@@ -493,7 +493,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.41.0'}</h2>
+                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.42.0'}</h2>
                 <p>厂商无关部署 · 企业 4A 标准接口 · 可插拔兼容适配器</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>
@@ -520,6 +520,9 @@ function DetailPanel({
                 <a href="/downloads/intune-macos-install.sh" download>macOS Intune 脚本</a>
                 <a href="/downloads/intune-macos-compliance.sh" download>macOS 合规脚本</a>
                 <a href="/downloads/sentinel-policy.json" download>策略基线</a>
+                <a href="/downloads/sentinel-rule-sources.json" download>动态规则源目录</a>
+                <a href="/downloads/sentinel_rule_updater.py" download>规则源隔离同步器</a>
+                <a href="/downloads/RULE-UPDATE-GUIDE.md" download>动态规则更新指南</a>
                 <a href="/downloads/sentinel_device_credentials.py" download>逐设备凭据工具</a>
                 <a href="/downloads/sentinel_collector_probe.py" download>Collector 验收探针</a>
                 <a href="/downloads/sentinel-collector.openapi.json" download>Collector API 规范</a>
@@ -571,9 +574,9 @@ function DetailPanel({
                   <p>扫描明细 API 待接入</p>
                 </div>
                 <Button
-                  onClick={() => notify('规则同步 API 尚未启用，未修改任何终端。')}
+                  onClick={() => notify('终端会通过受认证 Collector 周期拉取已发布策略；第三方更新先进入隔离区。')}
                 >
-                  同步规则库
+                  查看同步机制
                 </Button>
               </div>
               <div className="empty-detail"><ShieldCheck size={32}/><h3>暂无真实扫描明细</h3><p>终端上报后将在此显示，控制台不会填充样例记录。</p></div>
@@ -620,11 +623,11 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>企业 AI Coding 安全基线 v{releaseMetadata?.component_versions.policy ?? '4.9.0'}</h2>
-                <p>当前已验证并发布的规则基线</p>
+                <h2>企业 AI Coding 安全基线 v{releaseMetadata?.component_versions.policy ?? '5.0.0'}</h2>
+                <p>20 条可热更新扩展规则 · 第三方引擎隔离更新 · 摘要校验与自动回退</p>
               </div>
               <strong>
-                v{releaseMetadata?.component_versions.policy ?? '4.9.0'}<span>策略版本</span>
+                v{releaseMetadata?.component_versions.policy ?? '5.0.0'}<span>策略版本</span>
               </strong>
             </div>
             <div className="policy-grid">
@@ -645,6 +648,17 @@ function DetailPanel({
                   </div>
                 </article>
               ))}
+            </div>
+            <div className="panel inset">
+              <div className="panel-head"><div><h2>长期维护规则源</h2><p>发现新版本后先隔离，不会直接执行或覆盖生产策略</p></div><Badge>5 个引擎源 + 1 个治理源</Badge></div>
+              <div className="control-planes">
+                <article><b>Cisco Skill Scanner</b><span>Apache-2.0</span><p>Prompt Injection、数据外泄、恶意代码、依赖与行为数据流。</p></article>
+                <article><b>Cisco MCP Scanner</b><span>Apache-2.0</span><p>工具投毒、命令与外联风险；连接型检测必须在沙箱中运行。</p></article>
+                <article><b>Semgrep Community</b><span>独立规则许可</span><p>多语言 SAST 规则保持原生语义，由 Semgrep 引擎执行。</p></article>
+                <article><b>Gitleaks Core</b><span>MIT</span><p>持续更新密钥检测器；不使用需要组织许可证的 Action。</p></article>
+                <article><b>Snyk Agent Scan</b><span>需令牌与条款审批</span><p>仅作 Skill/MCP 风险情报源，未审批前禁止规模化云分析。</p></article>
+                <article><b>OWASP Agentic 2026</b><span>治理映射</span><p>用于风险分类与基线映射，不伪装成可执行扫描规则。</p></article>
+              </div>
             </div>
           </>
         )}
