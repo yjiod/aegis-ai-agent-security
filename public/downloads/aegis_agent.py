@@ -488,11 +488,51 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"aegis.report/v1","agent_version":"0.31.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
+AGENT_VERSION = "0.31.0"
+
+
+def maybe_self_update(policy, report_url):
+    """无桌管环境的自更新兜底通道；主通道永远是桌管/MDM 推送。
+
+    仅当策略 agent_self_update.enabled=true 且能推导 manifest URL 时执行。
+    best-effort：任何失败静默返回，绝不影响本轮扫描/上报。
+    """
+    cfg = policy.get("agent_self_update") if isinstance(policy, dict) else None
+    if not isinstance(cfg, dict) or cfg.get("enabled") is not True:
+        return
+    manifest_url = cfg.get("manifest_url") or ""
+    if not manifest_url and report_url and "/api/" in report_url:
+        manifest_url = report_url.split("/api/")[0] + "/downloads/update-manifest.json"
+    if not manifest_url:
+        return
+    try:
+        script_dir = str(Path(__file__).resolve().parent)
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+        import aegis_self_update as su
+    except Exception:
+        return
+    device_id = hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
+    try:
+        res = su.check_and_apply(
+            manifest_url,
+            AGENT_VERSION,
+            device_id,
+            "aegis_agent.py",
+            str(Path(__file__).resolve()),
+            rollout_percent=int(cfg.get("rollout_percent", 100)),
+        )
+        if res.get("updated"):
+            print(f"aegis agent self-updated {res.get('from')} -> {res.get('to')}; next run uses new version", file=sys.stderr)
+    except Exception:
+        return
+
+
 def main():
     ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); args=ap.parse_args()
     if not args.report_config:
@@ -500,6 +540,7 @@ def main():
         if candidate.is_file(): args.report_config=str(candidate)
     policy,policy_error=reload_policy(args.policy); root=Path(args.scan_path).resolve()
     if policy_error or policy is None: raise SystemExit("valid Aegis policy is required")
+    maybe_self_update(policy, args.report_url)
     reporting=None; reporting_error=False
     if args.report_config:
         try: reporting=load_reporting_config(args.report_config); args.report_url=reporting["report_url"]

@@ -9,8 +9,8 @@ mkdir -m 700 "$STAGE_DIR"
 trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 2>/dev/null || true' EXIT HUP INT TERM
 for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
 verify_sha256() { if command -v shasum >/dev/null 2>&1; then echo "$1  $2" | shasum -a 256 -c -; else echo "$1  $2" | sha256sum -c -; fi; }
-verify_sha256 "8fa59eb0366e9368ddb6c65f6b4c3095521d70fcc32c6e6b0f38ac322aa848e2" "$STAGE_DIR/aegis_agent.py"
-verify_sha256 "2c3058c3f768a22ca4621bb4eedc69c943202e98f02bb7c79888ef724e262535" "$STAGE_DIR/aegis-policy.json"
+verify_sha256 "48528f1820bab5fd14fbaa63ee44f356ddbf83df322024b8112115c8516f9c1c" "$STAGE_DIR/aegis_agent.py"
+verify_sha256 "9b5dd46b4fdcfeb3472ea008b61e202fd0077f5fa76759bfd10cd7aac36942ff" "$STAGE_DIR/aegis-policy.json"
 verify_sha256 "5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806" "$STAGE_DIR/aegis-security-baseline.md"
 CURRENT_COMPLETE=1
 for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do if [ ! -f "$INSTALL_DIR/$name" ]; then CURRENT_COMPLETE=0; fi; done

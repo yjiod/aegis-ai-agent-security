@@ -20,7 +20,7 @@ BUNDLE_FILES=(
     "aegis-collector.service","aegis-collector.env.example","aegis-collector.nginx.conf",
     "aegis_adapter_worker.py","aegis-adapter-worker.service","aegis-adapter.env.example",
     "aegis-configure-windows.ps1","aegis-configure-macos.sh","aegis-device-credentials.example.json","aegis_device_credentials.py",
-    "aegis_production_preflight.py","aegis_release_build.py","aegis_vendor_probe.py","aegis_4a_interface.py","aegis_engine_framework.py","aegis-vendor-contracts.json","ENTERPRISE-4A-INTEGRATION.md","aegis_vendor_preflight.py","aegis_vendor_keyring.py","aegis_vendor_evidence_sign.py","aegis_production_keyring.py","aegis_production_evidence_sign.py","aegis_production_evidence_prepare.py","aegis_mdm_preflight.py","aegis_mdm_graph_normalize.py","aegis_mdm_evidence.py","aegis_deployment_preflight.py","aegis_4a_receiver.py","aegis_4a_probe.py",
+    "aegis_production_preflight.py","aegis_release_build.py","aegis_vendor_probe.py","aegis_4a_interface.py","aegis_engine_framework.py","aegis-vendor-contracts.json","ENTERPRISE-4A-INTEGRATION.md","aegis_vendor_preflight.py","aegis_vendor_keyring.py","aegis_vendor_evidence_sign.py","aegis_production_keyring.py","aegis_production_evidence_sign.py","aegis_production_evidence_prepare.py","aegis_mdm_preflight.py","aegis_mdm_graph_normalize.py","aegis_mdm_evidence.py","aegis_deployment_preflight.py","aegis_4a_receiver.py","aegis_4a_probe.py","aegis_self_update.py","update-manifest.json",
 )
 
 # Compatibility shim: aegis_release_build.py generates RELEASE-MANIFEST.sha256
@@ -122,6 +122,16 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_device_credential_provisioner:{type(exc).__name__}"); provisioner=""
     for directive in ("secrets.token_urlsafe(48)","os.fsync(handle.fileno())","os.replace(temp,path)","secrets_printed","--prune-old","enrollment_directory_symlink","preserve_metadata=True","os.chown(temp,metadata[1],metadata[2])","stat.S_IMODE(info.st_mode) not in {0o600,0o640}","activation_evidence_required","devices_not_on_current_credentials","--activation-evidence","activation_evidence_stale","now-generated_at<=max_age","generated_at-row[\"last_seen\"]<=active_window",'value.get("complete") is not True'):
         if directive not in provisioner: errors.append(f"unsafe_device_credential_provisioner:{directive}")
+    try:
+        um = json.loads((downloads / "update-manifest.json").read_text())
+        if um.get("schema") != "aegis.update/v1": errors.append("invalid_update_manifest_schema")
+        if um.get("release") != release.get("release"): errors.append("update_manifest_release_drift")
+        for name, art in (um.get("artifacts") or {}).items():
+            p = downloads / name
+            if not isinstance(art, dict) or not p.is_file() or art.get("sha256") != digest(p):
+                errors.append(f"update_manifest_sha_mismatch:{name}")
+    except (OSError, ValueError) as exc:
+        errors.append(f"invalid_update_manifest:{type(exc).__name__}")
     archive=downloads/"aegis-enterprise-bundle.zip"
     try:
         with zipfile.ZipFile(archive) as bundle:

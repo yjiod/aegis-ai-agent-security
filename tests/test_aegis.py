@@ -666,4 +666,31 @@ class AegisTests(unittest.TestCase):
             home=Path(d); (home/'.cursor/rules').mkdir(parents=True)
             self.assertEqual(self.agent.discover_agent_tools([home],{}),[])
 
+    def test_self_update_version_compare_and_rollout(self):
+        su=load('selfupdate','aegis_self_update.py')
+        self.assertTrue(su.is_newer('0.32.0','0.31.0')); self.assertFalse(su.is_newer('0.31.0','0.31.0')); self.assertFalse(su.is_newer('0.30.9','0.31.0'))
+        self.assertTrue(su.in_rollout('dev1',100)); self.assertFalse(su.in_rollout('dev1',0))
+        self.assertEqual(su.in_rollout('dev1',50), su.in_rollout('dev1',50))
+
+    def test_self_update_sha_mismatch_and_apply_rollback(self):
+        su=load('selfupdate2','aegis_self_update.py')
+        with tempfile.TemporaryDirectory() as d:
+            art=Path(d)/'new.py'; art.write_text('print("new")')
+            good=hashlib.sha256(art.read_bytes()).hexdigest()
+            staging=Path(d)/'staging.py'
+            with self.assertRaises(ValueError): su.download_and_verify('file://'+str(art), '0'*64, str(staging))
+            su.download_and_verify('file://'+str(art), good, str(staging))
+            target=Path(d)/'agent.py'; target.write_text('print("old")')
+            backup=su.apply_update(str(staging), str(target))
+            self.assertEqual(target.read_text(),'print("new")'); self.assertTrue(os.path.exists(backup))
+            self.assertTrue(su.rollback(str(target))); self.assertEqual(target.read_text(),'print("old")')
+
+    def test_self_update_check_and_apply_up_to_date(self):
+        su=load('selfupdate3','aegis_self_update.py')
+        with tempfile.TemporaryDirectory() as d:
+            man=Path(d)/'update-manifest.json'
+            man.write_text(json.dumps({"schema":"aegis.update/v1","release":"0.31.0","artifacts":{}}))
+            res=su.check_and_apply('file://'+str(man),'0.31.0','dev1','aegis_agent.py',str(Path(d)/'agent.py'))
+            self.assertFalse(res['updated']); self.assertEqual(res['reason'],'up_to_date')
+
 if __name__=='__main__': unittest.main()

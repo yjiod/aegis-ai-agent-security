@@ -7,7 +7,7 @@ from pathlib import Path
 sys.dont_write_bytecode=True
 import aegis_release_verify as verifier
 
-GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","mdm-deployment-manifest.json","mdm-rollout-evidence.example.json","production-acceptance-evidence.example.json","aegis-enterprise-bundle.zip"}
+GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","mdm-deployment-manifest.json","mdm-rollout-evidence.example.json","production-acceptance-evidence.example.json","aegis-enterprise-bundle.zip","update-manifest.json"}
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -44,7 +44,7 @@ def zip_timestamp(release):
 def build(downloads):
     downloads=Path(downloads)
     if downloads.is_symlink() or not downloads.is_dir(): raise ValueError("unsafe_downloads_directory")
-    for name in set(verifier.BUNDLE_FILES)|{"aegis-enterprise-bundle.zip"}: require_regular(downloads/name)
+    for name in (set(verifier.BUNDLE_FILES) | {"aegis-enterprise-bundle.zip"}) - GENERATED_FILES: require_regular(downloads/name)
     release=json.loads((downloads/"release.json").read_text(encoding="utf-8"))
     manifest_path=downloads/"mdm-deployment-manifest.json"
     deployment=json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -60,6 +60,20 @@ def build(downloads):
     for name,consumers in verifier.HASH_CONSUMERS.items():
         for consumer in consumers: replace_digest(downloads/consumer,old[name],current[name])
     atomic_write(downloads/"CHECKSUMS.sha256","".join(f"{current[name]}  {name}\n" for name in verifier.RUNTIME_FILES).encode())
+
+    # 客户端自更新清单（无桌管环境兜底通道；主通道为桌管/MDM 推送）。
+    atomic_write(downloads/"update-manifest.json",(json.dumps({
+        "schema":"aegis.update/v1",
+        "release":release["release"],
+        "channel":release.get("channel","pilot"),
+        "published_at":release.get("published_at",""),
+        "min_agent_version":release.get("min_agent_version","0.30.0"),
+        "artifacts":{
+            "aegis_agent.py":{"url":"/downloads/aegis_agent.py","sha256":current["aegis_agent.py"]},
+            "aegis-windows.ps1":{"url":"/downloads/aegis-windows.ps1","sha256":current["aegis-windows.ps1"]},
+            "aegis_self_update.py":{"url":"/downloads/aegis_self_update.py","sha256":digest(downloads/"aegis_self_update.py")},
+        },
+    },ensure_ascii=False,indent=2)+"\n").encode())
 
     for artifact in deployment["artifacts"].values(): artifact["sha256"]=digest(downloads/artifact["file"])
     atomic_write(manifest_path,(json.dumps(deployment,ensure_ascii=False,indent=2)+"\n").encode())
