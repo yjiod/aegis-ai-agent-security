@@ -63,7 +63,7 @@ export default function TeamPage() {
           <div><h2>SSO 管理员</h2><p>白名单工号可通过统一身份登录并获管理员权限；其余工号拒绝登录。</p></div>
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input className="form-input" style={{ flex: 1 }} placeholder="工号（如 18620178）" value={newAdmin} onChange={(e) => setNewAdmin(e.target.value)} />
+          <input className="form-input" style={{ flex: 1 }} placeholder="工号" value={newAdmin} onChange={(e) => setNewAdmin(e.target.value)} />
           <Button onClick={() => void addAdmin()}>添加管理员</Button>
         </div>
         <div className="data-table">
