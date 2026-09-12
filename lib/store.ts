@@ -36,6 +36,7 @@ interface PersistedState {
   devices: [string, Device][];
   tickets: [string, Ticket][];
   audit: AuditEntry[];
+  admins?: string[];
 }
 
 function loadState(): PersistedState | null {
@@ -57,6 +58,7 @@ function saveState(): void {
         devices: [...(globals.__aegis_devices ?? new Map())],
         tickets: [...(globals.__aegis_tickets ?? new Map())],
         audit: globals.__aegis_audit ?? [],
+        admins: globals.__aegis_admins ?? [],
       };
       mkdirSync(dirname(STATE_FILE), { recursive: true });
       writeFileSync(STATE_FILE, JSON.stringify(state), 'utf8');
@@ -256,6 +258,7 @@ type AegisStores = {
   __aegis_devices?: Map<string, Device>;
   __aegis_tickets?: Map<string, Ticket>;
   __aegis_audit?: AuditEntry[];
+  __aegis_admins?: string[];
 };
 
 /**
@@ -795,4 +798,34 @@ export function logAudit(
     store.splice(0, store.length - MAX_AUDIT_ENTRIES);
   saveState();
   return record;
+}
+
+/* ------------------------------------------------------------------ *
+ * Admin allowlist (persisted) — SSO admin management
+ * Merged with env AEGIS_ADMIN_USERS by lib/auth.adminAllowlist().
+ * ------------------------------------------------------------------ */
+export function getAdminStore(): string[] {
+  const existing = globals.__aegis_admins;
+  if (existing) return existing;
+  const persisted = loadState();
+  const store: string[] = (persisted as (PersistedState & { admins?: string[] }) | null)?.admins ?? [];
+  globals.__aegis_admins = store;
+  return store;
+}
+
+export function addAdmin(employeeNo: string): boolean {
+  const store = getAdminStore();
+  if (store.includes(employeeNo)) return false;
+  store.push(employeeNo);
+  saveState();
+  return true;
+}
+
+export function removeAdmin(employeeNo: string): boolean {
+  const store = getAdminStore();
+  const idx = store.indexOf(employeeNo);
+  if (idx === -1) return false;
+  store.splice(idx, 1);
+  saveState();
+  return true;
 }

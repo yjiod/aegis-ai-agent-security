@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, ShieldCheck, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toast } from '@/components/toast';
@@ -13,6 +13,30 @@ const plannedRoles = [
 
 export default function TeamPage() {
   const [toast, setToast] = useState('');
+  const [admins, setAdmins] = useState<string[]>([]);
+  const [newAdmin, setNewAdmin] = useState('');
+
+  async function loadAdmins() {
+    try {
+      const r = await fetch('/api/admins', { cache: 'no-store' });
+      if (r.ok) { const d = await r.json(); setAdmins(d.admins ?? []); }
+    } catch { /* ignore */ }
+  }
+  useEffect(() => { void loadAdmins(); }, []);
+
+  async function addAdmin() {
+    const v = newAdmin.trim();
+    if (!v) return;
+    const r = await fetch('/api/admins', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employeeNo: v }) });
+    setToast(r.ok ? `已添加管理员 ${v}` : '添加失败（可能无权限或工号格式错）');
+    setNewAdmin('');
+    void loadAdmins();
+  }
+  async function delAdmin(emp: string) {
+    const r = await fetch(`/api/admins?employeeNo=${encodeURIComponent(emp)}`, { method: 'DELETE' });
+    setToast(r.ok ? `已移除管理员 ${emp}` : '移除失败（本地 admin 不可移除）');
+    void loadAdmins();
+  }
 
   return (
     <>
@@ -33,6 +57,27 @@ export default function TeamPage() {
       </div>
 
       <Toast message={toast} />
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">
+          <div><h2>SSO 管理员</h2><p>白名单工号可通过统一身份登录并获管理员权限；其余工号拒绝登录。</p></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input className="form-input" style={{ flex: 1 }} placeholder="工号（如 18620178）" value={newAdmin} onChange={(e) => setNewAdmin(e.target.value)} />
+          <Button onClick={() => void addAdmin()}>添加管理员</Button>
+        </div>
+        <div className="data-table">
+          <div className="data-head"><span>工号</span><span>来源</span><span>操作</span><span /></div>
+          {admins.map((a) => (
+            <div className="data-row" key={a}>
+              <strong>{a}</strong>
+              <span>{a === 'admin' ? '本地' : '白名单'}</span>
+              <span>{a === 'admin' ? '恒为管理员' : '管理员'}</span>
+              <span>{a !== 'admin' && <button className="handle" onClick={() => void delAdmin(a)}>移除</button>}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="empty-detail">
         <ShieldCheck size={44} />
