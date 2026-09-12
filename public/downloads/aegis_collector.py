@@ -262,6 +262,24 @@ class Handler(BaseHTTPRequestHandler):
                 except (ValueError,TypeError): pass
                 devices_out.append(dev)
             return self.reply(200,{"generated_at":generated_at,"complete":complete,"devices":devices_out})
+        if parsed.path=="/v1/findings":
+            query=parse_qs(parsed.query,keep_blank_values=True)
+            if set(query)-{"device_id","limit"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})
+            device_id=(query.get("device_id",[""])[0] or "").strip()
+            if not device_id or len(device_id)>128: return self.reply(400,{"error":"invalid_device_id"})
+            try: limit=int(query.get("limit",["200"])[0])
+            except ValueError: return self.reply(400,{"error":"invalid_limit"})
+            if not 1<=limit<=1000: return self.reply(400,{"error":"invalid_limit"})
+            try:
+                with db_open(self.server.db_path) as db: row=db.execute("SELECT body FROM reports WHERE device_id=? ORDER BY id DESC LIMIT 1",(device_id,)).fetchone()
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            if row is None: return self.reply(404,{"error":"device_not_found"})
+            try: body=json.loads(row[0]) if row[0] else {}
+            except (ValueError,TypeError): body={}
+            findings=body.get("findings") if isinstance(body,dict) else None
+            if not isinstance(findings,list): findings=[]
+            audit_event(self.server.db_path,"findings_read",detail=device_id+":"+str(len(findings)))
+            return self.reply(200,{"device_id":device_id,"scanned_at":body.get("scanned_at") if isinstance(body,dict) else None,"total":len(findings),"findings":findings[:limit]})
         if parsed.path=="/v1/summary" and not parsed.query:
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
