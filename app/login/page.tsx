@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { ShieldCheck, Lock, User, AlertTriangle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ShieldCheck, Lock, User, AlertTriangle, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function LoginPage() {
@@ -9,6 +9,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [oidc, setOidc] = useState<{ enabled: boolean; url: string; label: string }>({ enabled: false, url: '', label: '统一身份登录' });
+
+  useEffect(() => {
+    fetch('/api/auth/providers', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.oidc_enabled) setOidc({ enabled: true, url: d.authorize_url, label: d.idp_label || '统一身份登录' });
+      })
+      .catch(() => setOidc({ enabled: false, url: '', label: '统一身份登录' }));
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -44,6 +54,22 @@ export default function LoginPage() {
           <h1 style={{ fontSize: 22, color: '#eaf7f2', letterSpacing: '-0.02em', margin: '0 0 6px' }}>Aegis 安全控制台</h1>
           <p style={{ fontSize: 13, color: '#78968c', margin: 0 }}>企业 AI Agent 安全治理平台</p>
         </div>
+
+        {/* OIDC unified identity login (when configured) */}
+        {oidc.enabled && (
+          <div style={{ marginBottom: 16 }}>
+            <Button
+              type="button"
+              onClick={() => { window.location.href = oidc.url; }}
+              style={{ width: '100%', height: 42, background: '#143329', border: '1px solid #34765f', color: '#c9f5e4' }}
+            >
+              <KeyRound size={16} /> {oidc.label}
+            </Button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0', color: '#5e7c73', fontSize: 11 }}>
+              <span style={{ flex: 1, height: 1, background: '#1e332d' }} /> 或使用本地账号 <span style={{ flex: 1, height: 1, background: '#1e332d' }} />
+            </div>
+          </div>
+        )}
 
         {/* Login form */}
         <form onSubmit={handleSubmit} style={{ background: 'linear-gradient(145deg, #0d1b18, #0a1613)', border: '1px solid #1e332d', borderRadius: 14, padding: 28, boxShadow: '0 24px 64px #00000055' }}>
