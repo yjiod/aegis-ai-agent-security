@@ -5,7 +5,7 @@ REPORT="$INSTALL_DIR/reports/latest.json"
 REPORTING="$INSTALL_DIR/reporting.json"
 UPLOAD_STATUS="$INSTALL_DIR/reports/upload-status.json"
 PLIST="/Library/LaunchDaemons/com.company.aegis-agent.plist"
-AGENT_SHA="efd34f17924516126fde45416a059a4e80bd99ccf1fef31a8cdaf2d19a54ceaf"
+AGENT_SHA="fde6f42b230a410c2f172eefeaa2325f10a66fd496dea0e5d702c4cff123c863"
 POLICY_SHA="a39a304dcd75e2a1ce43b9c0bf00ece9982b707c1e86652488f4ff9d7e1b0991"
 BASELINE_SHA="5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806"
 installed=false; integrity=false; runtime=false
