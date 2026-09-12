@@ -4,11 +4,11 @@
 # 在 Windows 机器上运行（需安装 WiX Toolset v3/v4）:
 #   powershell -ExecutionPolicy Bypass -File build-windows-msi.ps1
 #
-# 产出: dist/installers/aegis-agent-windows-0.30.0.msi
+# 产出: dist/installers/aegis-agent-windows-0.31.0.msi
 # ═══════════════════════════════════════════════════════════
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = '0.30.0'
+$Version = '0.31.0'
 $OutDir = Join-Path $Root 'dist\installers'
 $SrcDir = Join-Path $OutDir "aegis-agent-windows-$Version"
 $Wxs = Join-Path $Root 'deploy\clients\AegisAgent.wxs'
