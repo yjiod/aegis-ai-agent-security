@@ -24,6 +24,7 @@ import {
 } from '@/lib/api';
 import {
   DEVICE_ID_PATTERN,
+  ensurePgHydrated,
   getDeviceStore,
   getTicketStore,
   isTicketSeverity,
@@ -45,10 +46,18 @@ export const dynamic = 'force-dynamic';
  * so a Collector outage never blocks ticket reads. This closes the loop
  * Collector findings -> console tickets in production.
  */
+let lastAutoSync = 0;
+const AUTO_SYNC_INTERVAL_MS = 60_000;
+
 async function syncTicketsFromCollector(): Promise<void> {
   const url = process.env.AEGIS_COLLECTOR_URL;
   const token = process.env.AEGIS_COLLECTOR_TOKEN;
   if (!url || !token) return;
+  // 先等 PG 水合, 避免并发请求/多 isolate 在水合完成前各自重复建单+写审计(刷屏)。
+  await ensurePgHydrated().catch(() => {});
+  const now0 = Date.now();
+  if (now0 - lastAutoSync < AUTO_SYNC_INTERVAL_MS) return;
+  lastAutoSync = now0;
   try {
     const res = await fetch(`${url.replace(/\/$/, '')}/v1/devices?limit=500`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
