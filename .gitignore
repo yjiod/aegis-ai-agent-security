@@ -44,3 +44,5 @@ next-env.d.ts
 /work/
 __pycache__/
 *.py[cod]
+bin/
+obj/
