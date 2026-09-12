@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { AlertTriangle, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCollector } from '@/components/collector-context';
 import { Toast } from '@/components/toast';

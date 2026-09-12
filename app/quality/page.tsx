@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, RefreshCw, Wrench } from 'lucide-react';
+import { RefreshCw, Wrench } from 'lucide-react';
 import {
   BarChart,
   Bar,

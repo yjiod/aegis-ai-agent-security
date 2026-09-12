@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  AlertTriangle, Check, CircleDot, Cpu, Download, Lock,
+  Check, CircleDot, Cpu, Download, Lock,
   RefreshCw, ShieldCheck, X, Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';

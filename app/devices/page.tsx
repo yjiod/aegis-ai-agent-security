@@ -10,6 +10,7 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRole } from '@/components/role-context';
 import type { CSSProperties } from 'react';
 import {
   AlertTriangle,
@@ -42,7 +43,6 @@ import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { useCollector } from '@/components/collector-context';
-import { useRole } from '@/components/role-context';
 import DeviceForm, {
   AGENT_TYPE_OPTIONS,
   agentTypeLabel,
@@ -53,6 +53,9 @@ import DeviceForm, {
   type DeviceFormData,
   type DeviceStatus,
 } from '@/components/device-form';
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
 /* ─── 展示层常量 ─────────────────────────────────────────── */
 
@@ -61,9 +64,6 @@ type ToastTone = 'info' | 'success' | 'error';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
 
 /** 状态徽标：绿=在线，灰=离线，琥珀=过期，红=需处理。 */
 const STATUS_META: Record<
@@ -268,7 +268,9 @@ export default function DevicesPage() {
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [source, setSource] = useState<DataSource>('loading');
-  const [notice, setNotice] = useState('');
+  const [, setNotice] = useState('');
+  const { role } = useRole();
+  const canMutate = role === 'admin';
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -280,8 +282,6 @@ export default function DevicesPage() {
   const [findingsLoading, setFindingsLoading] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   const toastTimer = useRef<number | null>(null);
-  const { role } = useRole();
-  const canMutate = role === 'admin';
 
   const notify = useCallback((text: string, tone: ToastTone = 'info') => {
     setToast({ text, tone });
@@ -530,24 +530,6 @@ export default function DevicesPage() {
     }).filter((row) => row.total > 0);
   }, [devices, source]);
 
-  const noticeCopy = (() => {
-    if (source === 'loading')
-      return { title: '正在读取注册表', body: ' 正在从 /api/devices 拉取受管终端清单。' };
-    if (source === 'api')
-      return fleet
-        ? {
-            title: '混合只读模式',
-            body: ' 终端注册表支持增删改查；顶部三项指标来自已验证的接收器摘要。',
-          }
-        : {
-            title: '注册表已连接',
-            body: ' 终端清单与增删改查来自设备接口；接收器摘要未连接，KPI 由注册表推算。',
-          };
-    return {
-      title: '接口暂不可用',
-      body: ` 设备接口暂不可用（${notice || '未知原因'}），请稍后重试。`,
-    };
-  })();
 
   /* ── 渲染 ─────────────────────────────────────────────── */
 

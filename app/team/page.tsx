@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ShieldCheck, Users } from 'lucide-react';
+import { ShieldCheck, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toast } from '@/components/toast';
 
