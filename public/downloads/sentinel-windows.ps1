@@ -5,9 +5,10 @@ if(Test-Path $ProtectedConfig){
   try{
     $encrypted=[IO.File]::ReadAllBytes($ProtectedConfig);$entropy=[Text.Encoding]::UTF8.GetBytes('SentinelAgent.Reporting.v1');$plain=[Security.Cryptography.ProtectedData]::Unprotect($encrypted,$entropy,[Security.Cryptography.DataProtectionScope]::LocalMachine)
     try{$reportConfig=[Text.Encoding]::UTF8.GetString($plain)|ConvertFrom-Json}finally{[Array]::Clear($plain,0,$plain.Length);[Array]::Clear($encrypted,0,$encrypted.Length)}
-    $names=@($reportConfig.PSObject.Properties.Name|Sort-Object);if(($names -join ',') -cne 'report_token,report_url,schema,signing_secret' -or $reportConfig.schema -cne 'sentinel.reporting/v1'){throw 'invalid reporting config contract'}
+    $names=@($reportConfig.PSObject.Properties.Name|Sort-Object);$legacy=($names -join ',') -ceq 'report_token,report_url,schema,signing_secret' -and $reportConfig.schema -ceq 'sentinel.reporting/v1';$current=($names -join ',') -ceq 'policy_verification_keys,report_token,report_url,schema,signing_secret' -and $reportConfig.schema -ceq 'sentinel.reporting/v2';if(-not $legacy -and -not $current){throw 'invalid reporting config contract'}
     $uri=$null;if(-not [Uri]::TryCreate([string]$reportConfig.report_url,[UriKind]::Absolute,[ref]$uri) -or $uri.Scheme -cne 'https' -or -not $uri.Host -or $uri.UserInfo -or $uri.Query -or $uri.Fragment){throw 'invalid reporting URL'}
     if(([string]$reportConfig.report_token).Length -lt 32 -or ([string]$reportConfig.report_token).Length -gt 4096 -or ([string]$reportConfig.signing_secret).Length -lt 32 -or ([string]$reportConfig.signing_secret).Length -gt 4096 -or $reportConfig.report_token -ceq $reportConfig.signing_secret){throw 'invalid reporting secrets'}
+    $policyVerificationKeys=if($current){@($reportConfig.policy_verification_keys|ForEach-Object{[string]$_})}else{@()};if($policyVerificationKeys.Count -gt 5 -or @($policyVerificationKeys|Where-Object{$_.Length -lt 32 -or $_.Length -gt 4096}).Count -or @($policyVerificationKeys|Select-Object -Unique).Count -ne $policyVerificationKeys.Count -or $reportConfig.report_token -in $policyVerificationKeys -or $reportConfig.signing_secret -in $policyVerificationKeys){throw 'invalid policy verification keys'}
     $ReportUrl=[string]$reportConfig.report_url;$env:SENTINEL_REPORT_TOKEN=[string]$reportConfig.report_token;$env:SENTINEL_REPORT_SIGNING_SECRET=[string]$reportConfig.signing_secret
   }catch{$reportConfigInvalid=$true;$ReportUrl='';Remove-Item Env:SENTINEL_REPORT_TOKEN -ErrorAction SilentlyContinue;Remove-Item Env:SENTINEL_REPORT_SIGNING_SECRET -ErrorAction SilentlyContinue}
 }
@@ -23,6 +24,10 @@ if($reportConfig -and $ReportUrl){
     $bytes=[Text.Encoding]::UTF8.GetBytes([string]$response.Content);if($response.StatusCode -ne 200 -or $bytes.Length -gt 2000000){throw 'invalid policy response'}
     $sha256=[Security.Cryptography.SHA256]::Create();try{$actual=([BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace('-','').ToLower()}finally{$sha256.Dispose()}
     if(([string]$response.Headers['X-Sentinel-Policy-SHA256']) -cne $actual){throw 'policy digest mismatch'}
+    if($policyVerificationKeys.Count -lt 1){throw 'policy verification key unavailable'}
+    $suppliedSignature=[string]$response.Headers['X-Sentinel-Policy-Signature'];$signatureValid=$false
+    foreach($key in $policyVerificationKeys){$hmac=[Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($key));try{$expected='sha256='+([BitConverter]::ToString($hmac.ComputeHash($bytes))).Replace('-','').ToLower()}finally{$hmac.Dispose()};$signatureValid=$signatureValid -or ($expected -ceq $suppliedSignature)}
+    if(-not $signatureValid){throw 'policy signature mismatch'}
     $remote=([string]$response.Content)|ConvertFrom-Json;if($remote.schema -cne 'sentinel.policy/v1' -or -not ([string]$remote.version)){throw 'invalid remote policy'}
     $local=Get-Content $policyPath -Raw|ConvertFrom-Json;if(([version]$remote.version) -lt ([version]$local.version)){throw 'policy downgrade rejected'}
     if(([version]$remote.version) -gt ([version]$local.version)){$temp=$policyPath+'.'+[Guid]::NewGuid().ToString('N')+'.tmp';try{[IO.File]::WriteAllBytes($temp,$bytes);Move-Item -LiteralPath $temp -Destination $policyPath -Force}finally{Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue}}
@@ -391,7 +396,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.46.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.47.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

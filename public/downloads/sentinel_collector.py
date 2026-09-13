@@ -81,6 +81,18 @@ def secret_values(single_name,multiple_name,env=None):
         if any(not isinstance(value,str) or not value or len(value)>4096 for value in values): return []
         return values
     value=env.get(single_name,""); return [value] if value and len(value)<=4096 else []
+def private_secret_file(path):
+    if not path: return []
+    source=Path(path)
+    if source.is_symlink(): raise ValueError("secret_file_symlink")
+    info=source.stat()
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) not in {0o600,0o640} or info.st_uid not in {0,os.geteuid()} or info.st_size>65536: raise ValueError("secret_file_permissions")
+    value=json.loads(source.read_text(encoding="utf-8")); keys=value.get("keys") if isinstance(value,dict) else None
+    if set(value)!={"schema","keys"} or value.get("schema")!="sentinel.policy-signing-keys/v1" or not isinstance(keys,list) or not 1<=len(keys)<=5 or any(not isinstance(key,str) or not 32<=len(key)<=4096 for key in keys) or len(keys)!=len(set(keys)): raise ValueError("secret_file_contract")
+    return keys
+def policy_signing_keys(path=None):
+    path=os.getenv("SENTINEL_POLICY_SIGNING_KEYS_FILE","") if path is None else path
+    return private_secret_file(path)
 def allow_unsigned_reports(value=None):
     raw=os.getenv("SENTINEL_ALLOW_UNSIGNED_REPORTS","") if value is None else value
     return str(raw).strip().lower() in {"1","true","yes"}
@@ -103,10 +115,13 @@ def device_credentials(path=None):
     return normalized
 def runtime_secret_errors(env=None):
     env=os.environ if env is None else env
+    errors=[]
     tokens=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS",env)
     signing=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS",env)
     callback=secret_values("SENTINEL_APPROVAL_CALLBACK_TOKEN","SENTINEL_APPROVAL_CALLBACK_TOKENS",env)
-    errors=[]
+    policy_keys=[]
+    try: policy_keys=private_secret_file(env.get("SENTINEL_POLICY_SIGNING_KEYS_FILE",""))
+    except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): errors.append("policy_signing_keys_missing_or_invalid")
     if not tokens: errors.append("collector_token_missing_or_invalid")
     if any(len(value)<32 for value in tokens): errors.append("collector_token_too_short")
     if len(tokens)!=len(set(tokens)): errors.append("collector_token_duplicate")
@@ -125,6 +140,8 @@ def runtime_secret_errors(env=None):
     if any(len(value)<32 for value in callback): errors.append("approval_callback_token_too_short")
     if len(callback)!=len(set(callback)): errors.append("approval_callback_token_duplicate")
     if set(callback)&(set(tokens)|set(signing)): errors.append("approval_callback_token_reused")
+    if not policy_keys and "policy_signing_keys_missing_or_invalid" not in errors: errors.append("policy_signing_keys_missing_or_invalid")
+    if set(policy_keys)&(set(tokens)|set(signing)|set(callback)): errors.append("policy_signing_key_reused")
     return errors
 def retention_days(value=None):
     raw=os.getenv("SENTINEL_RETENTION_DAYS","30") if value is None else value
@@ -189,7 +206,7 @@ def service_health_status(inventory):
     """Classify only the minimized health attestation; malformed or duplicate evidence fails closed."""
     items=[item.get("status") for item in inventory if isinstance(item,dict) and item.get("type")=="service_health"] if isinstance(inventory,list) else []
     return items[0] if len(items)==1 and items[0] in {"healthy","degraded","invalid"} else "missing" if not items else "invalid"
-def remediation_recommendation(row,required_agent="0.46.0",required_policy="5.1.0"):
+def remediation_recommendation(row,required_agent="0.47.0",required_policy="5.1.0"):
     device_id,observed_at,severity,agent,policy,body=row
     try: inventory=json.loads(body).get("inventory",[])
     except (AttributeError,TypeError,ValueError,json.JSONDecodeError): inventory=[]
@@ -204,7 +221,7 @@ def remediation_recommendation(row,required_agent="0.46.0",required_policy="5.1.
     seed=f"{device_id}\0{observed_at}\0{reason}\0{action}".encode(); correlation=hashlib.blake2s(seed,digest_size=20).hexdigest()
     return {"recommendation_id":correlation,"device_id":device_id,"reason":reason,"recommended_action":action,"approval_state":"external_approval_required","severity":level,"observed_at":observed_at,"correlation_id":correlation}
 def collector_recommendations(db_path,limit=200,required_agent=None,required_policy=None):
-    limit=min(max(int(limit),1),200); required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.46.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
+    limit=min(max(int(limit),1),200); required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.47.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.device_id,r.received_at,r.severity,r.agent_version,r.policy_version,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id ORDER BY r.device_id").fetchall()
         states={row[0]:(row[1],row[2]) for row in db.execute("SELECT receipt.recommendation_id,receipt.state,receipt.occurred_at FROM remediation_receipts receipt JOIN (SELECT recommendation_id,MAX(id) AS id FROM remediation_receipts GROUP BY recommendation_id) latest ON latest.id=receipt.id")}
@@ -245,7 +262,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.46.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.47.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
     supported_agents=("cursor","claude_code","codex","windsurf","gemini_cli","github_copilot_cli","workbuddy","qwen_enterprise","tongyi_lingma","codebuddy")
     agent_coverage={name:{"total":0,"active":0} for name in supported_agents}
@@ -273,7 +290,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage,"service_health_posture":service_health_posture}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.24"
+    server_version="SentinelCollector/0.25"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -286,7 +303,9 @@ class Handler(BaseHTTPRequestHandler):
             body=candidate.read_bytes(); data=json.loads(body)
             if not isinstance(data,dict) or data.get("schema")!="sentinel.policy/v1" or not isinstance(data.get("version"),str): raise ValueError("invalid policy")
         except (OSError,ValueError,TypeError,json.JSONDecodeError,UnicodeError): return self.reply(503,{"error":"policy_unavailable"})
-        digest=hashlib.sha256(body).hexdigest(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","private, max-age=300"); self.send_header("ETag",'"'+digest+'"'); self.send_header("X-Sentinel-Policy-SHA256",digest); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body)
+        try: keys=policy_signing_keys()
+        except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): return self.reply(503,{"error":"policy_signing_unavailable"})
+        digest=hashlib.sha256(body).hexdigest(); signature="sha256="+hmac.new(keys[0].encode(),body,hashlib.sha256).hexdigest(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","private, max-age=300"); self.send_header("ETag",'"'+digest+'"'); self.send_header("X-Sentinel-Policy-SHA256",digest); self.send_header("X-Sentinel-Policy-Signature",signature); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body)
     def rate_limited(self):
         limiter=getattr(self.server,"rate_limiter",None)
         if limiter is None: return False

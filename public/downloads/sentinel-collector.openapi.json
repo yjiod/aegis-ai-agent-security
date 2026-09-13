@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentinel Report Collector API",
-    "version": "0.24.0",
+    "version": "0.25.0",
     "description": "Machine-readable contract for the private Sentinel Collector. Production deployments terminate TLS at the enterprise reverse proxy."
   },
   "servers": [{"url": "https://sentinel-collector.example.internal"}],
@@ -75,9 +75,9 @@
     "/v1/policy": {
       "get": {
         "operationId": "downloadPolicy",
-        "description": "Returns the current reviewed Sentinel policy. Clients require the X-Sentinel-Policy-SHA256 header and reject redirects and version downgrades.",
+        "description": "Returns the current reviewed Sentinel policy. Clients require both the digest and an independently provisioned HMAC signature, and reject redirects, invalid signatures, and version downgrades.",
         "responses": {
-          "200": {"description": "Current reviewed policy", "headers": {"X-Sentinel-Policy-SHA256": {"required": true, "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}, "content": {"application/json": {"schema": {"type": "object", "required": ["schema", "version", "custom_rules", "rule_sources"]}}}},
+          "200": {"description": "Current reviewed policy", "headers": {"X-Sentinel-Policy-SHA256": {"required": true, "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "X-Sentinel-Policy-Signature": {"required": true, "schema": {"type": "string", "pattern": "^sha256=[0-9a-f]{64}$"}}}, "content": {"application/json": {"schema": {"type": "object", "required": ["schema", "version", "custom_rules", "rule_sources"]}}}},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "429": {"$ref": "#/components/responses/RateLimited"},
           "503": {"$ref": "#/components/responses/Unavailable"}

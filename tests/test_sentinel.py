@@ -47,7 +47,7 @@ class SentinelTests(unittest.TestCase):
     def test_client_update_policy_keeps_external_lifecycle_owner(self):
         policy=json.loads((DOWNLOADS/'sentinel-client-control-policy.json').read_text())
         device={'agent_version':'0.44.0','management_platform':'mdm','dual_slot_ready':True,'consecutive_update_failures':0,'rollout_ring':'pilot'}
-        offer={'agent_version':'0.46.0','platform_signature_verified':True,'release_signature_verified':True,'authorized_rings':['lab','pilot']}
+        offer={'agent_version':'0.47.0','platform_signature_verified':True,'release_signature_verified':True,'authorized_rings':['lab','pilot']}
         result=self.update_planner.plan(policy,device,offer)
         self.assertEqual(result['action'],'external_deployment_required')
         self.assertEqual(result['reason'],'software_lifecycle_owner')
@@ -55,7 +55,7 @@ class SentinelTests(unittest.TestCase):
     def test_controlled_self_update_is_fail_closed_and_content_keeps_lkg(self):
         policy=json.loads((DOWNLOADS/'sentinel-client-control-policy.json').read_text()); policy['binary_delivery']['mode']='controlled_self_update'
         device={'agent_version':'0.44.0','management_platform':'unmanaged','dual_slot_ready':True,'consecutive_update_failures':0,'rollout_ring':'lab'}
-        offer={'agent_version':'0.46.0','platform_signature_verified':True,'release_signature_verified':True,'authorized_rings':['lab']}
+        offer={'agent_version':'0.47.0','platform_signature_verified':True,'release_signature_verified':True,'authorized_rings':['lab']}
         result=self.update_planner.plan(policy,device,offer,datetime.fromisoformat('2026-09-13T17:00:00+00:00'))
         self.assertEqual(result['action'],'wait'); self.assertIn('explicitly_enabled',result['failed_gates'])
         policy['binary_delivery']['self_update']['enabled']=True
@@ -306,7 +306,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('tests/windows-agent-smoke.ps1',workflow)
         self.assertIn('tests/macos-agent-smoke.sh',workflow)
         smoke=(ROOT/'tests/windows-agent-smoke.ps1').read_text()
-        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.46.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)','instruction ACL changed','.AGENTS.md.*.tmp','repository managed baseline','repository instruction ACL changed','repository atomic update left'):
+        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.47.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)','instruction ACL changed','.AGENTS.md.*.tmp','repository managed baseline','repository instruction ACL changed','repository atomic update left'):
             self.assertIn(directive,smoke)
         mac_smoke=(ROOT/'tests/macos-agent-smoke.sh').read_text()
         for directive in ('SENTINEL_BASE_URL="file://$SOURCE"','install-sentinel.sh','sentinel_agent.py','--auto-enroll','ai_agent','agent_baseline','status\")==\"managed\"','sentinel-managed-user-baseline:start','personal Codex instructions','unapproved-demo','insecure_mcp_transport','unapproved_mcp_transport','insecure_tls_verification','stat.S_IMODE','hardcoded_secret','secret not in open'):
@@ -509,7 +509,7 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
         spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
-        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.24.0')
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.25.0')
         self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/recommendations':{'get'},'/v1/remediation-receipts':{'post'},'/v1/policy':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
         post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
@@ -593,7 +593,7 @@ class SentinelTests(unittest.TestCase):
             ]
             for device,severity,inventory in samples:
                 body=json.dumps({'inventory':inventory});
-                with self.collector.db_open(path) as db: db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(device,device+'-device',now,severity,body,'0.46.0','5.1.0')); db.commit()
+                with self.collector.db_open(path) as db: db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(device,device+'-device',now,severity,body,'0.47.0','5.1.0')); db.commit()
             first=self.collector.collector_recommendations(path); second=self.collector.collector_recommendations(path)
             self.assertEqual(len(first['recommendations']),2); self.assertEqual([item['recommendation_id'] for item in first['recommendations']],[item['recommendation_id'] for item in second['recommendations']])
             by_device={item['device_id']:item for item in first['recommendations']}; self.assertEqual(by_device['critical-device']['recommended_action'],'containment_pending_approval'); self.assertEqual(by_device['invalid-device']['recommended_action'],'verify_integrity')
@@ -698,9 +698,10 @@ class SentinelTests(unittest.TestCase):
     def test_collector_binds_device_identity_to_independent_credentials(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); credentials_path=root/'devices.json'; device_id='abcdef123456'; token='t'*32; secret='s'*32; old_token='u'*32; old_secret='v'*32; admin='a'*32
+            policy_keys_path=root/'policy-keys.json'; policy_keys_path.write_text(json.dumps({'schema':'sentinel.policy-signing-keys/v1','keys':['p'*48]})); policy_keys_path.chmod(0o600)
             credentials_path.write_text(json.dumps({'schema':'sentinel.device-credentials/v1','devices':{device_id:{'tokens':[token,old_token],'signing_secrets':[secret,old_secret]}}})); credentials_path.chmod(0o600)
             self.assertEqual(set(self.collector.device_credentials(credentials_path)),{device_id})
-            env={'SENTINEL_COLLECTOR_TOKEN':admin,'SENTINEL_DEVICE_CREDENTIALS_FILE':str(credentials_path)}
+            env={'SENTINEL_COLLECTOR_TOKEN':admin,'SENTINEL_DEVICE_CREDENTIALS_FILE':str(credentials_path),'SENTINEL_POLICY_SIGNING_KEYS_FILE':str(policy_keys_path)}
             self.assertEqual(self.collector.runtime_secret_errors(env),[])
             with patch.dict(os.environ,env,clear=True):
                 server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
@@ -745,28 +746,28 @@ class SentinelTests(unittest.TestCase):
     def test_device_credential_provisioning_is_private_atomic_and_rotation_safe(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); manifest=root/'server/devices.json'; enrollments=root/'enrollments'; ids=['abcdef123456','000000000000']
-            report_url='https://collector.example.test/v1/reports'; issued_at=2_000_000_000
-            result=self.credentials.provision(ids,manifest,enrollments,report_url,issued_at=issued_at); self.assertEqual(result['created'],sorted(ids)); self.assertFalse(result['secrets_printed']); self.assertEqual(manifest.stat().st_mode&0o777,0o600)
+            report_url='https://collector.example.test/v1/reports'; issued_at=2_000_000_000; policy_keys=['p'*48,'q'*48]
+            result=self.credentials.provision(ids,manifest,enrollments,report_url,policy_keys,issued_at=issued_at); self.assertEqual(result['created'],sorted(ids)); self.assertFalse(result['secrets_printed']); self.assertEqual(manifest.stat().st_mode&0o777,0o600)
             first=json.loads(manifest.read_text())
             token=first['devices'][ids[0]]['tokens'][0]; secret=first['devices'][ids[0]]['signing_secrets'][0]; self.assertNotIn(token,json.dumps(result)); self.assertNotEqual(token,secret)
             for device_id in ids:
-                enrollment=enrollments/(device_id+'.json'); self.assertEqual(enrollment.stat().st_mode&0o777,0o600); value=json.loads(enrollment.read_text()); self.assertEqual(value['report_token'],first['devices'][device_id]['tokens'][0]); self.assertEqual((value['schema'],value['report_url'],value['issued_at'],value['expires_at'],value['consume_once']),('sentinel.device-enrollment/v2',report_url,issued_at,issued_at+3600,True))
-            unchanged=self.credentials.provision(ids,manifest,enrollments,report_url,issued_at=issued_at); self.assertEqual(unchanged['created'],[]); self.assertEqual(json.loads(manifest.read_text()),first)
-            manifest.chmod(0o640); before=manifest.stat(); rotated=self.credentials.provision([ids[0]],manifest,enrollments,report_url,rotate=True,issued_at=issued_at); after=manifest.stat(); self.assertEqual((stat.S_IMODE(after.st_mode),after.st_uid,after.st_gid),(0o640,before.st_uid,before.st_gid)); self.assertEqual(rotated['rotated'],[ids[0]]); second=json.loads(manifest.read_text()); self.assertEqual(second['devices'][ids[0]]['tokens'][1],token); self.assertNotEqual(second['devices'][ids[0]]['tokens'][0],token)
-            with self.assertRaisesRegex(ValueError,'activation_evidence_required'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True)
+                enrollment=enrollments/(device_id+'.json'); self.assertEqual(enrollment.stat().st_mode&0o777,0o600); value=json.loads(enrollment.read_text()); self.assertEqual(value['report_token'],first['devices'][device_id]['tokens'][0]); self.assertEqual((value['schema'],value['report_url'],value['policy_verification_keys'],value['issued_at'],value['expires_at'],value['consume_once']),('sentinel.device-enrollment/v3',report_url,policy_keys,issued_at,issued_at+3600,True))
+            unchanged=self.credentials.provision(ids,manifest,enrollments,report_url,policy_keys,issued_at=issued_at); self.assertEqual(unchanged['created'],[]); self.assertEqual(json.loads(manifest.read_text()),first)
+            manifest.chmod(0o640); before=manifest.stat(); rotated=self.credentials.provision([ids[0]],manifest,enrollments,report_url,policy_keys,rotate=True,issued_at=issued_at); after=manifest.stat(); self.assertEqual((stat.S_IMODE(after.st_mode),after.st_uid,after.st_gid),(0o640,before.st_uid,before.st_gid)); self.assertEqual(rotated['rotated'],[ids[0]]); second=json.loads(manifest.read_text()); self.assertEqual(second['devices'][ids[0]]['tokens'][1],token); self.assertNotEqual(second['devices'][ids[0]]['tokens'][0],token)
+            with self.assertRaisesRegex(ValueError,'activation_evidence_required'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,policy_keys,prune_old=True)
             evidence=root/'devices-export.json'; evidence.write_text(json.dumps({'generated_at':1000,'complete':True,'devices':[{'device_id':ids[0],'last_seen':999,'report_count':2,'credential_generation':'previous'}]}))
-            with self.assertRaisesRegex(ValueError,'devices_not_on_current_credentials'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
+            with self.assertRaisesRegex(ValueError,'devices_not_on_current_credentials'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,policy_keys,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
             evidence.write_text(json.dumps({'generated_at':1,'complete':True,'devices':[{'device_id':ids[0],'last_seen':1,'report_count':3,'credential_generation':'current'}]}))
-            with self.assertRaisesRegex(ValueError,'activation_evidence_stale'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
+            with self.assertRaisesRegex(ValueError,'activation_evidence_stale'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,policy_keys,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
             evidence.write_text(json.dumps({'generated_at':1000,'complete':False,'devices':[{'device_id':ids[0],'last_seen':999,'report_count':3,'credential_generation':'current'}]}))
-            with self.assertRaisesRegex(ValueError,'activation_evidence_invalid'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
-            evidence.write_text(json.dumps({'generated_at':1000,'complete':True,'devices':[{'device_id':ids[0],'last_seen':999,'report_count':3,'credential_generation':'current'}]})); self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at); third=json.loads(manifest.read_text()); self.assertEqual(len(third['devices'][ids[0]]['tokens']),1); self.assertEqual(json.loads((enrollments/(ids[0]+'.json')).read_text())['report_token'],third['devices'][ids[0]]['tokens'][0])
+            with self.assertRaisesRegex(ValueError,'activation_evidence_invalid'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,policy_keys,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
+            evidence.write_text(json.dumps({'generated_at':1000,'complete':True,'devices':[{'device_id':ids[0],'last_seen':999,'report_count':3,'credential_generation':'current'}]})); self.credentials.provision([ids[0]],manifest,enrollments,report_url,policy_keys,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at); third=json.loads(manifest.read_text()); self.assertEqual(len(third['devices'][ids[0]]['tokens']),1); self.assertEqual(json.loads((enrollments/(ids[0]+'.json')).read_text())['report_token'],third['devices'][ids[0]]['tokens'][0])
             bad=root/'bad'; bad.symlink_to(enrollments,target_is_directory=True); untouched=root/'untouched.json'
-            with self.assertRaisesRegex(ValueError,'enrollment_directory_symlink'): self.credentials.provision(['111111111111'],untouched,bad,report_url)
+            with self.assertRaisesRegex(ValueError,'enrollment_directory_symlink'): self.credentials.provision(['111111111111'],untouched,bad,report_url,policy_keys)
             self.assertFalse(untouched.exists())
-            with self.assertRaisesRegex(ValueError,'invalid_report_url'): self.credentials.provision(['111111111111'],untouched,root/'new','http://collector.invalid')
+            with self.assertRaisesRegex(ValueError,'invalid_report_url'): self.credentials.provision(['111111111111'],untouched,root/'new','http://collector.invalid',policy_keys)
             for name in ('sentinel-enroll-windows.ps1','sentinel-enroll-macos.sh'):
-                text=(DOWNLOADS/name).read_text(encoding='utf-8-sig'); self.assertIn('sentinel.device-enrollment/v2',text); self.assertIn('device identity mismatch',text.lower()); self.assertIn('consume',text.lower())
+                text=(DOWNLOADS/name).read_text(encoding='utf-8-sig'); self.assertIn('sentinel.device-enrollment/v3',text); self.assertIn('device identity mismatch',text.lower()); self.assertIn('consume',text.lower())
     def test_endpoint_requires_strict_bounded_collector_acknowledgement(self):
         report=vendor_report(); expected=hashlib.sha256(json.dumps(report,ensure_ascii=False).encode()).hexdigest()[:20]; valid={'accepted':True,'duplicate':False,'report_id':expected,'severity':'normal'}
         class Response:
@@ -782,7 +783,7 @@ class SentinelTests(unittest.TestCase):
     def test_reporting_config_requires_private_file_and_strict_contract(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); path=root/'reporting.json'; value={'schema':'sentinel.reporting/v1','report_url':'https://collector.example.internal/v1/reports','report_token':'t'*32,'signing_secret':'s'*32}
-            path.write_text(json.dumps(value)); path.chmod(0o600); self.assertEqual(self.agent.load_reporting_config(path),value)
+            path.write_text(json.dumps(value)); path.chmod(0o600); self.assertEqual(self.agent.load_reporting_config(path),{**value,'policy_verification_keys':[]})
             path.chmod(0o644)
             with self.assertRaisesRegex(ValueError,'reporting_config_permissions'): self.agent.load_reporting_config(path)
             path.chmod(0o600); link=root/'link.json'; link.symlink_to(path)
@@ -791,10 +792,40 @@ class SentinelTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'reporting_config_url'): self.agent.load_reporting_config(path)
             path.write_text(json.dumps({**value,'signing_secret':'t'*32}))
             with self.assertRaisesRegex(ValueError,'reporting_config_secrets'): self.agent.load_reporting_config(path)
+            current={**value,'schema':'sentinel.reporting/v2','policy_verification_keys':['p'*48,'q'*48]}; path.write_text(json.dumps(current)); self.assertEqual(self.agent.load_reporting_config(path),current)
+            path.write_text(json.dumps({**current,'policy_verification_keys':['p'*48,'p'*48]}))
+            with self.assertRaisesRegex(ValueError,'policy_verification_keys_invalid'): self.agent.load_reporting_config(path)
             status=root/'upload-status.json'; self.agent.write_upload_status(status,'https://Collector.Example.Internal/v1/reports',now=123)
             self.assertEqual(json.loads(status.read_text()),{'schema':'sentinel.upload-status/v1','status':'accepted','last_success':123,'collector_host':'collector.example.internal'}); self.assertEqual(status.stat().st_mode&0o777,0o600)
         windows=(DOWNLOADS/'sentinel-configure-windows.ps1').read_text(); scanner=(DOWNLOADS/'sentinel-windows.ps1').read_text(); mac=(DOWNLOADS/'sentinel-configure-macos.sh').read_text()
         self.assertIn('DataProtectionScope]::LocalMachine',windows); self.assertIn('ProtectedData]::Unprotect',scanner); self.assertIn("kind='reporting_config_invalid'",scanner); self.assertIn('umask 077',mac)
+    def test_policy_sync_requires_independent_signature_and_preserves_lkg(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); target=root/'policy.json'; target.write_text(json.dumps(self.policy,separators=(',',':'))); candidate={**self.policy,'version':'5.1.1'}; raw=json.dumps(candidate,separators=(',',':')).encode(); key='p'*48
+            class Response:
+                def __init__(self,signature): self.headers={'X-Sentinel-Policy-SHA256':hashlib.sha256(raw).hexdigest(),'X-Sentinel-Policy-Signature':signature}
+                def __enter__(self): return self
+                def __exit__(self,*args): pass
+                def geturl(self): return 'https://collector.example.internal/v1/policy'
+                def read(self,limit): return raw
+            signature='sha256='+hmac.new(key.encode(),raw,hashlib.sha256).hexdigest()
+            with patch.object(self.agent.urllib.request,'urlopen',return_value=Response(signature)): self.assertTrue(self.agent.sync_policy(target,'https://collector.example.internal/v1/reports','t'*32,[key]))
+            self.assertEqual(json.loads(target.read_text())['version'],'5.1.1')
+            before=target.read_bytes()
+            with patch.object(self.agent.urllib.request,'urlopen',return_value=Response('sha256='+'0'*64)),self.assertRaisesRegex(ValueError,'policy_signature_mismatch'): self.agent.sync_policy(target,'https://collector.example.internal/v1/reports','t'*32,[key])
+            self.assertEqual(target.read_bytes(),before)
+            with patch.object(self.agent.urllib.request,'urlopen',return_value=Response(signature)),self.assertRaisesRegex(ValueError,'policy_verification_keys_invalid'): self.agent.sync_policy(target,'https://collector.example.internal/v1/reports','t'*32,[key,key])
+    def test_collector_policy_response_is_digest_and_signature_bound(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); policy=root/'policy.json'; keyring=root/'keys.json'; raw=json.dumps(self.policy,separators=(',',':')).encode(); policy.write_bytes(raw); key='p'*48; keyring.write_text(json.dumps({'schema':'sentinel.policy-signing-keys/v1','keys':[key]})); keyring.chmod(0o600)
+            env={'SENTINEL_COLLECTOR_TOKEN':'t'*32,'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true','SENTINEL_POLICY_FILE':str(policy),'SENTINEL_POLICY_SIGNING_KEYS_FILE':str(keyring)}
+            with patch.dict(os.environ,env,clear=True):
+                server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+                try:
+                    request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/policy',headers={'Authorization':'Bearer '+'t'*32})
+                    with urllib.request.urlopen(request,timeout=3) as response:
+                        body=response.read(); self.assertEqual(response.headers['X-Sentinel-Policy-SHA256'],hashlib.sha256(body).hexdigest()); self.assertEqual(response.headers['X-Sentinel-Policy-Signature'],'sha256='+hmac.new(key.encode(),body,hashlib.sha256).hexdigest())
+                finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_collector_supports_bounded_token_and_signing_key_rotation(self):
         body=b'{"device":"test"}'; old=self.agent.report_headers(body,'old-token','old-signing',now=1000); new=self.agent.report_headers(body,'new-token','new-signing',now=1000)
         env={'SENTINEL_REPORT_SIGNING_SECRETS':'["new-signing","old-signing"]'}
@@ -807,16 +838,19 @@ class SentinelTests(unittest.TestCase):
         handler=object.__new__(self.collector.Handler); handler.headers={'Authorization':'Bearer old-token'}
         with patch.dict(os.environ,{'SENTINEL_COLLECTOR_TOKENS':'["new-token","old-token"]'},clear=True): self.assertTrue(handler.authorized())
     def test_collector_runtime_secrets_require_strength_uniqueness_and_separation(self):
-        good={'SENTINEL_COLLECTOR_TOKENS':json.dumps(['t'*32,'u'*32]),'SENTINEL_REPORT_SIGNING_SECRETS':json.dumps(['s'*32,'v'*32])}
-        self.assertEqual(self.collector.runtime_secret_errors(good),[])
-        weak={'SENTINEL_COLLECTOR_TOKEN':'short','SENTINEL_REPORT_SIGNING_SECRET':'tiny'}
-        self.assertTrue({'collector_token_too_short','signing_secret_too_short'}.issubset(self.collector.runtime_secret_errors(weak)))
-        reused={'SENTINEL_COLLECTOR_TOKEN':'x'*32,'SENTINEL_REPORT_SIGNING_SECRET':'x'*32}
-        self.assertIn('authentication_and_signing_secret_reused',self.collector.runtime_secret_errors(reused))
-        duplicate={'SENTINEL_COLLECTOR_TOKENS':json.dumps(['a'*32,'a'*32]),'SENTINEL_REPORT_SIGNING_SECRET':'b'*32}
-        self.assertIn('collector_token_duplicate',self.collector.runtime_secret_errors(duplicate))
-        pilot={'SENTINEL_COLLECTOR_TOKEN':'a'*32,'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'}
-        self.assertEqual(self.collector.runtime_secret_errors(pilot),[])
+        with tempfile.TemporaryDirectory() as d:
+            keyring=Path(d)/'policy-keys.json'; keyring.write_text(json.dumps({'schema':'sentinel.policy-signing-keys/v1','keys':['p'*48]})); keyring.chmod(0o600); base={'SENTINEL_POLICY_SIGNING_KEYS_FILE':str(keyring)}
+            good={**base,'SENTINEL_COLLECTOR_TOKENS':json.dumps(['t'*32,'u'*32]),'SENTINEL_REPORT_SIGNING_SECRETS':json.dumps(['s'*32,'v'*32])}
+            self.assertEqual(self.collector.runtime_secret_errors(good),[])
+            weak={**base,'SENTINEL_COLLECTOR_TOKEN':'short','SENTINEL_REPORT_SIGNING_SECRET':'tiny'}
+            self.assertTrue({'collector_token_too_short','signing_secret_too_short'}.issubset(self.collector.runtime_secret_errors(weak)))
+            reused={**base,'SENTINEL_COLLECTOR_TOKEN':'x'*32,'SENTINEL_REPORT_SIGNING_SECRET':'x'*32}
+            self.assertIn('authentication_and_signing_secret_reused',self.collector.runtime_secret_errors(reused))
+            duplicate={**base,'SENTINEL_COLLECTOR_TOKENS':json.dumps(['a'*32,'a'*32]),'SENTINEL_REPORT_SIGNING_SECRET':'b'*32}
+            self.assertIn('collector_token_duplicate',self.collector.runtime_secret_errors(duplicate))
+            pilot={**base,'SENTINEL_COLLECTOR_TOKEN':'a'*32,'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'}
+            self.assertEqual(self.collector.runtime_secret_errors(pilot),[])
+            self.assertIn('policy_signing_keys_missing_or_invalid',self.collector.runtime_secret_errors({'SENTINEL_COLLECTOR_TOKEN':'a'*32,'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'}))
     def test_unsigned_reports_are_denied_unless_explicitly_enabled(self):
         with patch.dict(os.environ,{},clear=True): self.assertFalse(self.collector.valid_signature({},b'body',now=1,secret=''))
         with patch.dict(os.environ,{'SENTINEL_ALLOW_UNSIGNED_REPORTS':'true'},clear=True): self.assertTrue(self.collector.valid_signature({},b'body',now=1,secret=''))
@@ -948,8 +982,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.46.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.46.0')
+        self.assertIn("agent_version='0.47.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.47.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -1051,8 +1085,8 @@ class SentinelTests(unittest.TestCase):
         script=(DOWNLOADS/'intune-macos-compliance.sh').read_text().split("<<'PY'\n",1)[1].split("\nPY",1)[0]
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'sentinel.report/v1','agent_version':'0.46.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v2','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32,'policy_verification_keys':['p'*48]})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
+            value={'schema':'sentinel.report/v1','agent_version':'0.47.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['SentinelReportValid']); self.assertTrue(parsed['SentinelReportingConfigured']); self.assertTrue(parsed['SentinelReportingHealthy'])
             upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingHealthy']); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
             reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingConfigured']); reporting.chmod(0o600)

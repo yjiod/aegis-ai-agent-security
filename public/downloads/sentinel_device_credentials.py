@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 SCHEMA="sentinel.device-credentials/v1"
-ENROLLMENT_SCHEMA="sentinel.device-enrollment/v2"
+ENROLLMENT_SCHEMA="sentinel.device-enrollment/v3"
 
 def valid_report_url(value):
     if not isinstance(value,str) or not 1<=len(value)<=2048: return False
@@ -39,6 +39,14 @@ def private_atomic(path,value,mode=0o600,preserve_metadata=False):
 
 def valid_secret_list(values):
     return isinstance(values,list) and 1<=len(values)<=5 and all(isinstance(item,str) and 32<=len(item)<=4096 for item in values) and len(values)==len(set(values))
+def load_policy_keys(path):
+    source=Path(path)
+    if source.is_symlink(): raise ValueError("policy_keyring_symlink")
+    info=source.stat()
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) not in {0o600,0o640} or info.st_uid not in {0,os.geteuid()} or info.st_size>65536: raise ValueError("policy_keyring_permissions")
+    value=json.loads(source.read_text(encoding="utf-8")); keys=value.get("keys") if isinstance(value,dict) else None
+    if not isinstance(value,dict) or set(value)!={"schema","keys"} or value.get("schema")!="sentinel.policy-signing-keys/v1" or not valid_secret_list(keys): raise ValueError("policy_keyring_contract")
+    return keys
 
 def load_manifest(path):
     path=Path(path)
@@ -70,11 +78,12 @@ def verify_activation_evidence(path,device_ids,now=None,max_age=900,active_windo
         generations[row["device_id"]]=row["credential_generation"]
     if any(generations.get(device_id)!="current" for device_id in device_ids): raise ValueError("devices_not_on_current_credentials")
 
-def provision(device_ids,output,enrollment_dir,report_url,rotate=False,prune_old=False,activation_evidence=None,evidence_now=None,ttl=3600,issued_at=None):
+def provision(device_ids,output,enrollment_dir,report_url,policy_verification_keys,rotate=False,prune_old=False,activation_evidence=None,evidence_now=None,ttl=3600,issued_at=None):
     if rotate and prune_old: raise ValueError("conflicting_operation")
     ids=sorted(set(device_ids))
     if not ids or any(not isinstance(item,str) or not re.fullmatch(r"[0-9a-f]{12}",item) for item in ids): raise ValueError("invalid_device_id")
     if not valid_report_url(report_url): raise ValueError("invalid_report_url")
+    if not valid_secret_list(policy_verification_keys): raise ValueError("invalid_policy_verification_keys")
     if type(ttl) is not int or not 300<=ttl<=86400: raise ValueError("invalid_enrollment_ttl")
     issued_at=int(time.time()) if issued_at is None else issued_at
     if type(issued_at) is not int or issued_at<1: raise ValueError("invalid_issued_at")
@@ -96,12 +105,13 @@ def provision(device_ids,output,enrollment_dir,report_url,rotate=False,prune_old
     enrollment_dir.mkdir(parents=True,exist_ok=True); enrollment_dir=enrollment_dir.resolve(strict=True); os.chmod(enrollment_dir,0o700)
     for device_id in ids:
         credential=devices[device_id]
-        private_atomic(enrollment_dir/(device_id+".json"),{"schema":ENROLLMENT_SCHEMA,"device_id":device_id,"report_url":report_url,"report_token":credential["tokens"][0],"signing_secret":credential["signing_secrets"][0],"issued_at":issued_at,"expires_at":issued_at+ttl,"consume_once":True})
+        if set(policy_verification_keys)&{credential["tokens"][0],credential["signing_secrets"][0]}: raise ValueError("policy_key_reused")
+        private_atomic(enrollment_dir/(device_id+".json"),{"schema":ENROLLMENT_SCHEMA,"device_id":device_id,"report_url":report_url,"report_token":credential["tokens"][0],"signing_secret":credential["signing_secrets"][0],"policy_verification_keys":policy_verification_keys,"issued_at":issued_at,"expires_at":issued_at+ttl,"consume_once":True})
     private_atomic(output,manifest,preserve_metadata=True)
     return {"ok":True,"device_count":len(devices),"created":created,"rotated":rotated,"pruned":pruned,"secrets_printed":False}
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("device_ids",nargs="+"); ap.add_argument("--output",required=True); ap.add_argument("--enrollment-dir",required=True); ap.add_argument("--report-url",required=True); ap.add_argument("--ttl",type=int,default=3600); ap.add_argument("--activation-evidence"); group=ap.add_mutually_exclusive_group(); group.add_argument("--rotate",action="store_true"); group.add_argument("--prune-old",action="store_true"); args=ap.parse_args()
-    result=provision(args.device_ids,args.output,args.enrollment_dir,args.report_url,args.rotate,args.prune_old,args.activation_evidence,ttl=args.ttl); print(json.dumps(result,separators=(",",":")))
+    ap=argparse.ArgumentParser(); ap.add_argument("device_ids",nargs="+"); ap.add_argument("--output",required=True); ap.add_argument("--enrollment-dir",required=True); ap.add_argument("--report-url",required=True); ap.add_argument("--policy-keyring",required=True); ap.add_argument("--ttl",type=int,default=3600); ap.add_argument("--activation-evidence"); group=ap.add_mutually_exclusive_group(); group.add_argument("--rotate",action="store_true"); group.add_argument("--prune-old",action="store_true"); args=ap.parse_args()
+    result=provision(args.device_ids,args.output,args.enrollment_dir,args.report_url,load_policy_keys(args.policy_keyring),args.rotate,args.prune_old,args.activation_evidence,ttl=args.ttl); print(json.dumps(result,separators=(",",":")))
 
 if __name__=="__main__": main()

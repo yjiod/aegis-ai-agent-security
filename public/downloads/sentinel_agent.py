@@ -56,17 +56,20 @@ def reload_policy(path,current=None):
 def version_tuple(value):
     match=re.fullmatch(r"(\d+)\.(\d+)\.(\d+)",str(value))
     return tuple(map(int,match.groups())) if match else None
-def sync_policy(path,report_url,token,timeout=10):
+def sync_policy(path,report_url,token,verification_keys,timeout=10):
     """Fetch an authenticated policy from the Collector and atomically promote only valid non-downgrades."""
     parsed=urlsplit(report_url)
     if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password: raise ValueError("invalid_policy_origin")
-    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.46.0"})
+    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.47.0"})
     with urllib.request.urlopen(request,timeout=timeout) as response:
         if response.geturl()!=endpoint: raise ValueError("policy_redirect_rejected")
         raw=response.read(2_000_001)
         if len(raw)>2_000_000: raise ValueError("policy_too_large")
-        expected=response.headers.get("X-Sentinel-Policy-SHA256","")
+        expected=response.headers.get("X-Sentinel-Policy-SHA256",""); supplied_signature=response.headers.get("X-Sentinel-Policy-Signature","")
     if not re.fullmatch(r"[0-9a-f]{64}",expected) or not hmac.compare_digest(hashlib.sha256(raw).hexdigest(),expected): raise ValueError("policy_digest_mismatch")
+    if not isinstance(verification_keys,list) or not 1<=len(verification_keys)<=5 or any(not isinstance(key,str) or not 32<=len(key)<=4096 for key in verification_keys) or len(verification_keys)!=len(set(verification_keys)): raise ValueError("policy_verification_keys_invalid")
+    signatures=["sha256="+hmac.new(key.encode(),raw,hashlib.sha256).hexdigest() for key in verification_keys]
+    if not any(hmac.compare_digest(candidate,supplied_signature) for candidate in signatures): raise ValueError("policy_signature_mismatch")
     candidate=validate_policy(json.loads(raw))
     current=load_policy(path)
     if not version_tuple(candidate["version"]) or version_tuple(candidate["version"])<version_tuple(current["version"]): raise ValueError("policy_downgrade_rejected")
@@ -519,14 +522,20 @@ def load_reporting_config(path):
     if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077: raise ValueError("reporting_config_permissions")
     if hasattr(os,"geteuid") and info.st_uid not in {0,os.geteuid()}: raise ValueError("reporting_config_owner")
     value=json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value,dict) or set(value)!={"schema","report_url","report_token","signing_secret"} or value.get("schema")!="sentinel.reporting/v1": raise ValueError("reporting_config_contract")
+    if not isinstance(value,dict) or value.get("schema") not in {"sentinel.reporting/v1","sentinel.reporting/v2"}: raise ValueError("reporting_config_contract")
+    if value["schema"]=="sentinel.reporting/v1":
+        if set(value)!={"schema","report_url","report_token","signing_secret"}: raise ValueError("reporting_config_contract")
+        value={**value,"policy_verification_keys":[]}
+    elif set(value)!={"schema","report_url","report_token","signing_secret","policy_verification_keys"}: raise ValueError("reporting_config_contract")
     parsed=urlsplit(value.get("report_url",""))
     if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or len(value["report_url"])>2048: raise ValueError("reporting_config_url")
     token=value.get("report_token"); secret=value.get("signing_secret")
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
+    keys=value.get("policy_verification_keys",[])
+    if not isinstance(keys,list) or len(keys)>5 or any(not isinstance(key,str) or not 32<=len(key)<=4096 for key in keys) or len(keys)!=len(set(keys)) or set(keys)&{token,secret}: raise ValueError("policy_verification_keys_invalid")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.46.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.47.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -598,7 +607,7 @@ def build_report(root,policy,verify_baselines=False,enforce=False,quarantine_roo
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.46.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.47.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -618,7 +627,7 @@ def main():
     while True:
         policy_sync_error=False
         if reporting:
-            try: sync_policy(args.policy,args.report_url,reporting["report_token"])
+            try: sync_policy(args.policy,args.report_url,reporting["report_token"],reporting.get("policy_verification_keys",[]))
             except Exception: policy_sync_error=True
         policy,reload_failed=reload_policy(args.policy,policy)
         if args.auto_enroll: auto_enroll(root)
