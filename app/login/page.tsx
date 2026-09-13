@@ -49,7 +49,11 @@ export default function LoginPage() {
       });
       if (res.ok) {
         const params = new URLSearchParams(window.location.search);
-        window.location.href = params.get('from') ?? '/';
+        const raw = params.get('from') ?? '/';
+        // Only allow a same-origin relative path; block '//host' and 'scheme://…'
+        // to prevent open-redirect via a crafted ?from= parameter.
+        const safe = raw.startsWith('/') && !raw.startsWith('//') && !raw.includes('\\') ? raw : '/';
+        window.location.href = safe;
       } else {
         const data = (await res.json().catch(() => ({}))) as any;
         setError(data.error === 'invalid_credentials' ? '用户名或密码错误' : data.error === 'auth_not_configured' ? '服务端未配置登录凭据' : '登录失败');
@@ -104,7 +108,7 @@ export default function LoginPage() {
               style={{ paddingLeft: 36 }}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="admin"
+              placeholder="请输入工号 / 用户名"
               autoComplete="username"
               required
             />
@@ -131,7 +135,7 @@ export default function LoginPage() {
         </form>
 
         <p style={{ textAlign: 'center', fontSize: 11, color: '#5e7c73', marginTop: 20 }}>
-          凭据由服务端 AEGIS_CONSOLE_USER / AEGIS_CONSOLE_PASSWORD 配置
+          仅限授权人员访问；如需账号请联系安全管理员
         </p>
       </div>
     </main>

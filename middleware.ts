@@ -21,6 +21,11 @@ export async function middleware(request: NextRequest) {
   startIntegrationAlertSync();
   const { pathname } = request.nextUrl;
 
+  // Dev-only component catalog (fabricated data) must never be reachable in prod.
+  if (pathname.startsWith('/catalog') && process.env.NODE_ENV === 'production') {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+
   // Exempt paths
   if (
     pathname === '/login' ||

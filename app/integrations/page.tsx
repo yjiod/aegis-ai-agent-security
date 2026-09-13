@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Plug, ShieldCheck, AlertTriangle, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useRole } from '@/components/role-context';
 
 interface Integration {
   name: string;
@@ -24,9 +25,27 @@ const HEALTH_META: Record<Integration['health'], { label: string; icon: typeof S
   unconfigured: { label: '未配置', icon: HelpCircle, tone: 'outline' },
 };
 
+/** 明文可回显字段 vs 敏感字段（token/口令：永不回显明文，只在用户输入新值时提交）。 */
+const PLAIN_KEYS = ['fleet_url', 'wazuh_url', 'wazuh_user', 'pf_url'] as const;
+const SECRET_KEYS = ['fleet_token', 'wazuh_pass', 'pf_token'] as const;
+
+const FIELD_LABEL: Record<string, string> = {
+  fleet_url: 'Fleet 地址',
+  fleet_token: 'Fleet Token',
+  wazuh_url: 'Wazuh 地址',
+  wazuh_user: 'Wazuh 用户',
+  wazuh_pass: 'Wazuh 口令',
+  pf_url: 'PacketFence 地址',
+  pf_token: 'PacketFence Token',
+};
+
 export default function IntegrationsPage() {
+  const { role } = useRole();
+  const isAdmin = role === 'admin';
   const [items, setItems] = useState<Integration[] | null>(null);
   const [cfg, setCfg] = useState<Record<string, string>>({});
+  const [secretConfigured, setSecretConfigured] = useState<Record<string, boolean>>({});
+  const [secretDraft, setSecretDraft] = useState<Record<string, string>>({});
   const [cfgMsg, setCfgMsg] = useState('');
   const [error, setError] = useState('');
 
@@ -45,15 +64,31 @@ export default function IntegrationsPage() {
   useEffect(() => {
     void load();
     fetch('/api/integrations/config', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setCfg(d as Record<string, string>))
+      .then((r) => (r.ok ? (r.json() as Promise<Record<string, string>>) : null))
+      .then((d) => {
+        if (!d) return;
+        const plain: Record<string, string> = {};
+        for (const k of PLAIN_KEYS) plain[k] = d[k] ?? '';
+        const configured: Record<string, boolean> = {};
+        for (const k of SECRET_KEYS) configured[k] = Boolean(d[k]);
+        setCfg(plain);
+        setSecretConfigured(configured);
+      })
       .catch(() => {});
   }, [load]);
 
   async function saveCfg() {
     setCfgMsg('');
-    const r = await fetch('/api/integrations/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) });
+    // 只提交明文字段 + 管理员真正输入了新值的敏感字段；
+    // 留空的敏感字段不进入 payload，避免用掩码串覆盖真实凭据。
+    const payload: Record<string, string> = { ...cfg };
+    for (const k of SECRET_KEYS) {
+      const v = (secretDraft[k] ?? '').trim();
+      if (v) payload[k] = v;
+    }
+    const r = await fetch('/api/integrations/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     setCfgMsg(r.ok ? '已保存' : `保存失败 HTTP ${r.status}`);
+    if (r.ok) setSecretDraft({});
     void load();
   }
 
@@ -76,22 +111,44 @@ export default function IntegrationsPage() {
 
       <div className="panel animate-entrance animate-entrance-3" style={{ padding: 14, marginBottom: 14 }}>
         <strong style={{ fontSize: 14 }}>集成配置（settings 优先, 留空回退环境变量）</strong>
+        {!isAdmin && (
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 6 }}>
+            只读身份：仅管理员可编辑集成配置。
+          </p>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 8, marginTop: 10 }}>
-          {['fleet_url','fleet_token','wazuh_url','wazuh_user','wazuh_pass','pf_url','pf_token'].map((k) => (
+          {PLAIN_KEYS.map((k) => (
             <label key={k} style={{ fontSize: 12, color: 'var(--muted-foreground)', display: 'grid', gap: 4 }}>
-              {k}
+              {FIELD_LABEL[k] ?? k}
               <input
                 value={cfg[k] ?? ''}
+                disabled={!isAdmin}
                 onChange={(e) => setCfg((c) => ({ ...c, [k]: e.target.value }))}
                 style={{ padding: 6, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}
               />
             </label>
           ))}
+          {SECRET_KEYS.map((k) => (
+            <label key={k} style={{ fontSize: 12, color: 'var(--muted-foreground)', display: 'grid', gap: 4 }}>
+              {FIELD_LABEL[k] ?? k}
+              <input
+                type="password"
+                value={secretDraft[k] ?? ''}
+                disabled={!isAdmin}
+                autoComplete="new-password"
+                placeholder={secretConfigured[k] ? '已配置 · 留空保持不变' : '未配置 · 输入以配置'}
+                onChange={(e) => setSecretDraft((c) => ({ ...c, [k]: e.target.value }))}
+                style={{ padding: 6, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}
+              />
+            </label>
+          ))}
         </div>
-        <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Button onClick={() => void saveCfg()}>保存配置</Button>
-          {cfgMsg && <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{cfgMsg}</span>}
-        </div>
+        {isAdmin && (
+          <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Button onClick={() => void saveCfg()}>保存配置</Button>
+            {cfgMsg && <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{cfgMsg}</span>}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gap: 12 }}>

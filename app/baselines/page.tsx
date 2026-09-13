@@ -23,6 +23,18 @@ interface Baseline {
 
 const MODES = ['quick', 'standard', 'deep', 'custom'] as const;
 
+const MODE_LABEL: Record<string, string> = {
+  quick: '快速',
+  standard: '标准',
+  deep: '深度',
+  custom: '自定义',
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  custom: '自定义',
+  upstream: '上游',
+};
+
 export default function BaselinesPage() {
   const { role } = useRole();
   const isAdmin = role === 'admin';
@@ -70,7 +82,9 @@ export default function BaselinesPage() {
 
   async function doDelete(n: string) {
     setError(''); setNotice('');
-    await fetch(`/api/baselines?name=${encodeURIComponent(n)}`, { method: 'DELETE' });
+    if (!window.confirm(`确认删除基线「${n}」？此操作不可撤销。`)) return;
+    const r = await fetch(`/api/baselines?name=${encodeURIComponent(n)}`, { method: 'DELETE' });
+    if (!r.ok) { setError(`删除失败 HTTP ${r.status}`); return; }
     setNotice(`已删除 ${n}`);
     void load();
   }
@@ -116,7 +130,7 @@ export default function BaselinesPage() {
         <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
           {MODES.map((m) => (
             <Button key={m} variant={mode === m ? 'default' : 'outline'} disabled={!isAdmin} onClick={() => void setScanMode(m)}>
-              {m}
+              {MODE_LABEL[m] ?? m}
             </Button>
           ))}
         </div>
@@ -168,7 +182,7 @@ export default function BaselinesPage() {
             <div key={b.name} className="panel animate-entrance" style={{ padding: 14 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                 <strong>{b.name}</strong>
-                <Badge variant="outline">{b.source}</Badge>
+                <Badge variant="outline">{SOURCE_LABEL[b.source] ?? b.source}</Badge>
                 <Badge variant="outline">v{b.version}</Badge>
                 <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted-foreground)' }}>
                   {b.updated_by} · {new Date(b.updated_at).toLocaleString()}
@@ -182,7 +196,7 @@ export default function BaselinesPage() {
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
                 {b.scan_modes.map((m) => (
                   <Badge key={m} variant="outline">
-                    {m}
+                    {MODE_LABEL[m] ?? m}
                   </Badge>
                 ))}
               </div>

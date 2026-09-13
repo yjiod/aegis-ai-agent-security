@@ -11,8 +11,8 @@ import {
   Cpu,
   Laptop,
   LockKeyhole,
+  LogOut,
   Network,
-  Search,
   ScrollText,
   Settings,
   ShieldCheck,
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import ThemeToggle from '@/components/theme-toggle';
 import { PasswordModal } from '@/components/password-modal';
-import { RoleProvider, useFetchRole } from '@/components/role-context';
+import { RoleProvider, useFetchRole, type Role } from '@/components/role-context';
 import {
   CollectorProvider,
   type CollectorState,
@@ -60,7 +60,6 @@ const navSections: NavSection[] = [
     label: '安全能力',
     gap: true,
     items: [
-      { href: '/baseline', label: '编码规范基线', icon: Code2 },
       { href: '/skills', label: 'Skill 扫描器', icon: Sparkles },
       { href: '/mcp', label: 'MCP 扫描器', icon: Network },
       { href: '/quality', label: '代码质量', icon: Wrench },
@@ -84,6 +83,24 @@ type ConsoleShellProps = {
   children: React.ReactNode;
   collectorState?: CollectorState;
 };
+
+const ROLE_LABEL: Record<Role, string> = {
+  admin: '安全管理员',
+  auditor: '审计员（只读）',
+  viewer: '只读访客',
+};
+
+const ROLE_BADGE: Record<Role, string> = {
+  admin: '管理员',
+  auditor: '审计员',
+  viewer: '只读',
+};
+
+function initialsOf(subject: string): string {
+  const s = (subject || '').trim();
+  if (!s) return '—';
+  return s.slice(0, 2).toUpperCase();
+}
 
 export default function ConsoleShell({
   children,
@@ -149,20 +166,17 @@ export default function ConsoleShell({
                   ? '正在检查接收器'
                   : '接收器未连接'}
             </span>
-            <span className="system-ok" style={{ fontSize: 11, padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 6 }}>{roleState.role === "admin" ? "管理员" : "只读"}</span>
-            <button className="icon-btn" aria-label="搜索">
-              <Search size={18} />
-            </button>
+            <span className="system-ok" style={{ fontSize: 11, padding: "3px 8px", border: "1px solid var(--border)", borderRadius: 6 }}>{ROLE_BADGE[roleState.role] ?? '只读'}</span>
             <ThemeToggle />
             <div style={{ position: 'relative' }}>
               <button className="avatar" aria-label="账户菜单" onClick={() => setShowUserMenu((v) => !v)}>
-                SL
+                {initialsOf(roleState.subject)}
               </button>
               {showUserMenu && (
                 <div style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 200, background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-overlay)', zIndex: 30, overflow: 'hidden' }}>
                   <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>admin</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>安全管理员</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--foreground)' }}>{roleState.subject || '未命名'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 2 }}>{ROLE_LABEL[roleState.role] ?? '只读访客'}</div>
                   </div>
                   <button
                     style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 0, color: 'var(--foreground)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
@@ -174,7 +188,7 @@ export default function ConsoleShell({
                     style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 0, color: 'var(--muted-foreground)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
                     onClick={() => { document.cookie = 'aegis_session=; path=/; max-age=0'; window.location.href = '/login'; }}
                   >
-                    <Check size={14} /> 退出登录
+                    <LogOut size={14} /> 退出登录
                   </button>
                 </div>
               )}

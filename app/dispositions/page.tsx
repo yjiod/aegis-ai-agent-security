@@ -8,6 +8,7 @@
  * （实际发布走发行级联，由管理员执行）。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Tags, ShieldCheck, ShieldAlert, Eye, Plus, Trash2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,6 +54,15 @@ export default function DispositionsPage() {
   // add form
   const [newType, setNewType] = useState<'skill' | 'mcp'>('skill');
   const [newKey, setNewKey] = useState('');
+  const searchParams = useSearchParams();
+
+  // 深链接：/dispositions?type=<skill|mcp>&asset=<key> 预填打标表单（来自风险中心"去处置"）。
+  useEffect(() => {
+    const type = searchParams.get('type');
+    const asset = searchParams.get('asset');
+    if (type === 'skill' || type === 'mcp') setNewType(type);
+    if (asset) setNewKey(asset);
+  }, [searchParams]);
 
   const load = useCallback(async () => {
     try {
@@ -110,10 +120,15 @@ export default function DispositionsPage() {
   }
 
   async function removeAsset(asset: Label) {
+    const ok = window.confirm(
+      `确认删除对「${asset.asset_key}」(${asset.asset_type}) 的处置打标？删除后该资产将回到"未处置"状态。`,
+    );
+    if (!ok) return;
     setBusy(true);
     setError('');
     try {
-      await fetch(`/api/labels?asset_type=${asset.asset_type}&asset_key=${encodeURIComponent(asset.asset_key)}`, { method: 'DELETE' });
+      const r = await fetch(`/api/labels?asset_type=${asset.asset_type}&asset_key=${encodeURIComponent(asset.asset_key)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error(`删除失败 HTTP ${r.status}`);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -130,14 +145,23 @@ export default function DispositionsPage() {
       if (!r.ok) throw new Error(`policy HTTP ${r.status}`);
       const policy = (await r.json()) as { allowed_skills?: string[] };
       const skills = Array.isArray(policy.allowed_skills) ? policy.allowed_skills : [];
+      let ok = 0;
+      let failed = 0;
       for (const s of skills) {
-        await fetch('/api/labels', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asset_type: 'skill', asset_key: s, disposition: 'allow', tags: ['策略已知'] }),
-        });
+        try {
+          const res = await fetch('/api/labels', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ asset_type: 'skill', asset_key: s, disposition: 'allow', tags: ['策略已知'] }),
+          });
+          if (res.ok) ok += 1;
+          else failed += 1;
+        } catch {
+          failed += 1;
+        }
       }
       await load();
+      if (failed > 0) setError(`导入完成：成功 ${ok} 条，失败 ${failed} 条。`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

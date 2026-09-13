@@ -11,6 +11,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   AlertTriangle,
   ChevronDown,
@@ -35,6 +37,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { useCollector } from '@/components/collector-context';
+import { useRole } from '@/components/role-context';
 import TicketDetail, {
   formatRelativeTime,
   parseTicket,
@@ -51,7 +54,7 @@ import TicketDetail, {
 
 /* ─── 展示层常量 ─────────────────────────────────────────── */
 
-type TicketSource = 'loading' | 'api' | 'demo';
+type TicketSource = 'loading' | 'api' | 'error';
 type ToastTone = 'info' | 'success' | 'error';
 type FilterKey = 'all' | 'pending' | 'investigating' | 'resolved';
 
@@ -152,10 +155,13 @@ function pickRecord(payload: unknown, key: string): unknown {
 
 export default function RisksPage() {
   const { fleet } = useCollector();
+  const { role } = useRole();
+  const canMutate = role === 'admin';
+  const searchParams = useSearchParams();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [source, setSource] = useState<TicketSource>('loading');
-  const [, setNotice] = useState('');
+  const [notice, setNotice] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -188,10 +194,10 @@ export default function RisksPage() {
     return parseTicketList(payload);
   }, []);
 
-  /** 接口不可用：保留已有真实数据, 绝不注入演示工单; 用 notice 说明原因, 列表为空则显示空状态。 */
+  /** 接口不可用：诚实进入 error 态，保留已有真实工单，绝不伪装成"已连接/已清空"。 */
   const applyFallback = useCallback((message: string) => {
     setNotice(message);
-    setSource('api');
+    setSource((prev) => (prev === 'api' ? 'api' : 'error'));
   }, []);
 
   useEffect(() => {
@@ -215,10 +221,16 @@ export default function RisksPage() {
     };
   }, [applyFallback, loadTickets]);
 
+  // 深链接：/risks?ticket=<id> 直接展开对应工单（来自总览/通知的闭环入口）。
+  useEffect(() => {
+    const t = searchParams.get('ticket');
+    if (t) setExpandedId(t);
+  }, [searchParams]);
+
   /** 写操作失败时的提示：实时模式下明确说明「没有真的改动」。 */
   const failureCopy = useCallback(
     (action: string, title: string, error: unknown) =>
-      source === 'demo'
+      source === 'error'
         ? `提示：工单接口不可用，未${action}「${title}」。`
         : `${action}失败：${errorText(error)}`,
     [source],
@@ -352,17 +364,22 @@ export default function RisksPage() {
           <p>按风险等级与时间排序，认领后进入分级响应流程。</p>
         </div>
         <div className="head-actions" style={{ flexWrap: 'wrap' }}>
-          <Button
-            variant="outline"
-            onClick={() => notify('功能待接入：未连接 EDR 审批接口，未隔离任何对象。')}
-          >
-            <ShieldAlert />
-            隔离全部高危
-          </Button>
-          <Button onClick={() => setShowCreate((prev) => !prev)}>
-            {showCreate ? <X /> : <Plus />}
-            {showCreate ? '收起表单' : '新建工单'}
-          </Button>
+          {canMutate && (
+            <>
+              <Button
+                variant="outline"
+                disabled
+                title="未连接 EDR 审批接口，批量隔离暂不可用"
+              >
+                <ShieldAlert />
+                隔离全部高危
+              </Button>
+              <Button onClick={() => setShowCreate((prev) => !prev)}>
+                {showCreate ? <X /> : <Plus />}
+                {showCreate ? '收起表单' : '新建工单'}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -392,15 +409,15 @@ export default function RisksPage() {
       <div className="detail-kpis">
         <article className="animate-entrance animate-entrance-1">
           <strong>{filterCounts.pending}</strong>
-          <span>待处理工单{source === 'demo' ? '' : ''}</span>
+          <span>待处理工单</span>
         </article>
         <article className="animate-entrance animate-entrance-2">
           <strong>{filterCounts.investigating}</strong>
-          <span>调查中{source === 'demo' ? '' : ''}</span>
+          <span>调查中</span>
         </article>
         <article className="animate-entrance animate-entrance-3">
           <strong>{highRiskOpen}</strong>
-          <span>未闭环高危事件{source === 'demo' ? '' : ''}</span>
+          <span>未闭环高危事件</span>
         </article>
       </div>
 
@@ -431,9 +448,9 @@ export default function RisksPage() {
             <p>
               {source === 'loading'
                 ? '正在读取工单队列…'
-                : `${highRiskOpen} 个高危事件需要人工确认 · 共 ${tickets.length} 张工单${
-                    source === 'demo' ? '' : ''
-                  }`}
+                : source === 'error'
+                  ? `工单接口不可用：${notice || '无法读取队列'}（未展示工单不代表没有风险）`
+                  : `${highRiskOpen} 个高危事件需要人工确认 · 共 ${tickets.length} 张工单`}
             </p>
             {fleet && (
               <p>
@@ -444,7 +461,11 @@ export default function RisksPage() {
           </div>
           <Badge variant="outline">
             <span className={source === 'api' ? 'live-dot' : 'demo-dot'} />
-            {source === 'api' ? '工单接口已连接' : '实时上报实时'}
+            {source === 'api'
+              ? '工单接口已连接'
+              : source === 'error'
+                ? '工单接口不可用'
+                : '正在连接…'}
           </Badge>
         </div>
 
@@ -536,23 +557,24 @@ export default function RisksPage() {
                     }}
                     onClick={(event) => event.stopPropagation()}
                   >
-                    {transitions.map((transition) => (
-                      <button
-                        key={transition.status}
-                        className="handle"
-                        style={{
-                          ...handleStyle,
-                          opacity: busy ? 0.55 : 1,
-                          cursor: busy ? 'progress' : 'pointer',
-                        }}
-                        disabled={Boolean(pendingAction)}
-                        onClick={() => void runTransition(ticket, transition.status)}
-                      >
-                        {busy && pendingAction?.status === transition.status
-                          ? '处理中…'
-                          : transition.label}
-                      </button>
-                    ))}
+                    {canMutate &&
+                      transitions.map((transition) => (
+                        <button
+                          key={transition.status}
+                          className="handle"
+                          style={{
+                            ...handleStyle,
+                            opacity: busy ? 0.55 : 1,
+                            cursor: busy ? 'progress' : 'pointer',
+                          }}
+                          disabled={Boolean(pendingAction)}
+                          onClick={() => void runTransition(ticket, transition.status)}
+                        >
+                          {busy && pendingAction?.status === transition.status
+                            ? '处理中…'
+                            : transition.label}
+                        </button>
+                      ))}
                     <button
                       className="handle"
                       style={handleStyle}
@@ -586,7 +608,22 @@ export default function RisksPage() {
           })}
         </div>
 
-        {source !== 'loading' && visibleTickets.length === 0 && (
+        {source === 'error' && visibleTickets.length === 0 && (
+          <div className="empty-detail" style={{ minHeight: 180 }}>
+            <AlertTriangle size={36} />
+            <h2>工单接口不可用</h2>
+            <p>
+              {notice || '无法从 /api/tickets 读取工单队列。'}
+              <br />
+              未展示工单不代表没有风险——请重试或检查后端连接。
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={refreshing}>
+              重试
+            </Button>
+          </div>
+        )}
+
+        {source !== 'loading' && source !== 'error' && visibleTickets.length === 0 && (
           <div className="empty-detail" style={{ minHeight: 180 }}>
             <ShieldCheck size={36} />
             <h2>{filter === 'all' ? '队列已清空' : '当前筛选下没有工单'}</h2>
@@ -616,8 +653,13 @@ export default function RisksPage() {
     </>
   );
 
-  /** 行内动作与详情面板共用同一个流转入口。 */
+  /** 行内动作与详情面板共用同一个流转入口。终态流转(解决/驳回)需二次确认。 */
   function runTransition(ticket: Ticket, status: TicketStatus) {
+    if (status === 'resolved' || status === 'dismissed') {
+      const label = status === 'resolved' ? '标记为已解决' : '驳回';
+      const ok = window.confirm(`确认将工单「${ticket.title}」${label}？`);
+      if (!ok) return Promise.resolve();
+    }
     return transition(ticket, status);
   }
 }
@@ -883,6 +925,18 @@ function LinkedFindings({ deviceId }: { deviceId: string }) {
                 {String(f.message ?? '')}
                 <br />
                 <SignalSummary text={String(f.message ?? '')} />
+                {f.path ? (
+                  <>
+                    <br />
+                    <Link
+                      className="handle"
+                      href={`/dispositions?type=${String(f.kind ?? '').toLowerCase().includes('mcp') ? 'mcp' : 'skill'}&asset=${encodeURIComponent(String(f.path))}`}
+                      style={{ fontSize: 11 }}
+                    >
+                      去处置 →
+                    </Link>
+                  </>
+                ) : null}
               </span>
             </div>
           ))}

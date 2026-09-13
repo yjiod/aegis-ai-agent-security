@@ -30,7 +30,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Toast } from '@/components/toast';
+import Link from 'next/link';
+
 import { useCollector } from '@/components/collector-context';
 
 /* ─── Animated number ──────────────────────────────────────────────────── */
@@ -69,7 +70,7 @@ const AGENT_LABEL: Record<string, string> = {
 };
 
 const SEVERITY_META: Record<string, { label: string; color: string }> = {
-  critical: { label: '严重', color: 'red' },
+  critical: { label: '严重', color: 'critical' },
   high: { label: '高危', color: 'red' },
   medium: { label: '中危', color: 'orange' },
   low: { label: '低危', color: 'blue' },
@@ -141,7 +142,6 @@ async function getJson<T>(url: string): Promise<T | null> {
 
 /* ─── Overview Page ────────────────────────────────────────────────────── */
 export default function Home() {
-  const [toast, setToast] = useState('');
   const { fleet } = useCollector();
 
   const [devices, setDevices] = useState<DeviceLite[] | null>(null);
@@ -163,10 +163,6 @@ export default function Home() {
       alive = false;
     };
   }, []);
-
-  function runScan() {
-    setToast('当前为实时数据，尚未连接任务下发 API；未对任何终端执行操作。');
-  }
 
   /* 真实指标: 未连接接收器时为 0, 不使用任何虚构回退值 */
   const totalDevices = fleet?.total_devices ?? 0;
@@ -220,26 +216,25 @@ export default function Home() {
           <p>统一发现、校验并约束员工终端上的 AI Agent 行为。</p>
         </div>
         <div className="head-actions">
-          <Button variant="outline">
+          <Button variant="outline" disabled title="时间范围筛选尚未接入">
             <ChevronDown />
             过去 24 小时
           </Button>
-          <Button onClick={runScan}>
+          <Button disabled title="任务下发 API 未接入，未对任何终端执行操作">
             <Play fill="currentColor" />
             扫描下发未接入
           </Button>
         </div>
       </div>
-      <Toast message={toast} />
 
-      {/* ─── Metric Cards (real fleet summary; 0 when disconnected) ─── */}
+      {/* ─── Metric Cards (real fleet summary; — when disconnected) ─── */}
       <div className="metrics">
         <article className="metric animate-entrance animate-entrance-1">
           <div className="metric-top">
             <span>已纳管设备</span>
             <Laptop size={18} />
           </div>
-          <strong>{animDevices}</strong>
+          <strong>{fleet ? animDevices : '—'}</strong>
           <p>
             <em>{activeDevices}</em> 活跃 · {staleDevices} 过期
           </p>
@@ -250,8 +245,8 @@ export default function Home() {
             <Bot size={18} />
           </div>
           <strong>
-            {(animCoverage / 10).toFixed(1)}
-            <small>%</small>
+            {fleet ? (animCoverage / 10).toFixed(1) : '—'}
+            {fleet ? <small>%</small> : null}
           </strong>
           <Progress value={coverage} />
           <p>
@@ -263,7 +258,7 @@ export default function Home() {
             <span>高风险设备</span>
             <AlertTriangle size={18} />
           </div>
-          <strong>{animRisk}</strong>
+          <strong>{fleet ? animRisk : '—'}</strong>
           <p>
             <i>{fleet?.latest_severity?.critical ?? 0} 严重</i> · {fleet?.latest_severity?.high ?? 0} 高危
           </p>
@@ -273,7 +268,7 @@ export default function Home() {
             <span>版本漂移设备</span>
             <ShieldCheck size={18} />
           </div>
-          <strong>{animDrift}</strong>
+          <strong>{fleet ? animDrift : '—'}</strong>
           <p>Agent 或策略版本不一致</p>
         </article>
       </div>
@@ -329,7 +324,7 @@ export default function Home() {
               <h2>终端覆盖</h2>
               <p>按 Agent 工具</p>
             </div>
-            <a href="/devices">查看全部</a>
+            <Link href="/devices">查看全部</Link>
           </div>
           {devices === null ? (
             <p className="empty-hint">加载终端数据…</p>
@@ -361,7 +356,7 @@ export default function Home() {
               <h2>风险事件实时</h2>
               <p>按风险等级与时间排序</p>
             </div>
-            <a href="/risks">进入风险中心 →</a>
+            <Link href="/risks">进入风险中心 →</Link>
           </div>
           <div className="risk-table">
             {tickets === null ? (
@@ -380,9 +375,9 @@ export default function Home() {
                     </div>
                     <span className="device">{t.device_id || '—'}</span>
                     <span className="time">{relTime(t.created_at)}</span>
-                    <a className="handle" href="/risks">
+                    <Link className="handle" href={`/risks?ticket=${encodeURIComponent(t.ticket_id)}`}>
                       处置
-                    </a>
+                    </Link>
                   </div>
                 );
               })
