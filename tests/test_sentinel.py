@@ -1018,6 +1018,9 @@ class SentinelTests(unittest.TestCase):
         self.assertLess(windows.index('-TimeoutSec 120'),windows.index('Get-FileHash'))
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
+        builder=(ROOT/'deploy/clients/build-installers.sh').read_text(); wix=(ROOT/'deploy/clients/SentinelAgent.wxs').read_text()
+        for directive in ('OPERATIONS-MANUAL.md','uninstall-sentinel-windows.ps1','uninstall-sentinel-macos.sh'): self.assertIn(directive,builder)
+        self.assertIn('Source="OPERATIONS-MANUAL.md"',wix); self.assertIn('Source="uninstall-sentinel-windows.ps1"',wix)
         package=json.loads((ROOT/'package.json').read_text()); self.assertEqual(package['scripts']['prebuild'],'node scripts/clean-public-bytecode.mjs')
         self.assertEqual(package['overrides']['sharp'],'0.35.4')
         cleaner=(ROOT/'scripts'/'clean-public-bytecode.mjs').read_text(); self.assertIn("entry.name === '__pycache__'",cleaner); self.assertIn("path.startsWith(`${publicRoot}/`)",cleaner); self.assertIn("/\\.py[co]$/",cleaner)
