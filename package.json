@@ -12,6 +12,7 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "test:e2e": "playwright test",
+    "test:e2e:api": "playwright test e2e/console-api.spec.ts",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {

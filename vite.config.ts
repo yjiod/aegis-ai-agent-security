@@ -12,9 +12,23 @@ const { d1, r2 } = hostingConfig;
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
+// Under `wrangler dev` the workerd runtime only sees wrangler `vars`, not the
+// host process environment. Forward every host AEGIS_* variable into the dev
+// binding config so local development and the Playwright API e2e suite can
+// authenticate (otherwise /api/auth/login returns 503 auth_not_configured).
+// No secrets are hardcoded here; they are read from the environment at config
+// time and only ever injected into the local dev worker.
+const devVars: Record<string, string> = {};
+for (const [key, value] of Object.entries(process.env)) {
+  if (key.startsWith('AEGIS_') && typeof value === 'string') {
+    devVars[key] = value;
+  }
+}
+
 const localBindingConfig = {
   main: 'vinext/server/fetch-handler',
   compatibility_flags: ['nodejs_compat'],
+  vars: devVars,
   d1_databases: d1
     ? [
         {
