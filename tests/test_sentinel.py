@@ -261,6 +261,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('readBoundedJson(response)',route); self.assertIn('65_536',route); self.assertIn('await reader.cancel()',route); self.assertIn("new TextDecoder('utf-8', { fatal: true })",route); self.assertIn('sanitizedSummary',route); self.assertIn('credentialPostures',route); self.assertIn('credential_posture',route)
         self.assertIn('agentNames',route); self.assertIn('agent_coverage',route); self.assertIn('Object.keys(agents).length!==agentNames.length',route)
         self.assertIn('baselineNames',route); self.assertIn('baseline_coverage',route); self.assertIn('Object.keys(baselines).length!==baselineNames.length',route); self.assertIn('Number(item.managed)<=Number(item.total)',route)
+        self.assertIn('serviceHealthPostures',route); self.assertIn('service_health_posture',route); self.assertIn('Object.keys(serviceHealth).length!==serviceHealthPostures.length',route)
         for label in ('Gemini CLI','GitHub Copilot CLI','生产就绪清单','生产验收证据模板','生产最终预检','生产验收证据准备器','生产验收签名工具','生产验收密钥环工具','Collector 验收探针','Collector API 规范','企业 4A OpenAPI','企业 4A 接入指南','企业 4A 验收探针','通用部署验收模板','通用部署预检','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
         devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==7',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
@@ -477,11 +478,12 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
         spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
-        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.20.0')
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.21.0')
         self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/policy':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
         post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
         self.assertIn('baseline_coverage',spec['components']['schemas']['FleetSummary']['required'])
+        self.assertIn('service_health_posture',spec['components']['schemas']['FleetSummary']['required'])
         self.assertEqual(spec['components']['securitySchemes']['bearerAuth'],{'type':'http','scheme':'bearer'}); self.assertEqual(paths['/health']['get']['security'],[])
         parameters=spec['components']['parameters']; self.assertEqual([parameters[name]['name'] for name in ('Timestamp','Signature','DeviceId')],['X-Sentinel-Timestamp','X-Sentinel-Signature','X-Sentinel-Device-ID'])
     def test_collector_database_deduplication_support(self):
@@ -532,6 +534,22 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(summary['credential_posture'],{'current':0,'previous':0,'legacy':3})
             self.assertEqual(summary['agent_coverage']['cursor'],{'total':2,'active':2}); self.assertEqual(summary['agent_coverage']['gemini_cli'],{'total':1,'active':1}); self.assertEqual(summary['agent_coverage']['github_copilot_cli'],{'total':1,'active':0})
             self.assertEqual(summary['baseline_coverage'],{name:{'total':0,'managed':0} for name in ('claude_code','codex','gemini_cli','github_copilot_cli')})
+            self.assertEqual(summary['service_health_posture'],{'healthy':0,'degraded':0,'invalid':0,'missing':3})
+    def test_collector_aggregates_service_health_fail_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=200000
+            inventories=[
+                [{'type':'service_health','status':'healthy','path':'must-not-aggregate'}],
+                [{'type':'service_health','status':'degraded'}],
+                [{'type':'service_health','status':'unknown'}],
+                [],
+                [{'type':'service_health','status':'healthy'},{'type':'service_health','status':'degraded'}],
+            ]
+            for index,inventory in enumerate(inventories):
+                report={'device_id':f'device-{index}','agent_version':'0.44.0','policy_version':'5.1.0','summary':{'critical':0,'high':0},'inventory':inventory}
+                self.collector.store_report(path,str(index).encode(),report,now=now)
+            posture=self.collector.collector_summary(path,now=now)['service_health_posture']
+            self.assertEqual(posture,{'healthy':1,'degraded':1,'invalid':2,'missing':1}); self.assertNotIn('path',json.dumps(posture))
     def test_collector_aggregates_only_minimized_baseline_attestation(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

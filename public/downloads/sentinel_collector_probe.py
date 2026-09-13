@@ -37,7 +37,7 @@ def check_read_only(base,token):
     if status!=401: raise ValueError("unauthorized_summary_not_rejected")
     headers=auth_headers(token)
     _,summary=request_json(endpoint(base,"/v1/summary"),headers)
-    required={"generated_at","active_window_seconds","required_agent_version","required_policy_version","total_devices","active_devices","stale_devices","latest_severity","version_posture","credential_posture","agent_coverage","baseline_coverage"}
+    required={"generated_at","active_window_seconds","required_agent_version","required_policy_version","total_devices","active_devices","stale_devices","latest_severity","version_posture","credential_posture","agent_coverage","baseline_coverage","service_health_posture"}
     if not isinstance(summary,dict) or set(summary)!=required or type(summary["generated_at"]) is not int or type(summary["total_devices"]) is not int: raise ValueError("summary_contract_invalid")
     _,devices=request_json(endpoint(base,"/v1/devices?limit=10000"),headers)
     if not isinstance(devices,dict) or set(devices)!={"generated_at","complete","devices"} or type(devices["generated_at"]) is not int or type(devices["complete"]) is not bool or not isinstance(devices["devices"],list) or len(devices["devices"])>10000: raise ValueError("devices_contract_invalid")

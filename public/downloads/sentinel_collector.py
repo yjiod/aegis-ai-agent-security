@@ -191,6 +191,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     agent_coverage={name:{"total":0,"active":0} for name in supported_agents}
     baseline_names=("claude_code","codex","gemini_cli","github_copilot_cli")
     baseline_coverage={name:{"total":0,"managed":0} for name in baseline_names}
+    service_health_posture={"healthy":0,"degraded":0,"invalid":0,"missing":0}
     for received,severity,agent,policy,generation,body in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1
         if not agent or not policy: versions["unknown"]+=1
@@ -208,10 +209,13 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
         baseline_items={item.get("name"):item.get("status") for item in inventory if isinstance(item,dict) and item.get("type")=="agent_baseline" and item.get("name") in baseline_coverage and item.get("status") in {"managed","missing","malformed","unsafe","unreadable"}}
         for name,status in baseline_items.items():
             baseline_coverage[name]["total"]+=1; baseline_coverage[name]["managed"]+=status=="managed"
+        health_items=[item.get("status") for item in inventory if isinstance(item,dict) and item.get("type")=="service_health"]
+        health_status=health_items[0] if len(health_items)==1 and health_items[0] in {"healthy","degraded","invalid"} else "missing" if not health_items else "invalid"
+        service_health_posture[health_status]+=1
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
-    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage}
+    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage,"service_health_posture":service_health_posture}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.20"
+    server_version="SentinelCollector/0.21"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
