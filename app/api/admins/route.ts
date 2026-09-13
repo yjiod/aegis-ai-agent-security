@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdmin, requireAuditor } from '@/lib/auth';
 import { getAdminStore, addAdmin, removeAdmin, logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 
-/** GET /api/admins — list persisted SSO admins (admin-only). */
+/** GET /api/admins — list persisted SSO admins (admin + auditor read). */
 export async function GET(request: Request) {
-  const denied = requireAdmin(request);
+  const denied = requireAuditor(request);
   if (denied) return denied;
   const envAdmins = (process.env.AEGIS_ADMIN_USERS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   const persisted = getAdminStore();

@@ -88,6 +88,7 @@ export default function AuditPage() {
   const [filter, setFilter] = useState<'' | ResourceType>('');
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [denied, setDenied] = useState(false);
 
   const buildUrl = useCallback(
     (pageOffset: number) => {
@@ -111,9 +112,14 @@ export default function AuditPage() {
           entries?: AuditEntry[];
           total?: number;
         };
+        setDenied(false);
         setEntries(data.entries ?? []);
         setTotal(data.total ?? 0);
         setOffset(0);
+      } else if (res.status === 403) {
+        setDenied(true);
+        setEntries([]);
+        setTotal(0);
       }
     } catch {
       /* keep current state */
@@ -181,7 +187,9 @@ export default function AuditPage() {
             <p>
               {loading
                 ? '加载中...'
-                : `共 ${total} 条${filter ? `（筛选：${RESOURCE_LABEL[filter]}）` : ''}`}
+                : denied
+                  ? '需要审计员 / 管理员权限'
+                  : `共 ${total} 条${filter ? `（筛选：${RESOURCE_LABEL[filter]}）` : ''}`}
             </p>
           </div>
         </div>
@@ -197,6 +205,18 @@ export default function AuditPage() {
               </div>
             ))}
           </>
+        ) : denied ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#5e7c73' }}>
+            <ShieldCheck
+              size={32}
+              style={{ margin: '0 auto 12px', display: 'block', color: '#49e8a5' }}
+            />
+            <p style={{ fontSize: 13 }}>
+              审计日志仅对「审计员 / 安全管理员」开放。
+              <br />
+              当前身份为只读访客，如需查阅请联系管理员将你加入审计员白名单。
+            </p>
+          </div>
         ) : entries.length === 0 ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#5e7c73' }}>
             <ShieldCheck
