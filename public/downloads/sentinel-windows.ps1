@@ -356,6 +356,17 @@ foreach ($root in $roots) {
     }
   }
 }
+$healthPath=Join-Path $installDir 'service-health.json'
+if(Test-Path -LiteralPath $healthPath){
+  try{
+    $healthFile=Get-Item -LiteralPath $healthPath -Force;if($healthFile.Attributes -band [IO.FileAttributes]::ReparsePoint -or $healthFile.Length -gt 4096){throw 'unsafe health file'}
+    $health=Get-Content -LiteralPath $healthPath -Raw|ConvertFrom-Json;$expected=@('schema','host_version','state','service_started_at','updated_at','last_scan_started_at','last_scan_exit_code','scanner','error','arbitrary_command_enabled')
+    $names=@($health.PSObject.Properties.Name);if(@($names|Where-Object{$_ -notin $expected}).Count -or @($expected|Where-Object{$_ -notin $names}).Count -or $health.schema -cne 'sentinel.service-health/v1' -or [string]$health.host_version -notmatch '^\d+\.\d+\.\d+$' -or [string]$health.state -notin @('starting','healthy','degraded') -or [string]$health.scanner -cne 'windows-powershell' -or $health.arbitrary_command_enabled -ne $false){throw 'invalid health contract'}
+    $now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();if([long]$health.updated_at -gt $now+300 -or $now-[long]$health.updated_at -gt 7200 -or [long]$health.service_started_at -gt [long]$health.updated_at){throw 'stale health'}
+    $inventory+=@{type='service_health';host_version=[string]$health.host_version;status=[string]$health.state;updated_at=[long]$health.updated_at;last_scan_exit_code=[int]$health.last_scan_exit_code}
+    if($health.state -cne 'healthy'){$findings+=@{kind='service_host_degraded';severity='high';path='managed-service-health';message='Sentinel 服务宿主未处于健康状态'}}
+  }catch{$inventory+=@{type='service_health';status='invalid'};$findings+=@{kind='service_health_invalid';severity='high';path='managed-service-health';message='Sentinel 服务宿主健康状态无效或已过期'}}
+}
 $policyVersion = if ($policy) { [string]$policy.version } else { 'invalid' }
 $inventoryLimit=5000;$findingLimit=10000
 if(@($inventory).Count -gt $inventoryLimit){$omitted=@($inventory).Count-$inventoryLimit+1;$inventory=@($inventory|Select-Object -First ($inventoryLimit-1));$inventory += @{type='inventory_truncated';omitted=$omitted}}
@@ -363,7 +374,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.43.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.44.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

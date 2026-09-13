@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'SilentlyContinue'
 $installDir = Join-Path $env:ProgramData 'SentinelAgent'
-$expected = @{ 'sentinel-policy.json'='4ebac2abbe3654d048a8af17cf46df3161de336c00d2f5c4c692d90ffeffb832'; 'sentinel-windows.ps1'='61354e33e083a3a1d2e728fff4082cd528dc062de181f7ecb8622cae5110a146'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
+$expected = @{ 'sentinel-policy.json'='4ebac2abbe3654d048a8af17cf46df3161de336c00d2f5c4c692d90ffeffb832'; 'sentinel-windows.ps1'='7a630adc4b6a1e2e53f01cfd737e6042dbcc6a93559beb713b84f5cbfe19de7e'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
 $valid=$true
 foreach($name in $expected.Keys){$path=Join-Path $installDir $name;if(-not(Test-Path $path) -or (Get-FileHash $path -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]){$valid=$false}}
 $task=Get-ScheduledTask -TaskName 'Sentinel AI Agent Security Scan' -ErrorAction SilentlyContinue

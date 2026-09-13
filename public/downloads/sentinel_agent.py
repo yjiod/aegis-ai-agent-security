@@ -60,7 +60,7 @@ def sync_policy(path,report_url,token,timeout=10):
     """Fetch an authenticated policy from the Collector and atomically promote only valid non-downgrades."""
     parsed=urlsplit(report_url)
     if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password: raise ValueError("invalid_policy_origin")
-    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.43.0"})
+    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.44.0"})
     with urllib.request.urlopen(request,timeout=timeout) as response:
         if response.geturl()!=endpoint: raise ValueError("policy_redirect_rejected")
         raw=response.read(2_000_001)
@@ -291,8 +291,26 @@ def scan_skill(skill_file,policy,max_files=500):
             except OSError: out.append(finding("unreadable","low",path,"Skill 文件存在但无法读取"))
         if scanned>=max_files: out.append(finding("skill_scan_truncated","medium",root,f"Skill 文件数超过扫描上限 {max_files}")); break
     return out,scanned
+def service_health(path,now=None):
+    """Validate the fixed service-host health contract without trusting free-form fields."""
+    path=Path(path); now=int(time.time() if now is None else now); expected={"schema","host_version","state","service_started_at","updated_at","last_scan_started_at","last_scan_exit_code","scanner","error","arbitrary_command_enabled"}
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size>4096: raise ValueError("unsafe_health_file")
+        value=json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value,dict) or set(value)!=expected or value.get("schema")!="sentinel.service-health/v1" or not re.fullmatch(r"\d+\.\d+\.\d+",str(value.get("host_version",""))): raise ValueError("invalid_health_contract")
+        if value.get("state") not in {"starting","healthy","degraded"} or value.get("scanner") not in {"windows-powershell","python3"} or value.get("arbitrary_command_enabled") is not False: raise ValueError("unsafe_health_state")
+        for field in ("service_started_at","updated_at","last_scan_exit_code"):
+            if isinstance(value.get(field),bool) or not isinstance(value.get(field),int): raise ValueError("invalid_health_value")
+        if value["updated_at"]>now+300 or now-value["updated_at"]>7200 or value["service_started_at"]>value["updated_at"]: raise ValueError("stale_service_health")
+        item={"type":"service_health","host_version":value["host_version"],"status":value["state"],"updated_at":value["updated_at"],"last_scan_exit_code":value["last_scan_exit_code"]}
+        findings=[] if value["state"]=="healthy" else [finding("service_host_degraded","high",path,"Sentinel 服务宿主未处于健康状态")]
+        return item,findings
+    except (OSError,UnicodeError,ValueError,TypeError,json.JSONDecodeError):
+        return {"type":"service_health","status":"invalid"},[finding("service_health_invalid","high",path,"Sentinel 服务宿主健康状态无效或已过期")]
 def scan(root,policy):
     findings=[]; homes=managed_homes(); inventory=discover_agent_tools(homes)
+    health_path=Path("/Library/Application Support/SentinelAgent/service-health.json") if sys.platform=="darwin" else Path("/var/lib/sentinel/service-health.json")
+    if health_path.exists(): item,health_findings=service_health(health_path); inventory.append(item); findings.extend(health_findings)
     skill_seen=set()
     for home in homes:
         for rel in AGENT_CONFIGS:
@@ -462,7 +480,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.43.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.44.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -529,7 +547,7 @@ def build_report(root,policy,verify_baselines=False):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.43.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.44.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

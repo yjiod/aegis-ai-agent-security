@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它可通过任意 MDM、软件分发系统或本地运维流程部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告进入受认证的接收器后，可通过标准企业 4A 接口联动账号、认证、授权与审计平台；Intune、深信服和联软保留为可选兼容适配器。
 
-当前发行：产品 `5.0.0`，Endpoint Agent `0.43.0`，策略 `5.1.0`，Collector `0.20`，Adapter `0.19`。
+当前发行：产品 `5.1.0`，Endpoint Agent `0.44.0`，策略 `5.1.0`，Collector `0.20`，Adapter `0.19`。
 
 ## 目录
 
@@ -107,3 +107,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 4.9 起，`deploy/clients/host` 提供 Windows/macOS 同源的自包含服务宿主第一版。宿主只允许固定扫描器调用，不接受任意命令或脚本路径；每小时调度、三十分钟超时、关闭信号和原子健康状态统一为 `sentinel.service-health/v1`。当前阶段由 Windows 计划任务或 macOS LaunchDaemon 承载宿主，后续再接入 Windows SCM 原生生命周期与用户会话桥。
 
 5.0 起，自包含服务宿主正式进入 MSI/PKG。Windows 安装器将宿主注册为 SYSTEM 启动常驻任务并设置失败重启，不再直接把扫描脚本作为周期任务入口；macOS LaunchDaemon 直接运行宿主并启用 KeepAlive/ThrottleInterval。扫描器仍作为受限子进程，宿主不接受可配置命令。
+
+5.1 起，Endpoint Agent 0.44.0 将 `sentinel.service-health/v1` 纳入现有认证报告链路。健康文件必须是非链接普通小文件、字段集合精确、更新时间不超过两小时，且 `arbitrary_command_enabled` 必须为 false；异常、过期或降级状态产生高危发现。上报 inventory 仅保留宿主版本、状态、更新时间和扫描退出码，不上传自由文本错误。

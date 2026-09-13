@@ -493,7 +493,7 @@ function DetailPanel({
           <>
             <div className="baseline-banner">
               <div>
-                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.43.0'}</h2>
+                <h2>Sentinel Endpoint Agent {releaseMetadata?.component_versions.endpoint_agent ?? '0.44.0'}</h2>
                 <p>厂商无关部署 · 企业 4A 标准接口 · 可插拔兼容适配器</p>
               </div>
               <strong>可验证<span>本地执行</span></strong>

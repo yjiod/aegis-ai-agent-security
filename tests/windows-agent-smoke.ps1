@@ -31,7 +31,7 @@ try {
   $result = Invoke-SentinelAgent -Diagnostics
   if ($result.ExitCode -ne 0) { Write-Error "clean agent run failed with exit code $($result.ExitCode): $($result.Output)" }
   $report = Get-Content $output -Raw | ConvertFrom-Json
-  if ($report.schema -cne 'sentinel.report/v1' -or $report.agent_version -cne '0.43.0' -or $report.policy_version -cne '5.1.0') { throw 'clean report contract mismatch' }
+  if ($report.schema -cne 'sentinel.report/v1' -or $report.agent_version -cne '0.44.0' -or $report.policy_version -cne '5.1.0') { throw 'clean report contract mismatch' }
   if ($report.summary.critical -ne 0 -or $report.summary.high -ne 0) { throw 'clean report unexpectedly contains blocking findings' }
 
   $testHome = Join-Path $users ('sentinel-ci-' + [Guid]::NewGuid().ToString('N'))

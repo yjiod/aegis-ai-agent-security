@@ -1,9 +1,10 @@
 {
-  "release": "5.0.0",
+  "release": "5.1.0",
   "channel": "pilot",
   "published_at": "2026-09-13T12:00:00+08:00",
-  "component_versions": {"endpoint_agent":"0.43.0","policy":"5.1.0","collector":"0.20","adapter":"0.19"},
+  "component_versions": {"endpoint_agent":"0.44.0","policy":"5.1.0","collector":"0.20","adapter":"0.19"},
   "features": [
+    "service_health_report_ingestion", "strict_service_health_contract", "stale_host_health_detection", "arbitrary_command_state_rejection", "minimized_host_health_inventory",
     "service_host_integrated_installers", "windows_host_startup_task", "macos_host_launchdaemon", "host_restart_policy", "native_host_health_file",
     "unified_service_host_source", "self_contained_windows_macos_build", "fixed_scanner_invocation", "atomic_service_health", "bounded_scan_host_timeout", "no_arbitrary_command_channel",
     "executable_client_update_planner", "external_managed_binary_default", "signed_content_collector_pull", "maintenance_window_gate", "rollout_ring_gate", "dual_slot_gate", "update_failure_circuit_breaker",

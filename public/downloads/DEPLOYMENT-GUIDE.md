@@ -44,7 +44,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.19 默认要求 Agent 0.43.0、策略 5.1.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.19 默认要求 Agent 0.44.0、策略 5.1.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -128,7 +128,7 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 0.42.0 起，Intune 自定义合规增加 `SentinelReportValid`。发现项严重度会在终端重新计数，且报告必须同时匹配已批准的 Agent 0.23.0、当前策略版本、设备标识格式和报告契约；旧版本或汇总不一致的报告无法再用于证明设备合规。
 
-0.43.0 / Agent 0.24.0 起，Windows 周期任务每次扫描都会重新发现用户后来安装的 Codex 与 Claude Code，并以幂等方式创建或更新用户级安全编码基线。路径或托管标记异常时停止写入并产生高危发现，避免覆盖个人规则或经重解析点写出用户目录。
+0.44.0 / Agent 0.24.0 起，Windows 周期任务每次扫描都会重新发现用户后来安装的 Codex 与 Claude Code，并以幂等方式创建或更新用户级安全编码基线。路径或托管标记异常时停止写入并产生高危发现，避免覆盖个人规则或经重解析点写出用户目录。
 
 0.44.0 / Agent 0.25.0 起，Windows 在读取内容前独立发现 `SKILL.md`，因此超大清单不能绕过 `unknown_skill`。每个扫描根最多发现 500 个 Skill、每个 Skill 最多报告 100 个重解析点，项目候选文件遵循策略 `project_files`；任何截断都会生成可见发现项。
 
