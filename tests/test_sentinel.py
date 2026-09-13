@@ -70,6 +70,13 @@ class SentinelTests(unittest.TestCase):
         self.assertNotIn('cmd.exe',source); self.assertNotIn('/bin/sh',source); self.assertIn('<PublishSingleFile>true</PublishSingleFile>',project); self.assertIn('<SelfContained>true</SelfContained>',project)
         schema=json.loads((DOWNLOADS/'sentinel-service-health.schema.json').read_text()); self.assertFalse(schema['additionalProperties']); self.assertEqual(schema['properties']['arbitrary_command_enabled'],{'const':False})
 
+    def test_native_host_is_integrated_into_windows_and_macos_installers(self):
+        windows=(ROOT/'deploy/clients/Install-Sentinel-Windows.template.ps1').read_text(); wix=(ROOT/'deploy/clients/SentinelAgent.wxs').read_text(); plist=(ROOT/'deploy/clients/com.yjiod.sentinel-agent.plist').read_text(); postinstall=(ROOT/'deploy/clients/postinstall-macos.sh').read_text()
+        for directive in ('SentinelServiceHost.exe',"New-ScheduledTaskAction -Execute $hostExecutable",'-ExecutionTimeLimit ([TimeSpan]::Zero)','-RestartCount 3'):
+            self.assertIn(directive,windows)
+        self.assertNotIn("New-ScheduledTaskAction -Execute 'powershell.exe'",windows); self.assertIn('Source="SentinelServiceHost.exe"',wix)
+        self.assertIn('/SentinelServiceHost</string>',plist); self.assertIn('<key>KeepAlive</key><true/>',plist); self.assertIn('<key>ThrottleInterval</key><integer>30</integer>',plist); self.assertIn('SentinelServiceHost',postinstall)
+
     def test_deny_disposition_wins_for_skill_and_mcp(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'malicious'; root.mkdir(); skill=root/'SKILL.md'; skill.write_text('# test')

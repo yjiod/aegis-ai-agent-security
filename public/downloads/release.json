@@ -1,9 +1,10 @@
 {
-  "release": "4.9.0",
+  "release": "5.0.0",
   "channel": "pilot",
   "published_at": "2026-09-13T12:00:00+08:00",
   "component_versions": {"endpoint_agent":"0.43.0","policy":"5.1.0","collector":"0.20","adapter":"0.19"},
   "features": [
+    "service_host_integrated_installers", "windows_host_startup_task", "macos_host_launchdaemon", "host_restart_policy", "native_host_health_file",
     "unified_service_host_source", "self_contained_windows_macos_build", "fixed_scanner_invocation", "atomic_service_health", "bounded_scan_host_timeout", "no_arbitrary_command_channel",
     "executable_client_update_planner", "external_managed_binary_default", "signed_content_collector_pull", "maintenance_window_gate", "rollout_ring_gate", "dual_slot_gate", "update_failure_circuit_breaker",
     "multi_platform_client_roadmap", "external_lifecycle_internal_content_distribution", "native_service_shell_plan", "shared_memory_safe_core_plan", "binary_policy_rule_separate_rollback", "controlled_self_update_optional", "executable_integration_registry", "capability_gated_provider_enablement", "secret_reference_only_auth", "vendor_neutral_capability_contract", "unified_identity_capability", "single_endpoint_boundary", "mandatory_baseline_non_bypass", "skill_mcp_disposition", "deny_precedence", "mcp_config_fingerprint_deny",
