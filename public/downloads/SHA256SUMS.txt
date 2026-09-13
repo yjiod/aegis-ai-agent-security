@@ -1,2 +1,2 @@
-72f48e00b0d1d1842aba6de30a7a0a0ed92e07e6646fd678f0cfafc3beb04299  Sentinel-Agent-Windows-x64-5.13.0.msi
-6e6185c6b2e00bc3d883f5bd36293810b211b45c7d6bce6bba3c994a4413d626  Sentinel-Agent-macOS-5.13.0.pkg
+e8ed74159f4cdcb28d85aba872bdcbb5053657722b2058bc484c465ae555d5d2  Sentinel-Agent-Windows-x64-5.14.0.msi
+7f865657ed0bc37ebd725b9f366f54926a62d0fd994f5d7cb59b9846143f2693  Sentinel-Agent-macOS-5.14.0.pkg

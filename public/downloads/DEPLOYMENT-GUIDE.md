@@ -34,7 +34,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 `sentinel_collector.py` 是最小参考接收器，支持令牌认证、可选 HMAC 请求签名、报告大小限制、SQLite 留存和设备列表。生产环境应部署在企业反向代理之后，配置 TLS、密钥轮换、审计、限流和备份；终端不得直接访问 EDR 管理面。
 
-0.51.0 提供可审计的 Linux 生产部署基线：将 `sentinel_collector.py` 放入 `/opt/sentinel/`，创建无登录权限的 `sentinel` 系统用户，把 `sentinel-collector.service` 安装到 `/etc/systemd/system/`；从 `sentinel-collector.env.example` 创建 `/etc/sentinel/collector.env`，分别生成至少 32 字符的认证令牌和 HMAC 密钥，设置 `root:sentinel`、0640 后再启动服务。空密钥会使服务拒绝启动。接收器只监听 `127.0.0.1:8788`，由 `sentinel-collector.nginx.conf` 提供 TLS 1.2/1.3、2 MB 请求上限和外层限流。替换示例域名及证书路径后先执行 `nginx -t` 和 `systemd-analyze security sentinel-collector.service`，再进入试点流量。
+0.52.0 提供可审计的 Linux 生产部署基线：将 `sentinel_collector.py` 放入 `/opt/sentinel/`，创建无登录权限的 `sentinel` 系统用户，把 `sentinel-collector.service` 安装到 `/etc/systemd/system/`；从 `sentinel-collector.env.example` 创建 `/etc/sentinel/collector.env`，分别生成至少 32 字符的认证令牌和 HMAC 密钥，设置 `root:sentinel`、0640 后再启动服务。空密钥会使服务拒绝启动。接收器只监听 `127.0.0.1:8788`，由 `sentinel-collector.nginx.conf` 提供 TLS 1.2/1.3、2 MB 请求上限和外层限流。替换示例域名及证书路径后先执行 `nginx -t` 和 `systemd-analyze security sentinel-collector.service`，再进入试点流量。
 
 生产验收至少包含：`/health` 返回数据库可用；无 Bearer、错误 HMAC、过期时间戳分别返回 401；首份有效报告返回 202、同内容重放返回 200 且标记重复；`/v1/summary` 仅在认证后可读；超过代理或应用限额分别返回 413/429；重启服务后 SQLite 数据仍存在。认证令牌与签名密钥必须独立轮换，不得放入 Intune 脚本文本、Nginx 配置或 Git。
 
@@ -86,7 +86,7 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 升级脚本只在当前扫描器、策略和基线三件套全部存在时创建回滚点；先在独立的受限目录复制三件套并生成校验清单，再原子切换 `previous`。当前安装残缺时会保留已有完整回滚点，不生成混合版本快照。若回滚点目录切换失败，升级在替换运行文件前终止并恢复旧目录。
 
-0.51.0 起，回滚只接受恰好包含扫描器、策略和基线三项的校验清单；漏项或附加路径均拒绝。回滚先停止周期任务，验证快照，恢复后再次验证运行目录，只有二次哈希全部一致才重启任务；复制或落地校验失败时任务保持停止，由 Intune 检测进入修复流程，避免混合版本继续运行。
+0.52.0 起，回滚只接受恰好包含扫描器、策略和基线三项的校验清单；漏项或附加路径均拒绝。回滚先停止周期任务，验证快照，恢复后再次验证运行目录，只有二次哈希全部一致才重启任务；复制或落地校验失败时任务保持停止，由 Intune 检测进入修复流程，避免混合版本继续运行。
 
 所有安装与修复下载均设置 15 秒连接超时和每文件 120 秒总时限；Windows 使用对应的 120 秒请求超时。三个文件最坏网络等待受控在 Intune 脚本执行窗口内，失败后保留当前运行版本并由下一次 MDM 修复周期重试。超时设置不替代 SHA-256 固定：只有三项下载全部完成且哈希匹配才会备份与替换。
 
@@ -331,3 +331,7 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 ## 4.4.0 稳定企业设备身份
 
 5.13.0 / Agent 0.51.0 将注册分配的 12 位小写十六进制 `device_id` 固化到 `sentinel.reporting/v3`。Windows 使用 LocalMachine DPAPI，macOS 使用 root-only 0600 文件；扫描报告、`X-Sentinel-Device-ID` HMAC 绑定和离线队列文件名都使用同一身份。注册时仍用本机材料验证投递目标，注册后即使主机重命名也不能覆盖已绑定身份。旧 reporting v1/v2 仍可读取以便灰度，但报告会增加 `legacy_device_identity` 高风险发现，生产合规必须通过重新注册迁移。
+
+## 4.5.0 统一原生注册入口
+
+5.14.0 / Agent 0.52.0 的 `SentinelServiceHost 0.4.0` 新增固定 `--enroll <file>` 子命令。Windows/macOS 的终端分发或 4A 支撑流程可调用同一可执行接口，不再直接编排 PowerShell/Shell。宿主只允许一个注册文件参数，预先拒绝不存在、重解析点/符号链接和超过 32 KiB 的输入，再调用安装目录内固定注册引擎；执行超过两分钟会终止整个进程树。注册引擎继续承担所有者、ACL、期限、设备绑定、HTTPS 和密钥独立性校验，成功后单次销毁输入。

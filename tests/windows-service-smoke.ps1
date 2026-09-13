@@ -32,7 +32,7 @@ try {
   $healthNames = @($health.PSObject.Properties.Name | Sort-Object)
   $expectedNames = @('arbitrary_command_enabled','error','host_version','last_scan_exit_code','last_scan_started_at','scanner','schema','service_started_at','state','updated_at')
   if (($healthNames -join ',') -cne ($expectedNames -join ',')) { throw 'Service health field set mismatch' }
-  if ($health.schema -cne 'sentinel.service-health/v1' -or $health.host_version -cne '0.3.0' -or $health.scanner -cne 'windows-powershell' -or $health.arbitrary_command_enabled -ne $false) { throw 'Service health contract mismatch' }
+  if ($health.schema -cne 'sentinel.service-health/v1' -or $health.host_version -cne '0.4.0' -or $health.scanner -cne 'windows-powershell' -or $health.arbitrary_command_enabled -ne $false) { throw 'Service health contract mismatch' }
 
   Stop-Service -Name $serviceName -Force
   (Get-Service -Name $serviceName).WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))

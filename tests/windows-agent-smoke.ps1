@@ -31,7 +31,7 @@ try {
   $result = Invoke-SentinelAgent -Diagnostics
   if ($result.ExitCode -ne 2) { Write-Error "unenrolled agent run failed with unexpected exit code $($result.ExitCode): $($result.Output)" }
   $report = Get-Content $output -Raw | ConvertFrom-Json
-  if ($report.schema -cne 'sentinel.report/v1' -or $report.agent_version -cne '0.51.0' -or $report.policy_version -cne '5.1.0') { throw 'clean report contract mismatch' }
+  if ($report.schema -cne 'sentinel.report/v1' -or $report.agent_version -cne '0.52.0' -or $report.policy_version -cne '5.1.0') { throw 'clean report contract mismatch' }
   if ($report.summary.critical -ne 0 -or $report.summary.high -ne 1 -or @($report.findings|Where-Object kind -eq 'legacy_device_identity').Count -ne 1) { throw 'unenrolled report did not require stable device identity migration' }
 
   $testHome = Join-Path $users ('sentinel-ci-' + [Guid]::NewGuid().ToString('N'))
