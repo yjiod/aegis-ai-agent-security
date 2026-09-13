@@ -61,7 +61,7 @@ def sync_policy(path,report_url,token,verification_keys,timeout=10):
     """Fetch an authenticated policy from the Collector and atomically promote only valid non-downgrades."""
     parsed=urlsplit(report_url)
     if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password: raise ValueError("invalid_policy_origin")
-    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.50.0"})
+    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.51.0"})
     with urllib.request.urlopen(request,timeout=timeout) as response:
         if response.geturl()!=endpoint: raise ValueError("policy_redirect_rejected")
         raw=response.read(2_000_001)
@@ -547,11 +547,14 @@ def load_reporting_config(path):
     if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077: raise ValueError("reporting_config_permissions")
     if hasattr(os,"geteuid") and info.st_uid not in {0,os.geteuid()}: raise ValueError("reporting_config_owner")
     value=json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value,dict) or value.get("schema") not in {"sentinel.reporting/v1","sentinel.reporting/v2"}: raise ValueError("reporting_config_contract")
+    if not isinstance(value,dict) or value.get("schema") not in {"sentinel.reporting/v1","sentinel.reporting/v2","sentinel.reporting/v3"}: raise ValueError("reporting_config_contract")
     if value["schema"]=="sentinel.reporting/v1":
         if set(value)!={"schema","report_url","report_token","signing_secret"}: raise ValueError("reporting_config_contract")
         value={**value,"policy_verification_keys":[]}
-    elif set(value)!={"schema","report_url","report_token","signing_secret","policy_verification_keys"}: raise ValueError("reporting_config_contract")
+    elif value["schema"]=="sentinel.reporting/v2":
+        if set(value)!={"schema","report_url","report_token","signing_secret","policy_verification_keys"}: raise ValueError("reporting_config_contract")
+    elif set(value)!={"schema","device_id","report_url","report_token","signing_secret","policy_verification_keys"}: raise ValueError("reporting_config_contract")
+    if value["schema"]=="sentinel.reporting/v3" and (not isinstance(value.get("device_id"),str) or not re.fullmatch(r"[0-9a-f]{12}",value["device_id"])): raise ValueError("reporting_config_device_id")
     parsed=urlsplit(value.get("report_url",""))
     if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or len(value["report_url"])>2048: raise ValueError("reporting_config_url")
     token=value.get("report_token"); secret=value.get("signing_secret")
@@ -560,7 +563,7 @@ def load_reporting_config(path):
     if not isinstance(keys,list) or len(keys)>5 or any(not isinstance(key,str) or not 32<=len(key)<=4096 for key in keys) or len(keys)!=len(set(keys)) or set(keys)&{token,secret}: raise ValueError("policy_verification_keys_invalid")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.50.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.51.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -619,7 +622,7 @@ def write_upload_status(path,url,now=None):
     if not host: raise ValueError("invalid_upload_status_host")
     value={"schema":"sentinel.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
-def build_report(root,policy,verify_baselines=False,enforce=False,quarantine_root=None,policy_verification_keys=None):
+def build_report(root,policy,verify_baselines=False,enforce=False,quarantine_root=None,policy_verification_keys=None,device_id=None):
     enforcement=[]
     if enforce:
         quarantine_root=Path(quarantine_root) if quarantine_root else Path(__file__).with_name("quarantine")
@@ -630,11 +633,18 @@ def build_report(root,policy,verify_baselines=False,enforce=False,quarantine_roo
         baseline_inventory,baseline_findings=verify_user_baselines(); inventory.extend(baseline_inventory); findings.extend(baseline_findings)
     keys=policy_verification_keys or []
     inventory.append({"type":"policy_trust","key_ids":[policy_key_id(key) for key in keys]})
+    if device_id is None:
+        device_id=hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
+        inventory.append({"type":"device_identity","source":"legacy_derived","status":"migration_required"})
+        findings.append(finding("legacy_device_identity","high",root,"设备仍使用主机名派生身份，需重新注册以绑定稳定企业设备身份"))
+    else:
+        if not isinstance(device_id,str) or not re.fullmatch(r"[0-9a-f]{12}",device_id): raise ValueError("invalid_bound_device_id")
+        inventory.append({"type":"device_identity","source":"enrollment","status":"bound"})
     if len(inventory)>REPORT_INVENTORY_LIMIT:
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.50.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.51.0","policy_version":policy["version"],"device_id":device_id,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -658,7 +668,7 @@ def main():
             except Exception: policy_sync_error=True
         policy,reload_failed=reload_policy(args.policy,policy)
         if args.auto_enroll: auto_enroll(root)
-        report=build_report(root,policy,verify_baselines=args.auto_enroll,enforce=True,policy_verification_keys=reporting.get("policy_verification_keys",[]) if reporting else []); data=json.dumps(report,ensure_ascii=False,indent=2)
+        report=build_report(root,policy,verify_baselines=args.auto_enroll,enforce=True,policy_verification_keys=reporting.get("policy_verification_keys",[]) if reporting else [],device_id=reporting.get("device_id") if reporting else None); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reload_failed:
             add_report_finding(report,finding("policy_reload_failed","high",args.policy,"策略热加载失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reporting_error:

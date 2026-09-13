@@ -22,6 +22,6 @@ if([long]$enrollment.issued_at -gt $now+300 -or $now-[long]$enrollment.issued_at
 $material="$env:COMPUTERNAME|$env:USERDOMAIN";$sha=[Security.Cryptography.SHA256]::Create()
 $actual=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($material)))).Replace('-','').Substring(0,12).ToLower()
 if([string]$enrollment.device_id -cne $actual){throw 'Enrollment device identity mismatch'}
-& "$PSScriptRoot\sentinel-configure-windows.ps1" -ReportUrl ([string]$enrollment.report_url) -ReportToken ([string]$enrollment.report_token) -SigningSecret ([string]$enrollment.signing_secret) -PolicyVerificationKeys @($enrollment.policy_verification_keys|ForEach-Object{[string]$_}) -OutputPath $OutputPath
+& "$PSScriptRoot\sentinel-configure-windows.ps1" -ReportUrl ([string]$enrollment.report_url) -ReportToken ([string]$enrollment.report_token) -SigningSecret ([string]$enrollment.signing_secret) -PolicyVerificationKeys @($enrollment.policy_verification_keys|ForEach-Object{[string]$_}) -DeviceId ([string]$enrollment.device_id) -OutputPath $OutputPath
 Remove-Item -LiteralPath $item.FullName -Force
 Write-Output 'Sentinel enrollment consumed for this Windows device.'

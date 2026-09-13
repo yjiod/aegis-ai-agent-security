@@ -207,7 +207,7 @@ def service_health_status(inventory):
     """Classify only the minimized health attestation; malformed or duplicate evidence fails closed."""
     items=[item.get("status") for item in inventory if isinstance(item,dict) and item.get("type")=="service_health"] if isinstance(inventory,list) else []
     return items[0] if len(items)==1 and items[0] in {"healthy","degraded","invalid"} else "missing" if not items else "invalid"
-def remediation_recommendation(row,required_agent="0.50.0",required_policy="5.1.0"):
+def remediation_recommendation(row,required_agent="0.51.0",required_policy="5.1.0"):
     device_id,observed_at,severity,agent,policy,body=row
     try: inventory=json.loads(body).get("inventory",[])
     except (AttributeError,TypeError,ValueError,json.JSONDecodeError): inventory=[]
@@ -222,7 +222,7 @@ def remediation_recommendation(row,required_agent="0.50.0",required_policy="5.1.
     seed=f"{device_id}\0{observed_at}\0{reason}\0{action}".encode(); correlation=hashlib.blake2s(seed,digest_size=20).hexdigest()
     return {"recommendation_id":correlation,"device_id":device_id,"reason":reason,"recommended_action":action,"approval_state":"external_approval_required","severity":level,"observed_at":observed_at,"correlation_id":correlation}
 def collector_recommendations(db_path,limit=200,required_agent=None,required_policy=None):
-    limit=min(max(int(limit),1),200); required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.50.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
+    limit=min(max(int(limit),1),200); required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.51.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.device_id,r.received_at,r.severity,r.agent_version,r.policy_version,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id ORDER BY r.device_id").fetchall()
         states={row[0]:(row[1],row[2]) for row in db.execute("SELECT receipt.recommendation_id,receipt.state,receipt.occurred_at FROM remediation_receipts receipt JOIN (SELECT recommendation_id,MAX(id) AS id FROM remediation_receipts GROUP BY recommendation_id) latest ON latest.id=receipt.id")}
@@ -263,7 +263,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.50.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.51.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
     supported_agents=("cursor","claude_code","codex","windsurf","gemini_cli","github_copilot_cli","workbuddy","qwen_enterprise","tongyi_lingma","codebuddy")
     agent_coverage={name:{"total":0,"active":0} for name in supported_agents}

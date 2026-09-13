@@ -28,7 +28,7 @@ output.parent.mkdir(parents=True,exist_ok=True); os.chmod(output.parent,0o700)
 fd,temp=tempfile.mkstemp(prefix="."+output.name+".",suffix=".tmp",dir=output.parent)
 try:
     with os.fdopen(fd,"w",encoding="utf-8") as handle:
-        json.dump({"schema":"sentinel.reporting/v2","report_url":url,"report_token":token,"signing_secret":secret,"policy_verification_keys":policy_keys},handle,separators=(",",":")); handle.flush(); os.fsync(handle.fileno())
+        json.dump({"schema":"sentinel.reporting/v3","device_id":value["device_id"],"report_url":url,"report_token":token,"signing_secret":secret,"policy_verification_keys":policy_keys},handle,separators=(",",":")); handle.flush(); os.fsync(handle.fileno())
     os.chmod(temp,0o600); os.replace(temp,output); source.unlink()
 except Exception:
     try: os.close(fd)

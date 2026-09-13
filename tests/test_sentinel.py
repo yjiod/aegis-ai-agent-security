@@ -47,7 +47,7 @@ class SentinelTests(unittest.TestCase):
     def test_client_update_policy_keeps_external_lifecycle_owner(self):
         policy=json.loads((DOWNLOADS/'sentinel-client-control-policy.json').read_text())
         device={'agent_version':'0.44.0','management_platform':'mdm','dual_slot_ready':True,'consecutive_update_failures':0,'rollout_ring':'pilot'}
-        offer={'agent_version':'0.50.0','platform_signature_verified':True,'release_signature_verified':True,'authorized_rings':['lab','pilot']}
+        offer={'agent_version':'0.51.0','platform_signature_verified':True,'release_signature_verified':True,'authorized_rings':['lab','pilot']}
         result=self.update_planner.plan(policy,device,offer)
         self.assertEqual(result['action'],'external_deployment_required')
         self.assertEqual(result['reason'],'software_lifecycle_owner')
@@ -55,7 +55,7 @@ class SentinelTests(unittest.TestCase):
     def test_controlled_self_update_is_fail_closed_and_content_keeps_lkg(self):
         policy=json.loads((DOWNLOADS/'sentinel-client-control-policy.json').read_text()); policy['binary_delivery']['mode']='controlled_self_update'
         device={'agent_version':'0.44.0','management_platform':'unmanaged','dual_slot_ready':True,'consecutive_update_failures':0,'rollout_ring':'lab'}
-        offer={'agent_version':'0.50.0','platform_signature_verified':True,'release_signature_verified':True,'authorized_rings':['lab']}
+        offer={'agent_version':'0.51.0','platform_signature_verified':True,'release_signature_verified':True,'authorized_rings':['lab']}
         result=self.update_planner.plan(policy,device,offer,datetime.fromisoformat('2026-09-13T17:00:00+00:00'))
         self.assertEqual(result['action'],'wait'); self.assertIn('explicitly_enabled',result['failed_gates'])
         policy['binary_delivery']['self_update']['enabled']=True
@@ -323,7 +323,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('tests/windows-agent-smoke.ps1',workflow)
         self.assertIn('tests/macos-agent-smoke.sh',workflow)
         smoke=(ROOT/'tests/windows-agent-smoke.ps1').read_text()
-        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.50.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)','instruction ACL changed','.AGENTS.md.*.tmp','repository managed baseline','repository instruction ACL changed','repository atomic update left'):
+        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.51.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)','instruction ACL changed','.AGENTS.md.*.tmp','repository managed baseline','repository instruction ACL changed','repository atomic update left'):
             self.assertIn(directive,smoke)
         mac_smoke=(ROOT/'tests/macos-agent-smoke.sh').read_text()
         for directive in ('SENTINEL_BASE_URL="file://$SOURCE"','install-sentinel.sh','sentinel_agent.py','--auto-enroll','ai_agent','agent_baseline','status\")==\"managed\"','sentinel-managed-user-baseline:start','personal Codex instructions','unapproved-demo','insecure_mcp_transport','unapproved_mcp_transport','insecure_tls_verification','stat.S_IMODE','hardcoded_secret','secret not in open'):
@@ -591,7 +591,7 @@ class SentinelTests(unittest.TestCase):
             root=Path(d); db=root/'reports.db'; keyring=root/'keys.json'; current='p'*48; previous='q'*48; keyring.write_text(json.dumps({'schema':'sentinel.policy-signing-keys/v1','keys':[current,previous]})); keyring.chmod(0o600); now=int(time.time())
             inventories=([{'type':'policy_trust','key_ids':[self.agent.policy_key_id(current),self.agent.policy_key_id(previous)]}],[{'type':'policy_trust','key_ids':[self.agent.policy_key_id(previous)]}],[])
             for index,inventory in enumerate(inventories):
-                report={'device_id':f'device-{index}','agent_version':'0.50.0','policy_version':'5.1.0','summary':{'critical':0,'high':0},'inventory':inventory}; self.collector.store_report(db,json.dumps(report).encode(),report,now=now)
+                report={'device_id':f'device-{index}','agent_version':'0.51.0','policy_version':'5.1.0','summary':{'critical':0,'high':0},'inventory':inventory}; self.collector.store_report(db,json.dumps(report).encode(),report,now=now)
             with patch.dict(os.environ,{'SENTINEL_POLICY_SIGNING_KEYS_FILE':str(keyring)},clear=True): summary=self.collector.collector_summary(db,now=now)
             self.assertEqual(summary['active_policy_key_id'],self.agent.policy_key_id(current)); self.assertEqual(summary['policy_trust_posture'],{'current':1,'overlap':1,'legacy':1,'unrecognized':1})
     def test_policy_keyring_retirement_requires_complete_current_fleet_evidence(self):
@@ -633,7 +633,7 @@ class SentinelTests(unittest.TestCase):
             ]
             for device,severity,inventory in samples:
                 body=json.dumps({'inventory':inventory});
-                with self.collector.db_open(path) as db: db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(device,device+'-device',now,severity,body,'0.50.0','5.1.0')); db.commit()
+                with self.collector.db_open(path) as db: db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(device,device+'-device',now,severity,body,'0.51.0','5.1.0')); db.commit()
             first=self.collector.collector_recommendations(path); second=self.collector.collector_recommendations(path)
             self.assertEqual(len(first['recommendations']),2); self.assertEqual([item['recommendation_id'] for item in first['recommendations']],[item['recommendation_id'] for item in second['recommendations']])
             by_device={item['device_id']:item for item in first['recommendations']}; self.assertEqual(by_device['critical-device']['recommended_action'],'containment_pending_approval'); self.assertEqual(by_device['invalid-device']['recommended_action'],'verify_integrity')
@@ -835,10 +835,19 @@ class SentinelTests(unittest.TestCase):
             current={**value,'schema':'sentinel.reporting/v2','policy_verification_keys':['p'*48,'q'*48]}; path.write_text(json.dumps(current)); self.assertEqual(self.agent.load_reporting_config(path),current)
             path.write_text(json.dumps({**current,'policy_verification_keys':['p'*48,'p'*48]}))
             with self.assertRaisesRegex(ValueError,'policy_verification_keys_invalid'): self.agent.load_reporting_config(path)
+            bound={**current,'schema':'sentinel.reporting/v3','device_id':'abcdef123456'}; path.write_text(json.dumps(bound)); self.assertEqual(self.agent.load_reporting_config(path),bound)
+            path.write_text(json.dumps({**bound,'device_id':'ABCDEF123456'}))
+            with self.assertRaisesRegex(ValueError,'reporting_config_device_id'): self.agent.load_reporting_config(path)
+            with patch.object(self.agent.os,'uname') as uname:
+                uname.return_value=type('Uname',(),{'nodename':'renamed-host'})()
+                report=self.agent.build_report(root,self.policy,device_id=bound['device_id'])
+            self.assertEqual(report['device_id'],bound['device_id']); self.assertIn({'type':'device_identity','source':'enrollment','status':'bound'},report['inventory']); self.assertFalse(any(item['kind']=='legacy_device_identity' for item in report['findings']))
             status=root/'upload-status.json'; self.agent.write_upload_status(status,'https://Collector.Example.Internal/v1/reports',now=123)
             self.assertEqual(json.loads(status.read_text()),{'schema':'sentinel.upload-status/v1','status':'accepted','last_success':123,'collector_host':'collector.example.internal'}); self.assertEqual(status.stat().st_mode&0o777,0o600)
         windows=(DOWNLOADS/'sentinel-configure-windows.ps1').read_text(); scanner=(DOWNLOADS/'sentinel-windows.ps1').read_text(); mac=(DOWNLOADS/'sentinel-configure-macos.sh').read_text()
-        self.assertIn('DataProtectionScope]::LocalMachine',windows); self.assertIn('ProtectedData]::Unprotect',scanner); self.assertIn("kind='reporting_config_invalid'",scanner); self.assertIn('umask 077',mac)
+        self.assertIn('DataProtectionScope]::LocalMachine',windows); self.assertIn("schema='sentinel.reporting/v3'",windows); self.assertIn('ProtectedData]::Unprotect',scanner); self.assertIn("kind='reporting_config_invalid'",scanner); self.assertIn("source='enrollment'",scanner); self.assertIn('umask 077',mac)
+        for name in ('sentinel-enroll-windows.ps1','sentinel-enroll-macos.sh'):
+            enrollment=(DOWNLOADS/name).read_text(encoding='utf-8-sig'); self.assertIn('device_id',enrollment); self.assertIn('sentinel.reporting/v3',enrollment if name.endswith('.sh') else windows+enrollment)
     def test_policy_sync_requires_independent_signature_and_preserves_lkg(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); target=root/'policy.json'; target.write_text(json.dumps(self.policy,separators=(',',':'))); candidate={**self.policy,'version':'5.1.1'}; raw=json.dumps(candidate,separators=(',',':')).encode(); key='p'*48
@@ -1022,8 +1031,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.50.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.50.0')
+        self.assertIn("agent_version='0.51.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.51.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -1129,7 +1138,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v2','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32,'policy_verification_keys':['p'*48]})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'sentinel.report/v1','agent_version':'0.50.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.51.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['SentinelReportValid']); self.assertTrue(parsed['SentinelReportingConfigured']); self.assertTrue(parsed['SentinelReportingHealthy'])
             upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingHealthy']); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
             reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingConfigured']); reporting.chmod(0o600)
