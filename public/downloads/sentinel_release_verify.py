@@ -322,7 +322,7 @@ def verify(downloads):
         if directive not in windows_agent: errors.append(f"missing_windows_reporting_loader:{directive}")
     for directive in ("umask 077","os.replace(temp,path)","hmac.compare_digest(token,secret)","sentinel.reporting/v2","policy_verification_keys"):
         if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
-    for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid","sentinel.reporting/v2","policy_verification_keys","X-Sentinel-Policy-Signature","policy_signature_mismatch"):
+    for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid","sentinel.reporting/v2","policy_verification_keys","X-Sentinel-Policy-Signature","X-Sentinel-Policy-Key-ID","policy_signature_mismatch","policy_key_id"):
         if directive not in python_agent: errors.append(f"missing_python_reporting_loader:{directive}")
     for directive in ('"gemini_cli"','"github_copilot_cli"','".gemini/settings.json"','".copilot/mcp-config.json"','".gemini/GEMINI.md"','".copilot/copilot-instructions.md"','cfg.get("httpUrl"','".gemini/skills"','".copilot/skills"','def verify_user_baselines','"agent_baseline_not_loaded"','"type":"agent_baseline"','SentinelAgent/0.47.0','not path.is_symlink()','if root.is_symlink(): return []','if home.is_symlink() or not home.is_dir(): continue','not marker.is_symlink()','def atomic_managed_write','atomic_managed_write(home,path,updated)','os.fchown','os.fsync(handle.fileno())','os.replace(temp,path)'):
         if directive not in python_agent: errors.append(f"missing_python_agent_coverage:{directive}")
@@ -358,7 +358,7 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
     for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
-    for directive in ("SENTINEL_POLICY_SIGNING_KEYS_FILE","sentinel.policy-signing-keys/v1","private_secret_file","X-Sentinel-Policy-Signature","hmac.new(keys[0].encode()"):
+    for directive in ("SENTINEL_POLICY_SIGNING_KEYS_FILE","sentinel.policy-signing-keys/v1","private_secret_file","X-Sentinel-Policy-Signature","X-Sentinel-Policy-Key-ID","hmac.new(keys[0].encode()","policy_trust_posture","active_policy_key_id"):
         if directive not in collector_text: errors.append(f"missing_policy_signing_boundary:{directive}")
     for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"service_health_status(inventory)","def collector_recommendations",'"external_approval_required"',"hashlib.blake2s",'parsed.path=="/v1/recommendations"',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"',"service_health_posture",'item.get("type")=="service_health"','"0.47.0"','"5.1.0"',"SentinelCollector/0.25"):
         if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
@@ -377,10 +377,11 @@ def verify(downloads):
     expected_methods={"/health":{"get"},"/v1/reports":{"post"},"/v1/summary":{"get"},"/v1/recommendations":{"get"},"/v1/remediation-receipts":{"post"},"/v1/policy":{"get"},"/v1/devices":{"get"},"/v1/audit":{"get"}}
     if openapi.get("openapi")!="3.1.0" or openapi.get("info",{}).get("version")!="0.25.0": errors.append("collector_openapi_version_drift")
     policy_headers=paths.get("/v1/policy",{}).get("get",{}).get("responses",{}).get("200",{}).get("headers",{})
-    if set(policy_headers)!={"X-Sentinel-Policy-SHA256","X-Sentinel-Policy-Signature"} or any(item.get("required") is not True for item in policy_headers.values()): errors.append("collector_openapi_policy_signature_drift")
+    if set(policy_headers)!={"X-Sentinel-Policy-SHA256","X-Sentinel-Policy-Key-ID","X-Sentinel-Policy-Signature"} or any(item.get("required") is not True for item in policy_headers.values()): errors.append("collector_openapi_policy_signature_drift")
     fleet_schema=components.get("schemas",{}).get("FleetSummary",{})
     if "baseline_coverage" not in fleet_schema.get("required",[]) or "baseline_coverage" not in fleet_schema.get("properties",{}): errors.append("collector_openapi_baseline_coverage_drift")
     if "service_health_posture" not in fleet_schema.get("required",[]) or "service_health_posture" not in fleet_schema.get("properties",{}): errors.append("collector_openapi_service_health_posture_drift")
+    if not {"policy_trust_posture","active_policy_key_id"}.issubset(fleet_schema.get("required",[])): errors.append("collector_openapi_policy_trust_drift")
     device_get=paths.get("/v1/devices",{}).get("get",{}); device_parameters={item.get("name"):item for item in device_get.get("parameters",[]) if isinstance(item,dict)}; console_schema=components.get("schemas",{}).get("ConsoleDevice",{}).get("allOf",[{},{}])
     if set(device_parameters)!={"limit","view"} or set(device_parameters.get("view",{}).get("schema",{}).get("enum",[]))!={"activation","console"}: errors.append("collector_openapi_device_view_drift")
     if not isinstance(console_schema,list) or len(console_schema)!=2 or set(console_schema[1].get("required",[]))!={"device_id","last_seen","report_count","credential_generation","severity","agent_version","policy_version","service_health_status"}: errors.append("collector_openapi_console_device_drift")

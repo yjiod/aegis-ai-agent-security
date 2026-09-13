@@ -28,7 +28,7 @@ Sentinel 5.0 策略把规则更新拆成两个边界：第三方上游仅提供�
 
 ## 策略签名与轮换
 
-Collector 从 root 所有、0600/0640 的 `/etc/sentinel/policy-signing-keys.json` 读取 `sentinel.policy-signing-keys/v1` 密钥环，首个密钥用于签发，最多五个密钥用于平滑轮换。设备注册 v3 将同一轮换窗口的验证密钥写入受保护的 `sentinel.reporting/v2`；这些密钥必须与上报 Token、报告签名密钥和审批回调密钥相互独立。轮换顺序是先让终端同时信任新旧密钥，再切换 Collector 首密钥，确认全量活跃设备完成注册更新后移除旧密钥。
+Collector 从 root 所有、0600/0640 的 `/etc/sentinel/policy-signing-keys.json` 读取 `sentinel.policy-signing-keys/v1` 密钥环，首个密钥用于签发，最多五个密钥用于平滑轮换。响应包含签名密钥的不可逆 SHA-256 短标识，终端只使用标识匹配的受信密钥验签，并在清单中上报自身信任的短标识集合，绝不上报密钥。设备注册 v3 将同一轮换窗口的验证密钥写入受保护的 `sentinel.reporting/v2`；这些密钥必须与上报 Token、报告签名密钥和审批回调密钥相互独立。轮换顺序是先让终端同时信任新旧密钥，再切换 Collector 首密钥，待控制台 `policy_trust_posture.current` 覆盖全部活跃设备且 `unrecognized/legacy` 清零后，才能移除旧密钥。
 
 本阶段使用独立 HMAC 信任域，解决摘要可被同源攻击者一并替换的问题，但共享验证密钥不等同于公钥代码签名或硬件密钥保护。生产演进应将签发端迁移到离线/受管 KMS 的非对称签名，终端只持有公钥；当前包不得宣称具备该能力。
 

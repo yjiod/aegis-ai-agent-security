@@ -515,6 +515,7 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
         self.assertIn('baseline_coverage',spec['components']['schemas']['FleetSummary']['required'])
         self.assertIn('service_health_posture',spec['components']['schemas']['FleetSummary']['required'])
+        self.assertIn('policy_trust_posture',spec['components']['schemas']['FleetSummary']['required']); self.assertIn('active_policy_key_id',spec['components']['schemas']['FleetSummary']['required'])
         self.assertIn('service_health_status',spec['components']['schemas']['ConsoleDevice']['allOf'][1]['required'])
         self.assertEqual(spec['components']['schemas']['RemediationRecommendation']['properties']['approval_state'],{'const':'external_approval_required'})
         self.assertEqual(spec['components']['securitySchemes']['bearerAuth'],{'type':'http','scheme':'bearer'}); self.assertEqual(spec['components']['securitySchemes']['callbackBearerAuth']['type'],'http'); self.assertEqual(paths['/v1/remediation-receipts']['post']['security'],[{'callbackBearerAuth':[]}]); self.assertEqual(paths['/health']['get']['security'],[])
@@ -568,6 +569,14 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(summary['agent_coverage']['cursor'],{'total':2,'active':2}); self.assertEqual(summary['agent_coverage']['gemini_cli'],{'total':1,'active':1}); self.assertEqual(summary['agent_coverage']['github_copilot_cli'],{'total':1,'active':0})
             self.assertEqual(summary['baseline_coverage'],{name:{'total':0,'managed':0} for name in ('claude_code','codex','gemini_cli','github_copilot_cli')})
             self.assertEqual(summary['service_health_posture'],{'healthy':0,'degraded':0,'invalid':0,'missing':3})
+    def test_collector_summary_measures_policy_key_rotation_coverage(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); db=root/'reports.db'; keyring=root/'keys.json'; current='p'*48; previous='q'*48; keyring.write_text(json.dumps({'schema':'sentinel.policy-signing-keys/v1','keys':[current,previous]})); keyring.chmod(0o600); now=int(time.time())
+            inventories=([{'type':'policy_trust','key_ids':[self.agent.policy_key_id(current),self.agent.policy_key_id(previous)]}],[{'type':'policy_trust','key_ids':[self.agent.policy_key_id(previous)]}],[])
+            for index,inventory in enumerate(inventories):
+                report={'device_id':f'device-{index}','agent_version':'0.47.0','policy_version':'5.1.0','summary':{'critical':0,'high':0},'inventory':inventory}; self.collector.store_report(db,json.dumps(report).encode(),report,now=now)
+            with patch.dict(os.environ,{'SENTINEL_POLICY_SIGNING_KEYS_FILE':str(keyring)},clear=True): summary=self.collector.collector_summary(db,now=now)
+            self.assertEqual(summary['active_policy_key_id'],self.agent.policy_key_id(current)); self.assertEqual(summary['policy_trust_posture'],{'current':1,'overlap':1,'legacy':1,'unrecognized':1})
     def test_collector_aggregates_service_health_fail_closed(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
@@ -803,12 +812,12 @@ class SentinelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); target=root/'policy.json'; target.write_text(json.dumps(self.policy,separators=(',',':'))); candidate={**self.policy,'version':'5.1.1'}; raw=json.dumps(candidate,separators=(',',':')).encode(); key='p'*48
             class Response:
-                def __init__(self,signature): self.headers={'X-Sentinel-Policy-SHA256':hashlib.sha256(raw).hexdigest(),'X-Sentinel-Policy-Signature':signature}
+                def __init__(self,signature): self.headers={'X-Sentinel-Policy-SHA256':hashlib.sha256(raw).hexdigest(),'X-Sentinel-Policy-Key-ID':self_outer.agent.policy_key_id(key),'X-Sentinel-Policy-Signature':signature}
                 def __enter__(self): return self
                 def __exit__(self,*args): pass
                 def geturl(self): return 'https://collector.example.internal/v1/policy'
                 def read(self,limit): return raw
-            signature='sha256='+hmac.new(key.encode(),raw,hashlib.sha256).hexdigest()
+            self_outer=self; signature='sha256='+hmac.new(key.encode(),raw,hashlib.sha256).hexdigest()
             with patch.object(self.agent.urllib.request,'urlopen',return_value=Response(signature)): self.assertTrue(self.agent.sync_policy(target,'https://collector.example.internal/v1/reports','t'*32,[key]))
             self.assertEqual(json.loads(target.read_text())['version'],'5.1.1')
             before=target.read_bytes()
@@ -824,7 +833,7 @@ class SentinelTests(unittest.TestCase):
                 try:
                     request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/policy',headers={'Authorization':'Bearer '+'t'*32})
                     with urllib.request.urlopen(request,timeout=3) as response:
-                        body=response.read(); self.assertEqual(response.headers['X-Sentinel-Policy-SHA256'],hashlib.sha256(body).hexdigest()); self.assertEqual(response.headers['X-Sentinel-Policy-Signature'],'sha256='+hmac.new(key.encode(),body,hashlib.sha256).hexdigest())
+                        body=response.read(); self.assertEqual(response.headers['X-Sentinel-Policy-SHA256'],hashlib.sha256(body).hexdigest()); self.assertEqual(response.headers['X-Sentinel-Policy-Key-ID'],self.agent.policy_key_id(key)); self.assertEqual(response.headers['X-Sentinel-Policy-Signature'],'sha256='+hmac.new(key.encode(),body,hashlib.sha256).hexdigest())
                 finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_collector_supports_bounded_token_and_signing_key_rotation(self):
         body=b'{"device":"test"}'; old=self.agent.report_headers(body,'old-token','old-signing',now=1000); new=self.agent.report_headers(body,'new-token','new-signing',now=1000)

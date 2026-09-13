@@ -90,6 +90,7 @@ def private_secret_file(path):
     value=json.loads(source.read_text(encoding="utf-8")); keys=value.get("keys") if isinstance(value,dict) else None
     if set(value)!={"schema","keys"} or value.get("schema")!="sentinel.policy-signing-keys/v1" or not isinstance(keys,list) or not 1<=len(keys)<=5 or any(not isinstance(key,str) or not 32<=len(key)<=4096 for key in keys) or len(keys)!=len(set(keys)): raise ValueError("secret_file_contract")
     return keys
+def policy_key_id(key): return hashlib.sha256(key.encode()).hexdigest()[:16]
 def policy_signing_keys(path=None):
     path=os.getenv("SENTINEL_POLICY_SIGNING_KEYS_FILE","") if path is None else path
     return private_secret_file(path)
@@ -269,6 +270,9 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     baseline_names=("claude_code","codex","gemini_cli","github_copilot_cli")
     baseline_coverage={name:{"total":0,"managed":0} for name in baseline_names}
     service_health_posture={"healthy":0,"degraded":0,"invalid":0,"missing":0}
+    try: trusted_key_ids=[policy_key_id(key) for key in policy_signing_keys()]
+    except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): trusted_key_ids=[]
+    current_key_id=trusted_key_ids[0] if trusted_key_ids else "unavailable"; policy_trust_posture={"current":0,"overlap":0,"legacy":0,"unrecognized":0}
     for received,severity,agent,policy,generation,body in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1
         if not agent or not policy: versions["unknown"]+=1
@@ -287,8 +291,14 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
         for name,status in baseline_items.items():
             baseline_coverage[name]["total"]+=1; baseline_coverage[name]["managed"]+=status=="managed"
         service_health_posture[service_health_status(inventory)]+=1
+        trust_items=[item for item in inventory if isinstance(item,dict) and item.get("type")=="policy_trust"]
+        ids=trust_items[0].get("key_ids",[]) if len(trust_items)==1 else []
+        if not ids: policy_trust_posture["legacy"]+=1
+        elif not isinstance(ids,list) or len(ids)>5 or any(not isinstance(item,str) or not re.fullmatch(r"[0-9a-f]{16}",item) for item in ids): policy_trust_posture["unrecognized"]+=1
+        elif current_key_id in ids: policy_trust_posture["current"]+=1; policy_trust_posture["overlap"]+=len(ids)>1
+        else: policy_trust_posture["unrecognized"]+=1
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
-    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage,"service_health_posture":service_health_posture}
+    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage,"service_health_posture":service_health_posture,"policy_trust_posture":policy_trust_posture,"active_policy_key_id":current_key_id}
 class Handler(BaseHTTPRequestHandler):
     server_version="SentinelCollector/0.25"
     def reply(self,status,data,headers=None):
@@ -305,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError,ValueError,TypeError,json.JSONDecodeError,UnicodeError): return self.reply(503,{"error":"policy_unavailable"})
         try: keys=policy_signing_keys()
         except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): return self.reply(503,{"error":"policy_signing_unavailable"})
-        digest=hashlib.sha256(body).hexdigest(); signature="sha256="+hmac.new(keys[0].encode(),body,hashlib.sha256).hexdigest(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","private, max-age=300"); self.send_header("ETag",'"'+digest+'"'); self.send_header("X-Sentinel-Policy-SHA256",digest); self.send_header("X-Sentinel-Policy-Signature",signature); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body)
+        digest=hashlib.sha256(body).hexdigest(); signature="sha256="+hmac.new(keys[0].encode(),body,hashlib.sha256).hexdigest(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","private, max-age=300"); self.send_header("ETag",'"'+digest+'"'); self.send_header("X-Sentinel-Policy-SHA256",digest); self.send_header("X-Sentinel-Policy-Key-ID",policy_key_id(keys[0])); self.send_header("X-Sentinel-Policy-Signature",signature); self.send_header("X-Content-Type-Options","nosniff"); self.end_headers(); self.wfile.write(body)
     def rate_limited(self):
         limiter=getattr(self.server,"rate_limiter",None)
         if limiter is None: return False

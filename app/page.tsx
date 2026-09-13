@@ -85,6 +85,8 @@ type FleetSummary = {
   agent_coverage: Record<'cursor'|'claude_code'|'codex'|'windsurf'|'gemini_cli'|'github_copilot_cli'|'workbuddy'|'qwen_enterprise'|'tongyi_lingma'|'codebuddy',{total:number;active:number}>;
   baseline_coverage: Record<'claude_code'|'codex'|'gemini_cli'|'github_copilot_cli',{total:number;managed:number}>;
   service_health_posture: { healthy:number; degraded:number; invalid:number; missing:number };
+  policy_trust_posture: { current:number; overlap:number; legacy:number; unrecognized:number };
+  active_policy_key_id: string;
 };
 type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy'; severity:'normal'|'high'|'critical'; agent_version:string; policy_version:string; service_health_status:'healthy'|'degraded'|'invalid'|'missing' };
 type DeviceHealthFilter = 'all'|'action_required'|FleetDevice['service_health_status'];
@@ -612,6 +614,7 @@ function DetailPanel({
                 <p>{fleet ? `${fleet.total_devices} 台设备 · ${fleet.active_devices} 台在线` : 'Collector 暂不可用'}</p>
                 {fleet?.credential_posture && <p>凭据代次：当前 {fleet.credential_posture.current} · 上一代 {fleet.credential_posture.previous} · Legacy {fleet.credential_posture.legacy}</p>}
                 {fleet?.service_health_posture && <p>统一宿主：健康 {fleet.service_health_posture.healthy} · 降级 {fleet.service_health_posture.degraded} · 无效 {fleet.service_health_posture.invalid} · 未上报 {fleet.service_health_posture.missing}</p>}
+                {fleet?.policy_trust_posture && <p>策略信任：当前密钥 {fleet.policy_trust_posture.current} · 轮换重叠 {fleet.policy_trust_posture.overlap} · 旧版 {fleet.policy_trust_posture.legacy} · 未识别 {fleet.policy_trust_posture.unrecognized} · Key ID {fleet.active_policy_key_id}</p>}
               </div>
               <Button onClick={() => notify('请从接入中心下载已验证发行包；未创建外部任务。')}>
                 生成部署包

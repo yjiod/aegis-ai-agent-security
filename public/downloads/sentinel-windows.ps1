@@ -25,8 +25,8 @@ if($reportConfig -and $ReportUrl){
     $sha256=[Security.Cryptography.SHA256]::Create();try{$actual=([BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace('-','').ToLower()}finally{$sha256.Dispose()}
     if(([string]$response.Headers['X-Sentinel-Policy-SHA256']) -cne $actual){throw 'policy digest mismatch'}
     if($policyVerificationKeys.Count -lt 1){throw 'policy verification key unavailable'}
-    $suppliedSignature=[string]$response.Headers['X-Sentinel-Policy-Signature'];$signatureValid=$false
-    foreach($key in $policyVerificationKeys){$hmac=[Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($key));try{$expected='sha256='+([BitConverter]::ToString($hmac.ComputeHash($bytes))).Replace('-','').ToLower()}finally{$hmac.Dispose()};$signatureValid=$signatureValid -or ($expected -ceq $suppliedSignature)}
+    $suppliedSignature=[string]$response.Headers['X-Sentinel-Policy-Signature'];$suppliedKeyId=[string]$response.Headers['X-Sentinel-Policy-Key-ID'];$signatureValid=$false
+    foreach($key in $policyVerificationKeys){$sha=[Security.Cryptography.SHA256]::Create();try{$keyId=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($key)))).Replace('-','').ToLower().Substring(0,16)}finally{$sha.Dispose()};if($keyId -cne $suppliedKeyId){continue};$hmac=[Security.Cryptography.HMACSHA256]::new([Text.Encoding]::UTF8.GetBytes($key));try{$expected='sha256='+([BitConverter]::ToString($hmac.ComputeHash($bytes))).Replace('-','').ToLower()}finally{$hmac.Dispose()};$signatureValid=$expected -ceq $suppliedSignature}
     if(-not $signatureValid){throw 'policy signature mismatch'}
     $remote=([string]$response.Content)|ConvertFrom-Json;if($remote.schema -cne 'sentinel.policy/v1' -or -not ([string]$remote.version)){throw 'invalid remote policy'}
     $local=Get-Content $policyPath -Raw|ConvertFrom-Json;if(([version]$remote.version) -lt ([version]$local.version)){throw 'policy downgrade rejected'}
@@ -390,6 +390,8 @@ if(Test-Path -LiteralPath $healthPath){
   }catch{$inventory+=@{type='service_health';status='invalid'};$findings+=@{kind='service_health_invalid';severity='high';path='managed-service-health';message='Sentinel 服务宿主健康状态无效或已过期'}}
 }
 $policyVersion = if ($policy) { [string]$policy.version } else { 'invalid' }
+$policyKeyIds=@();foreach($key in @($policyVerificationKeys)){$sha=[Security.Cryptography.SHA256]::Create();try{$policyKeyIds+=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($key)))).Replace('-','').ToLower().Substring(0,16)}finally{$sha.Dispose()}}
+$inventory+=@{type='policy_trust';key_ids=@($policyKeyIds)}
 $inventoryLimit=5000;$findingLimit=10000
 if(@($inventory).Count -gt $inventoryLimit){$omitted=@($inventory).Count-$inventoryLimit+1;$inventory=@($inventory|Select-Object -First ($inventoryLimit-1));$inventory += @{type='inventory_truncated';omitted=$omitted}}
 if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLimit+1;$findings=@($findings|Select-Object -First ($findingLimit-1));$findings += @{kind='findings_truncated';severity='medium';path='managed-windows-roots';message="报告发现项超限，省略 $omitted 项"}}

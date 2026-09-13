@@ -14,6 +14,7 @@ const credentialPostures = ['current', 'previous', 'legacy'] as const;
 const agentNames = ['cursor', 'claude_code', 'codex', 'windsurf', 'gemini_cli', 'github_copilot_cli', 'workbuddy', 'qwen_enterprise', 'tongyi_lingma', 'codebuddy'] as const;
 const baselineNames = ['claude_code', 'codex', 'gemini_cli', 'github_copilot_cli'] as const;
 const serviceHealthPostures = ['healthy', 'degraded', 'invalid', 'missing'] as const;
+const policyTrustPostures = ['current', 'overlap', 'legacy', 'unrecognized'] as const;
 
 function boundedCount(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) >= 0;
@@ -40,7 +41,8 @@ function validSummary(value: unknown) {
   const agents = data.agent_coverage as Record<string, unknown> | undefined;
   const baselines = data.baseline_coverage as Record<string, unknown> | undefined;
   const serviceHealth = data.service_health_posture as Record<string, unknown> | undefined;
-  if (!severity || !posture || !agents || !baselines || !serviceHealth) return false;
+  const policyTrust = data.policy_trust_posture as Record<string, unknown> | undefined;
+  if (!severity || !posture || !agents || !baselines || !serviceHealth || !policyTrust || typeof data.active_policy_key_id !== 'string' || !/^(?:[0-9a-f]{16}|unavailable)$/.test(data.active_policy_key_id)) return false;
   if (!levels.every((key) => boundedCount(severity[key]))) return false;
   if (!postures.every((key) => boundedCount(posture[key]))) return false;
   if (credentials && !credentialPostures.every((key) => boundedCount(credentials[key]))) return false;
@@ -53,6 +55,7 @@ function validSummary(value: unknown) {
     return item && Object.keys(item).length===2 && boundedCount(item.total) && boundedCount(item.managed) && Number(item.managed)<=Number(item.total) && Number(item.total)<=Number(data.total_devices);
   })) return false;
   if (Object.keys(serviceHealth).length!==serviceHealthPostures.length || !serviceHealthPostures.every((key) => boundedCount(serviceHealth[key]))) return false;
+  if (Object.keys(policyTrust).length!==policyTrustPostures.length || !policyTrustPostures.every((key) => boundedCount(policyTrust[key]))) return false;
   return (
     levels.reduce((sum, key) => sum + Number(severity[key]), 0) ===
       data.total_devices &&
@@ -61,7 +64,9 @@ function validSummary(value: unknown) {
     (!credentials ||
       credentialPostures.reduce((sum, key) => sum + Number(credentials[key]), 0) ===
         data.total_devices) &&
-    serviceHealthPostures.reduce((sum, key) => sum + Number(serviceHealth[key]), 0) === data.total_devices
+    serviceHealthPostures.reduce((sum, key) => sum + Number(serviceHealth[key]), 0) === data.total_devices &&
+    Number(policyTrust.current) + Number(policyTrust.legacy) + Number(policyTrust.unrecognized) === data.total_devices &&
+    Number(policyTrust.overlap) <= Number(policyTrust.current)
   );
 }
 
@@ -100,6 +105,7 @@ function sanitizedSummary(value: unknown) {
   const agents = data.agent_coverage as Record<string, Record<string, number>>;
   const baselines = data.baseline_coverage as Record<string, Record<string, number>>;
   const serviceHealth = data.service_health_posture as Record<string, number>;
+  const policyTrust = data.policy_trust_posture as Record<string, number>;
   return {
     total_devices: data.total_devices,
     active_devices: data.active_devices,
@@ -111,6 +117,8 @@ function sanitizedSummary(value: unknown) {
     agent_coverage: Object.fromEntries(agentNames.map((key) => [key, {total: agents[key].total, active: agents[key].active}])),
     baseline_coverage: Object.fromEntries(baselineNames.map((key) => [key, {total: baselines[key].total, managed: baselines[key].managed}])),
     service_health_posture: Object.fromEntries(serviceHealthPostures.map((key) => [key, serviceHealth[key]])),
+    policy_trust_posture: Object.fromEntries(policyTrustPostures.map((key) => [key, policyTrust[key]])),
+    active_policy_key_id: data.active_policy_key_id,
     ...(credentials
       ? { credential_posture: Object.fromEntries(credentialPostures.map((key) => [key, credentials[key]])) }
       : {}),

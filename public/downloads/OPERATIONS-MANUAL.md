@@ -43,6 +43,7 @@ installer -pkg Sentinel-Agent-macOS-5.9.0.pkg -target /
 - 按 lab → pilot → broad → production 灰度推进，并满足 24/48/72/168 小时观察窗口。
 - 二进制仍由外部平台推送；策略和情报更新先经过摘要、签名、Schema、回归及 LKG 门禁。
 - 策略密钥轮换遵循“终端先信任新旧密钥 → Collector 切换首密钥 → 覆盖率验收 → 移除旧密钥”；任一步失败都保留旧密钥和 LKG。
+- 覆盖率验收以 Collector 的 `policy_trust_posture` 为准：全部活跃设备必须计入 `current`，`legacy` 与 `unrecognized` 必须为 0；`overlap` 表示仍同时信任新旧密钥，不能单独作为移除旧密钥的充分证据。
 - 升级失败使用随包 `rollback-sentinel-windows.ps1` 或 `rollback-sentinel-macos.sh`，完成健康验证后再扩大范围。
 - 不允许跳过签名、关闭 TLS 校验、修改安全策略降级或用全局共享终端凭据替代设备凭据。
 

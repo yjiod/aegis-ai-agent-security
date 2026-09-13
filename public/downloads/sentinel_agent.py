@@ -56,6 +56,7 @@ def reload_policy(path,current=None):
 def version_tuple(value):
     match=re.fullmatch(r"(\d+)\.(\d+)\.(\d+)",str(value))
     return tuple(map(int,match.groups())) if match else None
+def policy_key_id(key): return hashlib.sha256(key.encode()).hexdigest()[:16]
 def sync_policy(path,report_url,token,verification_keys,timeout=10):
     """Fetch an authenticated policy from the Collector and atomically promote only valid non-downgrades."""
     parsed=urlsplit(report_url)
@@ -65,11 +66,11 @@ def sync_policy(path,report_url,token,verification_keys,timeout=10):
         if response.geturl()!=endpoint: raise ValueError("policy_redirect_rejected")
         raw=response.read(2_000_001)
         if len(raw)>2_000_000: raise ValueError("policy_too_large")
-        expected=response.headers.get("X-Sentinel-Policy-SHA256",""); supplied_signature=response.headers.get("X-Sentinel-Policy-Signature","")
+        expected=response.headers.get("X-Sentinel-Policy-SHA256",""); supplied_signature=response.headers.get("X-Sentinel-Policy-Signature",""); supplied_key_id=response.headers.get("X-Sentinel-Policy-Key-ID","")
     if not re.fullmatch(r"[0-9a-f]{64}",expected) or not hmac.compare_digest(hashlib.sha256(raw).hexdigest(),expected): raise ValueError("policy_digest_mismatch")
     if not isinstance(verification_keys,list) or not 1<=len(verification_keys)<=5 or any(not isinstance(key,str) or not 32<=len(key)<=4096 for key in verification_keys) or len(verification_keys)!=len(set(verification_keys)): raise ValueError("policy_verification_keys_invalid")
-    signatures=["sha256="+hmac.new(key.encode(),raw,hashlib.sha256).hexdigest() for key in verification_keys]
-    if not any(hmac.compare_digest(candidate,supplied_signature) for candidate in signatures): raise ValueError("policy_signature_mismatch")
+    matching=[key for key in verification_keys if hmac.compare_digest(policy_key_id(key),supplied_key_id)]
+    if len(matching)!=1 or not hmac.compare_digest("sha256="+hmac.new(matching[0].encode(),raw,hashlib.sha256).hexdigest(),supplied_signature): raise ValueError("policy_signature_mismatch")
     candidate=validate_policy(json.loads(raw))
     current=load_policy(path)
     if not version_tuple(candidate["version"]) or version_tuple(candidate["version"])<version_tuple(current["version"]): raise ValueError("policy_downgrade_rejected")
@@ -594,7 +595,7 @@ def write_upload_status(path,url,now=None):
     if not host: raise ValueError("invalid_upload_status_host")
     value={"schema":"sentinel.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
-def build_report(root,policy,verify_baselines=False,enforce=False,quarantine_root=None):
+def build_report(root,policy,verify_baselines=False,enforce=False,quarantine_root=None,policy_verification_keys=None):
     enforcement=[]
     if enforce:
         quarantine_root=Path(quarantine_root) if quarantine_root else Path(__file__).with_name("quarantine")
@@ -603,6 +604,8 @@ def build_report(root,policy,verify_baselines=False,enforce=False,quarantine_roo
     findings=enforcement+findings
     if verify_baselines:
         baseline_inventory,baseline_findings=verify_user_baselines(); inventory.extend(baseline_inventory); findings.extend(baseline_findings)
+    keys=policy_verification_keys or []
+    inventory.append({"type":"policy_trust","key_ids":[policy_key_id(key) for key in keys]})
     if len(inventory)>REPORT_INVENTORY_LIMIT:
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
@@ -631,7 +634,7 @@ def main():
             except Exception: policy_sync_error=True
         policy,reload_failed=reload_policy(args.policy,policy)
         if args.auto_enroll: auto_enroll(root)
-        report=build_report(root,policy,verify_baselines=args.auto_enroll,enforce=True); data=json.dumps(report,ensure_ascii=False,indent=2)
+        report=build_report(root,policy,verify_baselines=args.auto_enroll,enforce=True,policy_verification_keys=reporting.get("policy_verification_keys",[]) if reporting else []); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reload_failed:
             add_report_finding(report,finding("policy_reload_failed","high",args.policy,"策略热加载失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reporting_error:

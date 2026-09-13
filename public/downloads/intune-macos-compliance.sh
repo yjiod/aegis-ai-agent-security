@@ -5,7 +5,7 @@ REPORT="$INSTALL_DIR/reports/latest.json"
 REPORTING="$INSTALL_DIR/reporting.json"
 UPLOAD_STATUS="$INSTALL_DIR/reports/upload-status.json"
 PLIST="/Library/LaunchDaemons/com.company.sentinel-agent.plist"
-AGENT_SHA="82d89976b9d7a4719bbed5882744458da089b70e160cd82cb98c8802856332b1"
+AGENT_SHA="b9d38c6747ff49124fc522f794da3b84e63dc633d453921a0fbd23af1e4a2af7"
 POLICY_SHA="4ebac2abbe3654d048a8af17cf46df3161de336c00d2f5c4c692d90ffeffb832"
 BASELINE_SHA="e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e"
 installed=false; integrity=false; runtime=false
