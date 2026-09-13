@@ -136,6 +136,7 @@
 [data-theme="light"] .demo-notice strong { color: #6f5416; }
 [data-theme="light"] .toast { background: #ffffff; border-color: #b8d4ca; color: #1a3d30; box-shadow: var(--shadow-overlay); }
 [data-theme="light"] .severity.red { background: #fde8e8; color: #c0392b; }
+[data-theme="light"] .severity.critical { background: #fbdcd9; color: #9b1c12; border-color: #f0b4ad; }
 [data-theme="light"] .severity.orange { background: #fef3e2; color: #8a5a12; }
 [data-theme="light"] .data-row { border-bottom-color: #e8f0ed; }
 [data-theme="light"] .data-row:hover { background: linear-gradient(90deg, #f0f8f5, #e8f5f0, #f0f8f5); box-shadow: inset 3px 0 0 rgba(26,157,110,0.3); }
@@ -1310,6 +1311,20 @@ button.risk-row {
   letter-spacing: 0.04em;
   border: 1px solid transparent;
   transition: box-shadow var(--dur) ease, border-color var(--dur) ease;
+}
+
+.severity.critical {
+  background: linear-gradient(160deg, #6b1d19, #4a1210);
+  color: #ffd7d3;
+  font-weight: 700;
+  border-color: rgba(255, 82, 72, 0.6);
+  box-shadow: 0 0 16px rgba(255, 62, 52, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.severity.critical:hover,
+.risk-row:hover .severity.critical {
+  box-shadow: 0 0 22px rgba(255, 62, 52, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 82, 72, 0.8);
 }
 
 .severity.red {

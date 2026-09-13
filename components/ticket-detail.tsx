@@ -111,7 +111,7 @@ export const SEVERITY_META: Record<
   TicketSeverity,
   { label: string; tone: 'red' | 'orange' | 'pass'; hint: string }
 > = {
-  critical: { label: '高危', tone: 'red', hint: '严重' },
+  critical: { label: '严重', tone: 'red', hint: '严重' },
   high: { label: '高危', tone: 'red', hint: '高' },
   medium: { label: '中危', tone: 'orange', hint: '中' },
   low: { label: '低危', tone: 'pass', hint: '低' },

@@ -59,7 +59,7 @@ const DAY = 24 * HOUR;
 
 /* ─── 展示层常量 ─────────────────────────────────────────── */
 
-type DataSource = 'loading' | 'api' | 'demo';
+type DataSource = 'loading' | 'api' | 'error';
 type ToastTone = 'info' | 'success' | 'error';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
@@ -110,104 +110,12 @@ const inlinePanelStyle: CSSProperties = {
   margin: '2px 0 12px',
 };
 
-/** 接口不可用时的覆盖分布占位（全 0）。 */
-const TOOL_COVERAGE_DEMO = [
-  { name: 'Cursor', total: 124, online: 100 },
-  { name: 'Claude Code', total: 86, online: 78 },
-  { name: 'Codex CLI', total: 64, online: 58 },
-  { name: 'Windsurf', total: 38, online: 34 },
-];
-
-/* ─── 空态占位（生产环境不注入实时数据） ─── */
-
-type DeviceSeed = Omit<Device, 'last_seen' | 'registered_at'> & {
-  seenAgo: number;
-  enrolledAgo: number;
-};
-
-const DEVICE_SEEDS: DeviceSeed[] = [
-  {
-    device_id: 'ENG-MBP-1032',
-    hostname: 'eng-mbp-1032.corp.aegis.local',
-    owner: '陈昊',
-    agent_type: 'cursor',
-    agent_version: 'v3.8',
-    policy_version: 'v4.8',
-    status: 'online',
-    notes: '研发部 · Cursor 企业版已纳管，Skill 白名单生效。',
-    seenAgo: 4 * MINUTE,
-    enrolledAgo: 214 * DAY,
-  },
-  {
-    device_id: 'MKT-LT-2841',
-    hostname: 'mkt-lt-2841.corp.aegis.local',
-    owner: '林妍',
-    agent_type: 'cursor',
-    agent_version: 'v3.7',
-    policy_version: 'v4.8',
-    status: 'needs_attention',
-    notes: '市场部 · MCP filesystem 越权访问待研判。',
-    seenAgo: 2 * MINUTE,
-    enrolledAgo: 96 * DAY,
-  },
-  {
-    device_id: 'ENG-LT-0948',
-    hostname: 'eng-lt-0948.corp.aegis.local',
-    owner: '周航',
-    agent_type: 'codex_cli',
-    agent_version: 'v3.8',
-    policy_version: 'v4.8',
-    status: 'online',
-    notes: '研发部 · Codex CLI 生成代码进入人工复核队列。',
-    seenAgo: 11 * MINUTE,
-    enrolledAgo: 158 * DAY,
-  },
-  {
-    device_id: 'OPS-MBP-0314',
-    hostname: 'ops-mbp-0314.corp.aegis.local',
-    owner: '罗宁',
-    agent_type: 'claude_code',
-    agent_version: 'v3.8',
-    policy_version: 'v4.8',
-    status: 'offline',
-    notes: '运维部 · 超过 24 小时未上报，离线前存在未签名 MCP 出站。',
-    seenAgo: 26 * HOUR,
-    enrolledAgo: 301 * DAY,
-  },
-  {
-    device_id: 'DESK-WIN-0521',
-    hostname: 'desk-win-0521.corp.aegis.local',
-    owner: '赵磊',
-    agent_type: 'windsurf',
-    agent_version: 'v3.8',
-    policy_version: 'v4.8',
-    status: 'online',
-    notes: '客服部 · Windows 桌面，历史工单已闭环。',
-    seenAgo: 7 * MINUTE,
-    enrolledAgo: 74 * DAY,
-  },
-  {
-    device_id: 'MKT-MBP-0847',
-    hostname: 'mkt-mbp-0847.corp.aegis.local',
-    owner: '吴婷',
-    agent_type: 'cursor',
-    agent_version: 'v3.6',
-    policy_version: 'v4.6',
-    status: 'needs_attention',
-    notes: '市场部 · Agent 落后基线两个版本，待推送升级。',
-    seenAgo: 52 * MINUTE,
-    enrolledAgo: 122 * DAY,
-  },
-];
-
-function demoDevices(): Device[] {
-  const now = Date.now();
-  return DEVICE_SEEDS.map(({ seenAgo, enrolledAgo, ...device }) => ({
-    ...device,
-    last_seen: now - seenAgo,
-    registered_at: now - enrolledAgo,
-  }));
-}
+/* ─── 无演示数据 ───────────────────────────────────────────
+ * 接口失败或为空时，一律展示真实的错误态/空态，绝不注入虚构设备或
+ * 虚构覆盖率数字（曾经的 DEVICE_SEEDS / demoDevices / TOOL_COVERAGE_DEMO
+ * 已移除）。对一个安全治理产品，把"没有数据"伪装成"有数据"是信任问题。
+ * 覆盖率(coverageRows)一律由真实 devices 聚合得出。
+ */
 
 /* ─── 响应与错误解析 ─────────────────────────────────────── */
 
@@ -268,7 +176,7 @@ export default function DevicesPage() {
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [source, setSource] = useState<DataSource>('loading');
-  const [, setNotice] = useState('');
+  const [notice, setNotice] = useState('');
   const { role } = useRole();
   const canMutate = role === 'admin';
   const [refreshing, setRefreshing] = useState(false);
@@ -304,11 +212,10 @@ export default function DevicesPage() {
     return parseDeviceList(payload);
   }, []);
 
-  /** 接口不可用：保留已有数据，列表为空时展示空态。 */
+  /** 接口不可用：诚实进入 error 态，保留上一次成功加载的数据，绝不注入假设备。 */
   const applyFallback = useCallback((message: string) => {
     setNotice(message);
-    setDevices((prev) => (prev.length > 0 ? prev : demoDevices()));
-    setSource((prev) => (prev === 'api' ? 'api' : 'demo'));
+    setSource((prev) => (prev === 'api' ? 'api' : 'error'));
   }, []);
 
   useEffect(() => {
@@ -335,7 +242,7 @@ export default function DevicesPage() {
   /** 写操作失败时的提示。 */
   const failureCopy = useCallback(
     (action: string, deviceId: string, error: unknown) =>
-      source === 'demo'
+      source === 'error'
         ? `操作失败：设备接口不可用，未${action}「${deviceId}」。`
         : `${action}失败：${errorText(error)}`,
     [source],
@@ -519,7 +426,7 @@ export default function DevicesPage() {
   }, [devices.length, fleet, onlineCount, reportedCount]);
 
   const coverageRows = useMemo(() => {
-    if (source !== 'api' || devices.length === 0) return TOOL_COVERAGE_DEMO;
+    if (source !== 'api' || devices.length === 0) return [];
     return AGENT_TYPE_OPTIONS.map((option) => {
       const rows = devices.filter((device) => device.agent_type === option.value);
       return {
@@ -723,9 +630,11 @@ export default function DevicesPage() {
                   className="data-row animate-row-entrance"
                   style={{
                     animationDelay: `${index * 30 + 200}ms`,
-                    cursor: 'pointer',
+                    cursor: canMutate ? 'pointer' : 'default',
                   }}
-                  onClick={() => setEditingId(editing ? null : device.device_id)}
+                  onClick={() => {
+                    if (canMutate) setEditingId(editing ? null : device.device_id);
+                  }}
                 >
                   <div style={cellStackStyle}>
                     <strong>{device.device_id}</strong>
@@ -762,32 +671,44 @@ export default function DevicesPage() {
                         void toggleFindings(device.device_id);
                       }}
                     >
-                      <Search />
+                      <ChevronDown
+                        style={{
+                          transform:
+                            expandedId === device.device_id
+                              ? 'rotate(180deg)'
+                              : 'none',
+                          transition: 'transform 150ms ease',
+                        }}
+                      />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label={`编辑 ${device.device_id}`}
-                      aria-expanded={editing}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (canMutate) setEditingId(editing ? null : device.device_id);
-                      }}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label={`删除 ${device.device_id}`}
-                      style={{ color: 'var(--destructive)' }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (canMutate) setPendingDelete(device);
-                      }}
-                    >
-                      <Trash2 />
-                    </Button>
+                    {canMutate && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`编辑 ${device.device_id}`}
+                          aria-expanded={editing}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (canMutate) setEditingId(editing ? null : device.device_id);
+                          }}
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`删除 ${device.device_id}`}
+                          style={{ color: 'var(--destructive)' }}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (canMutate) setPendingDelete(device);
+                          }}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -834,7 +755,23 @@ export default function DevicesPage() {
           })}
         </div>
 
-        {source !== 'loading' && visibleDevices.length === 0 && (
+        {source === 'error' && visibleDevices.length === 0 && (
+          <div className="empty-detail" style={{ minHeight: 180 }}>
+            <AlertTriangle size={36} />
+            <h2>设备接口暂不可用</h2>
+            <p>
+              {notice || '无法从 /api/devices 获取终端清单。'}
+              <br />
+              未展示任何终端不代表没有终端——请重试或检查 Collector 连接。
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={refreshing}>
+              {refreshing ? <Spinner /> : <RefreshCw />}
+              重试
+            </Button>
+          </div>
+        )}
+
+        {source !== 'loading' && source !== 'error' && visibleDevices.length === 0 && (
           <div className="empty-detail" style={{ minHeight: 180 }}>
             <Laptop size={36} />
             <h2>{query ? '没有匹配的终端' : '注册表为空'}</h2>
