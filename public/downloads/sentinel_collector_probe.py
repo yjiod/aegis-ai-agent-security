@@ -48,7 +48,7 @@ def check_read_only(base,token):
 def check_write(base,token,secret,device_id):
     if not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("invalid_probe_credentials")
     if not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_device_id")
-    now=int(time.time()); report={"schema":"sentinel.report/v1","agent_version":"0.47.0","policy_version":"5.1.0","device_id":device_id,"scanned_at":now,"summary":{"critical":0,"high":0,"medium":0,"low":0},"findings":[]}
+    now=int(time.time()); report={"schema":"sentinel.report/v1","agent_version":"0.48.0","policy_version":"5.1.0","device_id":device_id,"scanned_at":now,"summary":{"critical":0,"high":0,"medium":0,"low":0},"findings":[]}
     body=json.dumps(report,separators=(",",":"),ensure_ascii=False).encode(); digest=hashlib.sha256(body).hexdigest(); signature=hmac.new(secret.encode(),str(now).encode()+b"."+device_id.encode()+b"."+body,hashlib.sha256).hexdigest()
     headers={**auth_headers(token),"Content-Type":"application/json","X-Sentinel-Timestamp":str(now),"X-Sentinel-Signature":"sha256="+signature,"X-Sentinel-Device-ID":device_id}
     results=[]

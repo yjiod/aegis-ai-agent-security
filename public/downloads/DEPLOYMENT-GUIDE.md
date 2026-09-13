@@ -154,6 +154,8 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 5.9.0 / Agent 0.47.0 / Collector 0.25 将策略分发升级为独立 HMAC 信任域。Collector 必须从受保护的 `SENTINEL_POLICY_SIGNING_KEYS_FILE` 加载最多五个轮换密钥，并同时返回内容摘要与策略签名。注册 v3 将验证密钥环写入 reporting v2；Windows/macOS 客户端只有在 HTTPS、摘要、HMAC、Schema 和版本单调性全部通过时才原子提升候选策略。旧版 reporting v1 仍可上报，但远程更新失败关闭并继续使用 LKG。该机制是向 KMS/非对称发行签名迁移前的过渡控制，不替代平台代码签名、公证或硬件密钥。
 
+5.10.0 / Agent 0.48.0 / Collector 0.26 增加策略密钥轮换覆盖率闭环。策略响应携带不可逆 Key ID，终端只用标识匹配的受信密钥验签，并仅上报受信 Key ID 集合。Collector 将终端分类为 `current`、`overlap`、`legacy` 或 `unrecognized`；只有全部活跃设备均为 `current` 且 `legacy/unrecognized` 清零后，才允许从密钥环移除旧密钥。控制台展示该状态，但不接收或展示任何策略密钥材料。
+
 0.60.0 修复在线轮换的文件元数据边界。新清单仍以 0600 创建；如果目标清单已存在且是合规的 0600 或 `root:sentinel` 0640 普通文件，原子替换会保留其 owner、group 和 mode。替换前无法保留任一元数据时操作失败且旧清单不变，避免轮换后 Collector 因属组或读取位丢失而停服。Collector 与生成器均只接受精确 0600/0640，不再接受其他“看似私有”但不符合部署契约的模式。
 
 0.61.0 / Collector 0.13 强制 Token 与 HMAC 必须来自同一凭据代次；“新 Token + 旧 HMAC”等交叉组合返回 401。每次成功接收（包括语义重复报告）都会更新设备认证代次，`/v1/summary` 返回 `credential_posture.current/previous/legacy`，`/v1/devices` 返回每台设备的 `credential_generation`，均不暴露凭据。裁剪旧代前，将认证后的 `/v1/devices` 响应保存为本地 JSON，并以 `--activation-evidence` 传给 `sentinel_device_credentials.py --prune-old`；只有本次目标设备全部明确为 `current` 时才允许裁剪，缺失、重复、过大、结构异常或仍使用 previous/legacy 的证据均失败关闭。私有控制台的只读摘要代理会验证并展示该代次姿态。
