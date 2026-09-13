@@ -1,6 +1,6 @@
 # Sentinel 企业终端操作手册
 
-适用版本：产品 5.10.1、Endpoint Agent 0.48.0。当前 MSI/PKG 是未完成企业代码签名与 Apple 公证的试点验证包，不得直接晋级生产。
+适用版本：产品 5.11.0、Endpoint Agent 0.49.0。当前 MSI/PKG 是未完成企业代码签名与 Apple 公证的试点验证包，不得直接晋级生产。
 
 ## 1. 责任边界
 
@@ -14,20 +14,20 @@
 Windows 管理员安装：
 
 ```text
-msiexec /i Sentinel-Agent-Windows-x64-5.10.1.msi /qn /l*v %ProgramData%\SentinelAgent-install.log
+msiexec /i Sentinel-Agent-Windows-x64-5.11.0.msi /qn /l*v %ProgramData%\SentinelAgent-install.log
 ```
 
 macOS root 安装：
 
 ```text
-installer -pkg Sentinel-Agent-macOS-5.10.1.pkg -target /
+installer -pkg Sentinel-Agent-macOS-5.11.0.pkg -target /
 ```
 
 安装后通过受保护企业通道投递目标设备专属的 `sentinel.device-enrollment/v3` JSON。Windows 以管理员调用安装目录中的 `sentinel-enroll-windows.ps1 -EnrollmentPath <文件>`；macOS 调用 `/Library/Application Support/SentinelAgent/sentinel-enroll-macos.sh <文件>`。注册文件必须为短时、单次消费且不得进入 Git、聊天、工单、日志或通用脚本包。成功后文件自动删除；失败时保持原文件，先隔离终端并检查设备 ID、期限、权限和 Collector HTTPS 地址。v3 同时下发独立的策略验证密钥环；不得与设备上报 Token 或报告签名密钥复用。
 
 ## 3. 健康与验收
 
-- Windows 检查任务 `Sentinel AI Agent Security Host`、`%ProgramData%\SentinelAgent\service-health.json` 和最新报告。
+- Windows 检查 SCM 服务 `SentinelAIAgentSecurity`、`%ProgramData%\SentinelAgent\service-health.json` 和最新报告；服务应为“正在运行/延迟自动启动”，失败恢复不得配置任意脚本或外部命令。
 - macOS 检查 `system/com.yjiod.sentinel-agent`、`/Library/Application Support/SentinelAgent/service-health.json` 和最新报告。
 - Collector `/health` 必须返回数据库健康；控制台版本、Agent 版本、策略版本和报告凭据代次不得漂移。
 - 生产晋级前必须完成 Authenticode、Developer ID/notarization、安装/升级/回滚/卸载真机验证和发行摘要核对。
@@ -53,10 +53,10 @@ installer -pkg Sentinel-Agent-macOS-5.10.1.pkg -target /
 Windows：通过“应用和功能”、MDM 卸载分配，或管理员运行：
 
 ```text
-msiexec /x Sentinel-Agent-Windows-x64-5.10.1.msi /qn /l*v %ProgramData%\SentinelAgent-uninstall.log
+msiexec /x Sentinel-Agent-Windows-x64-5.11.0.msi /qn /l*v %ProgramData%\SentinelAgent-uninstall.log
 ```
 
-MSI 会调用受保护清理程序，停止并删除计划任务、移除 Sentinel 管理的用户基线块和运行目录。macOS 使用：
+MSI 会调用受保护清理程序，停止并删除 `SentinelAIAgentSecurity` SCM 服务、清理旧版计划任务、移除 Sentinel 管理的用户基线块和运行目录。macOS 使用：
 
 ```text
 sudo '/Library/Application Support/SentinelAgent/uninstall-sentinel-macos.sh'

@@ -4,7 +4,7 @@ $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 $reportDir = Join-Path $installDir 'reports'
 $previousDir = Join-Path $installDir 'previous'
 $stageDir = Join-Path $installDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
-$expected = @{ 'sentinel-policy.json'='4ebac2abbe3654d048a8af17cf46df3161de336c00d2f5c4c692d90ffeffb832'; 'sentinel-windows.ps1'='e765801f7f8c75b2384cd2235e65b618fd6c55c514ab7658b078d2ff844795ea'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
+$expected = @{ 'sentinel-policy.json'='4ebac2abbe3654d048a8af17cf46df3161de336c00d2f5c4c692d90ffeffb832'; 'sentinel-windows.ps1'='4a7ed9e35ede297a8176a1cabdd4614f0fbadaea727512a5ffa2a199675ae6ec'; 'sentinel-security-baseline.md'='e6d87dba8756aa270a70f423368bf68a44f108a5a299ab2a62c4488ed74a962e' }
 $taskName='Sentinel AI Agent Security Scan'
 $taskArguments="-NoProfile -ExecutionPolicy Bypass -File `"$installDir\sentinel-windows.ps1`" -Output `"$reportDir\latest.json`""
 New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null

@@ -2,7 +2,9 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它可通过任意 MDM、软件分发系统或本地运维流程部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告进入受认证的接收器后，可通过标准企业 4A 接口联动账号、认证、授权与审计平台；Intune、深信服和联软保留为可选兼容适配器。
 
-当前发行：产品 `5.10.1`，Endpoint Agent `0.48.0`，策略 `5.1.0`，Collector `0.26`，Adapter `0.19`。
+当前发行：产品 `5.11.0`，Endpoint Agent `0.49.0`，策略 `5.1.0`，Collector `0.26`，Adapter `0.19`。
+
+5.11 起，Windows MSI 将统一宿主正式注册为延迟自动启动的 `SentinelAIAgentSecurity` SCM 服务，不再依赖 MSI 自带的计划任务。服务直接响应停止和关机控制，配置三次有界故障恢复，并在扫描超时或服务停止时终止整个固定扫描器进程树；安装升级会清理旧宿主任务，卸载会等待服务停止后删除服务定义。macOS 继续使用同源宿主与 LaunchDaemon，报告和策略契约保持一致。
 
 5.8 起，策略中的 `deny` 和 `unknown_skill:block` 不再只是报告：Windows/macOS 会原子禁用对应 `SKILL.md`，并整体禁用命中名称或规范化指纹黑名单的 MCP 配置。用户内容不删除；本机私有审计记录原路径、禁用路径、对象摘要和恢复审批要求。恢复工具只接受短时、目标精确匹配的外部审批证据，成功后消费审批文件并追加恢复记录。
 

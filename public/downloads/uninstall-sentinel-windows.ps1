@@ -3,6 +3,12 @@ $installDir = Join-Path $env:ProgramData 'SentinelAgent'
 if (Test-Path $installDir) { if((Get-Item $installDir -Force).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Sentinel installation directory is a reparse point; refusing recursive removal'} }
 Unregister-ScheduledTask -TaskName 'Sentinel AI Agent Security Host' -Confirm:$false -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName 'Sentinel AI Agent Security Scan' -Confirm:$false -ErrorAction SilentlyContinue
+$serviceName='SentinelAIAgentSecurity';$service=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if($service){
+  if($service.Status -ne 'Stopped'){Stop-Service -Name $serviceName -Force;$service.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))}
+  & sc.exe delete $serviceName|Out-Null
+  if($LASTEXITCODE -ne 0){throw "SCM service removal failed: $LASTEXITCODE"}
+}
 $start='<!-- sentinel-managed-user-baseline:start -->';$end='<!-- sentinel-managed-user-baseline:end -->';$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
 Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
   if($_.Attributes -band [IO.FileAttributes]::ReparsePoint){return}

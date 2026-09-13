@@ -4,7 +4,7 @@
 
 0.48.0 起，站点提供只读同源 `/api/summary` 代理。服务端配置 `SENTINEL_COLLECTOR_URL`、精确主机名 `SENTINEL_COLLECTOR_ALLOWED_HOST` 和至少 32 字符的 `SENTINEL_COLLECTOR_TOKEN` 后，顶部四项指标读取接收器摘要；令牌不会进入浏览器。代理只允许 HTTPS、拒绝 URL 凭据/查询参数、五秒超时、禁用缓存并严格复核汇总计数。未配置、上游异常或契约不符时自动回到明确标识的演示模式。
 
-0.49.0 起，摘要代理以流式读取执行 64 KiB 硬上限，包括没有 `Content-Length` 的分块响应；超过限制会立即取消上游读取。响应必须是严格 UTF-8，只有控制台需要的计数和版本字段会被重新构造并返回，获准主机附加的未知字段不会透传。所有成功及错误响应均设置 `Cache-Control: no-store`。
+0.48.0 起，摘要代理以流式读取执行 64 KiB 硬上限，包括没有 `Content-Length` 的分块响应；超过限制会立即取消上游读取。响应必须是严格 UTF-8，只有控制台需要的计数和版本字段会被重新构造并返回，获准主机附加的未知字段不会透传。所有成功及错误响应均设置 `Cache-Control: no-store`。
 
 ## 推荐职责
 
@@ -155,6 +155,8 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 5.9.0 / Agent 0.47.0 / Collector 0.25 将策略分发升级为独立 HMAC 信任域。Collector 必须从受保护的 `SENTINEL_POLICY_SIGNING_KEYS_FILE` 加载最多五个轮换密钥，并同时返回内容摘要与策略签名。注册 v3 将验证密钥环写入 reporting v2；Windows/macOS 客户端只有在 HTTPS、摘要、HMAC、Schema 和版本单调性全部通过时才原子提升候选策略。旧版 reporting v1 仍可上报，但远程更新失败关闭并继续使用 LKG。该机制是向 KMS/非对称发行签名迁移前的过渡控制，不替代平台代码签名、公证或硬件密钥。
 
 5.10.0 / Agent 0.48.0 / Collector 0.26 增加策略密钥轮换覆盖率闭环。策略响应携带不可逆 Key ID，终端只用标识匹配的受信密钥验签，并仅上报受信 Key ID 集合。Collector 将终端分类为 `current`、`overlap`、`legacy` 或 `unrecognized`；只有全部活跃设备均为 `current` 且 `legacy/unrecognized` 清零后，才允许从密钥环移除旧密钥。控制台展示该状态，但不接收或展示任何策略密钥材料。
+
+5.11.0 / Agent 0.49.0 将 Windows MSI 的统一宿主从计划任务迁移为真正的 SCM 服务 `SentinelAIAgentSecurity`。服务使用固定 `--service` 入口、LocalSystem 身份和延迟自动启动，直接响应停止/关机控制并配置三次一分钟间隔的恢复动作；宿主仍只能调用内置扫描器路径，不接受任意命令。超时或服务关闭会终止扫描器整个进程树。升级安装会删除旧宿主任务，卸载会先等待服务停止再删除 SCM 定义；macOS 同源宿主和 LaunchDaemon 行为不变。
 
 0.60.0 修复在线轮换的文件元数据边界。新清单仍以 0600 创建；如果目标清单已存在且是合规的 0600 或 `root:sentinel` 0640 普通文件，原子替换会保留其 owner、group 和 mode。替换前无法保留任一元数据时操作失败且旧清单不变，避免轮换后 Collector 因属组或读取位丢失而停服。Collector 与生成器均只接受精确 0600/0640，不再接受其他“看似私有”但不符合部署契约的模式。
 
