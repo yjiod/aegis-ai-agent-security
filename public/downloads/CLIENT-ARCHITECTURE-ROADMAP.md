@@ -99,7 +99,7 @@
 
 ### P1：统一客户端外壳
 
-- Windows SCM Service 与 macOS LaunchDaemon 同源原生壳已落地；下一步补齐统一设备身份、受保护健康 IPC 和用户会话桥。
+- Windows SCM Service、macOS LaunchDaemon 与同源最小权限用户会话桥已落地；下一步补齐统一设备身份和受保护健康 IPC。
 - 引入发布环、维护窗口、双槽更新和紧急停用；仍由外部部署平台负责二进制生命周期。
 
 ### P2：共享安全核心

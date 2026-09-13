@@ -2,6 +2,7 @@
 set -eu
 if [ "$(id -u)" -ne 0 ]; then echo "root is required" >&2; exit 77; fi
 PLIST="/Library/LaunchDaemons/com.yjiod.sentinel-agent.plist"
+USER_PLIST="/Library/LaunchAgents/com.yjiod.sentinel-user-session.plist"
 INSTALL_DIR="/Library/Application Support/SentinelAgent"
 if [ -L "$INSTALL_DIR" ]; then echo "Sentinel installation directory is a symlink; refusing recursive removal" >&2; exit 1; fi
 if [ -e "$INSTALL_DIR" ] && [ "$(/usr/bin/stat -f '%u' "$INSTALL_DIR" 2>/dev/null || echo -1)" -ne 0 ]; then echo "Sentinel installation directory is not owned by root; refusing recursive removal" >&2; exit 1; fi
@@ -22,6 +23,13 @@ for home in /Users/*; do
     fi
   done
 done
+for home in /Users/*; do
+  [ -d "$home" ] && [ ! -L "$home" ] || continue
+  session_dir="$home/Library/Application Support/SentinelAgent"
+  [ -d "$session_dir" ] && [ ! -L "$session_dir" ] || continue
+  [ ! -L "$session_dir/session-attestation.json" ] && /bin/rm -f "$session_dir/session-attestation.json"
+  /bin/rmdir "$session_dir" >/dev/null 2>&1 || true
+done
 if [ -d "$INSTALL_DIR/quarantine" ]; then
   EVIDENCE_ROOT="/Library/Application Support/SentinelAgent-Uninstall-Evidence"
   if [ -L "$EVIDENCE_ROOT" ]; then echo "Uninstall evidence root is a symlink; refusing uninstall" >&2; exit 1; fi
@@ -30,5 +38,6 @@ if [ -d "$INSTALL_DIR/quarantine" ]; then
   /bin/mv "$INSTALL_DIR/quarantine" "$DESTINATION"
 fi
 /bin/rm -f "$PLIST"
+/bin/rm -f "$USER_PLIST"
 /bin/rm -rf "$INSTALL_DIR"
 echo "Sentinel runtime and managed user baseline blocks removed. Quarantine evidence and disabled user objects remain for approved recovery; Repository rule files remain under source control."

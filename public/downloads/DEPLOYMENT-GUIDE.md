@@ -158,6 +158,8 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 
 5.11.0 / Agent 0.49.0 将 Windows MSI 的统一宿主从计划任务迁移为真正的 SCM 服务 `SentinelAIAgentSecurity`。服务使用固定 `--service` 入口、LocalSystem 身份和延迟自动启动，直接响应停止/关机控制并配置三次一分钟间隔的恢复动作；宿主仍只能调用内置扫描器路径，不接受任意命令。超时或服务关闭会终止扫描器整个进程树。升级安装会删除旧宿主任务，卸载会先等待服务停止再删除 SCM 定义；macOS 同源宿主和 LaunchDaemon 行为不变。
 
+5.12.0 / Agent 0.50.0 增加同源用户会话桥。Windows 安装包注册受限 Users 组登录任务，macOS 安装包部署全局 LaunchAgent；两者只调用固定 `SentinelServiceHost --user-session`，不接收脚本路径、命令或网络地址。桥接器在登录用户权限下发现十类受支持 Agent，并对四类声明过指令文件执行防重解析点、标记唯一、同目录临时文件和元数据保留的原子基线更新。私有证明严格限制为 Agent 名称与计数，不包含用户身份、路径、Prompt 或凭据；高权限扫描器独立复核实际基线，用户态证明不能作为授权依据。卸载同步移除任务/LaunchAgent、证明与受管块。
+
 0.60.0 修复在线轮换的文件元数据边界。新清单仍以 0600 创建；如果目标清单已存在且是合规的 0600 或 `root:sentinel` 0640 普通文件，原子替换会保留其 owner、group 和 mode。替换前无法保留任一元数据时操作失败且旧清单不变，避免轮换后 Collector 因属组或读取位丢失而停服。Collector 与生成器均只接受精确 0600/0640，不再接受其他“看似私有”但不符合部署契约的模式。
 
 0.61.0 / Collector 0.13 强制 Token 与 HMAC 必须来自同一凭据代次；“新 Token + 旧 HMAC”等交叉组合返回 401。每次成功接收（包括语义重复报告）都会更新设备认证代次，`/v1/summary` 返回 `credential_posture.current/previous/legacy`，`/v1/devices` 返回每台设备的 `credential_generation`，均不暴露凭据。裁剪旧代前，将认证后的 `/v1/devices` 响应保存为本地 JSON，并以 `--activation-evidence` 传给 `sentinel_device_credentials.py --prune-old`；只有本次目标设备全部明确为 `current` 时才允许裁剪，缺失、重复、过大、结构异常或仍使用 previous/legacy 的证据均失败关闭。私有控制台的只读摘要代理会验证并展示该代次姿态。

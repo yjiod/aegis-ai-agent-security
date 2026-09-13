@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.invalid/schema/user-session-v1.json",
+  "title": "Sentinel privacy-minimized user session attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "host_version", "updated_at", "platform", "agents", "baseline_targets", "baseline_writes", "baseline_failures", "arbitrary_command_enabled"],
+  "properties": {
+    "schema": {"const": "sentinel.user-session/v1"},
+    "host_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "updated_at": {"type": "integer", "minimum": 0},
+    "platform": {"enum": ["windows", "macos"]},
+    "agents": {"type": "array", "maxItems": 10, "uniqueItems": true, "items": {"enum": ["cursor", "claude_code", "codex", "windsurf", "gemini_cli", "github_copilot_cli", "workbuddy", "qwen_enterprise", "tongyi_lingma", "codebuddy"]}},
+    "baseline_targets": {"type": "integer", "minimum": 0, "maximum": 4},
+    "baseline_writes": {"type": "integer", "minimum": 0, "maximum": 4},
+    "baseline_failures": {"type": "integer", "minimum": 0, "maximum": 4},
+    "arbitrary_command_enabled": {"const": false}
+  }
+}

@@ -11,15 +11,15 @@
   "artifacts": {
     "windows_detection": {
       "file": "intune-windows-detect.ps1",
-      "sha256": "972636bd62cd270c7e0656690e6c7e65a88db3781e03e20cd0fc6d7d3175d6af"
+      "sha256": "c7470642e83f015c50710f9a8039753a3243a028170f7afb5ee484ed9d26c55d"
     },
     "windows_remediation": {
       "file": "intune-windows-remediate.ps1",
-      "sha256": "b97a38f440a340bece99087a470b991756149ecfc94dc1158e2cd8dcd169295f"
+      "sha256": "95c98c2bc6239ba541ec72a3f17ac8793a3df4a19dc77c6ad40b503658aeb29e"
     },
     "windows_compliance_discovery": {
       "file": "intune-compliance-discovery.ps1",
-      "sha256": "3d1dcb61be04b5af1a5f889f911f016c2c48bc84f5bf931e24cf08c7d0e5b042"
+      "sha256": "c52cbea23dbd623fa73f2141dc672856b3dbd42afeb8944599bf03dfba2c69ab"
     },
     "windows_compliance_rules": {
       "file": "intune-compliance-policy.json",
@@ -35,15 +35,15 @@
     },
     "windows_uninstall": {
       "file": "uninstall-sentinel-windows.ps1",
-      "sha256": "b67392875aea9f74249b3fc5d1a1717bf39ca55afdf165f5f9ca196b47cce916"
+      "sha256": "0569064cecf5b8127b77c13505a4edeb8c0ece008f3ff3a92534347a0c1f02d9"
     },
     "macos_install": {
       "file": "intune-macos-install.sh",
-      "sha256": "a445e8fb54aeba718cc3e05fb4d9ae0b671b0ba322057d5a0957a17d7a39da60"
+      "sha256": "d8f9886352bf6acd0fe238ae635e18a995663737be51ffbc5e95297aa6457bb9"
     },
     "macos_compliance_discovery": {
       "file": "intune-macos-compliance.sh",
-      "sha256": "9da78ad6271f4598bb8eab24a6458934fe41f81b486f4aac3274abbf0d927973"
+      "sha256": "eb602c794c336eb20b678c7ab7c71119f7cdf7ffab1c8cd4d4270bda319b3f5c"
     },
     "macos_compliance_rules": {
       "file": "intune-macos-compliance-policy.json",
@@ -59,7 +59,7 @@
     },
     "macos_uninstall": {
       "file": "uninstall-sentinel-macos.sh",
-      "sha256": "1baeb6723d7a71b8289dc1f59a134c8afd1ea06b17484085f6272ca9e680cce6"
+      "sha256": "822feeedbff2422b244d092a1a0433808e00f388c95df4544834dff7e71580dd"
     }
   },
   "deployment_order": [

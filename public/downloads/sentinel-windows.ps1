@@ -311,6 +311,19 @@ function Get-ManagedRepos {
 }
 $userHomes = @(Get-ChildItem $ManagedUsersRoot -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') -and -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) })
 Sync-SentinelUserBaselines $userHomes
+$supportedSessionAgents=@('cursor','claude_code','codex','windsurf','gemini_cli','github_copilot_cli','workbuddy','qwen_enterprise','tongyi_lingma','codebuddy')
+foreach($userHome in $userHomes){
+  $sessionPath=Join-Path $userHome.FullName 'AppData\Local\SentinelAgent\session-attestation.json'
+  if(-not(Test-Path -LiteralPath $sessionPath)){continue}
+  try{
+    $sessionFile=Get-Item -LiteralPath $sessionPath -Force;if($sessionFile.Attributes -band [IO.FileAttributes]::ReparsePoint -or $sessionFile.Length -gt 4096){throw 'unsafe user session file'}
+    $session=Get-Content -LiteralPath $sessionPath -Raw|ConvertFrom-Json;$expectedSessionNames=@('agents','arbitrary_command_enabled','baseline_failures','baseline_targets','baseline_writes','host_version','platform','schema','updated_at')
+    $sessionNames=@($session.PSObject.Properties.Name|Sort-Object);$agents=@($session.agents);$uniqueAgents=@($agents|Select-Object -Unique);$now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();$age=$now-[long]$session.updated_at
+    if(($sessionNames -join ',') -cne ($expectedSessionNames -join ',') -or $session.schema -cne 'sentinel.user-session/v1' -or [string]$session.host_version -notmatch '^\d+\.\d+\.\d+$' -or $session.platform -cne 'windows' -or $session.arbitrary_command_enabled -ne $false -or $agents.Count -gt 10 -or $uniqueAgents.Count -ne $agents.Count -or @($agents|Where-Object{$_ -notin $supportedSessionAgents}).Count -or [int]$session.baseline_targets -lt 0 -or [int]$session.baseline_targets -gt 4 -or [int]$session.baseline_writes -lt 0 -or [int]$session.baseline_failures -lt 0 -or [int]$session.baseline_writes+[int]$session.baseline_failures -ne [int]$session.baseline_targets -or $age -lt -300 -or $age -gt 7200){throw 'invalid user session contract'}
+    $sessionStatus=if([int]$session.baseline_failures -eq 0){'healthy'}else{'degraded'};$inventory+=@{type='user_session';host_version=[string]$session.host_version;status=$sessionStatus;updated_at=[long]$session.updated_at;agent_count=$agents.Count;baseline_writes=[int]$session.baseline_writes}
+    if($sessionStatus -ne 'healthy'){$findings+=@{kind='user_session_degraded';severity='high';path=(Protect-SentinelPath $sessionPath);message='用户会话桥未能更新全部受管基线；系统扫描器将独立复核'}}
+  }catch{$inventory+=@{type='user_session';status='invalid'};$findings+=@{kind='user_session_invalid';severity='high';path=(Protect-SentinelPath $sessionPath);message='用户会话桥证明无效或已过期；不得据此放行基线'}}
+}
 $agentMarkers = @{
   cursor=@('.cursor\mcp.json','AppData\Roaming\Cursor\User\settings.json','AppData\Local\Programs\cursor\Cursor.exe')
   codex=@('.codex\config.toml','AppData\Roaming\npm\codex.cmd')
@@ -398,7 +411,7 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='sentinel.report/v1'; agent_version='0.49.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='sentinel.report/v1'; agent_version='0.50.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
