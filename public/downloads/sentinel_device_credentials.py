@@ -2,9 +2,15 @@
 """Generate and rotate per-device Collector credentials without printing secrets."""
 import argparse, json, os, re, secrets, stat, tempfile, time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 SCHEMA="sentinel.device-credentials/v1"
-ENROLLMENT_SCHEMA="sentinel.device-enrollment/v1"
+ENROLLMENT_SCHEMA="sentinel.device-enrollment/v2"
+
+def valid_report_url(value):
+    if not isinstance(value,str) or not 1<=len(value)<=2048: return False
+    parsed=urlsplit(value)
+    return parsed.scheme=="https" and bool(parsed.hostname) and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
 
 def private_atomic(path,value,mode=0o600,preserve_metadata=False):
     path=Path(path)
@@ -64,10 +70,14 @@ def verify_activation_evidence(path,device_ids,now=None,max_age=900,active_windo
         generations[row["device_id"]]=row["credential_generation"]
     if any(generations.get(device_id)!="current" for device_id in device_ids): raise ValueError("devices_not_on_current_credentials")
 
-def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False,activation_evidence=None,evidence_now=None):
+def provision(device_ids,output,enrollment_dir,report_url,rotate=False,prune_old=False,activation_evidence=None,evidence_now=None,ttl=3600,issued_at=None):
     if rotate and prune_old: raise ValueError("conflicting_operation")
     ids=sorted(set(device_ids))
     if not ids or any(not isinstance(item,str) or not re.fullmatch(r"[0-9a-f]{12}",item) for item in ids): raise ValueError("invalid_device_id")
+    if not valid_report_url(report_url): raise ValueError("invalid_report_url")
+    if type(ttl) is not int or not 300<=ttl<=86400: raise ValueError("invalid_enrollment_ttl")
+    issued_at=int(time.time()) if issued_at is None else issued_at
+    if type(issued_at) is not int or issued_at<1: raise ValueError("invalid_issued_at")
     if prune_old: verify_activation_evidence(activation_evidence,ids,now=evidence_now)
     manifest=load_manifest(output); devices=manifest["devices"]
     if len(set(devices)|set(ids))>10000: raise ValueError("device_limit")
@@ -86,12 +96,12 @@ def provision(device_ids,output,enrollment_dir,rotate=False,prune_old=False,acti
     enrollment_dir.mkdir(parents=True,exist_ok=True); enrollment_dir=enrollment_dir.resolve(strict=True); os.chmod(enrollment_dir,0o700)
     for device_id in ids:
         credential=devices[device_id]
-        private_atomic(enrollment_dir/(device_id+".json"),{"schema":ENROLLMENT_SCHEMA,"device_id":device_id,"report_token":credential["tokens"][0],"signing_secret":credential["signing_secrets"][0]})
+        private_atomic(enrollment_dir/(device_id+".json"),{"schema":ENROLLMENT_SCHEMA,"device_id":device_id,"report_url":report_url,"report_token":credential["tokens"][0],"signing_secret":credential["signing_secrets"][0],"issued_at":issued_at,"expires_at":issued_at+ttl,"consume_once":True})
     private_atomic(output,manifest,preserve_metadata=True)
     return {"ok":True,"device_count":len(devices),"created":created,"rotated":rotated,"pruned":pruned,"secrets_printed":False}
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("device_ids",nargs="+"); ap.add_argument("--output",required=True); ap.add_argument("--enrollment-dir",required=True); ap.add_argument("--activation-evidence"); group=ap.add_mutually_exclusive_group(); group.add_argument("--rotate",action="store_true"); group.add_argument("--prune-old",action="store_true"); args=ap.parse_args()
-    result=provision(args.device_ids,args.output,args.enrollment_dir,args.rotate,args.prune_old,args.activation_evidence); print(json.dumps(result,separators=(",",":")))
+    ap=argparse.ArgumentParser(); ap.add_argument("device_ids",nargs="+"); ap.add_argument("--output",required=True); ap.add_argument("--enrollment-dir",required=True); ap.add_argument("--report-url",required=True); ap.add_argument("--ttl",type=int,default=3600); ap.add_argument("--activation-evidence"); group=ap.add_mutually_exclusive_group(); group.add_argument("--rotate",action="store_true"); group.add_argument("--prune-old",action="store_true"); args=ap.parse_args()
+    result=provision(args.device_ids,args.output,args.enrollment_dir,args.report_url,args.rotate,args.prune_old,args.activation_evidence,ttl=args.ttl); print(json.dumps(result,separators=(",",":")))
 
 if __name__=="__main__": main()

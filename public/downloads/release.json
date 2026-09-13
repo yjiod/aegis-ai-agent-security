@@ -1,10 +1,10 @@
 {
-  "release": "5.6.0",
+  "release": "5.7.0",
   "channel": "pilot",
   "published_at": "2026-09-13T12:00:00+08:00",
-  "component_versions": {"endpoint_agent":"0.44.0","policy":"5.1.0","collector":"0.24","adapter":"0.19"},
+  "component_versions": {"endpoint_agent":"0.45.0","policy":"5.1.0","collector":"0.24","adapter":"0.19"},
   "features": [
-    "credential_free_native_installers", "post_build_installer_secret_scan", "reproducible_installer_builder", "revoked_embedded_pilot_credentials", "out_of_band_reporting_enrollment",
+    "credential_free_native_installers", "post_build_installer_secret_scan", "reproducible_installer_builder", "revoked_embedded_pilot_credentials", "out_of_band_reporting_enrollment", "device_bound_expiring_enrollment", "consume_after_success_enrollment",
     "remediation_receipt_callback", "independent_callback_credential", "strict_approval_state_machine", "idempotent_execution_receipts", "actor_identity_minimization", "workflow_status_console",
     "deterministic_remediation_recommendations", "approval_only_action_contract", "forty_hex_4a_correlation", "strict_recommendation_console_proxy", "real_risk_detail_view",
     "device_health_filtering", "action_required_operational_view", "read_only_remediation_guidance", "approval_preserving_response",

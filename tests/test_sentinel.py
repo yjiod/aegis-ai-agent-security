@@ -281,7 +281,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('tests/windows-agent-smoke.ps1',workflow)
         self.assertIn('tests/macos-agent-smoke.sh',workflow)
         smoke=(ROOT/'tests/windows-agent-smoke.ps1').read_text()
-        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.44.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)','instruction ACL changed','.AGENTS.md.*.tmp','repository managed baseline','repository instruction ACL changed','repository atomic update left'):
+        for directive in ('Start-Process -FilePath',"'-NoProfile'",'-ManagedUsersRoot','-EncodedCommand','Text.Encoding]::Unicode','RedirectStandardError',"agent_version -cne '0.45.0'","policy_version -cne 'invalid'","policy_load_failed","name -eq 'codex'","status -eq 'managed'",'sentinel-managed-user-baseline:start','hardcoded_secret','$reportText.Contains($secret)','instruction ACL changed','.AGENTS.md.*.tmp','repository managed baseline','repository instruction ACL changed','repository atomic update left'):
             self.assertIn(directive,smoke)
         mac_smoke=(ROOT/'tests/macos-agent-smoke.sh').read_text()
         for directive in ('SENTINEL_BASE_URL="file://$SOURCE"','install-sentinel.sh','sentinel_agent.py','--auto-enroll','ai_agent','agent_baseline','status\")==\"managed\"','sentinel-managed-user-baseline:start','personal Codex instructions','unapproved-demo','insecure_mcp_transport','unapproved_mcp_transport','insecure_tls_verification','stat.S_IMODE','hardcoded_secret','secret not in open'):
@@ -568,7 +568,7 @@ class SentinelTests(unittest.TestCase):
             ]
             for device,severity,inventory in samples:
                 body=json.dumps({'inventory':inventory});
-                with self.collector.db_open(path) as db: db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(device,device+'-device',now,severity,body,'0.44.0','5.1.0')); db.commit()
+                with self.collector.db_open(path) as db: db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(device,device+'-device',now,severity,body,'0.45.0','5.1.0')); db.commit()
             first=self.collector.collector_recommendations(path); second=self.collector.collector_recommendations(path)
             self.assertEqual(len(first['recommendations']),2); self.assertEqual([item['recommendation_id'] for item in first['recommendations']],[item['recommendation_id'] for item in second['recommendations']])
             by_device={item['device_id']:item for item in first['recommendations']}; self.assertEqual(by_device['critical-device']['recommended_action'],'containment_pending_approval'); self.assertEqual(by_device['invalid-device']['recommended_action'],'verify_integrity')
@@ -720,24 +720,28 @@ class SentinelTests(unittest.TestCase):
     def test_device_credential_provisioning_is_private_atomic_and_rotation_safe(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); manifest=root/'server/devices.json'; enrollments=root/'enrollments'; ids=['abcdef123456','000000000000']
-            result=self.credentials.provision(ids,manifest,enrollments); self.assertEqual(result['created'],sorted(ids)); self.assertFalse(result['secrets_printed']); self.assertEqual(manifest.stat().st_mode&0o777,0o600)
+            report_url='https://collector.example.test/v1/reports'; issued_at=2_000_000_000
+            result=self.credentials.provision(ids,manifest,enrollments,report_url,issued_at=issued_at); self.assertEqual(result['created'],sorted(ids)); self.assertFalse(result['secrets_printed']); self.assertEqual(manifest.stat().st_mode&0o777,0o600)
             first=json.loads(manifest.read_text())
             token=first['devices'][ids[0]]['tokens'][0]; secret=first['devices'][ids[0]]['signing_secrets'][0]; self.assertNotIn(token,json.dumps(result)); self.assertNotEqual(token,secret)
             for device_id in ids:
-                enrollment=enrollments/(device_id+'.json'); self.assertEqual(enrollment.stat().st_mode&0o777,0o600); value=json.loads(enrollment.read_text()); self.assertEqual(value['report_token'],first['devices'][device_id]['tokens'][0])
-            unchanged=self.credentials.provision(ids,manifest,enrollments); self.assertEqual(unchanged['created'],[]); self.assertEqual(json.loads(manifest.read_text()),first)
-            manifest.chmod(0o640); before=manifest.stat(); rotated=self.credentials.provision([ids[0]],manifest,enrollments,rotate=True); after=manifest.stat(); self.assertEqual((stat.S_IMODE(after.st_mode),after.st_uid,after.st_gid),(0o640,before.st_uid,before.st_gid)); self.assertEqual(rotated['rotated'],[ids[0]]); second=json.loads(manifest.read_text()); self.assertEqual(second['devices'][ids[0]]['tokens'][1],token); self.assertNotEqual(second['devices'][ids[0]]['tokens'][0],token)
-            with self.assertRaisesRegex(ValueError,'activation_evidence_required'): self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True)
+                enrollment=enrollments/(device_id+'.json'); self.assertEqual(enrollment.stat().st_mode&0o777,0o600); value=json.loads(enrollment.read_text()); self.assertEqual(value['report_token'],first['devices'][device_id]['tokens'][0]); self.assertEqual((value['schema'],value['report_url'],value['issued_at'],value['expires_at'],value['consume_once']),('sentinel.device-enrollment/v2',report_url,issued_at,issued_at+3600,True))
+            unchanged=self.credentials.provision(ids,manifest,enrollments,report_url,issued_at=issued_at); self.assertEqual(unchanged['created'],[]); self.assertEqual(json.loads(manifest.read_text()),first)
+            manifest.chmod(0o640); before=manifest.stat(); rotated=self.credentials.provision([ids[0]],manifest,enrollments,report_url,rotate=True,issued_at=issued_at); after=manifest.stat(); self.assertEqual((stat.S_IMODE(after.st_mode),after.st_uid,after.st_gid),(0o640,before.st_uid,before.st_gid)); self.assertEqual(rotated['rotated'],[ids[0]]); second=json.loads(manifest.read_text()); self.assertEqual(second['devices'][ids[0]]['tokens'][1],token); self.assertNotEqual(second['devices'][ids[0]]['tokens'][0],token)
+            with self.assertRaisesRegex(ValueError,'activation_evidence_required'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True)
             evidence=root/'devices-export.json'; evidence.write_text(json.dumps({'generated_at':1000,'complete':True,'devices':[{'device_id':ids[0],'last_seen':999,'report_count':2,'credential_generation':'previous'}]}))
-            with self.assertRaisesRegex(ValueError,'devices_not_on_current_credentials'): self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True,activation_evidence=evidence,evidence_now=1000)
+            with self.assertRaisesRegex(ValueError,'devices_not_on_current_credentials'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
             evidence.write_text(json.dumps({'generated_at':1,'complete':True,'devices':[{'device_id':ids[0],'last_seen':1,'report_count':3,'credential_generation':'current'}]}))
-            with self.assertRaisesRegex(ValueError,'activation_evidence_stale'): self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True,activation_evidence=evidence,evidence_now=1000)
+            with self.assertRaisesRegex(ValueError,'activation_evidence_stale'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
             evidence.write_text(json.dumps({'generated_at':1000,'complete':False,'devices':[{'device_id':ids[0],'last_seen':999,'report_count':3,'credential_generation':'current'}]}))
-            with self.assertRaisesRegex(ValueError,'activation_evidence_invalid'): self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True,activation_evidence=evidence,evidence_now=1000)
-            evidence.write_text(json.dumps({'generated_at':1000,'complete':True,'devices':[{'device_id':ids[0],'last_seen':999,'report_count':3,'credential_generation':'current'}]})); self.credentials.provision([ids[0]],manifest,enrollments,prune_old=True,activation_evidence=evidence,evidence_now=1000); third=json.loads(manifest.read_text()); self.assertEqual(len(third['devices'][ids[0]]['tokens']),1); self.assertEqual(json.loads((enrollments/(ids[0]+'.json')).read_text())['report_token'],third['devices'][ids[0]]['tokens'][0])
+            with self.assertRaisesRegex(ValueError,'activation_evidence_invalid'): self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at)
+            evidence.write_text(json.dumps({'generated_at':1000,'complete':True,'devices':[{'device_id':ids[0],'last_seen':999,'report_count':3,'credential_generation':'current'}]})); self.credentials.provision([ids[0]],manifest,enrollments,report_url,prune_old=True,activation_evidence=evidence,evidence_now=1000,issued_at=issued_at); third=json.loads(manifest.read_text()); self.assertEqual(len(third['devices'][ids[0]]['tokens']),1); self.assertEqual(json.loads((enrollments/(ids[0]+'.json')).read_text())['report_token'],third['devices'][ids[0]]['tokens'][0])
             bad=root/'bad'; bad.symlink_to(enrollments,target_is_directory=True); untouched=root/'untouched.json'
-            with self.assertRaisesRegex(ValueError,'enrollment_directory_symlink'): self.credentials.provision(['111111111111'],untouched,bad)
+            with self.assertRaisesRegex(ValueError,'enrollment_directory_symlink'): self.credentials.provision(['111111111111'],untouched,bad,report_url)
             self.assertFalse(untouched.exists())
+            with self.assertRaisesRegex(ValueError,'invalid_report_url'): self.credentials.provision(['111111111111'],untouched,root/'new','http://collector.invalid')
+            for name in ('sentinel-enroll-windows.ps1','sentinel-enroll-macos.sh'):
+                text=(DOWNLOADS/name).read_text(encoding='utf-8-sig'); self.assertIn('sentinel.device-enrollment/v2',text); self.assertIn('device identity mismatch',text.lower()); self.assertIn('consume',text.lower())
     def test_endpoint_requires_strict_bounded_collector_acknowledgement(self):
         report=vendor_report(); expected=hashlib.sha256(json.dumps(report,ensure_ascii=False).encode()).hexdigest()[:20]; valid={'accepted':True,'duplicate':False,'report_id':expected,'severity':'normal'}
         class Response:
@@ -919,8 +923,8 @@ class SentinelTests(unittest.TestCase):
         for name in ('sentinel_agent.py','sentinel-windows.ps1','sentinel-policy.json','sentinel-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-sentinel-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-sentinel-macos.sh').exists())
-        self.assertIn("agent_version='0.44.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.44.0')
+        self.assertIn("agent_version='0.45.0'",(DOWNLOADS/'sentinel-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'SentinelAgent/0.45.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'SENTINEL_INSTALL_DIR':str(install),'SENTINEL_BASE_URL':source.as_uri()}
@@ -1023,7 +1027,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'sentinel.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'sentinel.report/v1','agent_version':'0.44.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
+            value={'schema':'sentinel.report/v1','agent_version':'0.45.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
             result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['SentinelReportValid']); self.assertTrue(parsed['SentinelReportingConfigured']); self.assertTrue(parsed['SentinelReportingHealthy'])
             upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingHealthy']); upload.write_text(json.dumps({'schema':'sentinel.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
             reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['SentinelReportingConfigured']); reporting.chmod(0o600)
