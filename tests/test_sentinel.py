@@ -83,6 +83,10 @@ class SentinelTests(unittest.TestCase):
         for directive in ('wixl -a x64','pkgbuild --root','sentinel-configure-macos.sh','msiextract -C','pkgutil --expand-full','credential material found in installer','"report_token":"[^"]{32,}"'):
             self.assertIn(directive,builder)
         for directive in ('uninstall-sentinel-windows.ps1','uninstall-sentinel-macos.sh','sentinel_quarantine_restore.py'): self.assertIn(directive,builder)
+        workflow=(ROOT/'.github/workflows/ci.yml').read_text(); service_smoke=(ROOT/'tests/windows-service-smoke.ps1').read_text()
+        self.assertIn('tests/windows-service-smoke.ps1',workflow); self.assertIn("dotnet-version: '10.0.x'",workflow)
+        for directive in ('sc.exe create','Start-Service','Get-CimInstance Win32_Service','PathName','service-health.json',"host_version -cne '0.2.0'",'Stop-Service','sc.exe delete'):
+            self.assertIn(directive,service_smoke)
 
     def test_service_health_is_strict_minimized_and_fail_closed(self):
         now=int(time.time())
