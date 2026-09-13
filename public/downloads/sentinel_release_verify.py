@@ -11,7 +11,7 @@ HASH_CONSUMERS={
     "sentinel-security-baseline.md":("install-sentinel.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
-    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","CLIENT-ARCHITECTURE-ROADMAP.md","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
+    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","CLIENT-ARCHITECTURE-ROADMAP.md","sentinel-client-control-policy.json","sentinel_client_update_planner.py","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
     "sentinel_agent.py","sentinel_collector.py","sentinel-windows.ps1","install-sentinel.sh","intune-windows-detect.ps1",
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
@@ -94,6 +94,11 @@ def verify(downloads):
     except (OSError,UnicodeError) as exc: errors.append(f"invalid_client_architecture_roadmap:{type(exc).__name__}"); client_roadmap=""
     for directive in ("外部平台部署 Sentinel","Sentinel 不安装、不升级、不卸载 MDM、EDR、4A、NAC 或桌管客户端","Windows Service","LaunchDaemon","allow / monitor / deny / unknown","为什么不让 Sentinel 推送其他客户端","何时允许 Sentinel 自更新","自动回滚 + 熔断本版本","不可变安全原则"):
         if directive not in client_roadmap: errors.append(f"incomplete_client_architecture_roadmap:{directive}")
+    try: client_control=json.loads((downloads/"sentinel-client-control-policy.json").read_text(encoding="utf-8")); update_planner=(downloads/"sentinel_client_update_planner.py").read_text(encoding="utf-8")
+    except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_client_control:{type(exc).__name__}"); client_control={}; update_planner=""
+    if client_control.get("schema")!="sentinel.client-control/v1" or client_control.get("binary_delivery",{}).get("mode")!="external_managed" or client_control.get("binary_delivery",{}).get("self_update",{}).get("enabled") is not False: errors.append("unsafe_default_binary_delivery")
+    for directive in ("external_deployment_required","software_lifecycle_owner","require_platform_signature","require_release_signature","require_dual_slot_rollback","maintenance_window","circuit_breaker","apply_content_atomically","keep_lkg"):
+        if directive not in update_planner: errors.append(f"unsafe_client_update_planner:{directive}")
     for directive in ("sentinel.integration/v1","IDENTITY_AUTHENTICATION","SOFTWARE_DISTRIBUTION","CONTAINMENT_REQUEST","privileged_capability_requires_approval","missing_capabilities"):
         if directive not in integration_interface: errors.append(f"unsafe_enterprise_integration_interface:{directive}")
     try: registry_source=(downloads/"sentinel_integration_registry.py").read_text(encoding="utf-8"); registry_example=json.loads((downloads/"sentinel-integration-providers.example.json").read_text(encoding="utf-8"))

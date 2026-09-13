@@ -1,0 +1,36 @@
+{
+  "schema": "sentinel.client-control/v1",
+  "binary_delivery": {
+    "mode": "external_managed",
+    "allowed_external_platforms": ["mdm", "desktop_management", "software_distribution", "configuration_management", "manual_controlled"],
+    "self_update": {
+      "enabled": false,
+      "require_unmanaged_device": true,
+      "require_platform_signature": true,
+      "require_release_signature": true,
+      "require_dual_slot_rollback": true,
+      "require_maintenance_window": true,
+      "failure_circuit_breaker": 3
+    }
+  },
+  "content_delivery": {
+    "mode": "collector_pull",
+    "transport": "https",
+    "require_digest": true,
+    "require_signature": true,
+    "reject_downgrade": true,
+    "keep_last_known_good": true,
+    "channels": ["policy", "baseline", "rules", "skill_mcp_intelligence"]
+  },
+  "rollout": {
+    "rings": ["lab", "pilot", "broad", "production"],
+    "minimum_observation_hours": {"lab": 24, "pilot": 48, "broad": 72, "production": 168},
+    "maintenance_window_utc": {"start_hour": 16, "duration_minutes": 240}
+  },
+  "rollback": {
+    "binary_slots": ["active", "previous"],
+    "separate_content_lkg": true,
+    "health_timeout_seconds": 300,
+    "automatic_on_health_failure": true
+  }
+}

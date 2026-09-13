@@ -2,7 +2,7 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它可通过任意 MDM、软件分发系统或本地运维流程部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告进入受认证的接收器后，可通过标准企业 4A 接口联动账号、认证、授权与审计平台；Intune、深信服和联软保留为可选兼容适配器。
 
-当前发行：产品 `4.7.0`，Endpoint Agent `0.43.0`，策略 `5.1.0`，Collector `0.20`，Adapter `0.19`。
+当前发行：产品 `4.8.0`，Endpoint Agent `0.43.0`，策略 `5.1.0`，Collector `0.20`，Adapter `0.19`。
 
 ## 目录
 
@@ -101,3 +101,5 @@ Adapter Worker 每批次重新读取 `SENTINEL_VENDOR_ACCEPTANCE_SIGNING_KEYS_FI
 4.6 起，能力契约进入可执行准入链路。`sentinel_integration_registry.py` 对统一身份、4A、终端分发和安全响应提供方执行固定 Schema、HTTPS 主机、无 URL 凭据、环境变量凭据引用、能力枚举和特权能力审批校验；示例注册表默认全部关闭，未通过准入不能启用。
 
 4.7 起，发布正式的多端统一客户端规划。软件生命周期由 MDM、桌管或软件分发平台负责，Sentinel 只管理自身签名策略、规则、恶意 Skill/MCP 情报和 AI Coding 基线；不反向部署其他控制客户端。长期以 Windows/macOS 原生服务壳承载平台能力，以共享内存安全核心统一扫描语义，并把受控自更新限定为无企业管理覆盖终端的可选补充。
+
+4.8 起，客户端推送边界由 `sentinel-client-control-policy.json` 和 `sentinel_client_update_planner.py` 执行。默认二进制更新结果固定为 `external_deployment_required`；受控自更新只有在企业显式启用、设备未受管、平台与发行签名通过、双槽就绪、处于维护窗口、发布环获准且未触发失败熔断时才进入就绪态。策略、基线、规则和恶意 Skill/MCP 情报继续独立热更新，任何门禁失败都保留 LKG。
