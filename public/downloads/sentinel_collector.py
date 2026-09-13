@@ -22,6 +22,8 @@ def db_open(path):
         db.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY,event TEXT NOT NULL,occurred_at INTEGER NOT NULL,device_id TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
         db.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(occurred_at DESC)"); db.commit()
         db.execute("CREATE TABLE IF NOT EXISTS device_auth_state(device_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,generation INTEGER NOT NULL)"); db.commit()
+        db.execute("CREATE TABLE IF NOT EXISTS remediation_receipts(id INTEGER PRIMARY KEY,recommendation_id TEXT NOT NULL,state TEXT NOT NULL,external_event_id TEXT NOT NULL,actor_ref TEXT NOT NULL,occurred_at INTEGER NOT NULL,idempotency_key TEXT NOT NULL UNIQUE)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_remediation_receipt_recommendation ON remediation_receipts(recommendation_id,id DESC)"); db.commit()
         yield db
     finally: db.close()
 def valid_report(d,now=None):
@@ -103,6 +105,7 @@ def runtime_secret_errors(env=None):
     env=os.environ if env is None else env
     tokens=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS",env)
     signing=secret_values("SENTINEL_REPORT_SIGNING_SECRET","SENTINEL_REPORT_SIGNING_SECRETS",env)
+    callback=secret_values("SENTINEL_APPROVAL_CALLBACK_TOKEN","SENTINEL_APPROVAL_CALLBACK_TOKENS",env)
     errors=[]
     if not tokens: errors.append("collector_token_missing_or_invalid")
     if any(len(value)<32 for value in tokens): errors.append("collector_token_too_short")
@@ -119,6 +122,9 @@ def runtime_secret_errors(env=None):
     if any(len(value)<32 for value in signing): errors.append("signing_secret_too_short")
     if len(signing)!=len(set(signing)): errors.append("signing_secret_duplicate")
     if set(tokens)&set(signing): errors.append("authentication_and_signing_secret_reused")
+    if any(len(value)<32 for value in callback): errors.append("approval_callback_token_too_short")
+    if len(callback)!=len(set(callback)): errors.append("approval_callback_token_duplicate")
+    if set(callback)&(set(tokens)|set(signing)): errors.append("approval_callback_token_reused")
     return errors
 def retention_days(value=None):
     raw=os.getenv("SENTINEL_RETENTION_DAYS","30") if value is None else value
@@ -199,12 +205,40 @@ def remediation_recommendation(row,required_agent="0.44.0",required_policy="5.1.
     return {"recommendation_id":correlation,"device_id":device_id,"reason":reason,"recommended_action":action,"approval_state":"external_approval_required","severity":level,"observed_at":observed_at,"correlation_id":correlation}
 def collector_recommendations(db_path,limit=200,required_agent=None,required_policy=None):
     limit=min(max(int(limit),1),200); required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.44.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
-    with db_open(db_path) as db: rows=db.execute("SELECT r.device_id,r.received_at,r.severity,r.agent_version,r.policy_version,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id ORDER BY r.device_id").fetchall()
+    with db_open(db_path) as db:
+        rows=db.execute("SELECT r.device_id,r.received_at,r.severity,r.agent_version,r.policy_version,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id ORDER BY r.device_id").fetchall()
+        states={row[0]:(row[1],row[2]) for row in db.execute("SELECT receipt.recommendation_id,receipt.state,receipt.occurred_at FROM remediation_receipts receipt JOIN (SELECT recommendation_id,MAX(id) AS id FROM remediation_receipts GROUP BY recommendation_id) latest ON latest.id=receipt.id")}
     items=[]
     for row in rows:
         item=remediation_recommendation(row,required_agent,required_policy)
-        if item: items.append(item)
+        if item:
+            state,updated=states.get(item["recommendation_id"],("pending",0)); item.update({"workflow_state":state,"receipt_updated_at":updated}); items.append(item)
     return {"generated_at":int(time.time()),"complete":len(items)<=limit,"recommendations":items[:limit]}
+def valid_remediation_receipt(value,now=None):
+    if not isinstance(value,dict) or set(value)!={"schema","recommendation_id","state","external_event_id","actor_id","occurred_at"}: return False
+    if value.get("schema")!="sentinel.remediation-receipt/v1" or not isinstance(value.get("recommendation_id"),str) or not re.fullmatch(r"[0-9a-f]{40}",value["recommendation_id"]): return False
+    if value.get("state") not in {"approved","rejected","executing","succeeded","failed"}: return False
+    if not isinstance(value.get("external_event_id"),str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}",value["external_event_id"]): return False
+    if not isinstance(value.get("actor_id"),str) or not 1<=len(value["actor_id"])<=128: return False
+    if not isinstance(value.get("occurred_at"),int) or isinstance(value["occurred_at"],bool): return False
+    now=int(time.time()) if now is None else int(now); return abs(now-value["occurred_at"])<=300
+def store_remediation_receipt(db_path,value,idempotency_key,now=None):
+    if not re.fullmatch(r"[0-9a-f]{64}",idempotency_key or ""): raise ValueError("invalid_idempotency_key")
+    now=int(time.time()) if now is None else int(now)
+    with db_open(db_path) as db:
+        duplicate=db.execute("SELECT recommendation_id,state FROM remediation_receipts WHERE idempotency_key=?",(idempotency_key,)).fetchone()
+        if duplicate:
+            if duplicate!=(value["recommendation_id"],value["state"]): raise ValueError("idempotency_conflict")
+            return {"accepted":True,"duplicate":True,"recommendation_id":value["recommendation_id"],"state":value["state"]}
+        recommendations=collector_recommendations(db_path,limit=200)["recommendations"]
+        if value["recommendation_id"] not in {item["recommendation_id"] for item in recommendations}: raise ValueError("unknown_or_stale_recommendation")
+        latest=db.execute("SELECT state FROM remediation_receipts WHERE recommendation_id=? ORDER BY id DESC LIMIT 1",(value["recommendation_id"],)).fetchone(); previous=latest[0] if latest else "pending"
+        allowed={"pending":{"approved","rejected"},"approved":{"executing"},"executing":{"succeeded","failed"},"rejected":set(),"succeeded":set(),"failed":set()}
+        if value["state"] not in allowed[previous]: raise ValueError("invalid_state_transition")
+        actor_ref=hashlib.blake2s(value["actor_id"].encode(),digest_size=16).hexdigest()
+        db.execute("INSERT INTO remediation_receipts(recommendation_id,state,external_event_id,actor_ref,occurred_at,idempotency_key) VALUES(?,?,?,?,?,?)",(value["recommendation_id"],value["state"],value["external_event_id"],actor_ref,value["occurred_at"],idempotency_key)); db.commit()
+    audit_event(db_path,"remediation_receipt",device_id="",detail=value["recommendation_id"][:12]+":"+value["state"],now=now)
+    return {"accepted":True,"duplicate":False,"recommendation_id":value["recommendation_id"],"state":value["state"]}
 def collector_summary(db_path,now=None,active_window=86400,required_agent=None,required_policy=None):
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
@@ -239,7 +273,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage,"service_health_posture":service_health_posture}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.23"
+    server_version="SentinelCollector/0.24"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -261,6 +295,10 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(429,{"error":"rate_limited"},{"Retry-After":retry}); return True
     def authorized(self):
         expected=secret_values("SENTINEL_COLLECTOR_TOKEN","SENTINEL_COLLECTOR_TOKENS"); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
+        for candidate in expected: matched |= hmac.compare_digest(candidate,supplied)
+        return bool(expected) and matched
+    def callback_authorized(self):
+        expected=secret_values("SENTINEL_APPROVAL_CALLBACK_TOKEN","SENTINEL_APPROVAL_CALLBACK_TOKENS"); supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
         for candidate in expected: matched |= hmac.compare_digest(candidate,supplied)
         return bool(expected) and matched
     def report_authentication(self):
@@ -320,8 +358,20 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
-        if self.path!="/v1/reports": return self.reply(404,{"error":"not_found"})
         if self.rate_limited(): return
+        if self.path=="/v1/remediation-receipts":
+            if not self.callback_authorized(): return self.reply(401,{"error":"unauthorized"})
+            try: length=int(self.headers.get("Content-Length","0"))
+            except ValueError: return self.reply(400,{"error":"invalid_size"})
+            if length<2 or length>16_384: return self.reply(413,{"error":"invalid_size"})
+            try: value=json.loads(self.rfile.read(length))
+            except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError): return self.reply(400,{"error":"invalid_json"})
+            if not valid_remediation_receipt(value): return self.reply(400,{"error":"invalid_receipt"})
+            try: result=store_remediation_receipt(self.server.db_path,value,self.headers.get("Idempotency-Key",""))
+            except ValueError as exc: return self.reply(409 if str(exc) in {"idempotency_conflict","invalid_state_transition","unknown_or_stale_recommendation"} else 400,{"error":str(exc)})
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            return self.reply(200 if result["duplicate"] else 202,result)
+        if self.path!="/v1/reports": return self.reply(404,{"error":"not_found"})
         authenticated,binding=self.report_authentication()
         if not authenticated: return self.reply(401,{"error":"unauthorized"})
         try: length=int(self.headers.get("Content-Length","0"))

@@ -2,7 +2,9 @@
 
 Sentinel 是面向企业终端的 AI Coding 安全治理工具。它可通过任意 MDM、软件分发系统或本地运维流程部署，在 Windows、macOS/Linux 上自动发现 Cursor、Claude Code、Codex、Windsurf、Gemini CLI 和 GitHub Copilot CLI，加载企业安全编码基线，并扫描 Skill、MCP、代码质量与依赖风险。报告进入受认证的接收器后，可通过标准企业 4A 接口联动账号、认证、授权与审计平台；Intune、深信服和联软保留为可选兼容适配器。
 
-当前发行：产品 `5.5.0`，Endpoint Agent `0.44.0`，策略 `5.1.0`，Collector `0.23`，Adapter `0.19`。
+当前发行：产品 `5.6.0`，Endpoint Agent `0.44.0`，策略 `5.1.0`，Collector `0.24`，Adapter `0.19`。
+
+5.6 起，企业 4A 或终端平台可通过独立回调凭据提交审批和执行回执。Collector 强制 pending → approved/rejected → executing → succeeded/failed 状态机，拒绝跳步、过期、未知建议和幂等冲突；操作者身份仅保存不可逆摘要，控制台只展示状态与既有建议关联号，不接收或执行远程命令。
 
 5.5 起，Collector 从每台设备最新的已接受报告生成确定性处置建议，覆盖严重/高危发现、宿主降级、无效或缺失健康证明以及版本漂移。每条建议携带稳定的 40 位关联号，可直接绑定企业 4A 事件的 `correlation_id`；动作始终标记 `external_approval_required`，Collector 和控制台均不直接执行隔离、访问变更、修复或升级。
 

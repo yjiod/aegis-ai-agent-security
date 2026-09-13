@@ -88,7 +88,7 @@ type FleetSummary = {
 };
 type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy'; severity:'normal'|'high'|'critical'; agent_version:string; policy_version:string; service_health_status:'healthy'|'degraded'|'invalid'|'missing' };
 type DeviceHealthFilter = 'all'|'action_required'|FleetDevice['service_health_status'];
-type RemediationRecommendation = { recommendation_id:string; device_id:string; reason:'risk_critical'|'risk_high'|'service_health_invalid'|'service_health_degraded'|'service_health_missing'|'version_drift'; recommended_action:'containment_pending_approval'|'access_review_pending'|'verify_integrity'|'repair_service'|'upgrade_client'; approval_state:'external_approval_required'; severity:'high'|'critical'; observed_at:number; correlation_id:string };
+type RemediationRecommendation = { recommendation_id:string; device_id:string; reason:'risk_critical'|'risk_high'|'service_health_invalid'|'service_health_degraded'|'service_health_missing'|'version_drift'; recommended_action:'containment_pending_approval'|'access_review_pending'|'verify_integrity'|'repair_service'|'upgrade_client'; approval_state:'external_approval_required'; severity:'high'|'critical'; observed_at:number; correlation_id:string; workflow_state:'pending'|'approved'|'rejected'|'executing'|'succeeded'|'failed'; receipt_updated_at:number };
 type ReleaseMetadata = { release:string; component_versions:{endpoint_agent:string;policy:string;collector:string;adapter:string} };
 
 export default function Home() {
@@ -647,7 +647,7 @@ function DetailPanel({
               item.device_id,
               item.reason==='risk_critical'?'严重发现':item.reason==='risk_high'?'高危发现':item.reason==='service_health_invalid'?'健康证明无效':item.reason==='service_health_degraded'?'统一宿主降级':item.reason==='service_health_missing'?'宿主状态未上报':'客户端或策略漂移',
               item.recommended_action==='containment_pending_approval'?'建议隔离（待审批）':item.recommended_action==='access_review_pending'?'建议访问复核（待审批）':item.recommended_action==='verify_integrity'?'核验客户端完整性':item.recommended_action==='repair_service'?'通过终端平台修复服务':'升级受管客户端',
-              `${item.severity==='critical'?'严重':'高危'} · 外部审批 · ${item.correlation_id.slice(0,10)}`,
+              `${item.severity==='critical'?'严重':'高危'} · ${item.workflow_state==='pending'?'待审批':item.workflow_state==='approved'?'已批准':item.workflow_state==='rejected'?'已拒绝':item.workflow_state==='executing'?'执行中':item.workflow_state==='succeeded'?'已完成':'执行失败'} · ${item.correlation_id.slice(0,10)}`,
             ])}/> : <div className="empty-detail"><ShieldCheck size={32}/><h3>{recommendations ? '暂无待处置建议' : '处置建议暂不可用'}</h3><p>{recommendations ? '最新终端状态未触发建议；控制台不会填充样例事件。' : 'Collector 未连接或返回契约无效，未使用聚合数量伪造明细。'}</p></div>}
           </div>
         )}

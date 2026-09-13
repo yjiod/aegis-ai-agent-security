@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 export const dynamic='force-dynamic';
 const reasons=['risk_critical','risk_high','service_health_invalid','service_health_degraded','service_health_missing','version_drift'] as const;
 const actions=['containment_pending_approval','access_review_pending','verify_integrity','repair_service','upgrade_client'] as const;
+const workflowStates=['pending','approved','rejected','executing','succeeded','failed'] as const;
 
 function unavailable(error:string,status=503){return NextResponse.json({connected:false,error},{status,headers:{'Cache-Control':'no-store'}})}
 async function readBoundedJson(response:Response,limit=262_144){
@@ -16,8 +17,8 @@ function sanitize(value:unknown){
   if(Object.keys(data).length!==3||!Number.isSafeInteger(data.generated_at)||typeof data.complete!=='boolean'||!Array.isArray(data.recommendations)||data.recommendations.length>200)return null;
   const now=Math.floor(Date.now()/1000),seen=new Set<string>(),items=[];if(Number(data.generated_at)>now+300||now-Number(data.generated_at)>900)return null;
   for(const raw of data.recommendations){if(!raw||typeof raw!=='object'||Array.isArray(raw))return null;const item=raw as Record<string,unknown>;
-    if(Object.keys(item).length!==8||typeof item.recommendation_id!=='string'||!/^[0-9a-f]{40}$/.test(item.recommendation_id)||seen.has(item.recommendation_id)||typeof item.device_id!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(item.device_id)||!reasons.includes(item.reason as typeof reasons[number])||!actions.includes(item.recommended_action as typeof actions[number])||item.approval_state!=='external_approval_required'||!['high','critical'].includes(String(item.severity))||!Number.isSafeInteger(item.observed_at)||Number(item.observed_at)<0||Number(item.observed_at)>now+300||item.correlation_id!==item.recommendation_id)return null;
-    seen.add(item.recommendation_id);items.push({recommendation_id:item.recommendation_id,device_id:item.device_id,reason:item.reason,recommended_action:item.recommended_action,approval_state:item.approval_state,severity:item.severity,observed_at:item.observed_at,correlation_id:item.correlation_id});
+    if(Object.keys(item).length!==10||typeof item.recommendation_id!=='string'||!/^[0-9a-f]{40}$/.test(item.recommendation_id)||seen.has(item.recommendation_id)||typeof item.device_id!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(item.device_id)||!reasons.includes(item.reason as typeof reasons[number])||!actions.includes(item.recommended_action as typeof actions[number])||item.approval_state!=='external_approval_required'||!['high','critical'].includes(String(item.severity))||!Number.isSafeInteger(item.observed_at)||Number(item.observed_at)<0||Number(item.observed_at)>now+300||item.correlation_id!==item.recommendation_id||!workflowStates.includes(item.workflow_state as typeof workflowStates[number])||!Number.isSafeInteger(item.receipt_updated_at)||Number(item.receipt_updated_at)<0||Number(item.receipt_updated_at)>now+300||(item.workflow_state==='pending'&&item.receipt_updated_at!==0)||(item.workflow_state!=='pending'&&Number(item.receipt_updated_at)<Number(item.observed_at)-300))return null;
+    seen.add(item.recommendation_id);items.push({recommendation_id:item.recommendation_id,device_id:item.device_id,reason:item.reason,recommended_action:item.recommended_action,approval_state:item.approval_state,severity:item.severity,observed_at:item.observed_at,correlation_id:item.correlation_id,workflow_state:item.workflow_state,receipt_updated_at:item.receipt_updated_at});
   }return{generated_at:data.generated_at,complete:data.complete,recommendations:items};
 }
 export async function GET(){

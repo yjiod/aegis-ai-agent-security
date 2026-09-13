@@ -267,7 +267,7 @@ class SentinelTests(unittest.TestCase):
         devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==8',devices_route); self.assertIn('serviceHealthStatuses',devices_route); self.assertIn('service_health_status',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
         self.assertIn("fetch('/api/devices'",page)
         self.assertIn('DeviceHealthFilter',page); self.assertIn('action_required',page); self.assertIn('visibleDevices.map',page); self.assertIn('筛选仅改变只读视图，不会向终端下发命令',page); self.assertIn('隔离、卸载或访问限制仍须通过企业审批',page)
-        recommendations_route=(ROOT/'app/api/recommendations/route.ts').read_text(); self.assertIn("new URL('/v1/recommendations'",recommendations_route); self.assertIn('Object.keys(item).length!==8',recommendations_route); self.assertIn("item.approval_state!=='external_approval_required'",recommendations_route); self.assertIn('item.correlation_id!==item.recommendation_id',recommendations_route); self.assertIn('AbortSignal.timeout(5000)',recommendations_route)
+        recommendations_route=(ROOT/'app/api/recommendations/route.ts').read_text(); self.assertIn("new URL('/v1/recommendations'",recommendations_route); self.assertIn('Object.keys(item).length!==10',recommendations_route); self.assertIn("item.approval_state!=='external_approval_required'",recommendations_route); self.assertIn('item.correlation_id!==item.recommendation_id',recommendations_route); self.assertIn('workflowStates',recommendations_route); self.assertIn('AbortSignal.timeout(5000)',recommendations_route)
         self.assertIn("fetch('/api/recommendations'",page); self.assertIn('recommendations.map',page); self.assertIn('建议事件包含关联号，可提交企业 4A 审批',page); self.assertNotIn('隔离全部高危',page)
         self.assertIn("fetch('/downloads/release.json'",page); self.assertIn('Object.keys(versions).length!==4',page); self.assertIn('releaseMetadata?.component_versions.policy',page); self.assertNotIn('v4.8',page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
@@ -481,15 +481,15 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
         spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
-        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.23.0')
-        self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/recommendations':{'get'},'/v1/policy':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.24.0')
+        self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/recommendations':{'get'},'/v1/remediation-receipts':{'post'},'/v1/policy':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
         post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
         self.assertIn('baseline_coverage',spec['components']['schemas']['FleetSummary']['required'])
         self.assertIn('service_health_posture',spec['components']['schemas']['FleetSummary']['required'])
         self.assertIn('service_health_status',spec['components']['schemas']['ConsoleDevice']['allOf'][1]['required'])
         self.assertEqual(spec['components']['schemas']['RemediationRecommendation']['properties']['approval_state'],{'const':'external_approval_required'})
-        self.assertEqual(spec['components']['securitySchemes']['bearerAuth'],{'type':'http','scheme':'bearer'}); self.assertEqual(paths['/health']['get']['security'],[])
+        self.assertEqual(spec['components']['securitySchemes']['bearerAuth'],{'type':'http','scheme':'bearer'}); self.assertEqual(spec['components']['securitySchemes']['callbackBearerAuth']['type'],'http'); self.assertEqual(paths['/v1/remediation-receipts']['post']['security'],[{'callbackBearerAuth':[]}]); self.assertEqual(paths['/health']['get']['security'],[])
         parameters=spec['components']['parameters']; self.assertEqual([parameters[name]['name'] for name in ('Timestamp','Signature','DeviceId')],['X-Sentinel-Timestamp','X-Sentinel-Signature','X-Sentinel-Device-ID'])
     def test_collector_database_deduplication_support(self):
         with tempfile.TemporaryDirectory() as d:
@@ -570,6 +570,20 @@ class SentinelTests(unittest.TestCase):
             self.assertEqual(len(first['recommendations']),2); self.assertEqual([item['recommendation_id'] for item in first['recommendations']],[item['recommendation_id'] for item in second['recommendations']])
             by_device={item['device_id']:item for item in first['recommendations']}; self.assertEqual(by_device['critical-device']['recommended_action'],'containment_pending_approval'); self.assertEqual(by_device['invalid-device']['recommended_action'],'verify_integrity')
             self.assertTrue(all(item['approval_state']=='external_approval_required' and item['correlation_id']==item['recommendation_id'] for item in first['recommendations'])); self.assertNotIn('path',json.dumps(first))
+    def test_remediation_receipts_are_idempotent_minimized_and_stateful(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=int(time.time()); report={'device_id':'receipt-device','agent_version':'0.44.0','policy_version':'5.1.0','summary':{'critical':1,'high':0},'inventory':[{'type':'service_health','status':'healthy'}]}
+            self.collector.store_report(path,b'receipt-report',report,now=now); recommendation=self.collector.collector_recommendations(path)['recommendations'][0]; rid=recommendation['recommendation_id']
+            def receipt(state): return {'schema':'sentinel.remediation-receipt/v1','recommendation_id':rid,'state':state,'external_event_id':'four-a-42','actor_id':'alice@example.invalid','occurred_at':now}
+            approved=self.collector.store_remediation_receipt(path,receipt('approved'),'a'*64,now=now); self.assertFalse(approved['duplicate'])
+            self.assertTrue(self.collector.store_remediation_receipt(path,receipt('approved'),'a'*64,now=now)['duplicate'])
+            with self.assertRaisesRegex(ValueError,'invalid_state_transition'): self.collector.store_remediation_receipt(path,receipt('succeeded'),'b'*64,now=now)
+            self.collector.store_remediation_receipt(path,receipt('executing'),'c'*64,now=now); self.collector.store_remediation_receipt(path,receipt('succeeded'),'d'*64,now=now)
+            current=self.collector.collector_recommendations(path)['recommendations'][0]; self.assertEqual((current['workflow_state'],current['receipt_updated_at']),('succeeded',now))
+            with self.collector.db_open(path) as db:
+                stored=db.execute('SELECT actor_ref,external_event_id FROM remediation_receipts ORDER BY id LIMIT 1').fetchone()
+            self.assertRegex(stored[0],r'^[0-9a-f]{32}$'); self.assertNotEqual(stored[0],'alice@example.invalid'); self.assertEqual(stored[1],'four-a-42')
+            self.assertFalse(self.collector.valid_remediation_receipt({**receipt('approved'),'extra':True},now=now)); self.assertFalse(self.collector.valid_remediation_receipt({**receipt('approved'),'occurred_at':now-301},now=now))
     def test_collector_aggregates_only_minimized_baseline_attestation(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
