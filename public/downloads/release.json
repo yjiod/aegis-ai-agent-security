@@ -1,5 +1,5 @@
 {
-  "release": "5.10.0",
+  "release": "5.10.1",
   "channel": "pilot",
   "published_at": "2026-09-14T00:00:00+08:00",
   "component_versions": {"endpoint_agent":"0.48.0","policy":"5.1.0","collector":"0.26","adapter":"0.19"},

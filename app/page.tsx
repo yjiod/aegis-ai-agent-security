@@ -520,9 +520,9 @@ function DetailPanel({
               <ol><li><b>自动发现</b><span>周期检测 Cursor、Claude Code、Codex、Windsurf、Gemini、Copilot、WorkBuddy、千问企业版、通义灵码与 CodeBuddy。</span></li><li><b>加载基线</b><span>为受管项目增量安装 Agent 规则，并持续扫描 Skill、MCP 与代码。</span></li><li><b>4A 联动</b><span>以匿名设备主体输出标准安全姿态、待审批授权建议和可追踪审计关联号。</span></li></ol>
               <div className="download-actions">
                 <a className="download-primary" href="/downloads/sentinel-enterprise-bundle.zip" download>下载完整部署包</a>
-                <a className="download-primary" href="https://github.com/yjiod/sentinel-ai-agent-security/releases/download/v5.10.0/Sentinel-Agent-Windows-x64-5.10.0.msi">Windows MSI 5.10</a>
-                <a className="download-primary" href="https://github.com/yjiod/sentinel-ai-agent-security/releases/download/v5.10.0/Sentinel-Agent-macOS-5.10.0.pkg">macOS PKG 5.10</a>
-                <a href="https://github.com/yjiod/sentinel-ai-agent-security/releases/download/v5.10.0/SHA256SUMS.txt">安装包 SHA-256</a>
+                <a className="download-primary" href="https://github.com/yjiod/sentinel-ai-agent-security/releases/download/v5.10.1/Sentinel-Agent-Windows-x64-5.10.1.msi">Windows MSI 5.10.1</a>
+                <a className="download-primary" href="https://github.com/yjiod/sentinel-ai-agent-security/releases/download/v5.10.1/Sentinel-Agent-macOS-5.10.1.pkg">macOS PKG 5.10.1</a>
+                <a href="https://github.com/yjiod/sentinel-ai-agent-security/releases/download/v5.10.1/SHA256SUMS.txt">安装包 SHA-256</a>
                 <a className="download-primary" href="/downloads/DEPLOYMENT-GUIDE.md" download>下载部署指南</a>
                 <a className="download-primary" href="/downloads/PRODUCTION-READINESS.md" download>生产就绪清单</a>
                 <a className="download-primary" href="/downloads/CLIENT-ARCHITECTURE-ROADMAP.md" download>多端统一客户端规划</a>
