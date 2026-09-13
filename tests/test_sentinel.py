@@ -71,11 +71,14 @@ class SentinelTests(unittest.TestCase):
         schema=json.loads((DOWNLOADS/'sentinel-service-health.schema.json').read_text()); self.assertFalse(schema['additionalProperties']); self.assertEqual(schema['properties']['arbitrary_command_enabled'],{'const':False})
 
     def test_native_host_is_integrated_into_windows_and_macos_installers(self):
-        windows=(ROOT/'deploy/clients/Install-Sentinel-Windows.template.ps1').read_text(); wix=(ROOT/'deploy/clients/SentinelAgent.wxs').read_text(); plist=(ROOT/'deploy/clients/com.yjiod.sentinel-agent.plist').read_text(); postinstall=(ROOT/'deploy/clients/postinstall-macos.sh').read_text()
+        windows=(ROOT/'deploy/clients/Install-Sentinel-Windows.template.ps1').read_text(); wix=(ROOT/'deploy/clients/SentinelAgent.wxs').read_text(); plist=(ROOT/'deploy/clients/com.yjiod.sentinel-agent.plist').read_text(); postinstall=(ROOT/'deploy/clients/postinstall-macos.sh').read_text(); builder=(ROOT/'deploy/clients/build-installers.sh').read_text()
         for directive in ('SentinelServiceHost.exe',"New-ScheduledTaskAction -Execute $hostExecutable",'-ExecutionTimeLimit ([TimeSpan]::Zero)','-RestartCount 3'):
             self.assertIn(directive,windows)
         self.assertNotIn("New-ScheduledTaskAction -Execute 'powershell.exe'",windows); self.assertIn('Source="SentinelServiceHost.exe"',wix)
         self.assertIn('/SentinelServiceHost</string>',plist); self.assertIn('<key>KeepAlive</key><true/>',plist); self.assertIn('<key>ThrottleInterval</key><integer>30</integer>',plist); self.assertIn('SentinelServiceHost',postinstall)
+        self.assertNotIn('__PILOT_TOKEN__',windows); self.assertNotIn('__PILOT_SECRET__',windows); self.assertNotIn('https://auth.example.com/v1/reports',windows); self.assertIn('Reporting credentials were not embedded',windows)
+        for directive in ('wixl -a x64','pkgbuild --root','sentinel-configure-macos.sh','msiextract -C','pkgutil --expand-full','credential material found in installer','"report_token":"[^"]{32,}"'):
+            self.assertIn(directive,builder)
 
     def test_service_health_is_strict_minimized_and_fail_closed(self):
         now=int(time.time())
