@@ -12,6 +12,7 @@
 /coverage
 /playwright-report/
 /test-results/
+/.e2e-state/
 # reserved for a future migration off the dev-only /catalog page
 /storybook-static/
 
