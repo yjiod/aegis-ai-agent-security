@@ -264,7 +264,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('serviceHealthPostures',route); self.assertIn('service_health_posture',route); self.assertIn('Object.keys(serviceHealth).length!==serviceHealthPostures.length',route)
         for label in ('Gemini CLI','GitHub Copilot CLI','生产就绪清单','生产验收证据模板','生产最终预检','生产验收证据准备器','生产验收签名工具','生产验收密钥环工具','Collector 验收探针','Collector API 规范','企业 4A OpenAPI','企业 4A 接入指南','企业 4A 验收探针','通用部署验收模板','通用部署预检','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
-        devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==7',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
+        devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==8',devices_route); self.assertIn('serviceHealthStatuses',devices_route); self.assertIn('service_health_status',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
         self.assertIn("fetch('/api/devices'",page); self.assertIn('fleetDevices.map',page)
         self.assertIn("fetch('/downloads/release.json'",page); self.assertIn('Object.keys(versions).length!==4',page); self.assertIn('releaseMetadata?.component_versions.policy',page); self.assertNotIn('v4.8',page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
@@ -478,12 +478,13 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
         spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
-        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.21.0')
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.22.0')
         self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/policy':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
         post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
         self.assertIn('baseline_coverage',spec['components']['schemas']['FleetSummary']['required'])
         self.assertIn('service_health_posture',spec['components']['schemas']['FleetSummary']['required'])
+        self.assertIn('service_health_status',spec['components']['schemas']['ConsoleDevice']['allOf'][1]['required'])
         self.assertEqual(spec['components']['securitySchemes']['bearerAuth'],{'type':'http','scheme':'bearer'}); self.assertEqual(paths['/health']['get']['security'],[])
         parameters=spec['components']['parameters']; self.assertEqual([parameters[name]['name'] for name in ('Timestamp','Signature','DeviceId')],['X-Sentinel-Timestamp','X-Sentinel-Signature','X-Sentinel-Device-ID'])
     def test_collector_database_deduplication_support(self):
@@ -661,7 +662,7 @@ class SentinelTests(unittest.TestCase):
                         devices=json.load(response); self.assertTrue(devices['complete']); self.assertEqual(devices['devices'][0]['credential_generation'],'current'); self.assertGreaterEqual(devices['generated_at'],now)
                     console_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?view=console',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(console_request,timeout=3) as response:
-                        console=json.load(response)['devices'][0]; self.assertEqual((console['severity'],console['agent_version'],console['policy_version']),('normal','0.44.0','5.1.0'))
+                        console=json.load(response)['devices'][0]; self.assertEqual((console['severity'],console['agent_version'],console['policy_version'],console['service_health_status']),('normal','0.44.0','5.1.0','missing'))
                     self.collector.store_report(server.db_path,b'other',{'device_id':'000000000000','agent_version':'0.44.0','policy_version':'5.1.0','summary':{'critical':0,'high':0}},now=now)
                     limited_request=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?limit=1',headers={'Authorization':'Bearer '+admin})
                     with urllib.request.urlopen(limited_request,timeout=3) as response:

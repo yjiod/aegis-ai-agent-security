@@ -179,6 +179,10 @@ def recent_audit(db_path,limit=200):
     limit=min(max(int(limit),1),500)
     with db_open(db_path) as db: rows=db.execute("SELECT event,occurred_at,device_id,detail FROM audit_events ORDER BY id DESC LIMIT ?",(limit,)).fetchall()
     return [{"event":event,"occurred_at":occurred,"device_id":device,"detail":detail} for event,occurred,device,detail in rows]
+def service_health_status(inventory):
+    """Classify only the minimized health attestation; malformed or duplicate evidence fails closed."""
+    items=[item.get("status") for item in inventory if isinstance(item,dict) and item.get("type")=="service_health"] if isinstance(inventory,list) else []
+    return items[0] if len(items)==1 and items[0] in {"healthy","degraded","invalid"} else "missing" if not items else "invalid"
 def collector_summary(db_path,now=None,active_window=86400,required_agent=None,required_policy=None):
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
@@ -209,13 +213,11 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
         baseline_items={item.get("name"):item.get("status") for item in inventory if isinstance(item,dict) and item.get("type")=="agent_baseline" and item.get("name") in baseline_coverage and item.get("status") in {"managed","missing","malformed","unsafe","unreadable"}}
         for name,status in baseline_items.items():
             baseline_coverage[name]["total"]+=1; baseline_coverage[name]["managed"]+=status=="managed"
-        health_items=[item.get("status") for item in inventory if isinstance(item,dict) and item.get("type")=="service_health"]
-        health_status=health_items[0] if len(health_items)==1 and health_items[0] in {"healthy","degraded","invalid"} else "missing" if not health_items else "invalid"
-        service_health_posture[health_status]+=1
+        service_health_posture[service_health_status(inventory)]+=1
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage,"service_health_posture":service_health_posture}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.21"
+    server_version="SentinelCollector/0.22"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -272,11 +274,15 @@ class Handler(BaseHTTPRequestHandler):
             if view not in {"activation","console"}: return self.reply(400,{"error":"invalid_view"})
             try:
                 generated_at=int(time.time())
-                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.severity,r.agent_version,r.policy_version FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
+                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.severity,r.agent_version,r.policy_version,r.body FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             complete=len(rows)<=limit; rows=rows[:limit]; audit_event(self.server.db_path,"devices_read",detail=str(len(rows))+":"+("complete" if complete else "partial"))
             devices=[{"device_id":r[0],"last_seen":r[1],"report_count":r[2],"credential_generation":"legacy" if r[3] is None else "current" if r[3]==0 else "previous"} for r in rows]
-            if view=="console": devices=[{**item,"severity":rows[index][4],"agent_version":rows[index][5] or "unknown","policy_version":rows[index][6] or "unknown"} for index,item in enumerate(devices)]
+            if view=="console":
+                for index,item in enumerate(devices):
+                    try: inventory=json.loads(rows[index][7]).get("inventory",[])
+                    except (AttributeError,TypeError,ValueError,json.JSONDecodeError): inventory=[]
+                    item.update({"severity":rows[index][4],"agent_version":rows[index][5] or "unknown","policy_version":rows[index][6] or "unknown","service_health_status":service_health_status(inventory)})
             return self.reply(200,{"generated_at":generated_at,"complete":complete,"devices":devices})
         if parsed.path=="/v1/summary" and not parsed.query:
             try:

@@ -86,7 +86,7 @@ type FleetSummary = {
   baseline_coverage: Record<'claude_code'|'codex'|'gemini_cli'|'github_copilot_cli',{total:number;managed:number}>;
   service_health_posture: { healthy:number; degraded:number; invalid:number; missing:number };
 };
-type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy'; severity:'normal'|'high'|'critical'; agent_version:string; policy_version:string };
+type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy'; severity:'normal'|'high'|'critical'; agent_version:string; policy_version:string; service_health_status:'healthy'|'degraded'|'invalid'|'missing' };
 type ReleaseMetadata = { release:string; component_versions:{endpoint_agent:string;policy:string;collector:string;adapter:string} };
 
 export default function Home() {
@@ -610,7 +610,7 @@ function DetailPanel({
                 device.device_id,
                 new Date(device.last_seen*1000).toLocaleString('zh-CN'),
                 `Agent ${device.agent_version} / 策略 ${device.policy_version}`,
-                `${device.severity==='critical' ? '严重' : device.severity==='high' ? '高危' : '正常'} · ${device.credential_generation==='current' ? '当前凭据' : device.credential_generation==='previous' ? '上一代凭据' : 'Legacy'}`,
+                `${device.severity==='critical' ? '严重' : device.severity==='high' ? '高危' : '正常'} · 宿主${device.service_health_status==='healthy' ? '健康' : device.service_health_status==='degraded' ? '降级' : device.service_health_status==='invalid' ? '无效' : '未上报'} · ${device.credential_generation==='current' ? '当前凭据' : device.credential_generation==='previous' ? '上一代凭据' : 'Legacy'}`,
               ]) : []}
             />
           </div>
