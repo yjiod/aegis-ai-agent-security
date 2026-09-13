@@ -265,7 +265,8 @@ class SentinelTests(unittest.TestCase):
         for label in ('Gemini CLI','GitHub Copilot CLI','生产就绪清单','生产验收证据模板','生产最终预检','生产验收证据准备器','生产验收签名工具','生产验收密钥环工具','Collector 验收探针','Collector API 规范','企业 4A OpenAPI','企业 4A 接入指南','企业 4A 验收探针','通用部署验收模板','通用部署预检','厂商联动契约','厂商验收证据模板','厂商接入预检','厂商安全验收探针','厂商验收签名工具','Intune 部署清单','Windows 企业签名工具','Intune 晋级证据模板','Intune 晋级预检','Intune 证据生成器','Graph 导出归一化器'): self.assertIn(label,page)
         self.assertNotIn('SENTINEL_COLLECTOR_TOKEN',page); self.assertIn("fetch('/api/summary'",page)
         devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==8',devices_route); self.assertIn('serviceHealthStatuses',devices_route); self.assertIn('service_health_status',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
-        self.assertIn("fetch('/api/devices'",page); self.assertIn('fleetDevices.map',page)
+        self.assertIn("fetch('/api/devices'",page)
+        self.assertIn('DeviceHealthFilter',page); self.assertIn('action_required',page); self.assertIn('visibleDevices.map',page); self.assertIn('筛选仅改变只读视图，不会向终端下发命令',page); self.assertIn('隔离、卸载或访问限制仍须通过企业审批',page)
         self.assertIn("fetch('/downloads/release.json'",page); self.assertIn('Object.keys(versions).length!==4',page); self.assertIn('releaseMetadata?.component_versions.policy',page); self.assertNotIn('v4.8',page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()

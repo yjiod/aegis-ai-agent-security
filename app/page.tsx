@@ -87,6 +87,7 @@ type FleetSummary = {
   service_health_posture: { healthy:number; degraded:number; invalid:number; missing:number };
 };
 type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy'; severity:'normal'|'high'|'critical'; agent_version:string; policy_version:string; service_health_status:'healthy'|'degraded'|'invalid'|'missing' };
+type DeviceHealthFilter = 'all'|'action_required'|FleetDevice['service_health_status'];
 type ReleaseMetadata = { release:string; component_versions:{endpoint_agent:string;policy:string;collector:string;adapter:string} };
 
 export default function Home() {
@@ -471,6 +472,8 @@ function DetailPanel({
   releaseMetadata: ReleaseMetadata | null;
 }) {
   const scanner = view === 'skills' || view === 'mcp' || view === 'quality';
+  const [deviceHealthFilter,setDeviceHealthFilter]=useState<DeviceHealthFilter>('all');
+  const visibleDevices=(fleetDevices ?? []).filter((device)=>deviceHealthFilter==='all' || deviceHealthFilter==='action_required' ? deviceHealthFilter==='all' || device.service_health_status!=='healthy' : device.service_health_status===deviceHealthFilter);
   return (
     <div
       className="detail-overlay"
@@ -605,13 +608,21 @@ function DetailPanel({
                 生成部署包
               </Button>
             </div>
+            <div className="device-operations" aria-label="终端健康筛选与处置指引">
+              <label>宿主状态
+                <select value={deviceHealthFilter} onChange={(event)=>setDeviceHealthFilter(event.target.value as DeviceHealthFilter)}>
+                  <option value="all">全部终端</option><option value="action_required">需要关注</option><option value="healthy">健康</option><option value="degraded">降级</option><option value="invalid">无效</option><option value="missing">未上报</option>
+                </select>
+              </label>
+              <p><strong>当前显示 {visibleDevices.length} 台</strong>{deviceHealthFilter==='degraded' ? '检查服务进程、最近扫描时间及上报链路，再由终端平台执行已审批修复。' : deviceHealthFilter==='invalid' ? '健康证明不可信；核验客户端完整性与版本，禁止据此自动放行。' : deviceHealthFilter==='missing' ? '旧客户端或上报链路尚未提供健康证明；优先升级并验证一次真实扫描。' : deviceHealthFilter==='action_required' ? '先完成客户端升级和上报验证；隔离、卸载或访问限制仍须通过企业审批。' : '筛选仅改变只读视图，不会向终端下发命令。'}</p>
+            </div>
             <DataTable
-              rows={fleetDevices ? fleetDevices.map((device)=>[
+              rows={visibleDevices.map((device)=>[
                 device.device_id,
                 new Date(device.last_seen*1000).toLocaleString('zh-CN'),
                 `Agent ${device.agent_version} / 策略 ${device.policy_version}`,
                 `${device.severity==='critical' ? '严重' : device.severity==='high' ? '高危' : '正常'} · 宿主${device.service_health_status==='healthy' ? '健康' : device.service_health_status==='degraded' ? '降级' : device.service_health_status==='invalid' ? '无效' : '未上报'} · ${device.credential_generation==='current' ? '当前凭据' : device.credential_generation==='previous' ? '上一代凭据' : 'Legacy'}`,
-              ]) : []}
+              ])}
             />
           </div>
         )}

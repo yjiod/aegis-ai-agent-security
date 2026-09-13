@@ -1,9 +1,10 @@
 {
-  "release": "5.3.0",
+  "release": "5.4.0",
   "channel": "pilot",
   "published_at": "2026-09-13T12:00:00+08:00",
   "component_versions": {"endpoint_agent":"0.44.0","policy":"5.1.0","collector":"0.22","adapter":"0.19"},
   "features": [
+    "device_health_filtering", "action_required_operational_view", "read_only_remediation_guidance", "approval_preserving_response",
     "per_device_service_health", "strict_console_device_health_contract", "service_health_operational_visibility",
     "service_health_fleet_posture", "healthy_degraded_invalid_missing", "legacy_report_missing_classification", "strict_console_service_health_proxy",
     "service_health_report_ingestion", "strict_service_health_contract", "stale_host_health_detection", "arbitrary_command_state_rejection", "minimized_host_health_inventory",
