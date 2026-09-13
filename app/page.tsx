@@ -513,6 +513,7 @@ function DetailPanel({
                 <a className="download-primary" href="/downloads/CLIENT-ARCHITECTURE-ROADMAP.md" download>多端统一客户端规划</a>
                 <a href="/downloads/sentinel-client-control-policy.json" download>客户端推送控制策略</a>
                 <a href="/downloads/sentinel_client_update_planner.py" download>客户端更新决策引擎</a>
+                <a href="/downloads/sentinel-service-health.schema.json" download>统一服务健康协议</a>
                 <a href="/downloads/production-acceptance-evidence.example.json" download>生产验收证据模板</a>
                 <a href="/downloads/sentinel_production_preflight.py" download>生产最终预检</a>
                 <a href="/downloads/sentinel_production_evidence_prepare.py" download>生产验收证据准备器</a>

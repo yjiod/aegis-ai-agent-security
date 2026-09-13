@@ -63,6 +63,13 @@ class SentinelTests(unittest.TestCase):
         content=self.update_planner.content_plan(policy,{'version':'5.1.0'},{'version':'5.2.0','digest_verified':True,'signature_verified':False,'schema_verified':True,'regression_passed':True})
         self.assertEqual(content['action'],'keep_lkg'); self.assertIn('signature',content['failed_gates'])
 
+    def test_unified_service_host_has_fixed_scanner_and_atomic_health_contract(self):
+        source=(ROOT/'deploy/clients/host/Program.cs').read_text(); project=(ROOT/'deploy/clients/host/SentinelServiceHost.csproj').read_text()
+        for directive in ('UseShellExecute = false','ArgumentList.Add','scanner_timeout_or_shutdown','File.Move(temp, statusPath, true)','arbitrary_command_enabled = false','--once','TimeSpan.FromHours(1)'):
+            self.assertIn(directive,source)
+        self.assertNotIn('cmd.exe',source); self.assertNotIn('/bin/sh',source); self.assertIn('<PublishSingleFile>true</PublishSingleFile>',project); self.assertIn('<SelfContained>true</SelfContained>',project)
+        schema=json.loads((DOWNLOADS/'sentinel-service-health.schema.json').read_text()); self.assertFalse(schema['additionalProperties']); self.assertEqual(schema['properties']['arbitrary_command_enabled'],{'const':False})
+
     def test_deny_disposition_wins_for_skill_and_mcp(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'malicious'; root.mkdir(); skill=root/'SKILL.md'; skill.write_text('# test')

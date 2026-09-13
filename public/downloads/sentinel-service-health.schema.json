@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel.invalid/schema/service-health-v1.json",
+  "title": "Sentinel Service Health",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "host_version", "state", "service_started_at", "updated_at", "last_scan_started_at", "last_scan_exit_code", "scanner", "error", "arbitrary_command_enabled"],
+  "properties": {
+    "schema": {"const": "sentinel.service-health/v1"},
+    "host_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "state": {"enum": ["starting", "healthy", "degraded"]},
+    "service_started_at": {"type": "integer", "minimum": 0},
+    "updated_at": {"type": "integer", "minimum": 0},
+    "last_scan_started_at": {"type": ["integer", "null"], "minimum": 0},
+    "last_scan_exit_code": {"type": "integer", "minimum": 0, "maximum": 255},
+    "scanner": {"enum": ["windows-powershell", "python3"]},
+    "error": {"type": ["string", "null"], "maxLength": 80},
+    "arbitrary_command_enabled": {"const": false}
+  }
+}

@@ -11,7 +11,7 @@ HASH_CONSUMERS={
     "sentinel-security-baseline.md":("install-sentinel.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
-    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","CLIENT-ARCHITECTURE-ROADMAP.md","sentinel-client-control-policy.json","sentinel_client_update_planner.py","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
+    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","CLIENT-ARCHITECTURE-ROADMAP.md","sentinel-client-control-policy.json","sentinel_client_update_planner.py","sentinel-service-health.schema.json","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
     "sentinel_agent.py","sentinel_collector.py","sentinel-windows.ps1","install-sentinel.sh","intune-windows-detect.ps1",
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
@@ -99,6 +99,10 @@ def verify(downloads):
     if client_control.get("schema")!="sentinel.client-control/v1" or client_control.get("binary_delivery",{}).get("mode")!="external_managed" or client_control.get("binary_delivery",{}).get("self_update",{}).get("enabled") is not False: errors.append("unsafe_default_binary_delivery")
     for directive in ("external_deployment_required","software_lifecycle_owner","require_platform_signature","require_release_signature","require_dual_slot_rollback","maintenance_window","circuit_breaker","apply_content_atomically","keep_lkg"):
         if directive not in update_planner: errors.append(f"unsafe_client_update_planner:{directive}")
+    try: health_schema=json.loads((downloads/"sentinel-service-health.schema.json").read_text(encoding="utf-8"))
+    except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_service_health_schema:{type(exc).__name__}"); health_schema={}
+    required_health={"schema","host_version","state","service_started_at","updated_at","last_scan_started_at","last_scan_exit_code","scanner","error","arbitrary_command_enabled"}
+    if health_schema.get("additionalProperties") is not False or set(health_schema.get("required",[]))!=required_health or health_schema.get("properties",{}).get("arbitrary_command_enabled")!={"const":False}: errors.append("unsafe_service_health_schema")
     for directive in ("sentinel.integration/v1","IDENTITY_AUTHENTICATION","SOFTWARE_DISTRIBUTION","CONTAINMENT_REQUEST","privileged_capability_requires_approval","missing_capabilities"):
         if directive not in integration_interface: errors.append(f"unsafe_enterprise_integration_interface:{directive}")
     try: registry_source=(downloads/"sentinel_integration_registry.py").read_text(encoding="utf-8"); registry_example=json.loads((downloads/"sentinel-integration-providers.example.json").read_text(encoding="utf-8"))
