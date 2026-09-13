@@ -4,6 +4,7 @@
   "published_at": "2026-09-14T00:00:00+08:00",
   "component_versions": {"endpoint_agent":"0.48.0","policy":"5.1.0","collector":"0.26","adapter":"0.19"},
   "features": [
+    "evidence_gated_policy_key_retirement", "4a_bound_policy_key_approval", "single_use_key_retirement_approval", "active_and_last_key_removal_rejection", "secret_free_policy_keyring_receipts",
     "policy_key_id_bound_verification", "privacy_minimized_policy_trust_inventory", "fleet_policy_rotation_coverage", "old_key_retirement_gate", "policy_trust_console_visibility",
     "independent_policy_hmac_signature", "policy_signing_keyring", "five_key_policy_rotation_overlap", "reporting_config_v2", "device_enrollment_v3", "signature_failure_last_known_good_fallback",
     "active_skill_mcp_enforcement", "reversible_manifest_quarantine", "private_quarantine_audit_chain", "approval_evidence_restore", "credential_free_native_installers", "post_build_installer_secret_scan", "reproducible_installer_builder", "revoked_embedded_pilot_credentials", "out_of_band_reporting_enrollment", "device_bound_expiring_enrollment", "consume_after_success_enrollment",
