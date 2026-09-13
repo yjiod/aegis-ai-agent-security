@@ -102,6 +102,7 @@ export async function pgLoadAll(): Promise<{
   tickets: [string, Ticket][];
   audit: AuditEntry[];
   admins: string[];
+  auditors: string[];
 } | null> {
   const r = await withClient('loadAll', async (c) => {
     // Sequential queries on one connection.
@@ -110,6 +111,7 @@ export async function pgLoadAll(): Promise<{
     const h = await c.query('SELECT * FROM ticket_history ORDER BY id');
     const a = await c.query('SELECT * FROM audit_log ORDER BY id');
     const ad = await c.query('SELECT employee_no FROM admins');
+    const au = await c.query('SELECT employee_no FROM auditors');
 
     const devices: [string, Device][] = d.rows.map((row) => [
       row.device_id,
@@ -145,7 +147,8 @@ export async function pgLoadAll(): Promise<{
       ...(row.detail ? { detail: row.detail } : {}),
     })) as AuditEntry[];
     const admins: string[] = ad.rows.map((row) => row.employee_no);
-    return { devices, tickets, audit, admins };
+    const auditors: string[] = au.rows.map((row) => row.employee_no);
+    return { devices, tickets, audit, admins, auditors };
   });
   return r.ok ? r.value : null;
 }
@@ -210,6 +213,14 @@ export function pgAddAdmin(emp: string): void {
 
 export function pgRemoveAdmin(emp: string): void {
   scheduleWrite('removeAdmin', (c) => c.query('DELETE FROM admins WHERE employee_no=$1', [emp]));
+}
+
+export function pgAddAuditor(emp: string): void {
+  scheduleWrite('addAuditor', (c) => c.query('INSERT INTO auditors(employee_no) VALUES($1) ON CONFLICT DO NOTHING', [emp]));
+}
+
+export function pgRemoveAuditor(emp: string): void {
+  scheduleWrite('removeAuditor', (c) => c.query('DELETE FROM auditors WHERE employee_no=$1', [emp]));
 }
 
 /* ─── 资产标签 / 处置（skill / MCP 打标 + 加白/观察/拉黑） ─────────────── */

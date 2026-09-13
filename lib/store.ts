@@ -29,6 +29,8 @@ import {
   pgInsertAudit,
   pgAddAdmin,
   pgRemoveAdmin,
+  pgAddAuditor,
+  pgRemoveAuditor,
   pgProbe,
 } from './pg-store';
 
@@ -48,6 +50,7 @@ interface PersistedState {
   tickets: [string, Ticket][];
   audit: AuditEntry[];
   admins?: string[];
+  auditors?: string[];
 }
 
 function loadState(): PersistedState | null {
@@ -70,6 +73,7 @@ function saveState(): void {
         tickets: [...(globals.__aegis_tickets ?? new Map())],
         audit: globals.__aegis_audit ?? [],
         admins: globals.__aegis_admins ?? [],
+        auditors: globals.__aegis_auditors ?? [],
       };
       mkdirSync(dirname(STATE_FILE), { recursive: true });
       writeFileSync(STATE_FILE, JSON.stringify(state), 'utf8');
@@ -304,6 +308,7 @@ type AegisStores = {
   __aegis_tickets?: Map<string, Ticket>;
   __aegis_audit?: AuditEntry[];
   __aegis_admins?: string[];
+  __aegis_auditors?: string[];
 };
 
 /**
@@ -883,6 +888,39 @@ export function removeAdmin(employeeNo: string): boolean {
 }
 
 /* ------------------------------------------------------------------ *
+ * Auditor allowlist (persisted) — read-only compliance reviewers
+ * Merged with env AEGIS_AUDITOR_USERS by lib/auth.auditorAllowlist().
+ * Auditors can read the audit trail and rosters but never mutate.
+ * ------------------------------------------------------------------ */
+export function getAuditorStore(): string[] {
+  const existing = globals.__aegis_auditors;
+  if (existing) return existing;
+  const persisted = loadState();
+  const store: string[] = persisted?.auditors ?? [];
+  globals.__aegis_auditors = store;
+  return store;
+}
+
+export function addAuditor(employeeNo: string): boolean {
+  const store = getAuditorStore();
+  if (store.includes(employeeNo)) return false;
+  store.push(employeeNo);
+  if (!pgHydrating) pgAddAuditor(employeeNo);
+  saveState();
+  return true;
+}
+
+export function removeAuditor(employeeNo: string): boolean {
+  const store = getAuditorStore();
+  const idx = store.indexOf(employeeNo);
+  if (idx === -1) return false;
+  store.splice(idx, 1);
+  if (!pgHydrating) pgRemoveAuditor(employeeNo);
+  saveState();
+  return true;
+}
+
+/* ------------------------------------------------------------------ *
  * PostgreSQL hydration (request-scoped, lazy)
  *
  * workerd forbids asynchronous I/O (connect/query) at global/module scope, so
@@ -899,7 +937,7 @@ export function removeAdmin(employeeNo: string): boolean {
  * resolves null and we keep the file-backed state — pgStatus() makes that
  * degradation visible.
  * ------------------------------------------------------------------ */
-let pgHydrated: { ok: boolean; devices: number; tickets: number; audit: number; admins: number } | null =
+let pgHydrated: { ok: boolean; devices: number; tickets: number; audit: number; admins: number; auditors: number } | null =
   null;
 let pgHydratePromise: Promise<void> | null = null;
 
@@ -914,7 +952,7 @@ export function ensurePgHydrated(): Promise<void> {
     pgHydratePromise = (async () => {
       const data = await pgLoadAll();
       if (!data) {
-        pgHydrated = { ok: false, devices: 0, tickets: 0, audit: 0, admins: 0 };
+        pgHydrated = { ok: false, devices: 0, tickets: 0, audit: 0, admins: 0, auditors: 0 };
         return;
       }
       pgHydrating = true;
@@ -927,12 +965,15 @@ export function ensurePgHydrated(): Promise<void> {
         for (const e of data.audit) audit.push(e);
         const admins = getAdminStore();
         for (const a of data.admins) if (!admins.includes(a)) admins.push(a);
+        const auditors = getAuditorStore();
+        for (const a of data.auditors) if (!auditors.includes(a)) auditors.push(a);
         pgHydrated = {
           ok: true,
           devices: data.devices.length,
           tickets: data.tickets.length,
           audit: data.audit.length,
           admins: data.admins.length,
+          auditors: data.auditors.length,
         };
       } finally {
         pgHydrating = false;
@@ -951,7 +992,7 @@ export async function pgStatus(): Promise<{
   configured: boolean;
   reachable: boolean;
   hydrated: boolean;
-  rows: { devices: number; tickets: number; audit: number; admins: number };
+  rows: { devices: number; tickets: number; audit: number; admins: number; auditors: number };
   error?: string;
 }> {
   const configured = pgEnabled();
@@ -960,6 +1001,7 @@ export async function pgStatus(): Promise<{
     tickets: getTicketStore().size,
     audit: getAuditStore().length,
     admins: getAdminStore().length,
+    auditors: getAuditorStore().length,
   };
   if (!configured) {
     return { configured, reachable: false, hydrated: false, rows };

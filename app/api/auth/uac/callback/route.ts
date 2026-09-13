@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminAllowlist } from '@/lib/auth';
+import { adminAllowlist, auditorAllowlist } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,9 +98,10 @@ export async function GET(request: Request) {
     return NextResponse.redirect(new URL('/login?error=uac_unreachable', url.origin));
   }
 
-  // Whitelist-only access: non-admin employee numbers are DENIED login entirely
-  // (not downgraded to viewer). Only AEGIS_ADMIN_USERS may enter the console.
-  if (!adminAllowlist().has(subject)) {
+  // Whitelist-only access: employee numbers in NEITHER the admin nor the auditor
+  // allowlist are DENIED login entirely. The concrete role (admin vs read-only
+  // auditor) is derived per-request server-side from the allowlists.
+  if (!adminAllowlist().has(subject) && !auditorAllowlist().has(subject)) {
     return NextResponse.redirect(
       new URL(`/login?error=not_authorized&subject=${encodeURIComponent(subject)}`, url.origin),
     );
