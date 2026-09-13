@@ -44,7 +44,7 @@ Sentinel 报告使用 `sentinel.report/v1`。由中转服务将 critical/high fi
 
 接收器 0.6 提供受 Bearer 认证和应用层限流保护的 `GET /v1/summary`，按每台设备最新一份已接受报告聚合设备总数、24 小时活跃/过期数量及 critical/high/normal 最新态。接口不返回报告正文或终端路径，可供内部监控采集；时间窗口固定有界，避免历史报告重复放大风险计数。
 
-接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.24 默认要求 Agent 0.45.0、策略 5.1.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
+接收器 0.10 在不阻断滚动升级报告上传的前提下，将每台设备最新报告按版本态分类为 `current`、`agent_mismatch`、`policy_mismatch`、`both_mismatch` 或 `unknown`。`GET /v1/summary` 同时返回要求的 Agent/策略版本和 `version_posture`；接收器 0.24 默认要求 Agent 0.46.0、策略 5.1.0，可通过 `SENTINEL_REQUIRED_AGENT_VERSION` 与 `SENTINEL_REQUIRED_POLICY_VERSION` 调整。数据库升级会原位增加版本列，不删除历史报告。
 
 使用 `python3 sentinel_collector_backup.py --db /var/lib/sentinel/sentinel.db --output /受保护备份目录 --keep 14` 执行 SQLite 在线一致性备份。工具通过 SQLite Backup API 读取运行中的 WAL 数据库，在同一目标目录原子落盘，执行 `PRAGMA quick_check` 后才发布文件，并将权限收敛为 0600；只轮换自身命名的备份，保留数量限制为 1–365。应由企业备份平台加密、异地复制并定期演练恢复，且备份目录不得由 Web 服务公开。
 
@@ -149,6 +149,8 @@ Intune 修复脚本先把新版本下载到受限暂存目录，校验扫描器�
 0.59.0 提供离线 `sentinel_device_credentials.py`。以受管终端的 12 位 `device_id` 列表运行，并同时指定服务端清单和独立 enrollment 目录；工具使用系统 CSPRNG 生成每台设备互不复用的 Token/HMAC，原子写入 0600 文件，标准输出只含设备 ID 与计数，不含密钥。`--rotate` 生成新凭据并只保留上一代作为重叠窗口，先准备 endpoint enrollment 文件、最后切换服务端清单；完成 Intune 受保护变量分发并确认新凭据活跃后，使用 `--prune-old` 删除旧代。部署服务端清单时再设置 `root:sentinel` 0640；enrollment 目录属于敏感暂存物，导入 Intune 后应按企业密钥介质流程销毁，不得提交 Git、工单或聊天。
 
 5.7.0 / Agent 0.45.0 将零凭据通用安装包与首次注册彻底分离。凭据生成器必须接收无查询参数、无 URL 凭据的 HTTPS Collector 地址，并生成绑定 12 位设备身份、有效期 5 分钟至 24 小时且标记单次消费的 `sentinel.device-enrollment/v2` 文件。Intune、任意 MDM、桌管或 4A 的受保护分发通道把对应文件送到目标终端后，以管理员/root 调用安装包内置的 `sentinel-enroll-windows.ps1` 或 `sentinel-enroll-macos.sh`。消费器拒绝身份不匹配、过期、宽 ACL/非 root 0600、链接、超大及额外字段输入；只有 DPAPI 或 root-only 原子配置成功后才删除注册文件。通用 MSI/PKG 永不包含 Collector 凭据，注册文件不得进入脚本包、Git、工单、日志或控制台。
+
+5.8.0 / Agent 0.46.0 增加终端主动执行闭环。`blocked_skills` 与 `unknown_skill:block` 会把目标 Skill 的入口 `SKILL.md` 原子改名为 `.sentinel-disabled`，保留包内全部内容；命中 MCP 名称/规范化指纹 deny（以及显式配置的 `unknown_mcp:block`）会整体禁用对应 JSON/TOML 配置，避免未处理的其他入口继续启动恶意服务。Windows 以 SYSTEM/Administrators-only 独立事件文件审计，macOS 使用 0600 哈希链审计；报告只上传脱敏结果。恢复工具要求管理员/root、短时外部审批证据、精确事件和路径匹配，恢复成功后消费审批文件并追加恢复事件。任何冲突、链接或审计写入失败都会回滚本次改名并产生 critical 告警。
 
 0.60.0 修复在线轮换的文件元数据边界。新清单仍以 0600 创建；如果目标清单已存在且是合规的 0600 或 `root:sentinel` 0640 普通文件，原子替换会保留其 owner、group 和 mode。替换前无法保留任一元数据时操作失败且旧清单不变，避免轮换后 Collector 因属组或读取位丢失而停服。Collector 与生成器均只接受精确 0600/0640，不再接受其他“看似私有”但不符合部署契约的模式。
 

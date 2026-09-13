@@ -60,7 +60,7 @@ def sync_policy(path,report_url,token,timeout=10):
     """Fetch an authenticated policy from the Collector and atomically promote only valid non-downgrades."""
     parsed=urlsplit(report_url)
     if parsed.scheme!="https" or not parsed.hostname or parsed.username or parsed.password: raise ValueError("invalid_policy_origin")
-    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.45.0"})
+    endpoint=f"https://{parsed.netloc}/v1/policy"; request=urllib.request.Request(endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/json","User-Agent":"SentinelAgent/0.46.0"})
     with urllib.request.urlopen(request,timeout=timeout) as response:
         if response.geturl()!=endpoint: raise ValueError("policy_redirect_rejected")
         raw=response.read(2_000_001)
@@ -291,6 +291,52 @@ def scan_skill(skill_file,policy,max_files=500):
             except OSError: out.append(finding("unreadable","low",path,"Skill 文件存在但无法读取"))
         if scanned>=max_files: out.append(finding("skill_scan_truncated","medium",root,f"Skill 文件数超过扫描上限 {max_files}")); break
     return out,scanned
+def _append_enforcement_audit(root,event):
+    """Append a bounded, private, hash-chained local enforcement record."""
+    root=Path(root)
+    if root.is_symlink(): raise ValueError("quarantine_root_symlink")
+    root.mkdir(mode=0o700,parents=True,exist_ok=True); os.chmod(root,0o700)
+    path=root/"audit.json"; records=[]
+    if path.exists():
+        if path.is_symlink() or not path.is_file() or path.stat().st_size>4_000_000 or path.stat().st_mode&0o077: raise ValueError("unsafe_quarantine_audit")
+        value=json.loads(path.read_text(encoding="utf-8")); records=value.get("events",[]) if isinstance(value,dict) else []
+        if not isinstance(records,list) or len(records)>10000: raise ValueError("invalid_quarantine_audit")
+    previous=records[-1]["event_hash"] if records else "0"*64
+    body={**event,"previous_hash":previous}; body["event_hash"]=hashlib.sha256((previous+json.dumps(event,sort_keys=True,separators=(",",":"),ensure_ascii=False)).encode()).hexdigest()
+    records=(records+[body])[-10000:]
+    write_private_atomic(path,json.dumps({"schema":"sentinel.quarantine-audit/v1","events":records},ensure_ascii=False,separators=(",",":")))
+def _disable_local_file(path,kind,object_name,quarantine_root,now=None):
+    path=Path(path); timestamp=int(time.time()) if now is None else int(now); disabled=path.with_name(path.name+".sentinel-disabled")
+    if path.is_symlink() or not path.is_file(): raise ValueError("unsafe_enforcement_target")
+    if disabled.exists() or disabled.is_symlink(): raise ValueError("quarantine_collision")
+    path.rename(disabled)
+    try: _append_enforcement_audit(quarantine_root,{"action":"disable","kind":kind,"object_ref":hashlib.sha256(object_name.encode()).hexdigest()[:16],"original_path":str(path),"disabled_path":str(disabled),"occurred_at":timestamp,"restore_requires_external_approval":True})
+    except Exception:
+        disabled.rename(path); raise
+    return disabled
+def enforce_local_policy(homes,policy,quarantine_root,now=None):
+    """Disable denied Skill manifests and MCP configs without deleting user content."""
+    results=[]; blocked_skills=set(policy.get("blocked_skills",[])); allowed_skills=set(policy.get("allowed_skills",[])); monitored_skills=set(policy.get("monitored_skills",[])); block_unknown_skill=policy.get("enforcement",{}).get("unknown_skill")=="block"; block_unknown_mcp=policy.get("enforcement",{}).get("unknown_mcp")=="block"
+    for home in homes:
+        home=Path(home)
+        for rel in SKILL_ROOTS:
+            root=home/rel
+            if root.is_symlink() or not root.is_dir(): continue
+            for manifest in list(root.glob("*/SKILL.md"))[:500]:
+                name=manifest.parent.name; denied=name in blocked_skills or (block_unknown_skill and name not in allowed_skills and name not in monitored_skills)
+                if not denied: continue
+                try: _disable_local_file(manifest,"skill",name,quarantine_root,now); results.append(finding("skill_quarantined","critical",manifest,"已禁用拒绝或未批准的 Skill；恢复需要外部审批","[REDACTED]"))
+                except (OSError,ValueError,TypeError,json.JSONDecodeError): results.append(finding("skill_quarantine_failed","critical",manifest,"Skill 禁用失败；保持告警并要求终端平台介入"))
+        for rel in AGENT_CONFIGS:
+            config=home/rel
+            if config.is_symlink() or not config.is_file(): continue
+            try:
+                text=config.read_text(errors="ignore"); scan=scan_mcp_config(config,text,policy)
+                denied=any(item["kind"] in {"blocked_mcp","blocked_mcp_fingerprint"} for item in scan) or (block_unknown_mcp and any(item["kind"]=="unknown_mcp" for item in scan))
+                if denied:
+                    _disable_local_file(config,"mcp_config",config.name,quarantine_root,now); results.append(finding("mcp_config_quarantined","critical",config,"包含拒绝 MCP 的配置已整体禁用；恢复需要外部审批","[REDACTED]"))
+            except (OSError,ValueError,TypeError,json.JSONDecodeError): results.append(finding("mcp_quarantine_failed","critical",config,"MCP 配置禁用失败；保持告警并要求终端平台介入"))
+    return results
 def service_health(path,now=None):
     """Validate the fixed service-host health contract without trusting free-form fields."""
     path=Path(path); now=int(time.time() if now is None else now); expected={"schema","host_version","state","service_started_at","updated_at","last_scan_started_at","last_scan_exit_code","scanner","error","arbitrary_command_enabled"}
@@ -480,7 +526,7 @@ def load_reporting_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.45.0"}
+    headers={"Content-Type":"application/json","User-Agent":"SentinelAgent/0.46.0"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")
@@ -539,15 +585,20 @@ def write_upload_status(path,url,now=None):
     if not host: raise ValueError("invalid_upload_status_host")
     value={"schema":"sentinel.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
-def build_report(root,policy,verify_baselines=False):
+def build_report(root,policy,verify_baselines=False,enforce=False,quarantine_root=None):
+    enforcement=[]
+    if enforce:
+        quarantine_root=Path(quarantine_root) if quarantine_root else Path(__file__).with_name("quarantine")
+        enforcement=enforce_local_policy(managed_homes(),policy,quarantine_root)
     inventory,findings=scan(root,policy)
+    findings=enforcement+findings
     if verify_baselines:
         baseline_inventory,baseline_findings=verify_user_baselines(); inventory.extend(baseline_inventory); findings.extend(baseline_findings)
     if len(inventory)>REPORT_INVENTORY_LIMIT:
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"sentinel.report/v1","agent_version":"0.45.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"sentinel.report/v1","agent_version":"0.46.0","policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -571,7 +622,7 @@ def main():
             except Exception: policy_sync_error=True
         policy,reload_failed=reload_policy(args.policy,policy)
         if args.auto_enroll: auto_enroll(root)
-        report=build_report(root,policy,verify_baselines=args.auto_enroll); data=json.dumps(report,ensure_ascii=False,indent=2)
+        report=build_report(root,policy,verify_baselines=args.auto_enroll,enforce=True); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reload_failed:
             add_report_finding(report,finding("policy_reload_failed","high",args.policy,"策略热加载失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reporting_error:

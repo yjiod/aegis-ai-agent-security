@@ -11,7 +11,7 @@ HASH_CONSUMERS={
     "sentinel-security-baseline.md":("install-sentinel.sh","intune-macos-install.sh","intune-macos-compliance.sh","intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
-    "DEPLOYMENT-GUIDE.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","CLIENT-ARCHITECTURE-ROADMAP.md","sentinel-client-control-policy.json","sentinel_client_update_planner.py","sentinel-service-health.schema.json","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
+    "DEPLOYMENT-GUIDE.md","OPERATIONS-MANUAL.md","PRODUCTION-READINESS.md","RULE-UPDATE-GUIDE.md","ENTERPRISE-INTEGRATION-CONTRACT.md","CLIENT-ARCHITECTURE-ROADMAP.md","sentinel-client-control-policy.json","sentinel_client_update_planner.py","sentinel-service-health.schema.json","RELEASE-MANIFEST.sha256","sentinel-policy.json","sentinel-security-baseline.md","sentinel-report.schema.json",
     "sentinel_agent.py","sentinel_collector.py","sentinel-windows.ps1","install-sentinel.sh","intune-windows-detect.ps1",
     "intune-windows-remediate.ps1","intune-compliance-discovery.ps1","intune-compliance-policy.json","intune-macos-install.sh",
     "intune-macos-compliance.sh","intune-macos-compliance-policy.json","rollback-sentinel-windows.ps1","rollback-sentinel-macos.sh",
@@ -20,7 +20,7 @@ BUNDLE_FILES=(
     "sentinel-collector.service","sentinel-collector.env.example","sentinel-collector.nginx.conf","sentinel_collector_maintenance.py","sentinel-collector-maintenance.service","sentinel-collector-maintenance.timer",
     "sentinel-rule-sources.json","sentinel_rule_updater.py","sentinel-rule-update.service","sentinel-rule-update.timer",
     "sentinel_adapter_worker.py","sentinel-adapter-worker.service","sentinel-adapter.env.example","sentinel_4a_interface.py","sentinel_integration_registry.py","sentinel-integration-providers.example.json","sentinel-integration-registry.conf","sentinel_4a_receiver.py","sentinel-4a-receiver.service",
-    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-enroll-windows.ps1","sentinel-enroll-macos.sh","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","sentinel_deployment_preflight.py","deployment-platform-evidence.example.json","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","sentinel_intune_graph_normalize.py","intune-rollout-evidence.example.json","intune-device-export.example.json","intune-graph-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel-enterprise-4a.openapi.json","ENTERPRISE-4A-INTEGRATION.md","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
+    "sentinel-configure-windows.ps1","sentinel-configure-macos.sh","sentinel-enroll-windows.ps1","sentinel-enroll-macos.sh","sentinel-quarantine-restore-windows.ps1","sentinel_quarantine_restore.py","sentinel-device-credentials.example.json","sentinel_device_credentials.py","sentinel_collector_probe.py","sentinel_deployment_preflight.py","deployment-platform-evidence.example.json","intune-deployment-manifest.json","sentinel_intune_preflight.py","sentinel_intune_evidence.py","sentinel_intune_graph_normalize.py","intune-rollout-evidence.example.json","intune-device-export.example.json","intune-graph-export.example.json","sentinel-collector.openapi.json","sentinel-vendor-contracts.json","sentinel-enterprise-4a.openapi.json","ENTERPRISE-4A-INTEGRATION.md","sentinel_vendor_preflight.py","vendor-acceptance-evidence.example.json","sentinel-sign-intune.ps1",
 )
 RELEASE_MANIFEST_FILES=tuple(name for name in BUNDLE_FILES if name!="RELEASE-MANIFEST.sha256")
 
@@ -42,7 +42,7 @@ def verify(downloads):
     try: release=json.loads((downloads/"release.json").read_text())
     except (OSError,ValueError) as exc: return [f"invalid_release_json:{type(exc).__name__}"]
     if not re.fullmatch(r"\d+\.\d+\.\d+",str(release.get("release",""))): errors.append("invalid_release_version")
-    if release.get("component_versions")!={"endpoint_agent":"0.45.0","policy":"5.1.0","collector":"0.24","adapter":"0.19"}: errors.append("release_component_version_drift")
+    if release.get("component_versions")!={"endpoint_agent":"0.46.0","policy":"5.1.0","collector":"0.24","adapter":"0.19"}: errors.append("release_component_version_drift")
     try: release_manifest=parse_digest_manifest(downloads/"RELEASE-MANIFEST.sha256")
     except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_release_manifest:{type(exc).__name__}"); release_manifest={}
     if set(release_manifest)!=set(RELEASE_MANIFEST_FILES): errors.append("release_manifest_file_set_mismatch")
@@ -94,6 +94,10 @@ def verify(downloads):
     except (OSError,UnicodeError) as exc: errors.append(f"invalid_client_architecture_roadmap:{type(exc).__name__}"); client_roadmap=""
     for directive in ("外部平台部署 Sentinel","Sentinel 不安装、不升级、不卸载 MDM、EDR、4A、NAC 或桌管客户端","Windows Service","LaunchDaemon","allow / monitor / deny / unknown","为什么不让 Sentinel 推送其他客户端","何时允许 Sentinel 自更新","自动回滚 + 熔断本版本","不可变安全原则"):
         if directive not in client_roadmap: errors.append(f"incomplete_client_architecture_roadmap:{directive}")
+    try: operations=(downloads/"OPERATIONS-MANUAL.md").read_text(encoding="utf-8")
+    except (OSError,UnicodeError) as exc: errors.append(f"invalid_operations_manual:{type(exc).__name__}"); operations=""
+    for directive in ("安装与首次注册","健康与验收","Skill/MCP 阻断和恢复","升级与回滚","卸载","故障处置","SentinelAgent-Uninstall-Evidence","不得直接晋级生产"):
+        if directive not in operations: errors.append(f"incomplete_operations_manual:{directive}")
     try: client_control=json.loads((downloads/"sentinel-client-control-policy.json").read_text(encoding="utf-8")); update_planner=(downloads/"sentinel_client_update_planner.py").read_text(encoding="utf-8")
     except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_client_control:{type(exc).__name__}"); client_control={}; update_planner=""
     if client_control.get("schema")!="sentinel.client-control/v1" or client_control.get("binary_delivery",{}).get("mode")!="external_managed" or client_control.get("binary_delivery",{}).get("self_update",{}).get("enabled") is not False: errors.append("unsafe_default_binary_delivery")
@@ -171,7 +175,7 @@ def verify(downloads):
     signing=intune.get("signing")
     if state=="pilot_unsigned" and signing is not None: errors.append("unexpected_intune_signing_metadata")
     if state=="production_signed":
-        signable={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","sentinel-configure-windows.ps1","rollback-sentinel-windows.ps1","uninstall-sentinel-windows.ps1"}
+        signable={"intune-windows-detect.ps1","intune-windows-remediate.ps1","intune-compliance-discovery.ps1","sentinel-configure-windows.ps1","sentinel-enroll-windows.ps1","sentinel-quarantine-restore-windows.ps1","rollback-sentinel-windows.ps1","uninstall-sentinel-windows.ps1"}
         if not isinstance(signing,dict) or set(signing)!={"certificate_thumbprint","timestamp_server","signed_at","verified_files"} or not re.fullmatch(r"[0-9a-f]{40}",str(signing.get("certificate_thumbprint",""))) or not str(signing.get("timestamp_server","")).startswith("https://") or isinstance(signing.get("signed_at"),bool) or not isinstance(signing.get("signed_at"),int) or set(signing.get("verified_files",[]))!=signable: errors.append("invalid_intune_signing_metadata")
         for name in signable:
             try: signed=(downloads/name).read_text(errors="ignore")
@@ -320,9 +324,9 @@ def verify(downloads):
         if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
     for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid"):
         if directive not in python_agent: errors.append(f"missing_python_reporting_loader:{directive}")
-    for directive in ('"gemini_cli"','"github_copilot_cli"','".gemini/settings.json"','".copilot/mcp-config.json"','".gemini/GEMINI.md"','".copilot/copilot-instructions.md"','cfg.get("httpUrl"','".gemini/skills"','".copilot/skills"','def verify_user_baselines','"agent_baseline_not_loaded"','"type":"agent_baseline"','SentinelAgent/0.45.0','not path.is_symlink()','if root.is_symlink(): return []','if home.is_symlink() or not home.is_dir(): continue','not marker.is_symlink()','def atomic_managed_write','atomic_managed_write(home,path,updated)','os.fchown','os.fsync(handle.fileno())','os.replace(temp,path)'):
+    for directive in ('"gemini_cli"','"github_copilot_cli"','".gemini/settings.json"','".copilot/mcp-config.json"','".gemini/GEMINI.md"','".copilot/copilot-instructions.md"','cfg.get("httpUrl"','".gemini/skills"','".copilot/skills"','def verify_user_baselines','"agent_baseline_not_loaded"','"type":"agent_baseline"','SentinelAgent/0.46.0','not path.is_symlink()','if root.is_symlink(): return []','if home.is_symlink() or not home.is_dir(): continue','not marker.is_symlink()','def atomic_managed_write','atomic_managed_write(home,path,updated)','os.fchown','os.fsync(handle.fileno())','os.replace(temp,path)'):
         if directive not in python_agent: errors.append(f"missing_python_agent_coverage:{directive}")
-    for directive in ("gemini_cli=@(","github_copilot_cli=@(",".gemini\\GEMINI.md","copilot-instructions.md","$cfg.httpUrl","'.gemini','.copilot'","Get-SentinelUserBaselineStatus","type='agent_baseline'","agent_baseline_not_loaded","agent_version='0.45.0'","foreach ($userHome in $userHomes)","function Get-SentinelUserBaselineStatus([string]$userHomePath","[string]$ManagedUsersRoot = 'C:\\Users'","Get-ChildItem $ManagedUsersRoot","Attributes -band [IO.FileAttributes]::ReparsePoint","function Set-SentinelManagedTextAtomic","$encoding.GetPreamble()","$stream.Write($preamble,0,$preamble.Length)","$stream.Flush($true)","Set-Acl -Path $temp -AclObject $existingAcl","Move-Item -LiteralPath $temp -Destination $target -Force","foreach($secretPattern in @($policy.secret_patterns))","[regex]::new([string]$secretPattern","[TimeSpan]::FromMilliseconds(250)","RegexMatchTimeoutException","scan_rule_timeout","Kind='credential_access'","Kind='dynamic_eval'"):
+    for directive in ("gemini_cli=@(","github_copilot_cli=@(",".gemini\\GEMINI.md","copilot-instructions.md","$cfg.httpUrl","'.gemini','.copilot'","Get-SentinelUserBaselineStatus","type='agent_baseline'","agent_baseline_not_loaded","agent_version='0.46.0'","foreach ($userHome in $userHomes)","function Get-SentinelUserBaselineStatus([string]$userHomePath","[string]$ManagedUsersRoot = 'C:\\Users'","Get-ChildItem $ManagedUsersRoot","Attributes -band [IO.FileAttributes]::ReparsePoint","function Set-SentinelManagedTextAtomic","$encoding.GetPreamble()","$stream.Write($preamble,0,$preamble.Length)","$stream.Flush($true)","Set-Acl -Path $temp -AclObject $existingAcl","Move-Item -LiteralPath $temp -Destination $target -Force","foreach($secretPattern in @($policy.secret_patterns))","[regex]::new([string]$secretPattern","[TimeSpan]::FromMilliseconds(250)","RegexMatchTimeoutException","scan_rule_timeout","Kind='credential_access'","Kind='dynamic_eval'"):
         if directive not in windows_agent: errors.append(f"missing_windows_agent_coverage:{directive}")
     for directive in ('$null=Set-SentinelManagedTextAtomic $repo $target $managed','$null=Set-SentinelManagedTextAtomic $repo $target $updated','$null=Set-SentinelManagedTextAtomic $repo $shared $managed'):
         if directive not in windows_agent: errors.append(f"unsafe_windows_repository_baseline_write:{directive}")
@@ -330,6 +334,22 @@ def verify(downloads):
         if directive not in python_agent: errors.append(f"missing_python_upload_receipt:{directive}")
     for directive in ("function Write-SentinelUploadStatus","sentinel.upload-status/v1","Write-SentinelUploadStatus $ReportUrl"):
         if directive not in windows_agent: errors.append(f"missing_windows_upload_receipt:{directive}")
+    for directive in ("def enforce_local_policy","skill_quarantined","mcp_config_quarantined","sentinel.quarantine-audit/v1","restore_requires_external_approval",".sentinel-disabled","enforce=True"):
+        if directive not in python_agent: errors.append(f"missing_python_active_enforcement:{directive}")
+    for directive in ("function Disable-SentinelTarget","skill_quarantined","mcp_config_quarantined","sentinel.quarantine-event/v1","restore_requires_external_approval=$true",".sentinel-disabled"):
+        if directive not in windows_agent: errors.append(f"missing_windows_active_enforcement:{directive}")
+    try: quarantine_restore=(downloads/"sentinel_quarantine_restore.py").read_text(); quarantine_restore_windows=(downloads/"sentinel-quarantine-restore-windows.ps1").read_text(encoding="utf-8-sig")
+    except (OSError,UnicodeError) as exc: errors.append(f"invalid_quarantine_restore:{type(exc).__name__}"); quarantine_restore=quarantine_restore_windows=""
+    for directive in ("sentinel.quarantine-approval/v1","validate_chain","stale_restore_approval","approval_event_hash","Path(approval_path).unlink()"):
+        if directive not in quarantine_restore: errors.append(f"unsafe_posix_quarantine_restore:{directive}")
+    for directive in ("sentinel.quarantine-approval/v1","Quarantine event is outside the protected audit directory","Stale restore approval","approved_by_ref","Remove-Item -LiteralPath $ApprovalPath"):
+        if directive not in quarantine_restore_windows: errors.append(f"unsafe_windows_quarantine_restore:{directive}")
+    try: uninstall_windows=(downloads/"uninstall-sentinel-windows.ps1").read_text(encoding="utf-8-sig"); uninstall_macos=(downloads/"uninstall-sentinel-macos.sh").read_text()
+    except (OSError,UnicodeError) as exc: errors.append(f"invalid_endpoint_uninstaller:{type(exc).__name__}"); uninstall_windows=uninstall_macos=""
+    for directive in ("Sentinel AI Agent Security Host","SentinelAgent-Uninstall-Evidence","refusing recursive removal","Quarantine evidence and disabled user objects remain"):
+        if directive not in uninstall_windows: errors.append(f"unsafe_windows_uninstaller:{directive}")
+    for directive in ("root is required","com.yjiod.sentinel-agent.plist","SentinelAgent-Uninstall-Evidence","refusing recursive removal","Quarantine evidence and disabled user objects remain"):
+        if directive not in uninstall_macos: errors.append(f"unsafe_macos_uninstaller:{directive}")
     for directive in ("response.read(4097)","collector_ack_too_large","collector_ack_invalid_json","collector_ack_invalid_contract",'set(ack)!={"accepted","duplicate","report_id","severity"}',"expected_report_id=hashlib.sha256(body).hexdigest()[:20]",'ack.get("report_id")!=expected_report_id'):
         if directive not in python_agent: errors.append(f"missing_python_strict_ack:{directive}")
     for directive in ("Invoke-WebRequest -UseBasicParsing","GetByteCount([string]$response.Content)","$ackBytes -gt 4096","Collector acknowledgement contract is invalid","accepted,duplicate,report_id,severity","$expectedReportId","-cne $expectedReportId"):
@@ -338,7 +358,7 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
     for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
-    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"service_health_status(inventory)","def collector_recommendations",'"external_approval_required"',"hashlib.blake2s",'parsed.path=="/v1/recommendations"',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"',"service_health_posture",'item.get("type")=="service_health"','"0.45.0"','"5.1.0"',"SentinelCollector/0.24"):
+    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"service_health_status(inventory)","def collector_recommendations",'"external_approval_required"',"hashlib.blake2s",'parsed.path=="/v1/recommendations"',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"',"service_health_posture",'item.get("type")=="service_health"','"0.46.0"','"5.1.0"',"SentinelCollector/0.24"):
         if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
     try: credential_tool=(downloads/"sentinel_device_credentials.py").read_text(); enroll_windows=(downloads/"sentinel-enroll-windows.ps1").read_text(encoding="utf-8-sig"); enroll_macos=(downloads/"sentinel-enroll-macos.sh").read_text()
     except (OSError,UnicodeError) as exc: errors.append(f"invalid_endpoint_enrollment:{type(exc).__name__}"); credential_tool=enroll_windows=enroll_macos=""

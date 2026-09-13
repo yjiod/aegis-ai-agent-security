@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
-PLIST="/Library/LaunchDaemons/com.company.sentinel-agent.plist"
+if [ "$(id -u)" -ne 0 ]; then echo "root is required" >&2; exit 77; fi
+PLIST="/Library/LaunchDaemons/com.yjiod.sentinel-agent.plist"
 INSTALL_DIR="/Library/Application Support/SentinelAgent"
 if [ -L "$INSTALL_DIR" ]; then echo "Sentinel installation directory is a symlink; refusing recursive removal" >&2; exit 1; fi
 if [ -e "$INSTALL_DIR" ] && [ "$(/usr/bin/stat -f '%u' "$INSTALL_DIR" 2>/dev/null || echo -1)" -ne 0 ]; then echo "Sentinel installation directory is not owned by root; refusing recursive removal" >&2; exit 1; fi
@@ -21,6 +22,13 @@ for home in /Users/*; do
     fi
   done
 done
-rm -f "$PLIST"
-rm -rf "$INSTALL_DIR"
-echo "Sentinel runtime and managed user baseline blocks removed. Repository rule files remain under source control."
+if [ -d "$INSTALL_DIR/quarantine" ]; then
+  EVIDENCE_ROOT="/Library/Application Support/SentinelAgent-Uninstall-Evidence"
+  if [ -L "$EVIDENCE_ROOT" ]; then echo "Uninstall evidence root is a symlink; refusing uninstall" >&2; exit 1; fi
+  /bin/mkdir -p "$EVIDENCE_ROOT"; /usr/sbin/chown root:wheel "$EVIDENCE_ROOT"; /bin/chmod 700 "$EVIDENCE_ROOT"
+  DESTINATION="$EVIDENCE_ROOT/$(/bin/date -u +%Y%m%dT%H%M%SZ)-$$"
+  /bin/mv "$INSTALL_DIR/quarantine" "$DESTINATION"
+fi
+/bin/rm -f "$PLIST"
+/bin/rm -rf "$INSTALL_DIR"
+echo "Sentinel runtime and managed user baseline blocks removed. Quarantine evidence and disabled user objects remain for approved recovery; Repository rule files remain under source control."

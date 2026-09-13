@@ -26,7 +26,7 @@ try {
     $manifestPath=Join-Path $OutputDirectory 'intune-deployment-manifest.json'
     $manifest=Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
     if($manifest.schema -cne 'sentinel.intune-deployment/v1' -or $manifest.execution.script_signature_state -cne 'pilot_unsigned'){throw 'Input bundle is not an unsigned Sentinel Intune release'}
-    $signable=@('intune-windows-detect.ps1','intune-windows-remediate.ps1','intune-compliance-discovery.ps1','sentinel-configure-windows.ps1','rollback-sentinel-windows.ps1','uninstall-sentinel-windows.ps1')
+    $signable=@('intune-windows-detect.ps1','intune-windows-remediate.ps1','intune-compliance-discovery.ps1','sentinel-configure-windows.ps1','sentinel-enroll-windows.ps1','sentinel-quarantine-restore-windows.ps1','rollback-sentinel-windows.ps1','uninstall-sentinel-windows.ps1')
     foreach($name in $signable){
         $path=Join-Path $OutputDirectory $name
         if(-not (Test-Path -LiteralPath $path -PathType Leaf)){throw "Missing signable artifact: $name"}
