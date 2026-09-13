@@ -42,7 +42,7 @@ def verify(downloads):
     try: release=json.loads((downloads/"release.json").read_text())
     except (OSError,ValueError) as exc: return [f"invalid_release_json:{type(exc).__name__}"]
     if not re.fullmatch(r"\d+\.\d+\.\d+",str(release.get("release",""))): errors.append("invalid_release_version")
-    if release.get("component_versions")!={"endpoint_agent":"0.44.0","policy":"5.1.0","collector":"0.22","adapter":"0.19"}: errors.append("release_component_version_drift")
+    if release.get("component_versions")!={"endpoint_agent":"0.44.0","policy":"5.1.0","collector":"0.23","adapter":"0.19"}: errors.append("release_component_version_drift")
     try: release_manifest=parse_digest_manifest(downloads/"RELEASE-MANIFEST.sha256")
     except (OSError,UnicodeError,ValueError) as exc: errors.append(f"invalid_release_manifest:{type(exc).__name__}"); release_manifest={}
     if set(release_manifest)!=set(RELEASE_MANIFEST_FILES): errors.append("release_manifest_file_set_mismatch")
@@ -338,19 +338,21 @@ def verify(downloads):
     except OSError as exc: errors.append(f"invalid_collector:{type(exc).__name__}"); collector_text=""
     for directive in ("receipt_id=hashlib.sha256(body).hexdigest()[:20]",'"report_id":receipt_id'):
         if directive not in collector_text: errors.append(f"missing_collector_receipt_binding:{directive}")
-    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"service_health_status(inventory)","WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"',"service_health_posture",'item.get("type")=="service_health"','"0.44.0"','"5.1.0"',"SentinelCollector/0.22"):
+    for directive in ("def device_credentials(path=None):","sentinel.device-credentials/v1","device_credentials_permissions",'report["device_id"]!=binding[0]',"X-Sentinel-Device-ID","credential_generation_mismatch","device_auth_state","credential_posture","generated_at=int(time.time())","COALESCE(a.last_seen,r.received_at)","parse_qs(parsed.query",'set(query)-{"limit","view"}','view not in {"activation","console"}',"1<=limit<=10000",'"complete":complete','if view=="console"','"severity":rows[index][4]','"agent_version":rows[index][5]','"policy_version":rows[index][6]',"service_health_status(inventory)","def collector_recommendations",'"external_approval_required"',"hashlib.blake2s",'parsed.path=="/v1/recommendations"',"WITH fleet AS","agent_coverage","supported_agents=",'item.get("type")=="ai_agent"',"baseline_coverage",'item.get("type")=="agent_baseline"',"service_health_posture",'item.get("type")=="service_health"','"0.44.0"','"5.1.0"',"SentinelCollector/0.23"):
         if directive not in collector_text: errors.append(f"missing_device_identity_boundary:{directive}")
     try: openapi=json.loads((downloads/"sentinel-collector.openapi.json").read_text())
     except (OSError,ValueError) as exc: errors.append(f"invalid_collector_openapi:{type(exc).__name__}"); openapi={}
     paths=openapi.get("paths",{}) if isinstance(openapi,dict) else {}; components=openapi.get("components",{}) if isinstance(openapi,dict) else {}
-    expected_methods={"/health":{"get"},"/v1/reports":{"post"},"/v1/summary":{"get"},"/v1/policy":{"get"},"/v1/devices":{"get"},"/v1/audit":{"get"}}
-    if openapi.get("openapi")!="3.1.0" or openapi.get("info",{}).get("version")!="0.22.0": errors.append("collector_openapi_version_drift")
+    expected_methods={"/health":{"get"},"/v1/reports":{"post"},"/v1/summary":{"get"},"/v1/recommendations":{"get"},"/v1/policy":{"get"},"/v1/devices":{"get"},"/v1/audit":{"get"}}
+    if openapi.get("openapi")!="3.1.0" or openapi.get("info",{}).get("version")!="0.23.0": errors.append("collector_openapi_version_drift")
     fleet_schema=components.get("schemas",{}).get("FleetSummary",{})
     if "baseline_coverage" not in fleet_schema.get("required",[]) or "baseline_coverage" not in fleet_schema.get("properties",{}): errors.append("collector_openapi_baseline_coverage_drift")
     if "service_health_posture" not in fleet_schema.get("required",[]) or "service_health_posture" not in fleet_schema.get("properties",{}): errors.append("collector_openapi_service_health_posture_drift")
     device_get=paths.get("/v1/devices",{}).get("get",{}); device_parameters={item.get("name"):item for item in device_get.get("parameters",[]) if isinstance(item,dict)}; console_schema=components.get("schemas",{}).get("ConsoleDevice",{}).get("allOf",[{},{}])
     if set(device_parameters)!={"limit","view"} or set(device_parameters.get("view",{}).get("schema",{}).get("enum",[]))!={"activation","console"}: errors.append("collector_openapi_device_view_drift")
     if not isinstance(console_schema,list) or len(console_schema)!=2 or set(console_schema[1].get("required",[]))!={"device_id","last_seen","report_count","credential_generation","severity","agent_version","policy_version","service_health_status"}: errors.append("collector_openapi_console_device_drift")
+    recommendation_schema=components.get("schemas",{}).get("RemediationRecommendation",{}); recommendation_required={"recommendation_id","device_id","reason","recommended_action","approval_state","severity","observed_at","correlation_id"}
+    if set(recommendation_schema.get("required",[]))!=recommendation_required or recommendation_schema.get("properties",{}).get("approval_state")!={"const":"external_approval_required"}: errors.append("collector_openapi_recommendation_drift")
     if set(paths)!=set(expected_methods) or any(set(paths.get(path,{}))!=methods for path,methods in expected_methods.items()): errors.append("collector_openapi_route_drift")
     report_post=paths.get("/v1/reports",{}).get("post",{}); report_responses=report_post.get("responses",{})
     if report_post.get("x-sentinel-max-body-bytes")!=2_000_000 or report_post.get("x-sentinel-signature-input")!="<timestamp>.<device_id>.<raw-body>": errors.append("collector_openapi_signature_drift")
@@ -368,7 +370,7 @@ def verify(downloads):
         if directive not in provisioner: errors.append(f"unsafe_device_credential_provisioner:{directive}")
     try: probe=(downloads/"sentinel_collector_probe.py").read_text()
     except OSError as exc: errors.append(f"invalid_collector_probe:{type(exc).__name__}"); probe=""
-    for directive in ('parser.add_argument("--write-test",action="store_true")','parsed.scheme!="https"','parsed.username or parsed.password or parsed.query or parsed.fragment','expected=(401,)','/v1/devices?limit=10000','X-Sentinel-Device-ID','digest[:20]','expected_duplicate','hmac.compare_digest(token,secret)','MAX_RESPONSE=1_000_000'):
+    for directive in ('parser.add_argument("--write-test",action="store_true")','parsed.scheme!="https"','parsed.username or parsed.password or parsed.query or parsed.fragment','expected=(401,)','/v1/devices?limit=10000','/v1/recommendations','recommendations_contract_invalid','X-Sentinel-Device-ID','digest[:20]','expected_duplicate','hmac.compare_digest(token,secret)','MAX_RESPONSE=1_000_000'):
         if directive not in probe: errors.append(f"unsafe_collector_probe:{directive}")
     archive=downloads/"sentinel-enterprise-bundle.zip"
     try:

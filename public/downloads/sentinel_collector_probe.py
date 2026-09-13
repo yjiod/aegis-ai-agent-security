@@ -41,7 +41,9 @@ def check_read_only(base,token):
     if not isinstance(summary,dict) or set(summary)!=required or type(summary["generated_at"]) is not int or type(summary["total_devices"]) is not int: raise ValueError("summary_contract_invalid")
     _,devices=request_json(endpoint(base,"/v1/devices?limit=10000"),headers)
     if not isinstance(devices,dict) or set(devices)!={"generated_at","complete","devices"} or type(devices["generated_at"]) is not int or type(devices["complete"]) is not bool or not isinstance(devices["devices"],list) or len(devices["devices"])>10000: raise ValueError("devices_contract_invalid")
-    return {"health":True,"unauthorized_rejected":True,"summary":True,"devices":True,"fleet_complete":devices["complete"]}
+    _,recommendations=request_json(endpoint(base,"/v1/recommendations"),headers)
+    if not isinstance(recommendations,dict) or set(recommendations)!={"generated_at","complete","recommendations"} or type(recommendations["generated_at"]) is not int or type(recommendations["complete"]) is not bool or not isinstance(recommendations["recommendations"],list) or len(recommendations["recommendations"])>200: raise ValueError("recommendations_contract_invalid")
+    return {"health":True,"unauthorized_rejected":True,"summary":True,"devices":True,"recommendations":True,"fleet_complete":devices["complete"]}
 
 def check_write(base,token,secret,device_id):
     if not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("invalid_probe_credentials")

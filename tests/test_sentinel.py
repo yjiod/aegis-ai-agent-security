@@ -267,6 +267,8 @@ class SentinelTests(unittest.TestCase):
         devices_route=(ROOT/'app/api/devices/route.ts').read_text(); self.assertIn("new URL('/v1/devices?limit=200&view=console'",devices_route); self.assertIn('262_144',devices_route); self.assertIn('data.devices.length>200',devices_route); self.assertIn('Object.keys(item).length!==8',devices_route); self.assertIn('serviceHealthStatuses',devices_route); self.assertIn('service_health_status',devices_route); self.assertIn('seen.has(item.device_id)',devices_route); self.assertIn('now-generated>900',devices_route); self.assertIn('AbortSignal.timeout(5000)',devices_route); self.assertIn("'Cache-Control':'no-store'",devices_route)
         self.assertIn("fetch('/api/devices'",page)
         self.assertIn('DeviceHealthFilter',page); self.assertIn('action_required',page); self.assertIn('visibleDevices.map',page); self.assertIn('筛选仅改变只读视图，不会向终端下发命令',page); self.assertIn('隔离、卸载或访问限制仍须通过企业审批',page)
+        recommendations_route=(ROOT/'app/api/recommendations/route.ts').read_text(); self.assertIn("new URL('/v1/recommendations'",recommendations_route); self.assertIn('Object.keys(item).length!==8',recommendations_route); self.assertIn("item.approval_state!=='external_approval_required'",recommendations_route); self.assertIn('item.correlation_id!==item.recommendation_id',recommendations_route); self.assertIn('AbortSignal.timeout(5000)',recommendations_route)
+        self.assertIn("fetch('/api/recommendations'",page); self.assertIn('recommendations.map',page); self.assertIn('建议事件包含关联号，可提交企业 4A 审批',page); self.assertNotIn('隔离全部高危',page)
         self.assertIn("fetch('/downloads/release.json'",page); self.assertIn('Object.keys(versions).length!==4',page); self.assertIn('releaseMetadata?.component_versions.policy',page); self.assertNotIn('v4.8',page)
     def test_github_release_gate_uses_native_windows_and_macos_runners(self):
         workflow=(ROOT/'.github/workflows/ci.yml').read_text()
@@ -479,13 +481,14 @@ class SentinelTests(unittest.TestCase):
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
     def test_collector_openapi_matches_runtime_routes_and_security_contract(self):
         spec=json.loads((DOWNLOADS/'sentinel-collector.openapi.json').read_text()); paths=spec['paths']
-        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.22.0')
-        self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/policy':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
+        self.assertEqual(spec['openapi'],'3.1.0'); self.assertEqual(spec['info']['version'],'0.23.0')
+        self.assertEqual({path:set(item) for path,item in paths.items()},{'/health':{'get'},'/v1/reports':{'post'},'/v1/summary':{'get'},'/v1/recommendations':{'get'},'/v1/policy':{'get'},'/v1/devices':{'get'},'/v1/audit':{'get'}})
         post=paths['/v1/reports']['post']; self.assertEqual(post['x-sentinel-max-body-bytes'],2_000_000); self.assertEqual(post['x-sentinel-signature-input'],'<timestamp>.<device_id>.<raw-body>')
         self.assertEqual(post['requestBody']['content']['application/json']['schema'],{'$ref':'sentinel-report.schema.json'}); self.assertEqual(set(post['responses']),{'200','202','400','401','413','429','503'})
         self.assertIn('baseline_coverage',spec['components']['schemas']['FleetSummary']['required'])
         self.assertIn('service_health_posture',spec['components']['schemas']['FleetSummary']['required'])
         self.assertIn('service_health_status',spec['components']['schemas']['ConsoleDevice']['allOf'][1]['required'])
+        self.assertEqual(spec['components']['schemas']['RemediationRecommendation']['properties']['approval_state'],{'const':'external_approval_required'})
         self.assertEqual(spec['components']['securitySchemes']['bearerAuth'],{'type':'http','scheme':'bearer'}); self.assertEqual(paths['/health']['get']['security'],[])
         parameters=spec['components']['parameters']; self.assertEqual([parameters[name]['name'] for name in ('Timestamp','Signature','DeviceId')],['X-Sentinel-Timestamp','X-Sentinel-Signature','X-Sentinel-Device-ID'])
     def test_collector_database_deduplication_support(self):
@@ -552,6 +555,21 @@ class SentinelTests(unittest.TestCase):
                 self.collector.store_report(path,str(index).encode(),report,now=now)
             posture=self.collector.collector_summary(path,now=now)['service_health_posture']
             self.assertEqual(posture,{'healthy':1,'degraded':1,'invalid':2,'missing':1}); self.assertNotIn('path',json.dumps(posture))
+    def test_collector_builds_deterministic_approval_only_recommendations(self):
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=200000
+            samples=[
+                ('critical','critical',[{'type':'service_health','status':'healthy'}]),
+                ('invalid','normal',[{'type':'service_health','status':'unknown'}]),
+                ('healthy','normal',[{'type':'service_health','status':'healthy'}]),
+            ]
+            for device,severity,inventory in samples:
+                body=json.dumps({'inventory':inventory});
+                with self.collector.db_open(path) as db: db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(device,device+'-device',now,severity,body,'0.44.0','5.1.0')); db.commit()
+            first=self.collector.collector_recommendations(path); second=self.collector.collector_recommendations(path)
+            self.assertEqual(len(first['recommendations']),2); self.assertEqual([item['recommendation_id'] for item in first['recommendations']],[item['recommendation_id'] for item in second['recommendations']])
+            by_device={item['device_id']:item for item in first['recommendations']}; self.assertEqual(by_device['critical-device']['recommended_action'],'containment_pending_approval'); self.assertEqual(by_device['invalid-device']['recommended_action'],'verify_integrity')
+            self.assertTrue(all(item['approval_state']=='external_approval_required' and item['correlation_id']==item['recommendation_id'] for item in first['recommendations'])); self.assertNotIn('path',json.dumps(first))
     def test_collector_aggregates_only_minimized_baseline_attestation(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

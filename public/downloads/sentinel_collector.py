@@ -183,6 +183,28 @@ def service_health_status(inventory):
     """Classify only the minimized health attestation; malformed or duplicate evidence fails closed."""
     items=[item.get("status") for item in inventory if isinstance(item,dict) and item.get("type")=="service_health"] if isinstance(inventory,list) else []
     return items[0] if len(items)==1 and items[0] in {"healthy","degraded","invalid"} else "missing" if not items else "invalid"
+def remediation_recommendation(row,required_agent="0.44.0",required_policy="5.1.0"):
+    device_id,observed_at,severity,agent,policy,body=row
+    try: inventory=json.loads(body).get("inventory",[])
+    except (AttributeError,TypeError,ValueError,json.JSONDecodeError): inventory=[]
+    health=service_health_status(inventory)
+    if severity=="critical": reason,action,level="risk_critical","containment_pending_approval","critical"
+    elif severity=="high": reason,action,level="risk_high","access_review_pending","high"
+    elif health=="invalid": reason,action,level="service_health_invalid","verify_integrity","high"
+    elif health=="degraded": reason,action,level="service_health_degraded","repair_service","high"
+    elif health=="missing": reason,action,level="service_health_missing","upgrade_client","high"
+    elif not agent or not policy or agent!=required_agent or policy!=required_policy: reason,action,level="version_drift","upgrade_client","high"
+    else: return None
+    seed=f"{device_id}\0{observed_at}\0{reason}\0{action}".encode(); correlation=hashlib.blake2s(seed,digest_size=20).hexdigest()
+    return {"recommendation_id":correlation,"device_id":device_id,"reason":reason,"recommended_action":action,"approval_state":"external_approval_required","severity":level,"observed_at":observed_at,"correlation_id":correlation}
+def collector_recommendations(db_path,limit=200,required_agent=None,required_policy=None):
+    limit=min(max(int(limit),1),200); required_agent=required_agent or required_version("SENTINEL_REQUIRED_AGENT_VERSION","0.44.0"); required_policy=required_policy or required_version("SENTINEL_REQUIRED_POLICY_VERSION","5.1.0")
+    with db_open(db_path) as db: rows=db.execute("SELECT r.device_id,r.received_at,r.severity,r.agent_version,r.policy_version,r.body FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id ORDER BY r.device_id").fetchall()
+    items=[]
+    for row in rows:
+        item=remediation_recommendation(row,required_agent,required_policy)
+        if item: items.append(item)
+    return {"generated_at":int(time.time()),"complete":len(items)<=limit,"recommendations":items[:limit]}
 def collector_summary(db_path,now=None,active_window=86400,required_agent=None,required_policy=None):
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
@@ -217,7 +239,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     active=sum(received>=now-active_window for received,_,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"agent_coverage":agent_coverage,"baseline_coverage":baseline_coverage,"service_health_posture":service_health_posture}
 class Handler(BaseHTTPRequestHandler):
-    server_version="SentinelCollector/0.22"
+    server_version="SentinelCollector/0.23"
     def reply(self,status,data,headers=None):
         body=json.dumps(data,ensure_ascii=False).encode(); self.send_response(status); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.send_header("Cache-Control","no-store"); self.send_header("X-Content-Type-Options","nosniff")
         for name,value in (headers or {}).items(): self.send_header(name,str(value))
@@ -287,6 +309,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path=="/v1/summary" and not parsed.query:
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+        if parsed.path=="/v1/recommendations" and not parsed.query:
+            try:
+                result=collector_recommendations(self.server.db_path); audit_event(self.server.db_path,"recommendations_read",detail=str(len(result["recommendations"]))); return self.reply(200,result)
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         if parsed.path=="/v1/audit" and not parsed.query:
             try:

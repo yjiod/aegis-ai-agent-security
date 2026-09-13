@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentinel Report Collector API",
-    "version": "0.22.0",
+    "version": "0.23.0",
     "description": "Machine-readable contract for the private Sentinel Collector. Production deployments terminate TLS at the enterprise reverse proxy."
   },
   "servers": [{"url": "https://sentinel-collector.example.internal"}],
@@ -46,6 +46,18 @@
         "operationId": "fleetSummary",
         "responses": {
           "200": {"description": "Latest accepted posture for each device", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FleetSummary"}}}},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/v1/recommendations": {
+      "get": {
+        "operationId": "listRemediationRecommendations",
+        "description": "Returns deterministic, read-only recommendations from each device's latest accepted report. Execution remains outside Sentinel and requires external approval.",
+        "responses": {
+          "200": {"description": "Bounded remediation recommendations", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RecommendationList"}}}},
           "401": {"$ref": "#/components/responses/Unauthorized"},
           "429": {"$ref": "#/components/responses/RateLimited"},
           "503": {"$ref": "#/components/responses/Unavailable"}
@@ -115,6 +127,8 @@
       "AgentCoverage": {"type": "object", "additionalProperties": false, "required": ["total", "active"], "properties": {"total": {"type": "integer", "minimum": 0}, "active": {"type": "integer", "minimum": 0}}},
       "BaselineCoverage": {"type": "object", "additionalProperties": false, "required": ["total", "managed"], "properties": {"total": {"type": "integer", "minimum": 0}, "managed": {"type": "integer", "minimum": 0}}},
       "FleetSummary": {"type": "object", "additionalProperties": false, "required": ["generated_at", "active_window_seconds", "required_agent_version", "required_policy_version", "total_devices", "active_devices", "stale_devices", "latest_severity", "version_posture", "credential_posture", "agent_coverage", "baseline_coverage", "service_health_posture"], "properties": {"generated_at": {"type": "integer"}, "active_window_seconds": {"type": "integer", "minimum": 60, "maximum": 2592000}, "required_agent_version": {"type": "string"}, "required_policy_version": {"type": "string"}, "total_devices": {"type": "integer", "minimum": 0}, "active_devices": {"type": "integer", "minimum": 0}, "stale_devices": {"type": "integer", "minimum": 0}, "latest_severity": {"$ref": "#/components/schemas/CountMap"}, "version_posture": {"$ref": "#/components/schemas/CountMap"}, "credential_posture": {"$ref": "#/components/schemas/CountMap"}, "agent_coverage": {"type": "object", "additionalProperties": {"$ref": "#/components/schemas/AgentCoverage"}}, "baseline_coverage": {"type": "object", "additionalProperties": {"$ref": "#/components/schemas/BaselineCoverage"}}, "service_health_posture": {"type": "object", "additionalProperties": false, "required": ["healthy", "degraded", "invalid", "missing"], "properties": {"healthy": {"type": "integer", "minimum": 0}, "degraded": {"type": "integer", "minimum": 0}, "invalid": {"type": "integer", "minimum": 0}, "missing": {"type": "integer", "minimum": 0}}}}},
+      "RemediationRecommendation": {"type":"object","additionalProperties":false,"required":["recommendation_id","device_id","reason","recommended_action","approval_state","severity","observed_at","correlation_id"],"properties":{"recommendation_id":{"type":"string","pattern":"^[0-9a-f]{40}$"},"device_id":{"type":"string","minLength":8,"maxLength":128},"reason":{"enum":["risk_critical","risk_high","service_health_invalid","service_health_degraded","service_health_missing","version_drift"]},"recommended_action":{"enum":["containment_pending_approval","access_review_pending","verify_integrity","repair_service","upgrade_client"]},"approval_state":{"const":"external_approval_required"},"severity":{"enum":["high","critical"]},"observed_at":{"type":"integer"},"correlation_id":{"type":"string","pattern":"^[0-9a-f]{40}$"}}},
+      "RecommendationList": {"type":"object","additionalProperties":false,"required":["generated_at","complete","recommendations"],"properties":{"generated_at":{"type":"integer"},"complete":{"type":"boolean"},"recommendations":{"type":"array","maxItems":200,"items":{"$ref":"#/components/schemas/RemediationRecommendation"}}}},
       "AuditEvent": {"type": "object", "additionalProperties": false, "required": ["event", "occurred_at", "device_id", "detail"], "properties": {"event": {"type": "string", "maxLength": 64}, "occurred_at": {"type": "integer"}, "device_id": {"type": "string", "maxLength": 128}, "detail": {"type": "string", "maxLength": 256}}},
       "AuditEvents": {"type": "object", "additionalProperties": false, "required": ["events"], "properties": {"events": {"type": "array", "maxItems": 200, "items": {"$ref": "#/components/schemas/AuditEvent"}}}}
     }

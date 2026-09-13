@@ -88,6 +88,7 @@ type FleetSummary = {
 };
 type FleetDevice = { device_id:string; last_seen:number; report_count:number; credential_generation:'current'|'previous'|'legacy'; severity:'normal'|'high'|'critical'; agent_version:string; policy_version:string; service_health_status:'healthy'|'degraded'|'invalid'|'missing' };
 type DeviceHealthFilter = 'all'|'action_required'|FleetDevice['service_health_status'];
+type RemediationRecommendation = { recommendation_id:string; device_id:string; reason:'risk_critical'|'risk_high'|'service_health_invalid'|'service_health_degraded'|'service_health_missing'|'version_drift'; recommended_action:'containment_pending_approval'|'access_review_pending'|'verify_integrity'|'repair_service'|'upgrade_client'; approval_state:'external_approval_required'; severity:'high'|'critical'; observed_at:number; correlation_id:string };
 type ReleaseMetadata = { release:string; component_versions:{endpoint_agent:string;policy:string;collector:string;adapter:string} };
 
 export default function Home() {
@@ -95,6 +96,7 @@ export default function Home() {
   const [detail, setDetail] = useState<DetailKey | null>(null);
   const [fleet, setFleet] = useState<FleetSummary | null>(null);
   const [fleetDevices, setFleetDevices] = useState<FleetDevice[] | null>(null);
+  const [recommendations,setRecommendations]=useState<RemediationRecommendation[] | null>(null);
   const [releaseMetadata, setReleaseMetadata] = useState<ReleaseMetadata | null>(null);
   const [collectorState, setCollectorState] = useState<'checking' | 'live' | 'unavailable'>('checking');
   function runScan() {
@@ -119,6 +121,7 @@ export default function Home() {
         if (!value.connected || !Array.isArray(value.devices)) throw new Error('collector disconnected');
         setFleetDevices(value.devices);
       }).catch(() => setFleetDevices(null));
+    fetch('/api/recommendations',{cache:'no-store',signal:controller.signal}).then(async(response)=>{if(!response.ok)throw new Error('collector unavailable');const value=(await response.json()) as {connected?:boolean;recommendations?:RemediationRecommendation[]};if(!value.connected||!Array.isArray(value.recommendations))throw new Error('collector disconnected');setRecommendations(value.recommendations)}).catch(()=>setRecommendations(null));
     fetch('/downloads/release.json', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error('release unavailable');
@@ -424,6 +427,7 @@ export default function Home() {
           notify={setToast}
           fleet={fleet}
           fleetDevices={fleetDevices}
+          recommendations={recommendations}
           releaseMetadata={releaseMetadata}
         />
       )}
@@ -462,6 +466,7 @@ function DetailPanel({
   notify,
   fleet,
   fleetDevices,
+  recommendations,
   releaseMetadata,
 }: {
   view: DetailKey;
@@ -469,6 +474,7 @@ function DetailPanel({
   notify: (s: string) => void;
   fleet: FleetSummary | null;
   fleetDevices: FleetDevice[] | null;
+  recommendations: RemediationRecommendation[] | null;
   releaseMetadata: ReleaseMetadata | null;
 }) {
   const scanner = view === 'skills' || view === 'mcp' || view === 'quality';
@@ -631,13 +637,18 @@ function DetailPanel({
             <div className="panel-head">
               <div>
                 <h2>待研判事件</h2>
-                <p>风险事件明细接口待接入</p>
+                <p>{recommendations ? `${recommendations.length} 条确定性处置建议 · 仅基于最新终端报告` : 'Collector 处置建议暂不可用'}</p>
               </div>
-              <Button onClick={() => notify('EDR 审批接口尚未启用，未隔离任何对象。')}>
-                隔离全部高危
+              <Button onClick={() => notify('建议事件包含关联号，可提交企业 4A 审批；控制台未执行任何终端动作。')}>
+                查看审批边界
               </Button>
             </div>
-            <div className="empty-detail"><ShieldCheck size={32}/><h3>暂无真实事件明细</h3><p>当前仅展示 Collector 提供的聚合风险数量。</p></div>
+            {recommendations?.length ? <DataTable rows={recommendations.map((item)=>[
+              item.device_id,
+              item.reason==='risk_critical'?'严重发现':item.reason==='risk_high'?'高危发现':item.reason==='service_health_invalid'?'健康证明无效':item.reason==='service_health_degraded'?'统一宿主降级':item.reason==='service_health_missing'?'宿主状态未上报':'客户端或策略漂移',
+              item.recommended_action==='containment_pending_approval'?'建议隔离（待审批）':item.recommended_action==='access_review_pending'?'建议访问复核（待审批）':item.recommended_action==='verify_integrity'?'核验客户端完整性':item.recommended_action==='repair_service'?'通过终端平台修复服务':'升级受管客户端',
+              `${item.severity==='critical'?'严重':'高危'} · 外部审批 · ${item.correlation_id.slice(0,10)}`,
+            ])}/> : <div className="empty-detail"><ShieldCheck size={32}/><h3>{recommendations ? '暂无待处置建议' : '处置建议暂不可用'}</h3><p>{recommendations ? '最新终端状态未触发建议；控制台不会填充样例事件。' : 'Collector 未连接或返回契约无效，未使用聚合数量伪造明细。'}</p></div>}
           </div>
         )}
         {view === 'baseline' && (
