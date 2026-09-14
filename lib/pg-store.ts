@@ -186,19 +186,31 @@ export function pgDeleteDevice(deviceId: string): void {
 }
 
 export function pgUpsertTicket(t: Ticket): void {
-  scheduleWrite('upsertTicket', (c) =>
-    c.query(
-      `INSERT INTO tickets(ticket_id,title,severity,status,source,device_id,description,finding_ref,assignee,created_at,updated_at,resolved_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT(ticket_id) DO UPDATE SET title=$2,severity=$3,status=$4,source=$5,device_id=$6,description=$7,finding_ref=$8,assignee=$9,updated_at=$11,resolved_at=$12`,
-      [t.ticket_id, t.title, t.severity, t.status, t.source, t.device_id, t.description ?? null, t.finding_ref ?? null, t.assignee ?? null, t.created_at, t.updated_at, t.resolved_at ?? null],
-    ),
-  );
-  for (const hEntry of t.history ?? []) {
-    scheduleWrite('ticketHistory', (c) =>
-      c.query('INSERT INTO ticket_history(ticket_id,action,actor,ts,note) VALUES($1,$2,$3,$4,$5)', [t.ticket_id, hEntry.action, hEntry.actor, hEntry.timestamp, hEntry.note ?? null]),
-    );
-  }
+  // 单连接 + 单事务写入工单及其历史：避免「每条历史开一个新连接」导致的连接风暴
+  // (too many clients already)，并用「先删后插」保证历史幂等，杜绝重复累积。
+  const history = t.history ?? [];
+  scheduleWrite('upsertTicket', async (c) => {
+    try {
+      await c.query('BEGIN');
+      await c.query(
+        `INSERT INTO tickets(ticket_id,title,severity,status,source,device_id,description,finding_ref,assignee,created_at,updated_at,resolved_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT(ticket_id) DO UPDATE SET title=$2,severity=$3,status=$4,source=$5,device_id=$6,description=$7,finding_ref=$8,assignee=$9,updated_at=$11,resolved_at=$12`,
+        [t.ticket_id, t.title, t.severity, t.status, t.source, t.device_id, t.description ?? null, t.finding_ref ?? null, t.assignee ?? null, t.created_at, t.updated_at, t.resolved_at ?? null],
+      );
+      await c.query('DELETE FROM ticket_history WHERE ticket_id=$1', [t.ticket_id]);
+      for (const hEntry of history) {
+        await c.query(
+          'INSERT INTO ticket_history(ticket_id,action,actor,ts,note) VALUES($1,$2,$3,$4,$5)',
+          [t.ticket_id, hEntry.action, hEntry.actor, hEntry.timestamp, hEntry.note ?? null],
+        );
+      }
+      await c.query('COMMIT');
+    } catch (err) {
+      try { await c.query('ROLLBACK'); } catch { /* ignore rollback failure */ }
+      throw err;
+    }
+  });
 }
 
 export function pgInsertAudit(a: AuditEntry): void {
