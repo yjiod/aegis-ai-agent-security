@@ -27,11 +27,25 @@ def validate_policy(data):
     invocations=data.get("allowed_mcp_invocations",[])
     if not isinstance(invocations,list) or any(not isinstance(item,list) or len(item)<2 or any(not isinstance(value,str) or not value for value in item) for item in invocations): raise ValueError("invalid_mcp_invocations")
     return data
-def load_policy(path):
+def canonical_json(obj):
+    # 必须与控制台 lib/policy.ts 的 canonicalJson 逐字节一致：递归排序 key + 紧凑分隔符 + 不转义非 ASCII。
+    return json.dumps(obj,sort_keys=True,separators=(",",":"),ensure_ascii=False)
+def verify_policy_signature(data,key):
+    sig=data.get("signature")
+    if not isinstance(sig,str) or not sig: return False
+    body={k:v for k,v in data.items() if k not in ("signature","signing_key_id")}
+    expected=hmac.new(key.encode(),canonical_json(body).encode("utf-8"),hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected,sig)
+def load_policy(path,verify_key=None):
     data=json.loads(Path(path).read_text())
-    return validate_policy(data)
-def reload_policy(path,current=None):
-    try: return load_policy(path),False
+    data=validate_policy(data)
+    if "signature" in data:
+        key=verify_key if verify_key is not None else os.getenv("AEGIS_POLICY_VERIFY_KEY","")
+        if not key: raise ValueError("policy_signed_but_no_verify_key")
+        if not verify_policy_signature(data,key): raise ValueError("policy_signature_invalid")
+    return data
+def reload_policy(path,current=None,verify_key=None):
+    try: return load_policy(path,verify_key),False
     except (OSError,ValueError,RecursionError,UnicodeError): return current,True
 AGENT_HOME_MARKERS={
     "cursor":[".cursor/mcp.json","Library/Application Support/Cursor/User/settings.json",".config/Cursor/User/settings.json"],

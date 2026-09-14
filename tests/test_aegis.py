@@ -45,6 +45,41 @@ class AegisTests(unittest.TestCase):
             report={'findings':[{'kind':'x','severity':'low'}]*self.agent.REPORT_FINDING_LIMIT,'summary':{}}
             self.agent.add_report_finding(report,{'kind':'policy_reload_failed','severity':'high'})
             self.assertEqual(len(report['findings']),self.agent.REPORT_FINDING_LIMIT); self.assertEqual(report['findings'][-1]['kind'],'policy_reload_failed'); self.assertEqual(report['summary']['high'],1)
+    def test_policy_signature_verification_and_cross_language_canonical(self):
+        # 跨语言对拍固定样本：控制台 JS canonicalJson+HMAC(key='test-policy-key-0123456789') 的签名。
+        body={"schema":"aegis.policy/v1","version":"1.0.0","limits":{"project_files":10000,"max_file_bytes":1000000,"inventory_items":5000,"findings":10000},"enforcement":{"unknown_skill":"block","unknown_mcp":"audit","critical_finding":"block"},"allowed_skills":["alpha-skill","beta-skill"],"allowed_mcp_transports":["stdio","https"],"allowed_mcp_servers":["github","postgres"],"allowed_mcp_commands":["node","python3"],"allowed_mcp_command_paths":["/opt/bin/node_repl"],"allowed_mcp_invocations":[],"allowed_mcp_domains":[],"blocked_commands":["curl * | sh","rm -rf"],"secret_patterns":["AKIA[0-9A-Z]{16}"],"skill_rules":["unknown_skill"],"mcp_rules":["unknown_mcp"],"code_rules":["hardcoded_secret"],"scan_mode":"standard"}
+        key="test-policy-key-0123456789"
+        js_sig="06bd6a5e191ef7540bb8098dc3d4bad82bef3cc8a172fd4e0dfd6b01cd64beee"
+        # (1) Python 规范化 + HMAC 必须与 JS 逐字节一致
+        self.assertEqual(self.agent.canonical_json(body), self.agent.canonical_json(json.loads(json.dumps(body,sort_keys=True))))
+        signed={**body,"signature":js_sig,"signing_key_id":"fixture"}
+        self.assertTrue(self.agent.verify_policy_signature(signed,key))
+        # 自洽：Python 自己算的签名也等于该固定值
+        import hmac as _hmac, hashlib as _hashlib
+        self.assertEqual(_hmac.new(key.encode(),self.agent.canonical_json(body).encode("utf-8"),_hashlib.sha256).hexdigest(), js_sig)
+        # (2) 篡改 body → 验签失败
+        tampered={**body,"allowed_skills":["alpha-skill","beta-skill","evil-skill"],"signature":js_sig,"signing_key_id":"fixture"}
+        self.assertFalse(self.agent.verify_policy_signature(tampered,key))
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'policy.json'
+            # (3) 正确密钥加载成功
+            path.write_text(json.dumps(signed))
+            loaded=self.agent.load_policy(path,verify_key=key)
+            self.assertEqual(loaded['version'],"1.0.0")
+            # 错误密钥 → 拒绝
+            with self.assertRaises(ValueError): self.agent.load_policy(path,verify_key="wrong-key")
+            # 无密钥（签名件）→ 拒绝
+            with patch.dict(os.environ,{},clear=False):
+                os.environ.pop("AEGIS_POLICY_VERIFY_KEY",None)
+                with self.assertRaises(ValueError): self.agent.load_policy(path)
+            # (4) 篡改后热加载 fail-safe 回退 last-known-good
+            path.write_text(json.dumps(tampered))
+            retained,failed=self.agent.reload_policy(path,loaded,verify_key=key)
+            self.assertTrue(failed); self.assertIs(retained,loaded)
+            # (5) 未签名策略无需密钥仍可加载（向后兼容）
+            path.write_text(json.dumps(body))
+            unsigned=self.agent.load_policy(path)
+            self.assertEqual(unsigned['version'],"1.0.0")
     def test_scan_and_report_limits_are_enforced(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
