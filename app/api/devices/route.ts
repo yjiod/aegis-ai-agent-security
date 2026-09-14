@@ -11,8 +11,8 @@
  */
 
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
-import { getDeviceStore } from '@/lib/store';
+import { requireAdmin, getSession } from '@/lib/auth';
+import { getDeviceStore, logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -136,6 +136,7 @@ export async function POST(request: Request) {
     findings_summary: { critical: 0, high: 0, medium: 0, low: 0 },
   };
   store.set(device_id, device);
+  logAudit({ actor: getSession(request)?.subject ?? 'console', action: 'device:create', resource_type: 'device', resource_id: device_id, detail: `注册终端 ${hostname}（负责人 ${owner}）` });
   return json({ device }, 201);
 }
 
@@ -171,6 +172,7 @@ export async function PUT(request: Request) {
   if (body.notes !== undefined) existing.notes = String(body.notes).slice(0, 500) || undefined;
 
   store.set(device_id, existing);
+  logAudit({ actor: getSession(request)?.subject ?? 'console', action: 'device:update', resource_type: 'device', resource_id: device_id, detail: `更新终端 ${device_id} 登记信息` });
   return json({ device: existing });
 }
 
@@ -184,5 +186,6 @@ export async function DELETE(request: Request) {
   const store = getDeviceStore();
   if (!store.has(device_id)) return json({ error: 'device_not_found' }, 404);
   store.delete(device_id);
+  logAudit({ actor: getSession(request)?.subject ?? 'console', action: 'device:delete', resource_type: 'device', resource_id: device_id, detail: `从注册表移除终端 ${device_id}` });
   return json({ deleted: true, device_id });
 }

@@ -144,6 +144,8 @@ MDM 修复脚本先把新版本下载到受限暂存目录，校验扫描器、�
 
 Agent 0.31.0 收口逐设备入网的终端侧：Agent 现在按优先级解析上报凭据——`--enrollment-config`（或 `AEGIS_ENROLLMENT_CONFIG`）指定的每设备文件 > `--enrollment-dir`（或 `AEGIS_ENROLLMENT_DIR`）下与本机 `device_id` 同名的 `<device_id>.json` > 全网 `reporting.json`（向后兼容）。每设备入网文件为 `aegis.device-enrollment/v1`，与全网配置同等加固：拒绝符号链接、要求 0600 普通文件、属主为 root 或当前 euid、`device_id` 必须匹配 `[0-9a-f]{12}`、Token/HMAC 为互不相等的 32–4096 字符串。若入网文件的 `device_id` 与本机派生 ID 不符，Agent 产生 `enrollment_device_mismatch` 高危项并拒绝本轮上报；入网文件权限/属主/契约无效则产生 `enrollment_config_invalid`——两种情况都**绝不静默回退到全网共享密钥**。至此第三阶段可真正执行：用 `aegis_device_credentials.py` 为每台设备生成 enrollment 文件，经 MDM 分发到终端，并让 Agent 以 `--enrollment-dir` 指向该目录即可启用每设备独立凭据。
 
+强制已签名策略（fail-closed，默认关闭）：默认情况下 Agent 仍接受未签名策略以兼容存量机群；当某机群已完成签名密钥分发后，可强制"只接受已签名策略"。该开关**只来自带外可信源、绝不读取（可能未签名的）策略体本身**，否则攻击者可自行降级——来源二选一：每设备入网文件的可选布尔字段 `require_signed_policy`，或环境变量 `AEGIS_REQUIRE_SIGNED_POLICY=1`（入网配置优先于 env）。开启后，未签名策略会被拒绝：冷启动时 Agent 直接退出（`valid Aegis policy is required`）；热加载时 fail-safe 回退上一份有效签名策略，并产出 `policy_reload_failed` 高危项（注明已启用强制验签）。这堵住了"能写本地策略文件者丢弃签名、放宽 `blocked_commands`/`allowed_*` 来静默降级强制力"的攻击。建议先用 `/api/policy/posture` 确认全部终端已在签名发布版本上，再经 MDM 灰度开启。
+
 0.59.0 提供离线 `aegis_device_credentials.py`。以受管终端的 12 位 `device_id` 列表运行，并同时指定服务端清单和独立 enrollment 目录；工具使用系统 CSPRNG 生成每台设备互不复用的 Token/HMAC，原子写入 0600 文件，标准输出只含设备 ID 与计数，不含密钥。`--rotate` 生成新凭据并只保留上一代作为重叠窗口，先准备 endpoint enrollment 文件、最后切换服务端清单；完成 MDM 受保护变量分发并确认新凭据活跃后，使用 `--prune-old` 删除旧代。部署服务端清单时再设置 `root:aegis` 0640；enrollment 目录属于敏感暂存物，导入 MDM 后应按企业密钥介质流程销毁，不得提交 Git、工单或聊天。
 
 0.60.0 修复在线轮换的文件元数据边界。新清单仍以 0600 创建；如果目标清单已存在且是合规的 0600 或 `root:aegis` 0640 普通文件，原子替换会保留其 owner、group 和 mode。替换前无法保留任一元数据时操作失败且旧清单不变，避免轮换后 Collector 因属组或读取位丢失而停服。Collector 与生成器均只接受精确 0600/0640，不再接受其他“看似私有”但不符合部署契约的模式。

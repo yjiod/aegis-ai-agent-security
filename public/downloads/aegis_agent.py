@@ -59,16 +59,21 @@ def verify_policy_signature(data,key_or_ring=None):
     for k in order:
         if hmac.compare_digest(hmac.new(ring[k].encode(),canon,hashlib.sha256).hexdigest(),sig): return True
     return False
-def load_policy(path,verify_key=None):
+def load_policy(path,verify_key=None,require_signature=False):
     data=json.loads(Path(path).read_text())
     data=validate_policy(data)
     if "signature" in data:
         ring={"default":verify_key} if verify_key else policy_verify_keyring()
         if not ring: raise ValueError("policy_signed_but_no_verify_key")
         if not verify_policy_signature(data,ring): raise ValueError("policy_signature_invalid")
+    elif require_signature:
+        # fail-closed：要求已签名时，缺签名字段即拒绝——防止能写本地策略文件的攻击者
+        # 丢掉签名、放宽 blocked_commands/allowed_* 来静默降级强制力。require 标志只来自
+        # 带外可信源（入网配置/env），绝不来自（可能未签名的）策略体本身。
+        raise ValueError("policy_signature_required")
     return data
-def reload_policy(path,current=None,verify_key=None):
-    try: return load_policy(path,verify_key),False
+def reload_policy(path,current=None,verify_key=None,require_signature=False):
+    try: return load_policy(path,verify_key,require_signature),False
     except (OSError,ValueError,RecursionError,UnicodeError): return current,True
 AGENT_HOME_MARKERS={
     "cursor":[".cursor/mcp.json","Library/Application Support/Cursor/User/settings.json",".config/Cursor/User/settings.json"],
@@ -473,7 +478,8 @@ def load_enrollment_config(path):
     if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077: raise ValueError("enrollment_config_permissions")
     if hasattr(os,"geteuid") and info.st_uid not in {0,os.geteuid()}: raise ValueError("enrollment_config_owner")
     value=json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value,dict) or set(value)!={"schema","device_id","report_token","signing_secret"} or value.get("schema")!="aegis.device-enrollment/v1": raise ValueError("enrollment_config_contract")
+    if not isinstance(value,dict) or (set(value)-{"require_signed_policy"})!={"schema","device_id","report_token","signing_secret"} or value.get("schema")!="aegis.device-enrollment/v1": raise ValueError("enrollment_config_contract")
+    if "require_signed_policy" in value and not isinstance(value["require_signed_policy"],bool): raise ValueError("enrollment_config_contract")
     if not isinstance(value.get("device_id"),str) or not re.fullmatch(r"[0-9a-f]{12}",value["device_id"]): raise ValueError("enrollment_config_device_id")
     token=value.get("report_token"); secret=value.get("signing_secret")
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("enrollment_config_secrets")
@@ -594,9 +600,6 @@ def maybe_self_update(policy, report_url):
 def main():
     ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); ap.add_argument("--enrollment-config",default=os.getenv("AEGIS_ENROLLMENT_CONFIG","")); ap.add_argument("--enrollment-dir",default=os.getenv("AEGIS_ENROLLMENT_DIR","")); args=ap.parse_args()
     host_device_id=hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
-    policy,policy_error=reload_policy(args.policy); root=Path(args.scan_path).resolve()
-    if policy_error or policy is None: raise SystemExit("valid Aegis policy is required")
-    maybe_self_update(policy, args.report_url)
     # 每设备入网凭据优先：显式 --enrollment-config > --enrollment-dir/<本机device_id>.json > 全网 reporting.json(向后兼容)。
     enroll_path=args.enrollment_config
     if not enroll_path and args.enrollment_dir:
@@ -608,6 +611,15 @@ def main():
             enrollment=load_enrollment_config(enroll_path)
             if enrollment["device_id"]!=host_device_id: enrollment_mismatch=True; enrollment=None
         except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): enrollment_error=True; enrollment=None
+    # 强制验签开关只来自带外可信源（入网配置 require_signed_policy 优先，其次 env），
+    # 绝不来自（可能未签名的）策略体本身，避免攻击者自行降级。默认 False 保持向后兼容。
+    if enrollment is not None and isinstance(enrollment.get("require_signed_policy"),bool):
+        require_signature=enrollment["require_signed_policy"]
+    else:
+        require_signature=os.getenv("AEGIS_REQUIRE_SIGNED_POLICY","").strip().lower() in {"1","true","yes"}
+    policy,policy_error=reload_policy(args.policy,require_signature=require_signature); root=Path(args.scan_path).resolve()
+    if policy_error or policy is None: raise SystemExit("valid Aegis policy is required")
+    maybe_self_update(policy, args.report_url)
     # 仅在未启用每设备入网时回退全网 reporting；入网凭据无效/不符时拒报，绝不静默回退全网共享密钥。
     reporting=None; reporting_error=False
     if enrollment is None and not enrollment_error and not enrollment_mismatch:
@@ -619,11 +631,11 @@ def main():
             except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): reporting_error=True; args.report_url=""
     if args.install_baseline: install_baseline(root)
     while True:
-        policy,reload_failed=reload_policy(args.policy,policy)
+        policy,reload_failed=reload_policy(args.policy,policy,require_signature=require_signature)
         if args.auto_enroll: auto_enroll(root)
         report=build_report(root,policy); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reload_failed:
-            add_report_finding(report,finding("policy_reload_failed","high",args.policy,"策略热加载失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
+            add_report_finding(report,finding("policy_reload_failed","high",args.policy,("策略热加载失败（已启用强制验签：缺签名/验签失败/解析错误），继续使用上一份有效签名策略" if require_signature else "策略热加载失败，继续使用上一份有效策略"))); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reporting_error:
             add_report_finding(report,finding("reporting_config_invalid","high",args.report_config,"受保护上报配置权限、所有者或契约无效；本轮拒绝上报")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if enrollment_error:

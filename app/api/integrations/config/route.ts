@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
 import { getIntegrationsConfig, setIntegrationConfig } from '@/lib/integrations';
+import { logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -43,5 +44,6 @@ export async function PUT(request: Request) {
     if (typeof body[k] === 'string') patch[k] = String(body[k]);
   }
   setIntegrationConfig(patch, session?.subject ?? 'console');
+  logAudit({ actor: session?.subject ?? 'console', action: 'integrations:config', resource_type: 'system', detail: `更新集成配置键：[${Object.keys(patch).join(', ')}]（值不记录）` });
   return NextResponse.json({ updated: Object.keys(patch) }, { headers: NO_STORE });
 }

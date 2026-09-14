@@ -124,6 +124,33 @@ class AegisTests(unittest.TestCase):
             tampered={**artifact,"allowed_skills":["alpha-skill","evil"]}
             p.write_text(json.dumps(tampered,ensure_ascii=False))
             with self.assertRaises(ValueError): self.agent.load_policy(p,verify_key=key)
+    def test_require_signed_policy_fail_closed(self):
+        import hmac as _hmac, hashlib as _hashlib
+        body={"schema":"aegis.policy/v1","version":"4.9.0","limits":{"project_files":10000,"max_file_bytes":1000000,"inventory_items":5000,"findings":10000},"enforcement":{"unknown_skill":"block"},"allowed_skills":["s"],"allowed_mcp_transports":["stdio"],"allowed_mcp_servers":["github"],"allowed_mcp_commands":["node"],"allowed_mcp_command_paths":[],"allowed_mcp_invocations":[],"allowed_mcp_domains":[],"blocked_commands":["rm -rf"],"secret_patterns":[],"skill_rules":["unknown_skill"],"mcp_rules":["unknown_mcp"],"code_rules":["hardcoded_secret"],"scan_mode":"standard"}
+        key="require-key-0123456789"
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'pol.json'; p.write_text(json.dumps(body))
+            # (1) require=False → 未签名仍可加载（向后兼容）
+            self.assertEqual(self.agent.load_policy(p)["version"],"4.9.0")
+            # (2) require=True → 未签名拒载
+            with self.assertRaisesRegex(ValueError,"policy_signature_required"): self.agent.load_policy(p,require_signature=True)
+            # (3) 合法签名 + require=True → 加载
+            sig=_hmac.new(key.encode(),self.agent.canonical_json(body).encode("utf-8"),_hashlib.sha256).hexdigest()
+            p.write_text(json.dumps({**body,"signature":sig,"signing_key_id":"k1"}))
+            self.assertEqual(self.agent.load_policy(p,verify_key=key,require_signature=True)["version"],"4.9.0")
+            # (4) 篡改 + require → 验签失败
+            p.write_text(json.dumps({**body,"allowed_skills":["s","evil"],"signature":sig,"signing_key_id":"k1"}))
+            with self.assertRaisesRegex(ValueError,"policy_signature_invalid"): self.agent.load_policy(p,verify_key=key,require_signature=True)
+            # (5) 热重载 fail-safe：require 下未签名 → 保留上一份有效策略
+            p.write_text(json.dumps(body)); cur={"version":"4.9.0"}
+            kept,failed=self.agent.reload_policy(p,cur,require_signature=True)
+            self.assertTrue(failed); self.assertIs(kept,cur)
+            # (6) 入网配置可选 require_signed_policy：bool 接受，非 bool 拒绝
+            ep=Path(d)/'e.json'; did="0"*12
+            ep.write_text(json.dumps({"schema":"aegis.device-enrollment/v1","device_id":did,"report_token":"T"*48,"signing_secret":"S"*48,"require_signed_policy":True})); ep.chmod(0o600)
+            self.assertTrue(self.agent.load_enrollment_config(ep)["require_signed_policy"])
+            ep.write_text(json.dumps({"schema":"aegis.device-enrollment/v1","device_id":did,"report_token":"T"*48,"signing_secret":"S"*48,"require_signed_policy":"yes"})); ep.chmod(0o600)
+            with self.assertRaisesRegex(ValueError,"enrollment_config_contract"): self.agent.load_enrollment_config(ep)
     def test_custom_scan_mode_empty_rules_falls_back_to_code_rules(self):
         text="import pickle\nobj = pickle.loads(payload)\n"; p=Path("x.py")
         def kinds(pol): return {f["kind"] for f in self.agent.scan_text(p,text,pol)}
