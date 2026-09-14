@@ -39,6 +39,39 @@ async function resolve(context: RouteContext): Promise<{ ticket: Ticket } | { re
   return { ticket };
 }
 
+interface CollectorFinding {
+  kind?: string;
+  path?: string;
+  severity?: string;
+}
+
+/**
+ * 拉取某设备最新扫描的 findings（Collector /v1/findings），用于回执的服务端证据核验。
+ * 接收器未配置/不可达时返回 reachable:false（调用方据此诚实降级，不阻断人工回执）。
+ */
+async function fetchDeviceFindings(deviceId: string): Promise<{ reachable: boolean; findings: CollectorFinding[] | null }> {
+  const url = process.env.AEGIS_COLLECTOR_URL;
+  const token = process.env.AEGIS_COLLECTOR_TOKEN;
+  if (!url || !token || !deviceId) return { reachable: false, findings: null };
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/v1/findings?device_id=${encodeURIComponent(deviceId)}&limit=500`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { reachable: false, findings: null };
+    const data = (await res.json()) as { findings?: CollectorFinding[] };
+    return { reachable: true, findings: Array.isArray(data.findings) ? data.findings : [] };
+  } catch {
+    return { reachable: false, findings: null };
+  }
+}
+
+/** 工单 finding_ref 形如 `<kind>:<path>`；判断最新扫描里是否仍存在该 finding。 */
+function findingRefStillPresent(findings: CollectorFinding[], findingRef: string): boolean {
+  return findings.some((f) => `${f.kind ?? ''}:${f.path ?? ''}` === findingRef);
+}
+
 /** 取某阶段最近一条 history 记录（无则 null）。 */
 function latestPhase(ticket: Ticket, phase: Phase) {
   const entries = (ticket.history ?? []).filter((h) => h.action === ACTION(phase));
@@ -105,8 +138,35 @@ export async function POST(request: Request, context: RouteContext) {
     return apiError('approval_required', 'Cannot record an execution receipt before approval.', 409, ['approve the recommendation first']);
   }
 
+  // 回执证据门禁：声称"已修复"前，服务端核验终端最新扫描是否真的不再有该 finding。
+  let finalNote = note;
+  if (phase === 'receipt') {
+    let evidence: string;
+    const ref = ticket.finding_ref?.trim();
+    const dev = ticket.device_id?.trim();
+    if (ref && dev) {
+      const { reachable, findings } = await fetchDeviceFindings(dev);
+      if (reachable && findings) {
+        if (findingRefStillPresent(findings, ref)) {
+          return apiError(
+            'finding_still_present',
+            `设备 ${dev} 最新扫描仍存在该 finding（${ref}），不能回执为已修复。`,
+            409,
+            [`finding_ref ${ref} still present on ${dev}`],
+          );
+        }
+        evidence = `服务端核验：设备 ${dev} 最新扫描已无 ${ref}`;
+      } else {
+        evidence = `接收器不可达，无法自动核验；回执为人工声明（finding_ref=${ref}, device=${dev}）`;
+      }
+    } else {
+      evidence = '工单未关联具体 finding/设备，回执为人工声明';
+    }
+    finalNote = note ? `${note}｜${evidence}` : evidence;
+  }
+
   const now = Date.now();
-  ticket.history.push({ action: ACTION(phase), actor, timestamp: now, ...(note ? { note } : {}) });
+  ticket.history.push({ action: ACTION(phase), actor, timestamp: now, ...(finalNote ? { note: finalNote } : {}) });
   ticket.updated_at = now;
   getTicketStore().set(ticket.ticket_id, ticket);
 
@@ -116,7 +176,7 @@ export async function POST(request: Request, context: RouteContext) {
     action: 'ticket:remediation',
     resource_type: 'ticket',
     resource_id: ticket.ticket_id,
-    detail: `${phaseLabel}${note ? `：${note}` : ''}`,
+    detail: `${phaseLabel}${finalNote ? `：${finalNote}` : ''}`,
   });
 
   return jsonResponse({ ticket, remediation: remediationState(ticket), updated: true });
