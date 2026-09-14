@@ -304,3 +304,40 @@ export function pgSetSetting(key: string, value: string): void {
     c.query('INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=$2', [key, value]),
   );
 }
+
+/* ─── 签名策略发布件（policy_releases） ─────────────────────────────── */
+export interface PolicyReleaseRow {
+  release_id: string;
+  version: number;
+  created_at: number;
+  created_by: string;
+  signing_key_id: string;
+  signature: string;
+  policy_json: string;
+  note: string;
+  status: string;
+}
+
+export async function pgLoadPolicyReleases(): Promise<PolicyReleaseRow[] | null> {
+  const r = await withClient('loadPolicyReleases', (c) =>
+    c.query('SELECT release_id,version,created_at,created_by,signing_key_id,signature,policy_json,note,status FROM policy_releases ORDER BY version'),
+  );
+  return r.ok ? (r.value.rows as PolicyReleaseRow[]) : null;
+}
+
+export function pgInsertPolicyRelease(row: PolicyReleaseRow): void {
+  scheduleWrite('insertPolicyRelease', (c) =>
+    c.query(
+      `INSERT INTO policy_releases(release_id,version,created_at,created_by,signing_key_id,signature,policy_json,note,status)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(release_id) DO NOTHING`,
+      [row.release_id, row.version, row.created_at, row.created_by, row.signing_key_id, row.signature, row.policy_json, row.note, row.status],
+    ),
+  );
+}
+
+/** 把除 keepId 外的所有发布件置为 superseded（新版本发布后旧版本失效）。 */
+export function pgSupersedePolicyReleases(keepId: string): void {
+  scheduleWrite('supersedePolicyReleases', (c) =>
+    c.query(`UPDATE policy_releases SET status='superseded' WHERE release_id <> $1 AND status='published'`, [keepId]),
+  );
+}

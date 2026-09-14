@@ -12,7 +12,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {
   AlertTriangle,
   ChevronDown,
@@ -158,6 +158,7 @@ export default function RisksPage() {
   const { role } = useRole();
   const canMutate = role === 'admin';
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [source, setSource] = useState<TicketSource>('loading');
@@ -368,11 +369,11 @@ export default function RisksPage() {
             <>
               <Button
                 variant="outline"
-                disabled
-                title="未连接 EDR 审批接口，批量隔离暂不可用"
+                title="到处置中心对涉事 Skill/MCP 加白·观察·拉黑，并发布签名策略下发终端"
+                onClick={() => router.push('/dispositions')}
               >
                 <ShieldAlert />
-                隔离全部高危
+                处置高危资产
               </Button>
               <Button onClick={() => setShowCreate((prev) => !prev)}>
                 {showCreate ? <X /> : <Plus />}

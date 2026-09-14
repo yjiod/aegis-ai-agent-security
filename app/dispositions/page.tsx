@@ -7,9 +7,10 @@
  * "策略预览" 展示若按当前处置发布，策略的 allowed / monitor / blocked 列表将变成什么
  * （实际发布走发行级联，由管理员执行）。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Tags, ShieldCheck, ShieldAlert, Eye, Plus, Trash2, Download } from 'lucide-react';
+import Link from 'next/link';
+import { Tags, ShieldCheck, ShieldAlert, Eye, Plus, Trash2, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +25,24 @@ interface Label {
   note: string;
   updated_by: string;
   updated_at: number;
+}
+
+interface PolicyPreview {
+  next_version: number;
+  scan_mode: string;
+  policy: { allowed_skills: string[]; allowed_mcp_servers: string[]; scan_mode: string };
+  counts: { allow: number; monitor: number; deny: number };
+}
+
+interface CurrentRelease {
+  published: boolean;
+  version: number;
+  created_at: number;
+  created_by: string;
+  signing_key_id: string;
+  note: string;
+  receipt: { label_counts: { allow: number; monitor: number; deny: number } };
+  policy: { allowed_skills: string[]; allowed_mcp_servers: string[] };
 }
 
 const DISP_META: Record<Label['disposition'], { label: string; tone: string; icon: typeof Eye }> = {
@@ -50,6 +69,10 @@ export default function DispositionsPage() {
   const [labels, setLabels] = useState<Label[] | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<PolicyPreview | null>(null);
+  const [current, setCurrent] = useState<CurrentRelease | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishMsg, setPublishMsg] = useState('');
 
   // add form
   const [newType, setNewType] = useState<'skill' | 'mcp'>('skill');
@@ -74,7 +97,18 @@ export default function DispositionsPage() {
       setError(e instanceof Error ? e.message : String(e));
       setLabels([]);
     }
-  }, []);
+    // 服务端权威预览（admin）+ 当前生效发布件（任意登录身份）
+    if (isAdmin) {
+      fetch('/api/policy/preview', { cache: 'no-store' })
+        .then((r) => (r.ok ? (r.json() as Promise<PolicyPreview>) : null))
+        .then((d) => setPreview(d))
+        .catch(() => setPreview(null));
+    }
+    fetch('/api/policy/current', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<CurrentRelease>) : null))
+      .then((d) => setCurrent(d && d.published ? d : null))
+      .catch(() => setCurrent(null));
+  }, [isAdmin]);
 
   useEffect(() => {
     void load();
@@ -169,12 +203,22 @@ export default function DispositionsPage() {
     }
   }
 
-  const preview = useMemo(() => {
-    const allow = (labels ?? []).filter((l) => l.disposition === 'allow').map((l) => l.asset_key);
-    const monitor = (labels ?? []).filter((l) => l.disposition === 'monitor').map((l) => l.asset_key);
-    const deny = (labels ?? []).filter((l) => l.disposition === 'deny').map((l) => l.asset_key);
-    return { allow, monitor, deny };
-  }, [labels]);
+  async function publishPolicy() {
+    setPublishing(true);
+    setPublishMsg('');
+    try {
+      const r = await fetch('/api/policy/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const d = (await r.json().catch(() => ({}))) as { version?: number; error?: string };
+      if (r.ok) setPublishMsg(`已发布签名策略 v${d.version}，终端下次加载即验签生效。`);
+      else if (d.error === 'signing_key_not_configured') setPublishMsg('发布失败：服务端未配置签名密钥（AEGIS_POLICY_SIGNING_KEY）。');
+      else setPublishMsg(`发布失败 HTTP ${r.status}`);
+      await load();
+    } catch (e) {
+      setPublishMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   return (
     <>
@@ -278,21 +322,60 @@ export default function DispositionsPage() {
         )}
       </div>
 
-      {/* policy preview */}
+      {/* policy publish (server-authoritative) */}
       <div className="panel animate-entrance animate-entrance-4" style={{ padding: 16, marginTop: 16 }}>
-        <h2 style={{ fontSize: 15, marginBottom: 8 }}>策略发布预览</h2>
-        <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 10 }}>
-          若按当前处置发布，策略列表将变为（实际发布走发行级联，由管理员执行）：
-        </p>
-        <p style={{ fontSize: 13 }}>
-          <b>加白(allowed)</b>：{preview.allow.join(', ') || '（空）'}
-        </p>
-        <p style={{ fontSize: 13 }}>
-          <b>观察(monitor)</b>：{preview.monitor.join(', ') || '（空）'}
-        </p>
-        <p style={{ fontSize: 13 }}>
-          <b>拉黑(blocked)</b>：{preview.deny.join(', ') || '（空）'}
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <h2 style={{ fontSize: 15, margin: 0 }}>签名策略发布</h2>
+          {current ? (
+            <Badge variant="outline">
+              <ShieldCheck size={12} /> 当前生效 v{current.version}
+            </Badge>
+          ) : (
+            <Badge variant="outline">尚未发布</Badge>
+          )}
+          {isAdmin && preview && (
+            <Button style={{ marginLeft: 'auto' }} onClick={() => void publishPolicy()} disabled={publishing}>
+              <Upload size={15} />
+              {publishing ? '发布中…' : `发布策略 (v${preview.next_version})`}
+            </Button>
+          )}
+        </div>
+
+        {current ? (
+          <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 10 }}>
+            最近发布：v{current.version} · 签名密钥 {current.signing_key_id} · {current.created_by} ·{' '}
+            {relTime(current.created_at)} · 回执 allow {current.receipt.label_counts.allow} / monitor{' '}
+            {current.receipt.label_counts.monitor} / deny {current.receipt.label_counts.deny}
+            {current.note ? ` · 备注「${current.note}」` : ''}。发布记录见{' '}
+            <Link className="handle" href="/audit">审计日志</Link>。
+          </p>
+        ) : (
+          <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 10 }}>
+            尚未发布任何策略；终端仍使用出厂默认策略。发布后，处置决定会编译成签名的 aegis.policy/v1 下发终端强制。
+          </p>
+        )}
+
+        {publishMsg && (
+          <p style={{ fontSize: 12, marginBottom: 10, color: publishMsg.startsWith('发布失败') ? '#ff685f' : '#49e8a5' }}>
+            {publishMsg}
+          </p>
+        )}
+
+        {preview ? (
+          <>
+            <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 8 }}>
+              服务端权威预览（与发布输出一致）：将编译 {preview.counts.allow} 加白 / {preview.counts.monitor} 观察 / {preview.counts.deny} 拉黑，扫描模式 {preview.scan_mode}。
+            </p>
+            <p style={{ fontSize: 13 }}>
+              <b>加白 Skill</b>：{preview.policy.allowed_skills.join(', ') || '（空）'}
+            </p>
+            <p style={{ fontSize: 13 }}>
+              <b>加白 MCP</b>：{preview.policy.allowed_mcp_servers.join(', ') || '（空）'}
+            </p>
+          </>
+        ) : (
+          <p className="empty-hint">{isAdmin ? '加载发布预览…' : '仅管理员可查看发布预览。'}</p>
+        )}
       </div>
     </>
   );
