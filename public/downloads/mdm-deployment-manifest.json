@@ -39,11 +39,11 @@
     },
     "macos_install": {
       "file": "mdm-macos-install.sh",
-      "sha256": "da29e4473fc4de8fcdb5dd92ab4660e77be22179e189ea1074840ed4af5b7690"
+      "sha256": "fee406888d31338e866c3ba64a61036ce2744478c2cf0b699176ac2d83a05e0c"
     },
     "macos_compliance_discovery": {
       "file": "mdm-macos-compliance.sh",
-      "sha256": "620c1651ce6119d1be1578ca054d83fdf5a7fe90acf7a82296ed85a9310f96fb"
+      "sha256": "710fc54b0560f749407c5f87e8a0ed30f64a1f309828670e02522fc0c17bb714"
     },
     "macos_compliance_rules": {
       "file": "mdm-macos-compliance-policy.json",

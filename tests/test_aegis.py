@@ -316,6 +316,28 @@ class AegisTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'device_credentials_permissions'): self.collector.device_credentials(credentials_path)
             credentials_path.chmod(0o600); credentials_path.write_text(json.dumps({'schema':'aegis.device-credentials/v1','devices':{device_id:{'tokens':[token],'signing_secrets':[secret]},'000000000000':{'tokens':[token],'signing_secrets':['x'*32]}}}))
             with self.assertRaisesRegex(ValueError,'device_credentials_not_independent'): self.collector.device_credentials(credentials_path)
+    def test_agent_consumes_per_device_enrollment_round_trip(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); manifest=root/'server'/'devices.json'; enrollments=root/'enrollments'; device_id='abcdef123456'; admin='a'*32
+            self.credentials.provision([device_id],manifest,enrollments)
+            enroll=self.agent.load_enrollment_config(enrollments/(device_id+'.json'))
+            self.assertEqual(enroll['device_id'],device_id); self.assertEqual(enroll['schema'],'aegis.device-enrollment/v1')
+            token=enroll['report_token']; secret=enroll['signing_secret']
+            env={'AEGIS_COLLECTOR_TOKEN':admin,'AEGIS_DEVICE_CREDENTIALS_FILE':str(manifest)}
+            with patch.dict(os.environ,env,clear=True):
+                server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db'); thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+                try:
+                    now=int(time.time()); report={'schema':'aegis.report/v1','agent_version':self.agent.AGENT_VERSION,'policy_version':'4.8.0','device_id':device_id,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}; body=json.dumps(report).encode(); url=f'http://127.0.0.1:{server.server_port}/v1/reports'
+                    headers=self.agent.report_headers(body,token,secret,now=now,device_id=device_id)
+                    with urllib.request.urlopen(urllib.request.Request(url,data=body,headers=headers,method='POST'),timeout=3) as response: self.assertIn(response.status,(200,202))
+                    bad=self.agent.report_headers(body,token,'w'*48,now=now,device_id=device_id)
+                    with self.assertRaises(urllib.error.HTTPError) as error: urllib.request.urlopen(urllib.request.Request(url,data=body,headers=bad,method='POST'),timeout=3)
+                    self.assertEqual(error.exception.code,401); error.exception.close()
+                finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
+            bad_id=root/'bad_id.json'; bad_id.write_text(json.dumps({'schema':'aegis.device-enrollment/v1','device_id':'NOTHEX','report_token':token,'signing_secret':secret})); bad_id.chmod(0o600)
+            with self.assertRaisesRegex(ValueError,'enrollment_config_device_id'): self.agent.load_enrollment_config(bad_id)
+            same=root/'same.json'; same.write_text(json.dumps({'schema':'aegis.device-enrollment/v1','device_id':device_id,'report_token':'z'*48,'signing_secret':'z'*48})); same.chmod(0o600)
+            with self.assertRaisesRegex(ValueError,'enrollment_config_secrets'): self.agent.load_enrollment_config(same)
     def test_device_credential_provisioning_is_private_atomic_and_rotation_safe(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); manifest=root/'server/devices.json'; enrollments=root/'enrollments'; ids=['abcdef123456','000000000000']
