@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
 import { ensureBaselinesLoaded, getScanMode, setScanMode, SCAN_MODES, type ScanMode } from '@/lib/baselines';
+import { logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -24,5 +25,6 @@ export async function PUT(request: Request) {
   await ensureBaselinesLoaded().catch(() => {});
   const ok = setScanMode(mode, session?.subject ?? 'console');
   if (!ok) return NextResponse.json({ error: 'invalid_mode', available: SCAN_MODES }, { status: 400, headers: NO_STORE });
+  logAudit({ actor: session?.subject ?? 'console', action: 'policy:scan_mode', resource_type: 'policy', detail: `扫描模式变更为 ${getScanMode()}（影响后续签名策略内容）` });
   return NextResponse.json({ scan_mode: getScanMode() }, { headers: NO_STORE });
 }

@@ -21,12 +21,11 @@ interface Baseline {
   updated_at: number;
 }
 
-const MODES = ['quick', 'standard', 'deep', 'custom'] as const;
+const MODES = ['quick', 'standard', 'custom'] as const;
 
 const MODE_LABEL: Record<string, string> = {
   quick: '快速',
   standard: '标准',
-  deep: '深度',
   custom: '自定义',
 };
 
@@ -135,7 +134,7 @@ export default function BaselinesPage() {
           ))}
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 8 }}>
-          quick=密钥+依赖；standard=+核心 SAST；deep=+污点/CodeQL+AI 审查；custom=仅自定义规则。
+          quick=密钥+依赖检查；standard=quick+核心 SAST/代码质量规则集；custom=仅已导入且终端可执行的基线规则（无可执行规则时禁止发布）。
         </p>
       </div>
 

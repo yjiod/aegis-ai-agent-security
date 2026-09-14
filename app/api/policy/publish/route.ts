@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
 import { ensureLabelsLoaded } from '@/lib/labels';
-import { getScanMode } from '@/lib/baselines';
+import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
-import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId } from '@/lib/policy';
+import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds } from '@/lib/policy';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -28,8 +28,19 @@ export async function POST(request: Request) {
   await ensurePolicyReleasesLoaded().catch(() => {});
   await ensureSigningKeysLoaded().catch(() => {});
   await ensureLabelsLoaded().catch(() => {});
+  await ensureBaselinesLoaded().catch(() => {});
 
-  const rel = publishPolicyRelease({ scanMode: getScanMode(), by: session?.subject ?? 'console', note });
+  const scanMode = getScanMode();
+  const customRuleIds = enforceableRuleIds(effectiveRules().map((r) => r.id));
+  // fail-closed：custom 模式必须有终端可执行的规则，否则等于签发一份"静默关闭扫描"的策略。
+  if (scanMode === 'custom' && customRuleIds.length === 0) {
+    return NextResponse.json(
+      { error: 'custom_mode_has_no_enforceable_rules', hint: 'custom 扫描模式需要已导入且终端可执行的基线规则；请先在「基线管理」导入规则或改用 standard 模式' },
+      { status: 409, headers: NO_STORE },
+    );
+  }
+
+  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds });
   if (!rel) {
     return NextResponse.json(
       { error: 'signing_key_not_configured', hint: '设置 AEGIS_POLICY_SIGNING_KEYS（或单钥 AEGIS_POLICY_SIGNING_KEY）后才能发布签名策略' },

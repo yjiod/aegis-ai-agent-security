@@ -3,7 +3,7 @@
  *
  * - 基线分两类: source='custom'(用户导入, 优先) / source='upstream'(定时从上游拉取)。
  * - 生效规则 = upstream + custom 合并, 同 id 时 custom 覆盖 upstream。
- * - 扫描模式 scan_mode: quick | standard | deep | custom (全局设置, 存 settings 表)。
+ * - 扫描模式 scan_mode: quick | standard | custom (全局设置, 存 settings 表)。
  * - 持久化: PostgreSQL (lib/pg-store), 请求期懒加载 (workerd 全局作用域禁异步 I/O)。
  */
 import {
@@ -16,8 +16,8 @@ import {
   type BaselineRow,
 } from './pg-store';
 
-export type ScanMode = 'quick' | 'standard' | 'deep' | 'custom';
-export const SCAN_MODES: ScanMode[] = ['quick', 'standard', 'deep', 'custom'];
+export type ScanMode = 'quick' | 'standard' | 'custom';
+export const SCAN_MODES: ScanMode[] = ['quick', 'standard', 'custom'];
 export const DEFAULT_SCAN_MODE: ScanMode = 'standard';
 
 export interface BaselineRule {
@@ -108,7 +108,7 @@ export async function syncUpstream(url: string, updatedBy: string): Promise<Base
     source: 'upstream',
     version: String(new Date().toISOString().slice(0, 10)),
     rules: [{ id: 'upstream-text', title: '上游基线全文', mode: 'all', content: text.slice(0, 200000) } as BaselineRule],
-    scan_modes: ['quick', 'standard', 'deep'],
+    scan_modes: ['quick', 'standard'],
     updated_by: updatedBy,
     updated_at: Date.now(),
   };

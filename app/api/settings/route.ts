@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
 import { getScanMode, setScanMode, getSetting, setSetting, SCAN_MODES } from '@/lib/baselines';
+import { logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -41,5 +42,6 @@ export async function PUT(request: Request) {
     updated.push('upstream_baseline_url');
   }
   if (updated.length === 0) return NextResponse.json({ error: 'nothing_to_update', allowed: ALLOWED_KEYS }, { status: 400, headers: NO_STORE });
+  logAudit({ actor: session?.subject ?? 'console', action: 'settings:update', resource_type: 'policy', detail: `更新设置 [${updated.join(', ')}]；当前扫描模式 ${getScanMode()}` });
   return NextResponse.json({ updated, scan_mode: getScanMode(), upstream_baseline_url: getSetting('upstream_baseline_url') }, { headers: NO_STORE });
 }

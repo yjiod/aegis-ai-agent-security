@@ -100,12 +100,12 @@ test.describe('baselines', () => {
 test.describe('settings', () => {
   test('scan_mode put/get roundtrip', async ({ request }) => {
     await login(request);
-    const put = await request.put('/api/settings', { data: { scan_mode: 'deep' } });
+    const put = await request.put('/api/settings', { data: { scan_mode: 'quick' } });
     expect(put.status()).toBe(200);
     const get = await request.get('/api/settings');
     expect(get.status()).toBe(200);
     const body = (await get.json()) as { scan_mode?: string };
-    expect(body.scan_mode).toBe('deep');
+    expect(body.scan_mode).toBe('quick');
     // restore
     await request.put('/api/settings', { data: { scan_mode: 'standard' } });
   });

@@ -99,12 +99,15 @@ function dedupeSorted(items: string[]): string[] {
 }
 
 /**
- * 把处置注册表编译成权威策略体。
+ * 把处置注册表编译成权威策略体（allow / monitor / deny 三态都真实下发）。
  * - allow 标签的 skill/mcp 并入 allowed_*（去重排序）。
  * - deny 标签的资产从 allowed_* 中剔除（配合 enforcement.unknown_skill=block 即拦截）。
- * - monitor 标签保持加白但不进 allowed 之外的特殊处理（终端仍审计）。
+ * - monitor 标签写入 monitor_notes（key=asset_key），终端据此"加白但保持调用审计"，
+ *   不再与 deny 等价。
+ * - custom_baseline_rules 来自调用方传入的 effectiveRules()∩可执行规则集，使
+ *   scan_mode=custom 真正强制导入的基线，而不是空集静默关闭扫描。
  */
-export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[] }): PolicyBody {
+export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[] }): PolicyBody {
   const labels = opts.labels ?? listLabels();
   const allowSkills = labels.filter((l) => l.asset_type === 'skill' && l.disposition === 'allow').map((l) => l.asset_key);
   const allowMcp = labels.filter((l) => l.asset_type === 'mcp' && l.disposition === 'allow').map((l) => l.asset_key);
@@ -114,13 +117,31 @@ export function computePolicyBody(opts: { version: string; scanMode: string; lab
   const allowed_skills = dedupeSorted([...BASE_ALLOWED_SKILLS, ...allowSkills]).filter((s) => !denySkills.has(s));
   const allowed_mcp_servers = dedupeSorted([...BASE_ALLOWED_MCP_SERVERS, ...allowMcp]).filter((s) => !denyMcp.has(s));
 
+  // monitor 处置 → monitor_notes（在出厂注释之上叠加，按 asset_key）。
+  const monitor_notes: Record<string, string> = { ...BASE_POLICY.monitor_notes };
+  for (const l of labels) {
+    if (l.disposition !== 'monitor') continue;
+    const detail = [l.tags?.join('/'), l.note].filter((x) => typeof x === 'string' && x.trim()).join(' · ').trim();
+    monitor_notes[l.asset_key] = (detail ? `${detail}` : '观察中').slice(0, 180);
+  }
+
+  const custom_baseline_rules = dedupeSorted(opts.customRuleIds ?? []);
+
   return {
     ...BASE_POLICY,
     version: opts.version,
     allowed_skills,
     allowed_mcp_servers,
     scan_mode: opts.scanMode || DEFAULT_SCAN_MODE,
+    custom_baseline_rules,
+    monitor_notes,
   };
+}
+
+/** 过滤出终端 Agent 真正可执行的规则 id（∈ BASE_POLICY.code_rules），用于 custom_baseline_rules。 */
+export function enforceableRuleIds(ids: string[]): string[] {
+  const allowed = new Set(BASE_POLICY.code_rules);
+  return dedupeSorted(ids.filter((id) => allowed.has(id)));
 }
 
 /**
@@ -392,12 +413,12 @@ function countLabels(labels: AssetLabel[]): PolicyReceipt {
  * 编译 + 签名 + 落库一次策略发布。version 单调递增，旧发布置 superseded。
  * 需要已配置签名密钥；未配置返回 null（调用方据此诚实报错，不产出未签名策略）。
  */
-export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string }): PolicyRelease | null {
+export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[] }): PolicyRelease | null {
   if (!activeKeyIdResolved()) return null;
   const arr = releases();
   const nextVersion = arr.reduce((max, r) => Math.max(max, r.version), 0) + 1;
   const labels = listLabels();
-  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels });
+  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds });
   const signature = signPolicyBody(body);
   if (!signature) return null;
   const now = Date.now();
