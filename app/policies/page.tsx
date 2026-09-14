@@ -36,6 +36,8 @@ interface CurrentRelease {
 
 interface Posture {
   published: boolean;
+  source?: 'collector' | 'registry';
+  connected?: boolean;
   current_version?: string;
   total_devices: number;
   on_current: number;
@@ -184,6 +186,12 @@ export default function PoliciesPage() {
                   ' 漂移/未知终端会在下次 Agent 加载或上报时拉取并验签当前策略。'}
               </>
             )}
+            <br />
+            <span style={{ fontSize: 11 }}>
+              {posture.source === 'collector'
+                ? '数据源：接收器活体上报（agent 真实 policy_version）'
+                : '数据源：控制台注册表（接收器未连接，版本可能滞后）'}
+            </span>
           </p>
         )}
       </div>
