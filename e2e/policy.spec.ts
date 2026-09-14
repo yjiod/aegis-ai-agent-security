@@ -74,6 +74,8 @@ test.describe('policy publish loop', () => {
     expect(res.status()).toBe(200);
     const p = (await res.json()) as {
       published: boolean;
+      source?: 'collector' | 'registry';
+      connected?: boolean;
       current_version?: string;
       total_devices: number;
       on_current: number;
@@ -82,6 +84,8 @@ test.describe('policy publish loop', () => {
     };
     expect(p.published).toBe(true);
     expect(typeof p.current_version).toBe('string');
+    expect(p.source === 'collector' || p.source === 'registry').toBe(true);
+    expect(typeof p.connected).toBe('boolean');
     expect(typeof p.total_devices).toBe('number');
     expect(typeof p.on_current).toBe('number');
     expect(typeof p.drifted).toBe('number');
