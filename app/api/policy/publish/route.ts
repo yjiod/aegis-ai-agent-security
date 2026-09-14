@@ -3,7 +3,7 @@ import { requireAdmin, getSession } from '@/lib/auth';
 import { ensureLabelsLoaded } from '@/lib/labels';
 import { getScanMode } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
-import { ensurePolicyReleasesLoaded, publishPolicyRelease, signingKeyId } from '@/lib/policy';
+import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId } from '@/lib/policy';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -26,12 +26,13 @@ export async function POST(request: Request) {
   const note = typeof body.note === 'string' ? body.note.slice(0, 500) : '';
 
   await ensurePolicyReleasesLoaded().catch(() => {});
+  await ensureSigningKeysLoaded().catch(() => {});
   await ensureLabelsLoaded().catch(() => {});
 
   const rel = publishPolicyRelease({ scanMode: getScanMode(), by: session?.subject ?? 'console', note });
   if (!rel) {
     return NextResponse.json(
-      { error: 'signing_key_not_configured', hint: '设置 AEGIS_POLICY_SIGNING_KEY 后才能发布签名策略' },
+      { error: 'signing_key_not_configured', hint: '设置 AEGIS_POLICY_SIGNING_KEYS（或单钥 AEGIS_POLICY_SIGNING_KEY）后才能发布签名策略' },
       { status: 503, headers: NO_STORE },
     );
   }

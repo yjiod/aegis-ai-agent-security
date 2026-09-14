@@ -113,3 +113,63 @@ test.describe('policy publish loop', () => {
     }
   });
 });
+
+test.describe('signing key governance', () => {
+  test('admin lists, rotates, publishes with new key, and retires old key', async ({ request }) => {
+    await login(request);
+
+    const list = await request.get('/api/policy/keys');
+    expect(list.status()).toBe(200);
+    const lr = (await list.json()) as { active_key_id: string | null; keys: Array<{ key_id: string; in_keyring: boolean; status: string }> };
+    expect(lr.active_key_id, 'dev env must configure AEGIS_POLICY_SIGNING_KEYS').not.toBeNull();
+    const ringKeys = lr.keys.filter((k) => k.in_keyring).map((k) => k.key_id);
+    expect(ringKeys.length, 'keyring should have >=2 keys to rotate').toBeGreaterThanOrEqual(2);
+    const oldActive = lr.active_key_id as string;
+    const target = ringKeys.find((k) => k !== oldActive) as string;
+
+    // rotate to the other keyring key
+    const rot = await request.post('/api/policy/keys', { data: { to_key_id: target } });
+    expect(rot.status()).toBe(200);
+    const rr = (await rot.json()) as { active_key_id: string };
+    expect(rr.active_key_id).toBe(target);
+
+    // publish now signs with the new active key
+    const pub = await request.post('/api/policy/publish', { data: {} });
+    expect(pub.status()).toBe(200);
+    const pb = (await pub.json()) as { signing_key_id: string };
+    expect(pb.signing_key_id).toBe(target);
+
+    // retiring the ACTIVE key is refused (409)
+    const retireActive = await request.post(`/api/policy/keys/${target}/retire`);
+    expect(retireActive.status()).toBe(409);
+
+    // retiring the now-retiring old key succeeds (current release uses the new key)
+    const retireOld = await request.post(`/api/policy/keys/${oldActive}/retire`);
+    expect(retireOld.status()).toBe(200);
+  });
+
+  test('auditor can read keys but cannot rotate (403)', async ({ playwright }) => {
+    const { createHmac } = await import('node:crypto');
+    const secret = process.env.AEGIS_SESSION_SECRET ?? 'e2e-secret-0123456789';
+    const expiry = Date.now() + 3_600_000;
+    const payload = `e2eauditor.${expiry}`;
+    const sig = createHmac('sha256', secret).update(payload).digest('hex');
+    const ctx = await playwright.request.newContext({
+      baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000',
+      storageState: {
+        cookies: [
+          { name: 'aegis_session', value: `${payload}.${sig}`, domain: 'localhost', path: '/', expires: Math.floor(Date.now() / 1000) + 3600, httpOnly: true, secure: false, sameSite: 'Lax' },
+        ],
+        origins: [],
+      },
+    });
+    try {
+      const list = await ctx.get('/api/policy/keys', { maxRedirects: 0 });
+      expect(list.status(), 'auditor may read key governance').toBe(200);
+      const rot = await ctx.post('/api/policy/keys', { data: { to_key_id: 'k2' }, maxRedirects: 0 });
+      expect(rot.status(), 'auditor must not rotate keys').toBe(403);
+    } finally {
+      await ctx.dispose();
+    }
+  });
+});

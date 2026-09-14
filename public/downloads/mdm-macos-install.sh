@@ -11,7 +11,7 @@ STAGE_DIR="$INSTALL_DIR/.stage.$$"
 mkdir -m 700 "$STAGE_DIR"
 trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 2>/dev/null || true' EXIT HUP INT TERM
 for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
-echo "ebcd5464fea10d77827490b5fcfff7551e2fb97f71611e46cf2fd71430d48eba  $STAGE_DIR/aegis_agent.py" | shasum -a 256 -c -
+echo "4b399ddbb10b8e23459d2c1d51e856d91bceca17350d52e0d10e03eb1b8622e8  $STAGE_DIR/aegis_agent.py" | shasum -a 256 -c -
 echo "a8935b03ae59c08002a428d524b46ee69bde6042a5173c510d184f62d6737740  $STAGE_DIR/aegis-policy.json" | shasum -a 256 -c -
 echo "5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806  $STAGE_DIR/aegis-security-baseline.md" | shasum -a 256 -c -
 CURRENT_COMPLETE=1

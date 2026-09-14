@@ -30,19 +30,42 @@ def validate_policy(data):
 def canonical_json(obj):
     # 必须与控制台 lib/policy.ts 的 canonicalJson 逐字节一致：递归排序 key + 紧凑分隔符 + 不转义非 ASCII。
     return json.dumps(obj,sort_keys=True,separators=(",",":"),ensure_ascii=False)
-def verify_policy_signature(data,key):
+def policy_verify_keyring():
+    # 多钥验签环：AEGIS_POLICY_VERIFY_KEYS(JSON {key_id:secret}) 优先；回退单钥 AEGIS_POLICY_VERIFY_KEY。
+    raw=os.getenv("AEGIS_POLICY_VERIFY_KEYS","")
+    ring={}
+    if raw:
+        try:
+            parsed=json.loads(raw)
+            if isinstance(parsed,dict): ring={str(k):v for k,v in parsed.items() if isinstance(v,str) and v}
+        except (ValueError,TypeError): ring={}
+    if not ring:
+        single=os.getenv("AEGIS_POLICY_VERIFY_KEY","")
+        if single: ring={"default":single}
+    return ring
+def verify_policy_signature(data,key_or_ring=None):
     sig=data.get("signature")
     if not isinstance(sig,str) or not sig: return False
+    if isinstance(key_or_ring,str): ring={"default":key_or_ring} if key_or_ring else {}
+    elif isinstance(key_or_ring,dict): ring={k:v for k,v in key_or_ring.items() if isinstance(v,str) and v}
+    else: ring=policy_verify_keyring()
+    if not ring: return False
     body={k:v for k,v in data.items() if k not in ("signature","signing_key_id")}
-    expected=hmac.new(key.encode(),canonical_json(body).encode("utf-8"),hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected,sig)
+    canon=canonical_json(body).encode("utf-8")
+    kid=data.get("signing_key_id")
+    order=[]
+    if isinstance(kid,str) and kid in ring: order.append(kid)
+    order+=[k for k in ring if k not in order]
+    for k in order:
+        if hmac.compare_digest(hmac.new(ring[k].encode(),canon,hashlib.sha256).hexdigest(),sig): return True
+    return False
 def load_policy(path,verify_key=None):
     data=json.loads(Path(path).read_text())
     data=validate_policy(data)
     if "signature" in data:
-        key=verify_key if verify_key is not None else os.getenv("AEGIS_POLICY_VERIFY_KEY","")
-        if not key: raise ValueError("policy_signed_but_no_verify_key")
-        if not verify_policy_signature(data,key): raise ValueError("policy_signature_invalid")
+        ring={"default":verify_key} if verify_key else policy_verify_keyring()
+        if not ring: raise ValueError("policy_signed_but_no_verify_key")
+        if not verify_policy_signature(data,ring): raise ValueError("policy_signature_invalid")
     return data
 def reload_policy(path,current=None,verify_key=None):
     try: return load_policy(path,verify_key),False

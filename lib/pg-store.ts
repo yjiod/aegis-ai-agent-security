@@ -353,3 +353,35 @@ export function pgSupersedePolicyReleases(keepId: string): void {
     c.query(`UPDATE policy_releases SET status='superseded' WHERE release_id <> $1 AND status='published'`, [keepId]),
   );
 }
+
+/* ─── 签名密钥元数据（policy_signing_keys）——只存元数据，绝不存密钥料 ─────── */
+export interface SigningKeyRow {
+  key_id: string;
+  fingerprint: string;
+  status: string;
+  created_at: number;
+  created_by: string;
+  rotated_at: number | null;
+  rotated_by: string | null;
+  retired_at: number | null;
+  retired_by: string | null;
+  note: string | null;
+}
+
+export async function pgLoadSigningKeys(): Promise<SigningKeyRow[] | null> {
+  const r = await withClient('loadSigningKeys', (c) =>
+    c.query('SELECT key_id,fingerprint,status,created_at,created_by,rotated_at,rotated_by,retired_at,retired_by,note FROM policy_signing_keys ORDER BY created_at'),
+  );
+  return r.ok ? (r.value.rows as SigningKeyRow[]) : null;
+}
+
+export function pgUpsertSigningKey(row: SigningKeyRow): void {
+  scheduleWrite('upsertSigningKey', (c) =>
+    c.query(
+      `INSERT INTO policy_signing_keys(key_id,fingerprint,status,created_at,created_by,rotated_at,rotated_by,retired_at,retired_by,note)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT(key_id) DO UPDATE SET fingerprint=$2,status=$3,rotated_at=$6,rotated_by=$7,retired_at=$8,retired_by=$9,note=$10`,
+      [row.key_id, row.fingerprint, row.status, row.created_at, row.created_by, row.rotated_at, row.rotated_by, row.retired_at, row.retired_by, row.note],
+    ),
+  );
+}
