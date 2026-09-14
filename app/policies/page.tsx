@@ -33,14 +33,29 @@ interface CurrentRelease {
   receipt: { label_counts: { allow: number; monitor: number; deny: number } };
 }
 
+interface Posture {
+  published: boolean;
+  current_version?: string;
+  total_devices: number;
+  on_current: number;
+  drifted: number;
+  unknown: number;
+  coverage?: number;
+}
+
 export default function PoliciesPage() {
   const [current, setCurrent] = useState<CurrentRelease | null>(null);
+  const [posture, setPosture] = useState<Posture | null>(null);
 
   useEffect(() => {
     fetch('/api/policy/current', { cache: 'no-store' })
       .then((r) => (r.ok ? (r.json() as Promise<CurrentRelease>) : null))
       .then((d) => setCurrent(d && d.published ? d : null))
       .catch(() => setCurrent(null));
+    fetch('/api/policy/posture', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<Posture>) : null))
+      .then((d) => setPosture(d))
+      .catch(() => setPosture(null));
   }, []);
 
   return (
@@ -81,6 +96,21 @@ export default function PoliciesPage() {
         ) : (
           <p style={{ fontSize: 13, color: 'var(--muted-foreground)', marginTop: 8 }}>
             还没有从控制台发布过签名策略。到「处置中心」对 Skill/MCP 打标后点击"发布策略"，即可生成签名的 aegis.policy/v1 下发终端强制。
+          </p>
+        )}
+        {posture && posture.published && (
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+            终端生效态势：
+            {posture.total_devices === 0 ? (
+              <>尚无纳管终端，发布后终端首次上报即开始统计。</>
+            ) : (
+              <>
+                <b style={{ color: 'var(--foreground)' }}>{posture.on_current}/{posture.total_devices}</b> 台在 v{posture.current_version}
+                （覆盖率 {posture.coverage ?? 0}%）· {posture.drifted} 台漂移 · {posture.unknown} 台未知。
+                {(posture.drifted > 0 || posture.unknown > 0) &&
+                  ' 漂移/未知终端会在下次 Agent 加载或上报时拉取并验签当前策略。'}
+              </>
+            )}
           </p>
         )}
       </div>

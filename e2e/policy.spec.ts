@@ -63,6 +63,27 @@ test.describe('policy publish loop', () => {
     expect(v2).toBe(v1 + 1);
   });
 
+  test('posture reflects the published policy version', async ({ request }) => {
+    await login(request);
+    await request.post('/api/policy/publish', { data: {} });
+    const res = await request.get('/api/policy/posture');
+    expect(res.status()).toBe(200);
+    const p = (await res.json()) as {
+      published: boolean;
+      current_version?: string;
+      total_devices: number;
+      on_current: number;
+      drifted: number;
+      unknown: number;
+    };
+    expect(p.published).toBe(true);
+    expect(typeof p.current_version).toBe('string');
+    expect(typeof p.total_devices).toBe('number');
+    expect(typeof p.on_current).toBe('number');
+    expect(typeof p.drifted).toBe('number');
+    expect(typeof p.unknown).toBe('number');
+  });
+
   test('auditor cannot publish (403) but can read current', async ({ playwright }) => {
     const { createHmac } = await import('node:crypto');
     const secret = process.env.AEGIS_SESSION_SECRET ?? 'e2e-secret-0123456789';
