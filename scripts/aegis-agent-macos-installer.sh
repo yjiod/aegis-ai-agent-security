@@ -1,6 +1,6 @@
 #!/bin/sh
 # ═══════════════════════════════════════════════════════════
-# Aegis Agent for macOS v0.30.0 — 自包含安装器
+# Aegis Agent for macOS v0.31.0 — 自包含安装器
 #
 # 用法:
 #   sudo sh aegis-agent-macos.run [选项]
@@ -17,11 +17,11 @@
 # ═══════════════════════════════════════════════════════════
 set -eu
 
-VERSION="0.30.0"
+VERSION="0.31.0"
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST_PATH="/Library/LaunchDaemons/com.aegis.agent.plist"
 COLLECTOR_URL="${AEGIS_COLLECTOR_URL:-http://192.0.2.98:8931}"
-COLLECTOR_TOKEN="${AEGIS_COLLECTOR_TOKEN:-***REMOVED***}"
+COLLECTOR_TOKEN="${AEGIS_COLLECTOR_TOKEN:-}"
 DEVICE_ID="${AEGIS_DEVICE_ID:-}"
 SCAN_INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
 DO_UNINSTALL=0
@@ -63,6 +63,12 @@ fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "错误: 需要 python3。请先安装 Xcode Command Line Tools。"
+  exit 1
+fi
+
+if [ -z "$COLLECTOR_TOKEN" ]; then
+  echo "错误: 未提供 Collector 令牌。请通过 --token TOKEN 或环境变量 AEGIS_COLLECTOR_TOKEN 传入。"
+  echo "      安装器不再内置默认令牌——硬编码凭据绝不应进入（公开）代码仓库。"
   exit 1
 fi
 

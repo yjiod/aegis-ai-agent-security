@@ -62,9 +62,16 @@ def build(downloads):
     atomic_write(downloads/"CHECKSUMS.sha256","".join(f"{current[name]}  {name}\n" for name in verifier.RUNTIME_FILES).encode())
 
     # 客户端自更新清单（无桌管环境兜底通道；主通道为桌管/MDM 推送）。
+    # agent_version = 实际打包的 Agent 版本轴，供自更新与 current_version 同轴比较，
+    # 避免拿发行包版本(release)与 Agent 版本比较导致每轮重复下载替换。
+    import re as _re
+    _agent_src = (downloads/"aegis_agent.py").read_text(encoding="utf-8")
+    _av = _re.search(r'AGENT_VERSION\s*=\s*"([^"]+)"', _agent_src)
+    agent_version = _av.group(1) if _av else release.get("min_agent_version", "0.31.0")
     atomic_write(downloads/"update-manifest.json",(json.dumps({
         "schema":"aegis.update/v1",
         "release":release["release"],
+        "agent_version":agent_version,
         "channel":release.get("channel","pilot"),
         "published_at":release.get("published_at",""),
         "min_agent_version":release.get("min_agent_version","0.31.0"),
