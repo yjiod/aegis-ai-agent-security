@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
 import { ensureBaselinesLoaded, listBaselines, importBaseline, deleteBaseline, type BaselineRule, type ScanMode } from '@/lib/baselines';
+import { logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
   const modes = Array.isArray(body.scan_modes) ? (body.scan_modes as ScanMode[]) : undefined;
   await ensureBaselinesLoaded().catch(() => {});
   const b = importBaseline({ name, rules, ...(modes ? { scan_modes: modes } : {}), ...(typeof body.version === 'string' ? { version: body.version } : {}), updated_by: session?.subject ?? 'console' });
+  logAudit({ actor: session?.subject ?? 'console', action: 'baseline:import', resource_type: 'policy', resource_id: name, detail: `导入/更新自定义基线「${name}」（${rules.length} 条规则）` });
   return NextResponse.json({ baseline: b }, { headers: NO_STORE });
 }
 
@@ -33,9 +35,11 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
+  const session = getSession(request);
   const name = new URL(request.url).searchParams.get('name') ?? '';
   if (!name) return NextResponse.json({ error: 'missing_name' }, { status: 400, headers: NO_STORE });
   await ensureBaselinesLoaded().catch(() => {});
   const removed = deleteBaseline(name);
+  logAudit({ actor: session?.subject ?? 'console', action: 'baseline:delete', resource_type: 'policy', resource_id: name, detail: removed ? `删除自定义基线「${name}」` : `尝试删除不存在的基线「${name}」` });
   return NextResponse.json({ removed }, { headers: NO_STORE });
 }

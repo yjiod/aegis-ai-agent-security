@@ -30,7 +30,7 @@ const GLOSSARY: Array<[string, string]> = [
   ['MCP', 'Model Context Protocol 服务，给 AI 工具提供文件/网络/命令等能力。越权的 MCP（如任意文件读写、未声明外联）是高危面。'],
   ['处置 / 打标', '对识别到的 Skill/MCP 给出结论：加白（allow）、观察（monitor）、拉黑（deny）。处置结果会进入下发给终端的策略。'],
   ['基线', '企业自定义的安全编码规则集，可与上游基线合并后下发到终端，作为 Agent 的强制约束。'],
-  ['扫描模式', 'quick / standard / deep / custom 四档，决定终端扫描的深度与耗时（密钥依赖 → 核心 SAST → 污点/AI 审查）。'],
+  ['扫描模式', 'quick / standard / custom 三档，决定终端扫描的深度与耗时（quick=密钥+依赖；standard=+核心 SAST/代码质量规则；custom=仅已导入且终端可执行的基线规则）。'],
   ['工单', '需要人工研判的风险事件。状态机：待处理 → 已认领 → 调查中 → 已解决/驳回，全程留痕可审计。'],
 ];
 

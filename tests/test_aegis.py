@@ -124,6 +124,17 @@ class AegisTests(unittest.TestCase):
             tampered={**artifact,"allowed_skills":["alpha-skill","evil"]}
             p.write_text(json.dumps(tampered,ensure_ascii=False))
             with self.assertRaises(ValueError): self.agent.load_policy(p,verify_key=key)
+    def test_custom_scan_mode_empty_rules_falls_back_to_code_rules(self):
+        text="import pickle\nobj = pickle.loads(payload)\n"; p=Path("x.py")
+        def kinds(pol): return {f["kind"] for f in self.agent.scan_text(p,text,pol)}
+        # (1) custom + 空规则 → 回落 code_rules，仍检出（fail-safe，不静默关扫描）
+        self.assertIn("unsafe_deserialization", kinds({**self.policy,"scan_mode":"custom","custom_baseline_rules":[]}))
+        # (2) custom + 显式包含该规则 → 检出
+        self.assertIn("unsafe_deserialization", kinds({**self.policy,"scan_mode":"custom","custom_baseline_rules":["unsafe_deserialization"]}))
+        # (3) custom + 只含不匹配的规则 → 不检出该规则
+        self.assertNotIn("unsafe_deserialization", kinds({**self.policy,"scan_mode":"custom","custom_baseline_rules":["debug_mode_enabled"]}))
+        # (4) quick → 不跑质量规则
+        self.assertNotIn("unsafe_deserialization", kinds({**self.policy,"scan_mode":"quick"}))
     def test_scan_and_report_limits_are_enforced(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
@@ -561,8 +572,8 @@ class AegisTests(unittest.TestCase):
         for name in ('aegis_agent.py','aegis-windows.ps1','aegis-policy.json','aegis-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-aegis-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-aegis-macos.sh').exists())
-        self.assertIn("agent_version='0.30.0'",(DOWNLOADS/'aegis-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'AegisAgent/0.30.0')
+        self.assertIn("agent_version='0.31.0'",(DOWNLOADS/'aegis-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'AegisAgent/0.31.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'AEGIS_INSTALL_DIR':str(install),'AEGIS_BASE_URL':source.as_uri()}

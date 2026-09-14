@@ -142,6 +142,7 @@ def scan_text(path,text,policy):
         enabled = set()
     elif mode == "custom":
         enabled = set(policy.get("custom_baseline_rules", []))
+        if not enabled: enabled = set(policy.get("code_rules", []))  # fail-safe：custom 规则为空时回落，绝不静默关闭扫描
     else:
         enabled = set(policy.get("code_rules", []))
     for kind,sev,pat in quality_checks:
@@ -478,7 +479,7 @@ def load_enrollment_config(path):
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("enrollment_config_secrets")
     return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
-    headers={"Content-Type":"application/json","User-Agent":"AegisAgent/0.30.0"}
+    headers={"Content-Type":"application/json","User-Agent":f"AegisAgent/{AGENT_VERSION}"}
     if token: headers["Authorization"]="Bearer "+token
     if device_id:
         if not isinstance(device_id,str) or not re.fullmatch(r"[A-Za-z0-9._-]{8,128}",device_id): raise ValueError("invalid_report_device_id")

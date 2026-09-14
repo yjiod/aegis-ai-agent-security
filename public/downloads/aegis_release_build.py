@@ -67,7 +67,7 @@ def build(downloads):
         "release":release["release"],
         "channel":release.get("channel","pilot"),
         "published_at":release.get("published_at",""),
-        "min_agent_version":release.get("min_agent_version","0.30.0"),
+        "min_agent_version":release.get("min_agent_version","0.31.0"),
         "artifacts":{
             "aegis_agent.py":{"url":"/downloads/aegis_agent.py","sha256":current["aegis_agent.py"]},
             "aegis-windows.ps1":{"url":"/downloads/aegis-windows.ps1","sha256":current["aegis-windows.ps1"]},

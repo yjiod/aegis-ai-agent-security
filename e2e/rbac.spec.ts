@@ -87,7 +87,7 @@ test.describe('RBAC: auditor (read-only, audit-visible)', () => {
       });
       expect(t.status(), 'auditor POST /api/tickets must be 403').toBe(403);
 
-      const s = await ctx.put('/api/settings', { data: { scan_mode: 'deep' }, maxRedirects: 0 });
+      const s = await ctx.put('/api/settings', { data: { scan_mode: 'quick' }, maxRedirects: 0 });
       expect(s.status(), 'auditor PUT /api/settings must be 403').toBe(403);
 
       const a = await ctx.post('/api/admins', { data: { employeeNo: 'hacker01' }, maxRedirects: 0 });

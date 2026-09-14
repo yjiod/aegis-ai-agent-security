@@ -11,15 +11,15 @@
   "artifacts": {
     "windows_detection": {
       "file": "mdm-windows-detect.ps1",
-      "sha256": "ede3a2db705ce6d96c9d678a2ba041915e5888e3c0554a859e35979a424f06e6"
+      "sha256": "23a36fe3c712623c113ff3110e156b7148d3c9dc5c7bba24e947b3de9fbcc585"
     },
     "windows_remediation": {
       "file": "mdm-windows-remediate.ps1",
-      "sha256": "0105ca6715bb515bca6f8949de4573f4168d994dd2e5967f8ca75327796ad7b3"
+      "sha256": "7019dde14e9945b0bf615a872c3708cc0df3f46b81a3555774172b3c1a860061"
     },
     "windows_compliance_discovery": {
       "file": "mdm-compliance-discovery.ps1",
-      "sha256": "2a860ee165e7b034dd3d9cd71265ba6a528ac9675f6a9bc0391f467413d2ee37"
+      "sha256": "13562bb73bf30ebe770282d019a6ead38521cdfd9dbdfa14941dedc4414bcf6a"
     },
     "windows_compliance_rules": {
       "file": "mdm-compliance-policy.json",
@@ -39,11 +39,11 @@
     },
     "macos_install": {
       "file": "mdm-macos-install.sh",
-      "sha256": "fee406888d31338e866c3ba64a61036ce2744478c2cf0b699176ac2d83a05e0c"
+      "sha256": "9a5497229008b0beafbcb98c35cb12fb5f859e00fa06d0c25b0a27a37bf8d330"
     },
     "macos_compliance_discovery": {
       "file": "mdm-macos-compliance.sh",
-      "sha256": "710fc54b0560f749407c5f87e8a0ed30f64a1f309828670e02522fc0c17bb714"
+      "sha256": "4523dcfb7a786889a3df75628e8a261c31d3455b53646c031ab95029b1298e4a"
     },
     "macos_compliance_rules": {
       "file": "mdm-macos-compliance-policy.json",
