@@ -127,15 +127,24 @@ def check_and_apply(
     except Exception as e:  # noqa: BLE001 - report reason, never crash scan
         return {"updated": False, "reason": "manifest_fetch_failed:" + type(e).__name__}
     release = str(manifest.get("release", ""))
-    if not release or not is_newer(release, current_version):
-        return {"updated": False, "reason": "up_to_date", "current": current_version, "latest": release}
+    # 'release' 是发行包版本轴，current_version 是 Agent 版本轴；直接比较会让 is_newer
+    # 恒为真、每轮扫描都重复下载替换。优先用 manifest 的 agent_version（与本轴一致）。
+    offered = str(manifest.get("agent_version") or release)
+    if not offered or not is_newer(offered, current_version):
+        return {"updated": False, "reason": "up_to_date", "current": current_version, "latest": offered}
     if not in_rollout(device_id, rollout_percent):
-        return {"updated": False, "reason": "not_in_rollout", "latest": release}
+        return {"updated": False, "reason": "not_in_rollout", "latest": offered}
     try:
         art = manifest_artifact(manifest, artifact_name)
+        # 幂等短路：本地文件已是目标 sha256 → 无需重复下载/原子替换（防版本轴错配 churn）。
+        if os.path.isfile(target_path):
+            with open(target_path, "rb") as fh:
+                local_sha = hashlib.sha256(fh.read()).hexdigest()
+            if local_sha == art.get("sha256"):
+                return {"updated": False, "reason": "already_current", "current": current_version, "latest": offered}
         staging = target_path + ".staging"
         download_and_verify(art["url"], art["sha256"], staging)
         apply_update(staging, target_path)
     except Exception as e:  # noqa: BLE001
-        return {"updated": False, "reason": "apply_failed:" + type(e).__name__, "latest": release}
-    return {"updated": True, "from": current_version, "to": release, "reason": "ok"}
+        return {"updated": False, "reason": "apply_failed:" + type(e).__name__, "latest": offered}
+    return {"updated": True, "from": current_version, "to": offered, "reason": "ok"}

@@ -805,6 +805,25 @@ class AegisTests(unittest.TestCase):
             res=su.check_and_apply('file://'+str(man),'0.31.0','dev1','aegis_agent.py',str(Path(d)/'agent.py'))
             self.assertFalse(res['updated']); self.assertEqual(res['reason'],'up_to_date')
 
+    def test_self_update_agent_version_axis_and_idempotent_shortcircuit(self):
+        su=load('selfupdate4','aegis_self_update.py')
+        with tempfile.TemporaryDirectory() as dd:
+            d=Path(dd)
+            # (1) 发行包 release(0.68.0) 高于 agent，但 agent_version 与本机相同 → up_to_date（消除每轮 churn）
+            man=d/'m1.json'; man.write_text(json.dumps({"schema":"aegis.update/v1","release":"0.68.0","agent_version":"0.31.0","artifacts":{}}))
+            res=su.check_and_apply('file://'+str(man),'0.31.0','dev1','aegis_agent.py',str(d/'agent.py'))
+            self.assertFalse(res['updated']); self.assertEqual(res['reason'],'up_to_date')
+            # (2) agent_version 更新，但本地文件 sha256 已等于工件 → already_current（幂等短路，不下载/替换）
+            new=d/'new.py'; new.write_text('print("v32")'); sha=hashlib.sha256(new.read_bytes()).hexdigest()
+            target=d/'agent.py'; target.write_text('print("v32")')
+            man2=d/'m2.json'; man2.write_text(json.dumps({"schema":"aegis.update/v1","release":"0.68.0","agent_version":"0.32.0","artifacts":{"aegis_agent.py":{"url":'file://'+str(new),"sha256":sha}}}))
+            res2=su.check_and_apply('file://'+str(man2),'0.31.0','dev1','aegis_agent.py',str(target))
+            self.assertFalse(res2['updated']); self.assertEqual(res2['reason'],'already_current')
+            # (3) agent_version 更新且本地不同 → 真正更新
+            target.write_text('print("old")')
+            res3=su.check_and_apply('file://'+str(man2),'0.31.0','dev1','aegis_agent.py',str(target))
+            self.assertTrue(res3['updated']); self.assertEqual(res3['to'],'0.32.0'); self.assertEqual(target.read_text(),'print("v32")')
+
     def test_reference_adapters_implement_foura_interface(self):
         ad=load('refadapters','aegis_4a_reference_adapters.py'); import aegis_4a_interface as iface
         for name,cls in ad.ADAPTERS.items():
