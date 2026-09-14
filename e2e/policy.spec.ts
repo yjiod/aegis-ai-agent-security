@@ -177,3 +177,32 @@ test.describe('signing key governance', () => {
     }
   });
 });
+
+test.describe('policy artifact (endpoint-loadable)', () => {
+  test('artifact is the flattened signed aegis.policy/v1 the agent can load', async ({ request }) => {
+    await login(request);
+    const pub = await request.post('/api/policy/publish', { data: {} });
+    expect(pub.status()).toBe(200);
+
+    const res = await request.get('/api/policy/artifact');
+    expect(res.status()).toBe(200);
+    const art = (await res.json()) as Record<string, unknown>;
+    // 顶层即 aegis.policy/v1（拍平件），不是嵌套信封——终端 load_policy 才能直接消费。
+    expect(art.schema).toBe('aegis.policy/v1');
+    expect(typeof art.version).toBe('string');
+    expect((art.version as string).length).toBeGreaterThan(0);
+    expect(art.signature).toMatch(/^[0-9a-f]{64}$/);
+    expect(typeof art.signing_key_id).toBe('string');
+    expect(art.signing_key_id).not.toBe('unconfigured');
+    // 出厂字段被继承（发布件不丢自更新/自定义基线能力）。
+    expect(typeof art.agent_self_update).toBe('object');
+    expect(Array.isArray(art.custom_baseline_rules)).toBe(true);
+    // 分发完整性头。
+    expect(res.headers()['x-aegis-policy-sha256']).toMatch(/^[0-9a-f]{64}$/);
+
+    // 工件版本与 posture 的当前版本一致（同一发布件）。
+    const posture = await request.get('/api/policy/posture');
+    const pj = (await posture.json()) as { current_version?: string };
+    expect(pj.current_version).toBe(art.version);
+  });
+});

@@ -103,6 +103,27 @@ class AegisTests(unittest.TestCase):
                 self.assertEqual(self.agent.load_policy(p)["version"],"2.0.0")
             with patch.dict(os.environ,{"AEGIS_POLICY_VERIFY_KEYS":json.dumps({"k1":s1}),"AEGIS_POLICY_VERIFY_KEY":""},clear=False):
                 with self.assertRaises(ValueError): self.agent.load_policy(p)
+    def test_published_policy_artifact_is_agent_loadable(self):
+        import hmac as _hmac, hashlib as _hashlib
+        key="artifact-signing-key-0123456789"
+        body={"schema":"aegis.policy/v1","version":"4.9.0","limits":{"project_files":10000,"max_file_bytes":1000000,"inventory_items":5000,"findings":10000},"enforcement":{"unknown_skill":"block","unknown_mcp":"audit","critical_finding":"block"},"allowed_skills":["alpha-skill"],"allowed_mcp_transports":["stdio","https"],"allowed_mcp_servers":["github"],"allowed_mcp_commands":["node"],"allowed_mcp_command_paths":[],"allowed_mcp_invocations":[],"allowed_mcp_domains":[],"blocked_commands":["rm -rf"],"secret_patterns":["AKIA[0-9A-Z]{16}"],"skill_rules":["unknown_skill"],"mcp_rules":["unknown_mcp"],"code_rules":["hardcoded_secret"],"scan_mode":"standard","agent_self_update":{"enabled":True,"channel":"pilot","rollout_percent":25,"note":"自更新兜底"},"custom_baseline_rules":[],"monitor_notes":{"node_repl":"approved+monitor: 必需能力，保持调用审计"}}
+        canon=self.agent.canonical_json(body)
+        sig=_hmac.new(key.encode(),canon.encode("utf-8"),_hashlib.sha256).hexdigest()
+        artifact={**body,"signature":sig,"signing_key_id":"k-art"}
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'aegis-policy.json'; p.write_text(json.dumps(artifact,ensure_ascii=False))
+            # (1) 拍平工件可被终端直接加载并验签（含新继承字段与中文 monitor_notes）
+            loaded=self.agent.load_policy(p,verify_key=key)
+            self.assertEqual(loaded["version"],"4.9.0")
+            self.assertEqual(loaded["monitor_notes"]["node_repl"],"approved+monitor: 必需能力，保持调用审计")
+            self.assertEqual(loaded["agent_self_update"]["channel"],"pilot")
+            # (3) 剔除签名域后规范化 == 被签名的规范串
+            stripped={k:v for k,v in artifact.items() if k not in ("signature","signing_key_id")}
+            self.assertEqual(self.agent.canonical_json(stripped),canon)
+            # (2) 篡改一个被签名字段 → 拒载
+            tampered={**artifact,"allowed_skills":["alpha-skill","evil"]}
+            p.write_text(json.dumps(tampered,ensure_ascii=False))
+            with self.assertRaises(ValueError): self.agent.load_policy(p,verify_key=key)
     def test_scan_and_report_limits_are_enforced(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
