@@ -135,3 +135,38 @@ test.describe('integrations', () => {
     expect(typeof sb.created).toBe('number');
   });
 });
+
+test.describe('remediation closed loop', () => {
+  test('recommend -> approve -> receipt with ordering enforcement', async ({ request }) => {
+    await login(request);
+    const created = await request.post('/api/tickets', {
+      data: { title: 'remediation e2e', severity: 'high', source: 'e2e', device_id: 'rem-device' },
+    });
+    expect(created.status()).toBe(201);
+    const id = ((await created.json()) as { ticket?: { ticket_id: string } }).ticket?.ticket_id;
+    expect(typeof id).toBe('string');
+    const base = `/api/tickets/${id}/remediation`;
+
+    // approve before any recommendation is rejected (approval-bound)
+    const earlyApprove = await request.post(base, { data: { phase: 'approve', note: 'no rec yet' } });
+    expect(earlyApprove.status()).toBe(409);
+
+    // recommend without content is rejected
+    const emptyRec = await request.post(base, { data: { phase: 'recommend' } });
+    expect(emptyRec.status()).toBe(400);
+
+    // recommend -> approve -> receipt happy path
+    const rec = await request.post(base, { data: { phase: 'recommend', note: '升级 Agent 到最新版并收敛 MCP 文件范围' } });
+    expect(rec.status()).toBe(200);
+    const approve = await request.post(base, { data: { phase: 'approve', note: '安全负责人批准' } });
+    expect(approve.status()).toBe(200);
+    const receipt = await request.post(base, { data: { phase: 'receipt', note: '已于终端执行并复扫通过' } });
+    expect(receipt.status()).toBe(200);
+    const rb = (await receipt.json()) as { remediation?: { stage?: string } };
+    expect(rb.remediation?.stage).toBe('receipt');
+
+    // receipt before approve is impossible to re-test now; cleanup
+    const del = await request.delete(`/api/tickets/${id}`);
+    expect(del.status()).toBe(200);
+  });
+});

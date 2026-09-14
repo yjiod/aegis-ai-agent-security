@@ -285,6 +285,31 @@ export default function RisksPage() {
     }
   }
 
+  async function remediate(ticket: Ticket, phase: 'recommend' | 'approve' | 'receipt', note: string) {
+    try {
+      const response = await fetch(
+        `/api/tickets/${encodeURIComponent(ticket.ticket_id)}/remediation`,
+        { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ phase, note }) },
+      );
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok)
+        throw new Error(describeError(payload, `修复闭环接口返回 ${response.status}`));
+      const updated = parseTicket(pickRecord(payload, 'ticket'));
+      if (updated) {
+        setTickets((prev) =>
+          prev.map((item) => (item.ticket_id === updated.ticket_id ? updated : item)),
+        );
+      } else {
+        setTickets(await loadTickets());
+      }
+      setSource('api');
+      const label = phase === 'recommend' ? '修复建议' : phase === 'approve' ? '修复审批' : '执行回执';
+      notify(`工单 ${ticket.ticket_id} 已记录${label}。`, 'success');
+    } catch (error) {
+      notify(failureCopy('记录修复闭环', ticket.title, error), 'error');
+    }
+  }
+
   async function createTicket(draft: TicketDraft) {
     try {
       const response = await fetch('/api/tickets', {
@@ -600,6 +625,8 @@ export default function RisksPage() {
                       ticket={ticket}
                       onAction={(status, note) => transition(ticket, status, note)}
                       onClose={() => setExpandedId(null)}
+                      canMutate={canMutate}
+                      onRemediation={(phase, note) => remediate(ticket, phase, note)}
                     />
                     {ticket.device_id && <LinkedFindings deviceId={ticket.device_id} />}
                   </div>
