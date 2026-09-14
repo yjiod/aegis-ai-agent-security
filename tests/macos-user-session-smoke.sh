@@ -16,7 +16,7 @@ python3 - "$HOME_ROOT/Library/Application Support/SentinelAgent/session-attestat
 import json,os,stat,sys
 value=json.load(open(sys.argv[1],encoding="utf-8"))
 assert set(value)=={"schema","host_version","updated_at","platform","agents","baseline_targets","baseline_writes","baseline_failures","arbitrary_command_enabled"}
-assert value["schema"]=="sentinel.user-session/v1" and value["host_version"]=="0.4.0" and value["platform"]=="macos"
+assert value["schema"]=="sentinel.user-session/v1" and value["host_version"]=="0.5.0" and value["platform"]=="macos"
 assert value["agents"]==["codex"] and value["baseline_targets"]==1 and value["baseline_writes"]==1 and value["baseline_failures"]==0
 assert value["arbitrary_command_enabled"] is False and stat.S_IMODE(os.stat(sys.argv[1]).st_mode)==0o600
 PY

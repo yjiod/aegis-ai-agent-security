@@ -1,9 +1,10 @@
 {
-  "release": "5.14.0",
+  "release": "5.15.0",
   "channel": "pilot",
   "published_at": "2026-09-14T00:00:00+08:00",
-  "component_versions": {"endpoint_agent":"0.52.0","policy":"5.1.0","collector":"0.26","adapter":"0.19"},
+  "component_versions": {"endpoint_agent":"0.53.0","policy":"5.1.0","collector":"0.26","adapter":"0.19"},
   "features": [
+    "native_local_status_entrypoint", "privacy_minimized_status_contract", "bounded_status_json_reader", "status_reparse_rejection", "cross_platform_exit_code_health", "native_host_0_5_0",
     "native_cross_platform_enrollment_entrypoint", "fixed_enrollment_engine_invocation", "bounded_enrollment_process_tree", "reparse_safe_enrollment_input", "script_free_operator_enrollment_flow", "native_host_0_4_0",
     "persistent_enrollment_device_identity", "reporting_config_v3", "dpapi_bound_device_id", "root_only_bound_device_id", "hostname_rename_identity_stability", "device_id_report_hmac_spool_binding", "legacy_identity_migration_finding",
     "native_cross_platform_user_session_bridge", "least_privilege_user_baseline_writer", "privacy_minimized_session_attestation", "independent_privileged_baseline_reverification", "windows_group_logon_trigger", "macos_global_launchagent", "user_session_uninstall_cleanup",
