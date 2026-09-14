@@ -25,6 +25,7 @@ import {
   Code2,
   TrendingUp,
   Activity,
+  Rocket,
   ScanLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -226,6 +227,18 @@ export default function Home() {
           </Button>
         </div>
       </div>
+
+      {(!fleet || fleet.total_devices === 0) && (
+        <div className="panel animate-entrance" style={{ padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Rocket size={18} />
+          <span style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>
+            还没有纳管终端？按五步把 Aegis 接入你的团队。
+          </span>
+          <Link className="handle" href="/onboarding" style={{ marginLeft: 'auto', fontSize: 13 }}>
+            打开快速开始 →
+          </Link>
+        </div>
+      )}
 
       {/* ─── Metric Cards (real fleet summary; — when disconnected) ─── */}
       <div className="metrics">

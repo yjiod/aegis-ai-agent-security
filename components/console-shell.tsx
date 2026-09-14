@@ -12,7 +12,9 @@ import {
   Laptop,
   LockKeyhole,
   LogOut,
+  Menu,
   Network,
+  Rocket,
   ScrollText,
   Settings,
   ShieldCheck,
@@ -49,6 +51,7 @@ const navSections: NavSection[] = [
   {
     label: '控制台',
     items: [
+      { href: '/onboarding', label: '快速开始', icon: Rocket },
       { href: '/', label: '总览', icon: Activity },
       { href: '/integrations', label: '接入中心', icon: Bot },
       { href: '/devices', label: '设备与 Agent', icon: Laptop },
@@ -112,6 +115,12 @@ export default function ConsoleShell({
   const [ticketCount, setTicketCount] = useState<number | null>(null);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+
+  // 移动端抽屉导航：路由变化后自动收起。
+  useEffect(() => {
+    setNavOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     fetch('/api/tickets?limit=1', { cache: 'no-store' })
@@ -149,6 +158,14 @@ export default function ConsoleShell({
       <CollectorProvider value={{ fleet, collectorState }}>
       <div className="min-h-screen bg-[var(--background)] text-[color:var(--foreground)]">
         <header className="topbar">
+          <button
+            className="nav-toggle"
+            aria-label="打开导航菜单"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((v) => !v)}
+          >
+            <Menu size={20} />
+          </button>
           <div className="brand">
             <span className="brandmark">
               <ShieldCheck size={19} />
@@ -196,8 +213,15 @@ export default function ConsoleShell({
           </div>
         </header>
         {showPasswordModal && <PasswordModal onClose={() => setShowPasswordModal(false)} />}
-        <div className="shell">
-          <aside className="sidebar">
+        <div className={navOpen ? 'shell nav-open' : 'shell'}>
+          {navOpen && (
+            <div
+              className="nav-backdrop"
+              onClick={() => setNavOpen(false)}
+              aria-hidden="true"
+            />
+          )}
+          <aside className={navOpen ? 'sidebar open' : 'sidebar'}>
             <nav aria-label="主导航">
               {navSections.map((section) => (
                 <div key={section.label}>

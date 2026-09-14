@@ -512,6 +512,25 @@ button {
     0 8px 28px rgba(0, 0, 0, 0.28);
 }
 
+/* Mobile navigation affordances — hidden on desktop, revealed ≤760px. */
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.nav-backdrop {
+  display: none;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -1638,8 +1657,48 @@ button.risk-row {
     grid-template-columns: 1fr;
   }
 
+  .nav-toggle {
+    display: flex;
+  }
+
   .sidebar {
-    display: none;
+    position: fixed;
+    top: 64px;
+    left: 0;
+    bottom: 0;
+    width: 264px;
+    display: flex;
+    transform: translateX(-100%);
+    transition: transform 200ms ease;
+    z-index: 40;
+    overflow-y: auto;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: 12px 0 40px rgba(0, 0, 0, 0.5);
+  }
+
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    top: 64px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 35;
+  }
+
+  /* 固定列宽的宽表在窄屏横向滚动，而不是被压扁 */
+  .data-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-head,
+  .data-row {
+    min-width: 620px;
   }
 
   .brand-muted,
