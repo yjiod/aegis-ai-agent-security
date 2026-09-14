@@ -80,6 +80,29 @@ class AegisTests(unittest.TestCase):
             path.write_text(json.dumps(body))
             unsigned=self.agent.load_policy(path)
             self.assertEqual(unsigned['version'],"1.0.0")
+    def test_policy_signature_multi_key_keyring(self):
+        import hmac as _hmac, hashlib as _hashlib
+        body={"schema":"aegis.policy/v1","version":"2.0.0","limits":{"project_files":10000,"max_file_bytes":1000000,"inventory_items":5000,"findings":10000},"enforcement":{"unknown_skill":"block","unknown_mcp":"audit","critical_finding":"block"},"allowed_skills":["s1"],"allowed_mcp_transports":["stdio"],"allowed_mcp_servers":["github"],"allowed_mcp_commands":["node"],"allowed_mcp_command_paths":[],"allowed_mcp_invocations":[],"allowed_mcp_domains":[],"blocked_commands":["rm -rf"],"secret_patterns":[],"skill_rules":["unknown_skill"],"mcp_rules":["unknown_mcp"],"code_rules":["hardcoded_secret"],"scan_mode":"standard"}
+        s1="rotate-key-one-0123456789"; s2="rotate-key-two-9876543210"
+        canon=self.agent.canonical_json(body).encode("utf-8")
+        sig1=_hmac.new(s1.encode(),canon,_hashlib.sha256).hexdigest()
+        sig2=_hmac.new(s2.encode(),canon,_hashlib.sha256).hexdigest()
+        ring={"k1":s1,"k2":s2}
+        # (1) 按 signing_key_id 选钥
+        self.assertTrue(self.agent.verify_policy_signature({**body,"signature":sig2,"signing_key_id":"k2"},ring))
+        # (2) 重叠期：旧钥 k1 签名件仍可用同一环验签
+        self.assertTrue(self.agent.verify_policy_signature({**body,"signature":sig1,"signing_key_id":"k1"},ring))
+        # (3) 篡改 → 失败
+        self.assertFalse(self.agent.verify_policy_signature({**body,"allowed_skills":["s1","evil"],"signature":sig2,"signing_key_id":"k2"},ring))
+        # (4) k1 退役(移出环)后，k1 签名件不再可验
+        self.assertFalse(self.agent.verify_policy_signature({**body,"signature":sig1,"signing_key_id":"k1"},{"k2":s2}))
+        # (5) env 环：按 id 选钥加载成功；环中缺签名钥则 fail-closed
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'policy.json'; p.write_text(json.dumps({**body,"signature":sig2,"signing_key_id":"k2"}))
+            with patch.dict(os.environ,{"AEGIS_POLICY_VERIFY_KEYS":json.dumps(ring),"AEGIS_POLICY_VERIFY_KEY":""},clear=False):
+                self.assertEqual(self.agent.load_policy(p)["version"],"2.0.0")
+            with patch.dict(os.environ,{"AEGIS_POLICY_VERIFY_KEYS":json.dumps({"k1":s1}),"AEGIS_POLICY_VERIFY_KEY":""},clear=False):
+                with self.assertRaises(ValueError): self.agent.load_policy(p)
     def test_scan_and_report_limits_are_enforced(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)

@@ -20,6 +20,8 @@ import {
   pgLoadPolicyReleases,
   pgInsertPolicyRelease,
   pgSupersedePolicyReleases,
+  pgLoadSigningKeys,
+  pgUpsertSigningKey,
   type PolicyReleaseRow,
 } from './pg-store';
 
@@ -125,23 +127,120 @@ export function canonicalJson(value: unknown): string {
   return `{${parts.join(',')}}`;
 }
 
-/** 策略签名密钥：优先专用密钥，回退会话密钥（与三个会话签发方一致的容错策略）。 */
-function signingKey(): string {
-  return process.env.AEGIS_POLICY_SIGNING_KEY || process.env.AEGIS_SESSION_SECRET || '';
+/**
+ * 签名密钥环（keyring）。密钥料只来自 env/KMS（AEGIS_POLICY_SIGNING_KEYS 的
+ * JSON {key_id: secret}，或单钥 AEGIS_POLICY_SIGNING_KEY），绝不入库、绝不回退到
+ * 会话密钥——策略签名与会话认证是两个独立信任域，耦合会让任一方轮换击穿另一方。
+ */
+function keyringSecrets(): Record<string, string> {
+  const raw = process.env.AEGIS_POLICY_SIGNING_KEYS;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+          if (typeof v === 'string' && v) out[k] = v;
+        }
+        if (Object.keys(out).length > 0) return out;
+      }
+    } catch {
+      /* 配置非法时回退单钥 */
+    }
+  }
+  const single = process.env.AEGIS_POLICY_SIGNING_KEY;
+  if (single) return { default: single };
+  return {};
 }
 
-/** 密钥指纹（前 12 位 sha256），作为 signing_key_id，供终端选择验签密钥；不泄露密钥本身。 */
+/** 密钥指纹（sha256 前 12 位），仅用于展示/可见性，不是密钥本身。 */
+export function fingerprintOf(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex').slice(0, 12);
+}
+
+const gk = globalThis as typeof globalThis & {
+  __aegis_signing_keys?: SigningKeyMeta[];
+  __aegis_signing_keys_loaded?: Promise<void> | null;
+};
+
+export interface SigningKeyMeta {
+  key_id: string;
+  fingerprint: string;
+  status: 'active' | 'retiring' | 'retired';
+  created_at: number;
+  created_by: string;
+  rotated_at?: number;
+  rotated_by?: string;
+  retired_at?: number;
+  retired_by?: string;
+  note?: string;
+}
+
+function keyMeta(): SigningKeyMeta[] {
+  if (!gk.__aegis_signing_keys) gk.__aegis_signing_keys = [];
+  return gk.__aegis_signing_keys;
+}
+
+/** 请求期懒加载签名密钥元数据（每 isolate 一次）。无 PG 时直接用内存/env。 */
+export function ensureSigningKeysLoaded(): Promise<void> {
+  if (!pgEnabled()) return Promise.resolve();
+  if (!gk.__aegis_signing_keys_loaded) {
+    gk.__aegis_signing_keys_loaded = (async () => {
+      const rows = await pgLoadSigningKeys();
+      if (!rows) return;
+      const arr = keyMeta();
+      for (const r of rows) {
+        if (!arr.some((x) => x.key_id === r.key_id)) {
+          arr.push({
+            key_id: r.key_id,
+            fingerprint: r.fingerprint || '',
+            status: r.status === 'retiring' ? 'retiring' : r.status === 'retired' ? 'retired' : 'active',
+            created_at: Number(r.created_at || 0),
+            created_by: r.created_by || '',
+            ...(r.rotated_at ? { rotated_at: Number(r.rotated_at) } : {}),
+            ...(r.rotated_by ? { rotated_by: r.rotated_by } : {}),
+            ...(r.retired_at ? { retired_at: Number(r.retired_at) } : {}),
+            ...(r.retired_by ? { retired_by: r.retired_by } : {}),
+            ...(r.note ? { note: r.note } : {}),
+          });
+        }
+      }
+    })();
+  }
+  return gk.__aegis_signing_keys_loaded;
+}
+
+/** 解析当前活跃签名密钥 id：DB active → env ACTIVE_KEY_ID → keyring 唯一/首个 → ''。 */
+export function activeKeyIdResolved(): string {
+  const ring = keyringSecrets();
+  const ids = Object.keys(ring);
+  if (ids.length === 0) return '';
+  const dbActive = keyMeta().find((k) => k.status === 'active' && k.key_id in ring);
+  if (dbActive) return dbActive.key_id;
+  const envActive = process.env.AEGIS_POLICY_ACTIVE_KEY_ID;
+  if (envActive && envActive in ring) return envActive;
+  return ids[0];
+}
+
+/** 当前活跃 signing_key_id（写进发布件，供终端按 id 选验签密钥）。 */
 export function signingKeyId(): string {
-  const key = signingKey();
-  if (!key) return 'unconfigured';
-  return createHash('sha256').update(key).digest('hex').slice(0, 12);
+  return activeKeyIdResolved() || 'unconfigured';
 }
 
-/** 对策略体规范化串计算 HMAC-SHA256 签名（hex）。密钥未配置时返回空串（不可发布）。 */
+/** 当前活跃密钥指纹（仅展示）。 */
+export function signingKeyFingerprint(): string {
+  const ring = keyringSecrets();
+  const id = activeKeyIdResolved();
+  if (!id || !(id in ring)) return 'unconfigured';
+  return fingerprintOf(ring[id]);
+}
+
+/** 对策略体规范化串用「活跃密钥」计算 HMAC-SHA256（hex）。无活跃密钥返回空串（不可发布）。 */
 export function signPolicyBody(body: PolicyBody): string {
-  const key = signingKey();
-  if (!key) return '';
-  return createHmac('sha256', key).update(canonicalJson(body)).digest('hex');
+  const ring = keyringSecrets();
+  const id = activeKeyIdResolved();
+  if (!id || !(id in ring)) return '';
+  return createHmac('sha256', ring[id]).update(canonicalJson(body)).digest('hex');
 }
 
 /** 供终端消费的完整发布件：策略体 + 签名 + 密钥指纹。 */
@@ -249,7 +348,7 @@ function countLabels(labels: AssetLabel[]): PolicyReceipt {
  * 需要已配置签名密钥；未配置返回 null（调用方据此诚实报错，不产出未签名策略）。
  */
 export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string }): PolicyRelease | null {
-  if (!signingKey()) return null;
+  if (!activeKeyIdResolved()) return null;
   const arr = releases();
   const nextVersion = arr.reduce((max, r) => Math.max(max, r.version), 0) + 1;
   const labels = listLabels();
@@ -286,4 +385,140 @@ export function publishPolicyRelease(opts: { scanMode: string; by: string; note?
   });
   pgSupersedePolicyReleases(release.release_id);
   return release;
+}
+
+/* ─── 签名密钥治理：轮换 / 退役（密钥料只在 env，DB 仅存元数据） ─────────── */
+
+export interface SigningKeyView {
+  key_id: string;
+  fingerprint: string;
+  in_keyring: boolean;
+  status: 'active' | 'retiring' | 'retired' | 'provisioned';
+  releases: number;
+  created_at?: number;
+  rotated_at?: number;
+  retired_at?: number;
+}
+
+function persistKeyMeta(meta: SigningKeyMeta): void {
+  const arr = keyMeta();
+  const i = arr.findIndex((k) => k.key_id === meta.key_id);
+  if (i >= 0) arr[i] = meta;
+  else arr.push(meta);
+  pgUpsertSigningKey({
+    key_id: meta.key_id,
+    fingerprint: meta.fingerprint,
+    status: meta.status,
+    created_at: meta.created_at,
+    created_by: meta.created_by,
+    rotated_at: meta.rotated_at ?? null,
+    rotated_by: meta.rotated_by ?? null,
+    retired_at: meta.retired_at ?? null,
+    retired_by: meta.retired_by ?? null,
+    note: meta.note ?? null,
+  });
+}
+
+/** 列出 keyring ∪ DB 中的全部签名密钥（仅指纹/状态，绝不含密钥料）。 */
+export function listSigningKeys(): SigningKeyView[] {
+  const ring = keyringSecrets();
+  const meta = keyMeta();
+  const rels = releases();
+  const activeId = activeKeyIdResolved();
+  const ids = [...new Set([...Object.keys(ring), ...meta.map((m) => m.key_id)])];
+  return ids
+    .map((id) => {
+      const m = meta.find((x) => x.key_id === id);
+      const inKeyring = id in ring;
+      const fingerprint = inKeyring ? fingerprintOf(ring[id]) : (m?.fingerprint ?? '');
+      let status: SigningKeyView['status'];
+      if (m) status = m.status;
+      else if (id === activeId) status = 'active';
+      else if (inKeyring) status = 'provisioned';
+      else status = 'retired';
+      return {
+        key_id: id,
+        fingerprint,
+        in_keyring: inKeyring,
+        status,
+        releases: rels.filter((r) => r.signing_key_id === id).length,
+        ...(m?.created_at ? { created_at: m.created_at } : {}),
+        ...(m?.rotated_at ? { rotated_at: m.rotated_at } : {}),
+        ...(m?.retired_at ? { retired_at: m.retired_at } : {}),
+      };
+    })
+    .sort((a, b) => a.key_id.localeCompare(b.key_id));
+}
+
+export type RotateResult =
+  | { ok: true; active_key_id: string; retired_to: string }
+  | { ok: false; error: 'key_not_in_keyring' | 'already_active' | 'no_keyring' };
+
+/** 轮换：把活跃签名密钥切到 keyring 中已预置的 toKeyId；旧活跃钥转 retiring（重叠期内仍可验签）。 */
+export function rotateSigningKey(toKeyId: string, by: string): RotateResult {
+  const ring = keyringSecrets();
+  if (Object.keys(ring).length === 0) return { ok: false, error: 'no_keyring' };
+  if (!(toKeyId in ring)) return { ok: false, error: 'key_not_in_keyring' };
+  const currentActive = activeKeyIdResolved();
+  if (currentActive === toKeyId) return { ok: false, error: 'already_active' };
+  const now = Date.now();
+  // 旧活跃钥 → retiring（仍在 keyring，终端重叠期可继续验签）
+  if (currentActive && currentActive in ring) {
+    const prev = keyMeta().find((k) => k.key_id === currentActive);
+    persistKeyMeta({
+      key_id: currentActive,
+      fingerprint: fingerprintOf(ring[currentActive]),
+      status: 'retiring',
+      created_at: prev?.created_at ?? now,
+      created_by: prev?.created_by ?? by,
+      rotated_at: now,
+      rotated_by: by,
+      ...(prev?.retired_at ? { retired_at: prev.retired_at } : {}),
+      ...(prev?.retired_by ? { retired_by: prev.retired_by } : {}),
+    });
+  }
+  // 新钥 → active
+  const existing = keyMeta().find((k) => k.key_id === toKeyId);
+  persistKeyMeta({
+    key_id: toKeyId,
+    fingerprint: fingerprintOf(ring[toKeyId]),
+    status: 'active',
+    created_at: existing?.created_at ?? now,
+    created_by: existing?.created_by ?? by,
+    rotated_at: now,
+    rotated_by: by,
+  });
+  return { ok: true, active_key_id: toKeyId, retired_to: currentActive };
+}
+
+export type RetireResult =
+  | { ok: true; key_id: string }
+  | { ok: false; error: 'is_active' | 'in_use_by_published' | 'not_found' };
+
+/**
+ * 退役：把一把 retiring 密钥标记为 retired（终端将不再能用它验签）。
+ * 证据门禁：不能退役当前活跃钥；且当前生效发布件不能仍由该钥签发
+ * （否则终端拉到的最新策略会验签失败）——必须先发布一份用新活跃钥签名的策略。
+ */
+export function retireSigningKey(keyId: string, by: string): RetireResult {
+  const activeId = activeKeyIdResolved();
+  if (keyId === activeId) return { ok: false, error: 'is_active' };
+  const cur = currentPolicyRelease();
+  if (cur && cur.signing_key_id === keyId) return { ok: false, error: 'in_use_by_published' };
+  const ring = keyringSecrets();
+  const existing = keyMeta().find((k) => k.key_id === keyId);
+  if (!existing && !(keyId in ring)) return { ok: false, error: 'not_found' };
+  const now = Date.now();
+  persistKeyMeta({
+    key_id: keyId,
+    fingerprint: existing?.fingerprint ?? (keyId in ring ? fingerprintOf(ring[keyId]) : ''),
+    status: 'retired',
+    created_at: existing?.created_at ?? now,
+    created_by: existing?.created_by ?? by,
+    ...(existing?.rotated_at ? { rotated_at: existing.rotated_at } : {}),
+    ...(existing?.rotated_by ? { rotated_by: existing.rotated_by } : {}),
+    retired_at: now,
+    retired_by: by,
+  });
+  return { ok: true, key_id: keyId };
 }
