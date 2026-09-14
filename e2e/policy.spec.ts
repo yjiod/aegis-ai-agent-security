@@ -1,5 +1,9 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
+// 本文件每个用例都会 POST /api/policy/publish，递增服务端单调版本号；并行 worker
+// 会相互竞争导致"精确版本号"断言抖动。串行执行消除竞争。
+test.describe.configure({ mode: 'serial' });
+
 /**
  * 签名策略发布闭环 e2e（认证态）。
  * 覆盖：admin 预览→发布→current 反映新版本且带签名；preview 输出与 publish 输出一致；

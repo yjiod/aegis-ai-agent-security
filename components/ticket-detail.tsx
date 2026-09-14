@@ -346,10 +346,14 @@ export function parseTicketList(payload: unknown): Ticket[] {
 
 /* ── 组件 ───────────────────────────────────────────────── */
 
+export type RemediationPhase = 'recommend' | 'approve' | 'receipt';
+
 export type TicketDetailProps = {
   ticket: Ticket;
   onAction: (status: TicketStatus, note?: string) => Promise<void>;
   onClose: () => void;
+  canMutate?: boolean;
+  onRemediation?: (phase: RemediationPhase, note: string) => Promise<void>;
 };
 
 const containerStyle: CSSProperties = {
@@ -402,6 +406,9 @@ const ACTION_LABELS: Record<string, string> = {
   note: '添加处置备注',
   escalated: '升级处置',
   status_change: '状态更新',
+  'remediation:recommend': '提出修复建议',
+  'remediation:approve': '审批修复建议',
+  'remediation:receipt': '记录执行回执',
 };
 
 function historyActionLabel(entry: TicketHistoryEntry): string {
@@ -475,19 +482,60 @@ function MetaItem({
   );
 }
 
+export type RemediationEntry = { by: string; at: string | number | null; note: string };
+export type RemediationState = {
+  stage: 'none' | 'recommended' | 'approved' | 'receipt';
+  recommend: RemediationEntry | null;
+  approve: RemediationEntry | null;
+  receipt: RemediationEntry | null;
+};
+
+/** 从工单时间线派生修复闭环状态（建议→审批→回执，取各阶段最近一条）。 */
+export function remediationFromHistory(history: TicketHistoryEntry[]): RemediationState {
+  const pick = (action: string): RemediationEntry | null => {
+    let found: TicketHistoryEntry | null = null;
+    for (const entry of history) if (entry.action === action) found = entry;
+    if (!found) return null;
+    return { by: found.actor ?? '', at: found.at, note: found.note ?? '' };
+  };
+  const recommend = pick('remediation:recommend');
+  const approve = pick('remediation:approve');
+  const receipt = pick('remediation:receipt');
+  const stage = receipt ? 'receipt' : approve ? 'approved' : recommend ? 'recommended' : 'none';
+  return { stage, recommend, approve, receipt };
+}
+
 export default function TicketDetail({
   ticket,
   onAction,
   onClose,
+  canMutate = false,
+  onRemediation,
 }: TicketDetailProps) {
   const noteId = useId();
   const [note, setNote] = useState('');
   const [pending, setPending] = useState<TicketStatus | null>(null);
+  const [remNote, setRemNote] = useState('');
+  const [remPending, setRemPending] = useState<RemediationPhase | null>(null);
 
   const severity = severityMeta(ticket.severity);
   const transitions = ticketTransitions(ticket.status);
   const history = sortedHistory(ticket);
   const busy = pending !== null;
+  const remediation = remediationFromHistory(history);
+
+  async function runRemediation(phase: RemediationPhase) {
+    if (!onRemediation || remPending) return;
+    const text = remNote.trim();
+    if (phase === 'recommend' && !text) return;
+    setRemPending(phase);
+    try {
+      await onRemediation(phase, text);
+      setRemNote('');
+    } finally {
+      setRemPending(null);
+    }
+  }
 
   async function run(status: TicketStatus) {
     if (busy) return;
@@ -656,6 +704,60 @@ export default function TicketDetail({
             <span style={mutedStyle}>当前状态没有可执行的流转动作</span>
           )}
         </div>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <p style={{ ...mutedStyle, display: 'flex', alignItems: 'center', gap: 6, margin: 0, letterSpacing: '0.04em' }}>
+            <FileWarning size={13} />
+            修复闭环（建议 → 审批 → 回执）
+          </p>
+          <Badge variant="outline" style={{ fontSize: 10 }}>
+            {remediation.stage === 'receipt'
+              ? '已回执'
+              : remediation.stage === 'approved'
+                ? '已审批'
+                : remediation.stage === 'recommended'
+                  ? '待审批'
+                  : '未开始'}
+          </Badge>
+        </div>
+
+        <div style={metaGridStyle}>
+          <MetaItem icon={<FileWarning size={12} />} label="修复建议" value={remediation.recommend ? `${remediation.recommend.by || '—'} · ${formatTimestamp(remediation.recommend.at)}${remediation.recommend.note ? ` · ${remediation.recommend.note}` : ''}` : '—'} />
+          <MetaItem icon={<UserCheck size={12} />} label="修复审批" value={remediation.approve ? `${remediation.approve.by || '—'} · ${formatTimestamp(remediation.approve.at)}${remediation.approve.note ? ` · ${remediation.approve.note}` : ''}` : '—'} />
+          <MetaItem icon={<Check size={12} />} label="执行回执" value={remediation.receipt ? `${remediation.receipt.by || '—'} · ${formatTimestamp(remediation.receipt.at)}${remediation.receipt.note ? ` · ${remediation.receipt.note}` : ''}` : '—'} />
+        </div>
+
+        {canMutate && onRemediation && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 12, marginTop: 12 }}>
+            <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+              <Label style={{ ...mutedStyle, marginBottom: 6 }}>修复说明</Label>
+              <Textarea
+                value={remNote}
+                onChange={(event) => setRemNote(event.target.value)}
+                placeholder="建议内容 / 审批意见 / 执行结果（提出建议必填）"
+                maxLength={512}
+                disabled={remPending !== null}
+                style={{ fontSize: 12 }}
+              />
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <Button size="sm" variant="outline" disabled={remPending !== null || !remNote.trim()} onClick={() => void runRemediation('recommend')}>
+                {remPending === 'recommend' ? <Spinner /> : null}
+                提出建议
+              </Button>
+              <Button size="sm" variant="outline" disabled={remPending !== null || !remediation.recommend} onClick={() => void runRemediation('approve')}>
+                {remPending === 'approve' ? <Spinner /> : null}
+                审批
+              </Button>
+              <Button size="sm" variant="outline" disabled={remPending !== null || !remediation.approve} onClick={() => void runRemediation('receipt')}>
+                {remPending === 'receipt' ? <Spinner /> : null}
+                记录回执
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 18 }}>
