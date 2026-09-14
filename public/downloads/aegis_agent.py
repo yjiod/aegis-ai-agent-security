@@ -463,6 +463,20 @@ def load_reporting_config(path):
     token=value.get("report_token"); secret=value.get("signing_secret")
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("reporting_config_secrets")
     return value
+def load_enrollment_config(path):
+    # 每设备入网凭据(aegis.device-enrollment/v1)：与全网 reporting 配置同等加固，
+    # 但绑定单一 device_id，使每台终端只持有自己的 token/secret（不再全网共享密钥）。
+    path=Path(path)
+    if path.is_symlink(): raise ValueError("enrollment_config_symlink")
+    info=path.stat()
+    if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077: raise ValueError("enrollment_config_permissions")
+    if hasattr(os,"geteuid") and info.st_uid not in {0,os.geteuid()}: raise ValueError("enrollment_config_owner")
+    value=json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value,dict) or set(value)!={"schema","device_id","report_token","signing_secret"} or value.get("schema")!="aegis.device-enrollment/v1": raise ValueError("enrollment_config_contract")
+    if not isinstance(value.get("device_id"),str) or not re.fullmatch(r"[0-9a-f]{12}",value["device_id"]): raise ValueError("enrollment_config_device_id")
+    token=value.get("report_token"); secret=value.get("signing_secret")
+    if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("enrollment_config_secrets")
+    return value
 def report_headers(body,token="",secret="",now=None,device_id=""):
     headers={"Content-Type":"application/json","User-Agent":"AegisAgent/0.30.0"}
     if token: headers["Authorization"]="Bearer "+token
@@ -577,17 +591,31 @@ def maybe_self_update(policy, report_url):
 
 
 def main():
-    ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); args=ap.parse_args()
-    if not args.report_config:
-        candidate=Path(__file__).with_name("reporting.json")
-        if candidate.is_file(): args.report_config=str(candidate)
+    ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); ap.add_argument("--enrollment-config",default=os.getenv("AEGIS_ENROLLMENT_CONFIG","")); ap.add_argument("--enrollment-dir",default=os.getenv("AEGIS_ENROLLMENT_DIR","")); args=ap.parse_args()
+    host_device_id=hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
     policy,policy_error=reload_policy(args.policy); root=Path(args.scan_path).resolve()
     if policy_error or policy is None: raise SystemExit("valid Aegis policy is required")
     maybe_self_update(policy, args.report_url)
+    # 每设备入网凭据优先：显式 --enrollment-config > --enrollment-dir/<本机device_id>.json > 全网 reporting.json(向后兼容)。
+    enroll_path=args.enrollment_config
+    if not enroll_path and args.enrollment_dir:
+        cand=Path(args.enrollment_dir)/(host_device_id+".json")
+        if cand.is_file(): enroll_path=str(cand)
+    enrollment=None; enrollment_error=False; enrollment_mismatch=False
+    if enroll_path:
+        try:
+            enrollment=load_enrollment_config(enroll_path)
+            if enrollment["device_id"]!=host_device_id: enrollment_mismatch=True; enrollment=None
+        except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): enrollment_error=True; enrollment=None
+    # 仅在未启用每设备入网时回退全网 reporting；入网凭据无效/不符时拒报，绝不静默回退全网共享密钥。
     reporting=None; reporting_error=False
-    if args.report_config:
-        try: reporting=load_reporting_config(args.report_config); args.report_url=reporting["report_url"]
-        except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): reporting_error=True; args.report_url=""
+    if enrollment is None and not enrollment_error and not enrollment_mismatch:
+        if not args.report_config:
+            candidate=Path(__file__).with_name("reporting.json")
+            if candidate.is_file(): args.report_config=str(candidate)
+        if args.report_config:
+            try: reporting=load_reporting_config(args.report_config); args.report_url=reporting["report_url"]
+            except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): reporting_error=True; args.report_url=""
     if args.install_baseline: install_baseline(root)
     while True:
         policy,reload_failed=reload_policy(args.policy,policy)
@@ -597,9 +625,17 @@ def main():
             add_report_finding(report,finding("policy_reload_failed","high",args.policy,"策略热加载失败，继续使用上一份有效策略")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reporting_error:
             add_report_finding(report,finding("reporting_config_invalid","high",args.report_config,"受保护上报配置权限、所有者或契约无效；本轮拒绝上报")); data=json.dumps(report,ensure_ascii=False,indent=2)
+        if enrollment_error:
+            add_report_finding(report,finding("enrollment_config_invalid","high",enroll_path,"每设备入网凭据权限、所有者或契约无效；本轮拒绝上报，绝不回退全网共享凭据")); data=json.dumps(report,ensure_ascii=False,indent=2)
+        if enrollment_mismatch:
+            add_report_finding(report,finding("enrollment_device_mismatch","high",enroll_path,f"入网凭据 device_id 与本机派生 ID({host_device_id}) 不符；本轮拒绝上报")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if args.output: write_private_atomic(args.output,data)
-        if args.report_url:
-            token=reporting["report_token"] if reporting else os.getenv("AEGIS_REPORT_TOKEN",""); signing=reporting["signing_secret"] if reporting else None; spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".aegis-agent/spool")
+        can_report=bool(args.report_url) and not reporting_error and not enrollment_error and not enrollment_mismatch
+        if can_report:
+            if enrollment: token=enrollment["report_token"]; signing=enrollment["signing_secret"]
+            elif reporting: token=reporting["report_token"]; signing=reporting["signing_secret"]
+            else: token=os.getenv("AEGIS_REPORT_TOKEN",""); signing=None
+            spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".aegis-agent/spool")
             status_path=(Path(args.output).parent if args.output else spool.parent)/"upload-status.json"
             try: flush_spool(spool,args.report_url,token,signing); post_report(args.report_url,token,report,signing); write_upload_status(status_path,args.report_url)
             except Exception as exc: queue_report(spool,report); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)
