@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { SlidersHorizontal, ShieldCheck, KeyRound } from 'lucide-react';
+import { SlidersHorizontal, ShieldCheck, KeyRound, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
@@ -183,7 +183,7 @@ export default function PoliciesPage() {
                 <b style={{ color: 'var(--foreground)' }}>{posture.on_current}/{posture.total_devices}</b> 台在 v{posture.current_version}
                 （覆盖率 {posture.coverage ?? 0}%）· {posture.drifted} 台漂移 · {posture.unknown} 台未知。
                 {(posture.drifted > 0 || posture.unknown > 0) &&
-                  ' 漂移/未知终端会在下次 Agent 加载或上报时拉取并验签当前策略。'}
+                  ' 终端不会自动拉取策略：需下载下方签名工件，经 MDM/桌管分发为终端的 aegis-policy.json，Agent 加载时验签生效。'}
               </>
             )}
             <br />
@@ -193,6 +193,16 @@ export default function PoliciesPage() {
                 : '数据源：控制台注册表（接收器未连接，版本可能滞后）'}
             </span>
           </p>
+        )}
+        {current && (
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
+              分发：下载拍平的签名工件，经 MDM/桌管落盘为终端的 aegis-policy.json（响应头 X-Aegis-Policy-Sha256 供完整性校验）。
+            </span>
+            <Link className="handle" href="/api/policy/artifact" style={{ marginLeft: 'auto', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Download size={13} /> 下载签名策略工件 v{current.version}
+            </Link>
+          </div>
         )}
       </div>
 

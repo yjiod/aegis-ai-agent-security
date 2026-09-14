@@ -46,6 +46,9 @@ export interface PolicyBody {
   mcp_rules: string[];
   code_rules: string[];
   scan_mode: string;
+  agent_self_update: Record<string, unknown>;
+  custom_baseline_rules: string[];
+  monitor_notes: Record<string, string>;
 }
 
 /**
@@ -67,6 +70,16 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
   skill_rules: ['unknown_skill', 'prompt_override', 'hidden_instruction', 'credential_access', 'unbounded_shell', 'skill_symlink_escape'],
   mcp_rules: ['unknown_mcp', 'unapproved_mcp_transport', 'ambiguous_mcp_transport', 'unapproved_mcp_domain', 'unapproved_mcp_command_path', 'unapproved_mcp_invocation', 'invalid_mcp_arguments', 'invalid_mcp_server', 'invalid_mcp_environment', 'mcp_url_credentials', 'broad_filesystem_scope', 'literal_mcp_secret'],
   code_rules: ['hardcoded_secret', 'shell_true', 'dynamic_eval', 'weak_random_token', 'blocked_command', 'insecure_tls_verification', 'unsafe_deserialization', 'debug_mode_enabled', 'empty_exception_handler', 'oversized_file_skipped', 'dependency_unpinned', 'dependency_untrusted_source', 'missing_lockfile'],
+  agent_self_update: {
+    enabled: true,
+    channel: 'pilot',
+    rollout_percent: 25,
+    note: '自更新仅为无桌管环境兜底; 主通道为桌管/MDM 推送。下载强制 SHA-256 校验+原子替换+可回滚。',
+  },
+  custom_baseline_rules: [],
+  monitor_notes: {
+    node_repl: 'approved+monitor: computer-use 必需能力, 已加白但保持调用审计与 TRUSTED_CODE_PATHS 约束',
+  },
 };
 
 /** 出厂默认已加白清单（叠加处置 allow 之前的基线）。 */
@@ -254,6 +267,38 @@ export function buildSignedPolicy(body: PolicyBody): SignedPolicy {
   return { policy: body, signature: signPolicyBody(body), signing_key_id: signingKeyId() };
 }
 
+/**
+ * 发布件版本号：必须高于出厂 4.8.0、逐次递增、且可被 posture 精确字符串比对。
+ * release 1 -> 4.9.0，release 2 -> 4.10.0 …（替换此前会永久 drifted 的 `${n}.0.0`）。
+ */
+export function policyVersionString(releaseVersion: number): string {
+  return `4.${8 + releaseVersion}.0`;
+}
+
+/**
+ * 终端可直接加载的「拍平」签名工件：顶层即 aegis.policy/v1 字段 + signature +
+ * signing_key_id —— 正是 agent load_policy/verify_policy_signature 期望的形状
+ * （验签时剔除 signature/signing_key_id 后对其余字段做规范化）。canonical 是要分发的
+ * 逐字节内容，sha256 供 MDM 分发完整性校验。
+ */
+export interface PolicyArtifact {
+  artifact: PolicyBody & { signature: string; signing_key_id: string };
+  canonical: string;
+  sha256: string;
+  version: string;
+}
+
+export function buildPolicyArtifact(body: PolicyBody, signature: string, signingKeyId: string): PolicyArtifact {
+  const artifact = { ...body, signature, signing_key_id: signingKeyId };
+  const canonical = canonicalJson(artifact);
+  return {
+    artifact,
+    canonical,
+    sha256: createHash('sha256').update(canonical).digest('hex'),
+    version: body.version,
+  };
+}
+
 /* ─── 发布件存储（内存 + PG 写穿透，遵循 workerd 请求期懒加载约束） ─────── */
 
 export interface PolicyReceipt {
@@ -352,7 +397,7 @@ export function publishPolicyRelease(opts: { scanMode: string; by: string; note?
   const arr = releases();
   const nextVersion = arr.reduce((max, r) => Math.max(max, r.version), 0) + 1;
   const labels = listLabels();
-  const body = computePolicyBody({ version: `${nextVersion}.0.0`, scanMode: opts.scanMode, labels });
+  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels });
   const signature = signPolicyBody(body);
   if (!signature) return null;
   const now = Date.now();

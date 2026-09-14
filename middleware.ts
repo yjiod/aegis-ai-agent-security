@@ -30,6 +30,7 @@ export async function middleware(request: NextRequest) {
   if (
     pathname === '/login' ||
     pathname.startsWith('/api/auth') ||
+    pathname === '/api/policy/artifact' ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/aegis') ||
     pathname === '/favicon.svg' ||

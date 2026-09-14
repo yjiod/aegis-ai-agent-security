@@ -537,8 +537,8 @@ export default function DevicesPage() {
                   }`}
             </p>
             <p>
-              要求 Agent 版本 {fleet?.required_agent_version ?? 'v3.8'} ·
-              要求策略版本 {fleet?.required_policy_version ?? 'v4.8'}
+              要求 Agent 版本 {fleet?.required_agent_version ?? '—'} ·
+              要求策略版本 {fleet?.required_policy_version ?? '—'}
             </p>
             {fleet?.credential_posture && (
               <p>
