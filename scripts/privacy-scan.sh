@@ -17,7 +17,8 @@ FAIL=0
 
 scan() {
   label="$1"; pattern="$2"; exclude="${3:-}"
-  if out=$(git grep -nI -E "$pattern" -- . 2>/dev/null); then
+  # 排除本脚本自身（其模式字面量含被禁串，否则自匹配误报）。
+  if out=$(git grep -nI -E "$pattern" -- . ':(exclude)scripts/privacy-scan.sh' 2>/dev/null); then
     if [ -n "$exclude" ]; then
       out=$(printf '%s\n' "$out" | grep -vE "$exclude" || true)
     fi
