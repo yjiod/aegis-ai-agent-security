@@ -55,6 +55,20 @@ if [ -z "$TOKEN" ]; then
   echo "错误: 需要 AEGIS_COLLECTOR_TOKEN。管理员从控制台或服务器 /etc/aegis/.collector-token-current 获取。" >&2
   exit 1
 fi
+# 提前拦下占位符/过短令牌：Agent 上报契约要求 token 为 32–4096 字符。若直接写进
+# reporting.json，Agent 只会回一句晦涩的"受保护上报配置…契约无效"，难以定位。这里
+# 明确告诉用户是令牌本身不对（例如把示例里的 <令牌> 原样粘进来了）。
+case "$TOKEN" in
+  *"<"*">"*|*'<令牌>'*|*'TOKEN'*)
+    echo "错误: AEGIS_COLLECTOR_TOKEN 看起来是占位符（如 '<令牌>'），不是真实令牌。" >&2
+    echo "      请填入服务器 /etc/aegis/.collector-token-current 里的 64 位十六进制令牌。" >&2
+    exit 1 ;;
+esac
+if [ "${#TOKEN}" -lt 32 ] || [ "${#TOKEN}" -gt 4096 ]; then
+  echo "错误: AEGIS_COLLECTOR_TOKEN 长度为 ${#TOKEN}，不在 32–4096 之间（Agent 上报契约要求）。" >&2
+  echo "      你很可能把示例命令里的 '<令牌>' 原样粘了进来；请替换为真实令牌后重试。" >&2
+  exit 1
+fi
 if [ -z "$PYTHON_BIN" ]; then echo "错误: 需要 python3" >&2; exit 1; fi
 
 echo "═══ Aegis 终端入网（用户级，无需 sudo）═══"

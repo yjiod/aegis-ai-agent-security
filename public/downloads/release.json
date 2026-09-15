@@ -1,8 +1,9 @@
 {
-  "release": "0.70.0",
+  "release": "0.70.1",
   "channel": "pilot",
-  "published_at": "2026-09-15T11:38:54+08:00",
+  "published_at": "2026-09-15T11:57:17+08:00",
   "features": [
+    "enroll_token_prevalidation",
     "skill_signal_match_provenance",
     "risk_center_finding_details",
     "agent_0_32",
