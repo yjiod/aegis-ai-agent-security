@@ -275,16 +275,64 @@ test.describe('scanner pages', () => {
   }
 });
 
-test.describe.skip('policies page', () => {
-  // 开关/发布交互的真实行为断言待按当前实现重写（modernize-console-spec）。
+test.describe('policies page', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/policies');
+    await expect(page.locator('main h1')).toHaveText('终端安全策略');
+  });
+
+  test('factory baseline switches are read-only and honestly labeled', async ({ page }) => {
+    // 出厂默认基线为只读：开关 disabled + 「只读」标签，不伪装可切换。
+    const switches = page.locator('.setting-row button.switch');
+    await switches.first().waitFor();
+    const n = await switches.count();
+    expect(n).toBeGreaterThanOrEqual(1);
+    for (let i = 0; i < n; i += 1) {
+      await expect(switches.nth(i)).toBeDisabled();
+      await expect(switches.nth(i)).toHaveAttribute('aria-label', /只读/);
+    }
+    await expect(page.locator('.setting-row i.warn').first()).toHaveText('只读');
+  });
+
+  test('signing-key governance handles are present for the configured keyring', async ({
+    page,
+  }) => {
+    // e2e 配置了双密钥 keyring(k1 活跃 + k2)：非活跃密钥应有「设为活跃/退役」真实操作柄。
+    const handles = page.locator('button.handle', { hasText: /设为活跃|退役/ });
+    await expect(handles.first()).toBeVisible();
+    expect(await handles.count()).toBeGreaterThanOrEqual(1);
+  });
 });
 
-test.describe.skip('responsive layout', () => {
-  // 断点细节（sidebar 760px / metrics 1050px）待核对 globals.css 后重写。
-  test('metric grid collapses to two columns at 768px', async ({ page }) => {
+test.describe('responsive layout', () => {
+  test('metric grid collapses to two columns at 768px, four on desktop', async ({ page }) => {
+    // app/globals.css @media (max-width:1050px) -> .metrics { 1fr 1fr }
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto('/');
     await page.locator('.metrics .metric').first().waitFor();
     expect(await gridTrackCount(page, '.metrics')).toBe(2);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.locator('.metrics .metric')).toHaveCount(4);
+    expect(await gridTrackCount(page, '.metrics')).toBe(4);
+  });
+
+  test('sidebar goes off-canvas (not display:none) at the 760px breakpoint', async ({
+    page,
+  }) => {
+    // @media (max-width:760px): .sidebar 变 fixed + translateX(-100%)（off-canvas），
+    // .nav-toggle 显示。故断言"移出视口"而非 toBeHidden（后者对 transform 隐藏不成立）。
+    await page.setViewportSize({ width: 760, height: 1024 });
+    await page.goto('/');
+    await page.locator('.metrics .metric').first().waitFor();
+    await expect(page.locator('.nav-toggle')).toBeVisible();
+    const off = await page.locator('.sidebar').boundingBox();
+    expect(off, 'sidebar must be translated off-canvas at 760px').not.toBeNull();
+    expect(off!.x).toBeLessThan(0);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const inFlow = await page.locator('.sidebar').boundingBox();
+    expect(inFlow, 'sidebar must be in-flow above the breakpoint').not.toBeNull();
+    expect(inFlow!.x).toBeGreaterThanOrEqual(0);
   });
 });
