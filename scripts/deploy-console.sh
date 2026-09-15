@@ -3,7 +3,8 @@
 # Aegis Console 部署脚本
 #
 # 用法: sh scripts/deploy-console.sh [server]
-#   server 默认 root@aegis.example.com (SSH port 1022, key ~/key)
+#   server 默认 root@aegis.example.com（占位主机，请换成你的控制台主机）
+#   SSH 端口/密钥用环境变量覆盖：AEGIS_SSH_PORT（默认 22）、AEGIS_SSH_KEY（默认 ~/.ssh/id_ed25519）
 #
 # 凭据来源: 服务器 /etc/aegis/console.env (独立文件, 部署不覆盖)
 #
@@ -15,13 +16,12 @@
 # ═══════════════════════════════════════════════════════════
 set -eu
 
-SERVER="${1:-root@aegis.example.com}"
-# NOTE: 必须用 $HOME/key(赋值时展开)。写 "~/key" 不会做 tilde 展开,
-# ssh/scp 会收到字面 "~/key" 导致认证失败, set -e 下脚本中途 abort。
-# 端口旗标两者不同: ssh 用 -p, scp 用 -P(scp 的 -p 是保留时间戳),
-# 故分开定义, 否则 scp 会把 "1022" 当成源文件报错。
-SSH_OPTS="-i $HOME/key -p 1022"
-SCP_OPTS="-i $HOME/key -P 1022"
+SERVER="${1:-${AEGIS_DEPLOY_SERVER:-root@aegis.example.com}}"
+SSH_PORT="${AEGIS_SSH_PORT:-22}"
+SSH_KEY="${AEGIS_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+# 端口旗标两者不同: ssh 用 -p, scp 用 -P(scp 的 -p 是保留时间戳), 故分开定义。
+SSH_OPTS="-i $SSH_KEY -p $SSH_PORT"
+SCP_OPTS="-i $SSH_KEY -P $SSH_PORT"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 echo "═══ 构建控制台 ═══"

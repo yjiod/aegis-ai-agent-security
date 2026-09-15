@@ -15,7 +15,7 @@
     },
     "windows_remediation": {
       "file": "mdm-windows-remediate.ps1",
-      "sha256": "b47ab3bc79c47f751d0ca3ba950d0920c5c6ef98f291232032bf55f76eb928a4"
+      "sha256": "92399b367e4f294408abefa89cc0cb54a7e2120a78a842e9d51929b817909d3f"
     },
     "windows_compliance_discovery": {
       "file": "mdm-compliance-discovery.ps1",
@@ -23,7 +23,7 @@
     },
     "windows_compliance_rules": {
       "file": "mdm-compliance-policy.json",
-      "sha256": "9d41668f1d2196f3831d392cb3de09639ea03cc50e7371138b1adc38d5a58ad6"
+      "sha256": "7f01e2892b8c3fdfa629e92e15d1a3c34c9de5d6e1d0fdd58de8b81457a7ce1e"
     },
     "windows_reporting_configuration": {
       "file": "aegis-configure-windows.ps1",
@@ -39,7 +39,7 @@
     },
     "macos_install": {
       "file": "mdm-macos-install.sh",
-      "sha256": "38aa0582e8785f36c59213dc86aa5496d4400d29c8ba8259b39b0b80d53fc758"
+      "sha256": "d7ee180d3ac84fd3cdf4d87390ecc42bacfe8b26b6c448e98be2e20b3b366ae7"
     },
     "macos_compliance_discovery": {
       "file": "mdm-macos-compliance.sh",
@@ -47,7 +47,7 @@
     },
     "macos_compliance_rules": {
       "file": "mdm-macos-compliance-policy.json",
-      "sha256": "dd7112868e7c34d2d657bac65fa0aca379f30388ddbce6580d364ef976415d48"
+      "sha256": "394a9ae98cac7027e9499ac34bab4df6697058e2761aa7d1d947ff72700b6314"
     },
     "macos_reporting_configuration": {
       "file": "aegis-configure-macos.sh",
