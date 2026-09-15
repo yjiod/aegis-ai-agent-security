@@ -346,7 +346,7 @@ const DEVICE_SEEDS: readonly DeviceSeed[] = [
   {
     device_id: 'ENG-MBP-1032',
     hostname: 'eng-mbp-1032.corp.aegis.local',
-    owner: '陈昊',
+    owner: '张三',
     agent_type: 'cursor',
     agent_version: 'v3.8',
     policy_version: 'v4.8',
@@ -359,7 +359,7 @@ const DEVICE_SEEDS: readonly DeviceSeed[] = [
   {
     device_id: 'MKT-LT-2841',
     hostname: 'mkt-lt-2841.corp.aegis.local',
-    owner: '林妍',
+    owner: '李四',
     agent_type: 'cursor',
     agent_version: 'v3.7',
     policy_version: 'v4.8',
@@ -372,7 +372,7 @@ const DEVICE_SEEDS: readonly DeviceSeed[] = [
   {
     device_id: 'ENG-LT-0948',
     hostname: 'eng-lt-0948.corp.aegis.local',
-    owner: '周航',
+    owner: '王五',
     agent_type: 'codex_cli',
     agent_version: 'v3.8',
     policy_version: 'v4.8',
@@ -385,7 +385,7 @@ const DEVICE_SEEDS: readonly DeviceSeed[] = [
   {
     device_id: 'OPS-MBP-0314',
     hostname: 'ops-mbp-0314.corp.aegis.local',
-    owner: '罗宁',
+    owner: '赵六',
     agent_type: 'claude_code',
     agent_version: 'v3.8',
     policy_version: 'v4.8',
@@ -398,7 +398,7 @@ const DEVICE_SEEDS: readonly DeviceSeed[] = [
   {
     device_id: 'DESK-WIN-0521',
     hostname: 'desk-win-0521.corp.aegis.local',
-    owner: '赵磊',
+    owner: '孙七',
     agent_type: 'windsurf',
     agent_version: 'v3.8',
     policy_version: 'v4.8',
@@ -411,7 +411,7 @@ const DEVICE_SEEDS: readonly DeviceSeed[] = [
   {
     device_id: 'MKT-MBP-0847',
     hostname: 'mkt-mbp-0847.corp.aegis.local',
-    owner: '吴婷',
+    owner: '周八',
     agent_type: 'cursor',
     agent_version: 'v3.6',
     policy_version: 'v4.6',
@@ -475,15 +475,15 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
       'mcp_config.json 内以明文保存供应商 API 令牌；已轮换凭据并改用系统钥匙串注入。',
     finding_ref:
       'secret_in_mcp_config:C:\\Users\\zhaolei\\.codeium\\windsurf\\mcp_config.json',
-    assignee: '罗宁',
+    assignee: '赵六',
     age_ms: 2 * DAY,
     closed_after_ms: 3 * HOUR,
     trail: [
-      { action: 'acknowledge', actor: '罗宁', offset_ms: 12 * MINUTE },
-      { action: 'investigate', actor: '罗宁', offset_ms: 40 * MINUTE },
+      { action: 'acknowledge', actor: '赵六', offset_ms: 12 * MINUTE },
+      { action: 'investigate', actor: '赵六', offset_ms: 40 * MINUTE },
       {
         action: 'resolve',
-        actor: '罗宁',
+        actor: '赵六',
         offset_ms: 3 * HOUR,
         note: '凭据已轮换，配置改为钥匙串引用；基线复核通过。',
       },
@@ -511,12 +511,12 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
     description:
       'postgres-mcp 向未在企业白名单内的公网地址发起出站连接，且二进制缺少可信发布者签名。设备随后离线，需先恢复上报再研判。',
     finding_ref: 'unsigned_mcp_server:/Users/luoning/.cursor/mcp.json',
-    assignee: '罗宁',
+    assignee: '赵六',
     age_ms: 46 * MINUTE,
     trail: [
       {
         action: 'acknowledge',
-        actor: '罗宁',
+        actor: '赵六',
         offset_ms: 9 * MINUTE,
         note: '已认领；设备当前离线，等待 EDR 侧确认出站目标归属。',
       },
@@ -533,13 +533,13 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
       'Codex CLI 在 payment-service PR #184 中使用非加密安全随机数生成会话令牌，需确认是否已合入主干。',
     finding_ref:
       'weak_crypto_in_generated_code:payment-service/src/session/token.ts',
-    assignee: '周航',
+    assignee: '王五',
     age_ms: 31 * MINUTE,
     trail: [
-      { action: 'acknowledge', actor: '周航', offset_ms: 6 * MINUTE },
+      { action: 'acknowledge', actor: '王五', offset_ms: 6 * MINUTE },
       {
         action: 'investigate',
-        actor: '周航',
+        actor: '王五',
         offset_ms: 14 * MINUTE,
         note: '拉取 PR 差异与 CI 记录中。',
       },
@@ -766,7 +766,7 @@ const AUDIT_SEEDS: readonly AuditSeed[] = [
   },
   {
     ago_ms: 3 * HOUR,
-    actor: '罗宁',
+    actor: '赵六',
     action: 'ticket:transition',
     resource_type: 'ticket',
     resource_id: 'TKT-DEMO-0001',
@@ -774,7 +774,7 @@ const AUDIT_SEEDS: readonly AuditSeed[] = [
   },
   {
     ago_ms: 96 * MINUTE,
-    actor: '陈昊',
+    actor: '张三',
     action: 'device:create',
     resource_type: 'device',
     resource_id: 'ENG-MBP-1032',
@@ -782,7 +782,7 @@ const AUDIT_SEEDS: readonly AuditSeed[] = [
   },
   {
     ago_ms: 9 * MINUTE,
-    actor: '罗宁',
+    actor: '赵六',
     action: 'ticket:transition',
     resource_type: 'ticket',
     resource_id: 'TKT-DEMO-0003',
