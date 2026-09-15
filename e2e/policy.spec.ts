@@ -288,6 +288,8 @@ test.describe('zero-touch enrollment', () => {
     try {
       const res = await ctx.post('/api/enroll', {
         data: { hostname: 'e2e-enroll-host', device_id: 'e2e-enroll-dev', agent_version: '0.32.0' },
+        // 模拟 TLS 终止反代：控制台据此把 report_url 还原为 https（Agent 强制 report_url=https）。
+        headers: { 'x-forwarded-proto': 'https' },
         maxRedirects: 0,
       });
       // 中间件豁免：绝不能被 307 重定向到 /login。
@@ -307,7 +309,7 @@ test.describe('zero-touch enrollment', () => {
       expect(typeof body.signing_secret).toBe('string');
       expect((body.signing_secret as string).length).toBeGreaterThanOrEqual(32);
       expect(body.signing_secret).not.toBe(body.report_token);
-      expect(body.report_url).toMatch(/\/aegis\/v1\/reports$/);
+      expect(body.report_url).toMatch(/^https:\/\/.+\/aegis\/v1\/reports$/);
 
       const policy = body.policy as Record<string, unknown> | undefined;
       if (policy) {

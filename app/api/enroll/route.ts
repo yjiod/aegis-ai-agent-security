@@ -87,7 +87,15 @@ export async function POST(request: Request) {
   await ensurePolicyReleasesLoaded().catch(() => {});
   const rel = currentPolicyRelease();
 
-  const origin = new URL(request.url).origin;
+  // report_url 必须是 https（Agent 的 load_reporting_config 强制 report_url scheme=https，
+  // 否则判为契约无效拒绝上报）。控制台位于 TLS 终止反代之后，request.url 是内部 http，
+  // 故按 X-Forwarded-Proto/Host 还原对外的真实 origin（生产 https://<host>）。
+  const reqUrl = new URL(request.url);
+  const fwdProto = request.headers.get('x-forwarded-proto')?.split(',')[0].trim();
+  const fwdHost = request.headers.get('x-forwarded-host')?.split(',')[0].trim();
+  const proto = fwdProto || reqUrl.protocol.replace(':', '');
+  const host = fwdHost || reqUrl.host;
+  const origin = `${proto}://${host}`;
   const payload: Record<string, unknown> = {
     schema: 'aegis.enrollment/v1',
     report_url: `${origin}/aegis/v1/reports`,
