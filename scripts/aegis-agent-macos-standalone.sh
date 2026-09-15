@@ -19,6 +19,8 @@
 # ═══════════════════════════════════════════════════════════════════════
 set -eu
 
+SERVER_SET=0
+if [ -n "${AEGIS_SERVER_URL:-}" ]; then SERVER_SET=1; fi
 SERVER="${AEGIS_SERVER_URL:-https://aegis.example.com}"
 COLLECTOR_URL="${AEGIS_COLLECTOR_URL:-${SERVER%/}/aegis}"
 ENROLL_URL="${AEGIS_ENROLL_URL:-${SERVER%/}/api/enroll}"
@@ -33,17 +35,29 @@ DO_UNINSTALL=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --server) SERVER="$2"; COLLECTOR_URL="${SERVER%/}/aegis"; ENROLL_URL="${SERVER%/}/api/enroll"; shift 2 ;;
+    --server) SERVER="$2"; SERVER_SET=1; COLLECTOR_URL="${SERVER%/}/aegis"; ENROLL_URL="${SERVER%/}/api/enroll"; shift 2 ;;
     --collector) COLLECTOR_URL="$2"; shift 2 ;;
     --enroll-url) ENROLL_URL="$2"; shift 2 ;;
     --token) TOKEN="$2"; shift 2 ;;
     --device-id) DEVICE_ID="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
     --uninstall) DO_UNINSTALL=1; shift ;;
+    # pkg/安装器肌肉记忆参数：.run 不需要 -target，忽略并提示（避免"未知参数"困惑）。
+    -target|--target) echo "提示: .run 无需 -target（该参数用于 .pkg/installer）；忽略。" >&2; shift ;;
     -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "未知参数: $1" >&2; exit 2 ;;
   esac
 done
+
+# 公共发行包不烘焙真实控制台地址（隐私红线：真实主机只经 env/私有渠道注入）。
+# 若仍是占位且未显式指定 → 立即失败并给出明确指引，而不是去连占位域名报 URLError。
+if [ "$SERVER_SET" = "0" ] && [ "$SERVER" = "https://aegis.example.com" ]; then
+  echo "错误: 本发行包未烘焙控制台地址（公共仓库隐私要求，真实主机不入库）。" >&2
+  echo "      请二选一：" >&2
+  echo "        1) AEGIS_SERVER_URL=https://<你的控制台> sh aegis-agent-macos-standalone.run" >&2
+  echo "        2) 使用私有渠道分发的已烘焙地址安装包（双击 .pkg 或 sh 已烘焙 .run）。" >&2
+  exit 2
+fi
 
 if [ "$DO_UNINSTALL" = "1" ]; then
   launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
