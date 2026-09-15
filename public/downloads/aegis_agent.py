@@ -583,7 +583,31 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.32.0"
+AGENT_VERSION = "0.33.0"
+
+# 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
+# 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
+# （否则无从推导入网地址）。best-effort：任何失败返回 None，回落本地 spool 排队。
+_REENROLL_COOLDOWN_S = 600
+_last_reenroll_ts = 0.0
+def maybe_reenroll_on_auth_failure(exc, args, root, enroll_path, host_device_id):
+    global _last_reenroll_ts
+    if getattr(exc, "code", None) not in (401, 403) or not getattr(args, "auto_enroll", False):
+        return None
+    now = time.time()
+    if now - _last_reenroll_ts < _REENROLL_COOLDOWN_S:
+        return None
+    _last_reenroll_ts = now
+    try:
+        auto_enroll(root)
+        if enroll_path:
+            cfg = load_enrollment_config(enroll_path)
+            if cfg.get("device_id") == host_device_id:
+                print("aegis agent re-enrolled after credential rejection; retrying report", file=sys.stderr)
+                return cfg
+    except Exception:
+        return None
+    return None
 
 
 def maybe_self_update(policy, report_url):
@@ -677,7 +701,15 @@ def main():
             spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".aegis-agent/spool")
             status_path=(Path(args.output).parent if args.output else spool.parent)/"upload-status.json"
             try: flush_spool(spool,args.report_url,token,signing); post_report(args.report_url,token,report,signing); write_upload_status(status_path,args.report_url)
-            except Exception as exc: queue_report(spool,report); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)
+            except Exception as exc:
+                # 凭据被拒(401/403)时一次自愈：重新入网刷新凭据并重试一轮；否则本地排队。
+                refreshed=maybe_reenroll_on_auth_failure(exc,args,root,enroll_path,host_device_id)
+                if refreshed is not None:
+                    enrollment=refreshed
+                    try: post_report(args.report_url,refreshed["report_token"],report,refreshed["signing_secret"]); write_upload_status(status_path,args.report_url)
+                    except Exception: queue_report(spool,report); print("report upload failed after re-enroll; queued locally",file=sys.stderr)
+                else:
+                    queue_report(spool,report); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)
         print(data)
         if not args.watch: return 2 if report["summary"]["critical"] or report["summary"]["high"] else 0
         time.sleep(max(args.interval,60))

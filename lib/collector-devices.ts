@@ -52,7 +52,22 @@ export type VersionPosture = {
 /**
  * 与 Collector collector_summary 完全一致的分桶逻辑，但用调用方传入的"权威"
  * required 版本（required_policy 来自已发布策略），保证仪表盘与策略页同源。
+ *
+ * 版本比较用 semver「>=」而非相等：终端/策略**高于** required 属正常升级（不应
+ * 计为漂移），仅**低于** required 才算 mismatch。这让发版提升 required 后，已升级
+ * 终端仍计 current，未升级终端如实计 drift。
  */
+function semverGte(a: string, b: string): boolean {
+  const pa = a.split('.').map((n) => Number.parseInt(n, 10) || 0);
+  const pb = b.split('.').map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i += 1) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return true; // equal
+}
+
 export function computeVersionPosture(
   devices: CollectorDeviceLite[],
   requiredAgent: string,
@@ -63,10 +78,14 @@ export function computeVersionPosture(
     const agent = (d.agent_version ?? '').trim();
     const policy = (d.policy_version ?? '').trim();
     if (!agent || !policy) p.unknown += 1;
-    else if (agent !== requiredAgent && policy !== requiredPolicy) p.both_mismatch += 1;
-    else if (agent !== requiredAgent) p.agent_mismatch += 1;
-    else if (policy !== requiredPolicy) p.policy_mismatch += 1;
-    else p.current += 1;
+    else {
+      const agentOk = semverGte(agent, requiredAgent);
+      const policyOk = semverGte(policy, requiredPolicy);
+      if (!agentOk && !policyOk) p.both_mismatch += 1;
+      else if (!agentOk) p.agent_mismatch += 1;
+      else if (!policyOk) p.policy_mismatch += 1;
+      else p.current += 1;
+    }
   }
   return p;
 }

@@ -67,14 +67,14 @@ def build(downloads):
     import re as _re
     _agent_src = (downloads/"aegis_agent.py").read_text(encoding="utf-8")
     _av = _re.search(r'AGENT_VERSION\s*=\s*"([^"]+)"', _agent_src)
-    agent_version = _av.group(1) if _av else release.get("min_agent_version", "0.32.0")
+    agent_version = _av.group(1) if _av else release.get("min_agent_version", "0.33.0")
     atomic_write(downloads/"update-manifest.json",(json.dumps({
         "schema":"aegis.update/v1",
         "release":release["release"],
         "agent_version":agent_version,
         "channel":release.get("channel","pilot"),
         "published_at":release.get("published_at",""),
-        "min_agent_version":release.get("min_agent_version","0.32.0"),
+        "min_agent_version":release.get("min_agent_version","0.33.0"),
         "artifacts":{
             "aegis_agent.py":{"url":"/downloads/aegis_agent.py","sha256":current["aegis_agent.py"]},
             "aegis-windows.ps1":{"url":"/downloads/aegis-windows.ps1","sha256":current["aegis-windows.ps1"]},
