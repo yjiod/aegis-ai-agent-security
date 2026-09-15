@@ -60,6 +60,64 @@ export async function revokeSessions(subject: string): Promise<boolean> {
   return ok;
 }
 
+/* ── 会话签发（login 与 mfa/verify 共用，保证 Cookie 语义一致）────── */
+
+/** 签发 aegis_session token（subject.expiry.sig，expiry=now+7d）。 */
+export async function signSessionToken(subject: string): Promise<string> {
+  const secret = sessionSecrets()[0];
+  if (!secret) throw new Error('no session secret configured');
+  const expiry = Date.now() + SESSION_TTL_MS;
+  const payload = `${subject}.${expiry}`;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+  const sigHex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${payload}.${sigHex}`;
+}
+
+/** 把已签发的 token 挂到响应 Cookie（httpOnly/secure/lax/7d）。 */
+export function attachSessionCookie(
+  response: { cookies: { set: (name: string, value: string, opts: Record<string, unknown>) => void } },
+  token: string,
+): void {
+  response.cookies.set('aegis_session', token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: SESSION_TTL_MS / 1000,
+  });
+}
+
+/* ── 4A · MFA 挑战令牌（短期、绑定 subject）──────────────────────────
+ * 密码通过后若该 subject 已启用 TOTP，不直接发会话，而是下发 5 分钟有效的
+ * mfa.<subject>.<expiry>.<sig> 挑战；mfa/verify 校验 TOTP 码后才签发会话。
+ * 复用 sessionSecrets/verifySessionSignature，无需新密钥管理。
+ */
+const MFA_TOKEN_TTL_MS = 5 * 60 * 1000;
+
+export function issueMfaToken(subject: string): string {
+  const secret = sessionSecrets()[0];
+  if (!secret) return '';
+  const expiry = Date.now() + MFA_TOKEN_TTL_MS;
+  const payload = `mfa.${subject}.${expiry}`;
+  const sig = createHmac('sha256', secret).update(payload).digest('hex');
+  return `${payload}.${sig}`;
+}
+
+/** 校验挑战令牌，返回绑定的 subject；无效/过期/篡改返回 null。 */
+export function verifyMfaToken(token: string): string | null {
+  const parts = (token ?? '').split('.');
+  if (parts.length < 4 || parts[0] !== 'mfa') return null;
+  const expiry = Number(parts[parts.length - 2]);
+  if (!Number.isFinite(expiry) || expiry < Date.now()) return null;
+  const subject = parts.slice(1, parts.length - 2).join('.');
+  if (!subject) return null;
+  const signedPayload = parts.slice(0, parts.length - 1).join('.');
+  if (!verifySessionSignature(signedPayload, parts[parts.length - 1])) return null;
+  return subject;
+}
+
 /**
  * Ordered, de-duplicated candidate HMAC secrets used by the three session
  * issuers. All three prefer AEGIS_SESSION_SECRET; each has a provider-specific

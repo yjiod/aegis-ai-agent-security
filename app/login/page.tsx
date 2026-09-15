@@ -10,6 +10,9 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [oidc, setOidc] = useState<{ enabled: boolean; url: string; label: string }>({ enabled: false, url: '', label: '统一身份登录' });
+  // 4A · MFA 第二步：密码通过后服务端下发短期挑战令牌，此处输入 TOTP 码完成登录。
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
 
   useEffect(() => {
     fetch('/api/auth/providers', { cache: 'no-store' })
@@ -48,6 +51,14 @@ export default function LoginPage() {
         body: JSON.stringify({ username, password }),
       });
       if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { mfa_required?: boolean; mfa_token?: string };
+        if (data.mfa_required && data.mfa_token) {
+          // 进入第二步：输入 authenticator 的 6 位 TOTP 码。
+          setMfaToken(data.mfa_token);
+          setError('');
+          setSubmitting(false);
+          return;
+        }
         const params = new URLSearchParams(window.location.search);
         const raw = params.get('from') ?? '/';
         // Only allow a same-origin relative path; block '//host' and 'scheme://…'
@@ -58,6 +69,33 @@ export default function LoginPage() {
         const data = (await res.json().catch(() => ({}))) as any;
         setError(data.error === 'invalid_credentials' ? '用户名或密码错误' : data.error === 'auth_not_configured' ? '服务端未配置登录凭据' : '登录失败');
       }
+    } catch {
+      setError('网络错误，请重试');
+    }
+    setSubmitting(false);
+  }
+
+  /** MFA 第二步：提交 TOTP 码换取会话。 */
+  async function handleMfaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/auth/mfa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify', mfa_token: mfaToken, code: mfaCode }),
+      });
+      if (res.ok) {
+        const params = new URLSearchParams(window.location.search);
+        const raw = params.get('from') ?? '/';
+        const safe = raw.startsWith('/') && !raw.startsWith('//') && !raw.includes('\\') ? raw : '/';
+        window.location.href = safe;
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as any;
+      setError(data.error === 'invalid_mfa_code' ? '验证码错误或已过期' : data.error === 'invalid_mfa_token' ? '验证挑战已失效，请重新登录' : '验证失败');
+      if (data.error === 'invalid_mfa_token') setMfaToken(null);
     } catch {
       setError('网络错误，请重试');
     }
@@ -92,7 +130,38 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* Login form */}
+        {/* 4A · MFA 第二步（仅当服务端下发挑战时显示） */}
+        {mfaToken ? (
+          <form onSubmit={handleMfaSubmit} style={{ background: 'linear-gradient(145deg, #0d1b18, #0a1613)', border: '1px solid #1e332d', borderRadius: 14, padding: 28, boxShadow: '0 24px 64px #00000055' }}>
+            {error && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: '#2b1515', border: '1px solid #5c2626', color: '#ff9b94', fontSize: 12 }}>
+                <AlertTriangle size={14} /> {error}
+              </div>
+            )}
+            <label style={{ display: 'block', fontSize: 12, color: '#86a39a', marginBottom: 6 }}>两步验证码（6 位）</label>
+            <input
+              className="form-input"
+              style={{ marginBottom: 24, textAlign: 'center', letterSpacing: '0.4em', fontSize: 18 }}
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+            />
+            <Button type="submit" disabled={submitting} style={{ width: '100%', height: 42 }}>
+              {submitting ? '验证中...' : '验证并登录'}
+            </Button>
+            <button
+              type="button"
+              onClick={() => { setMfaToken(null); setMfaCode(''); setError(''); }}
+              style={{ width: '100%', marginTop: 12, background: 'none', border: 0, color: '#5e7c73', fontSize: 12, cursor: 'pointer' }}
+            >
+              返回重新登录
+            </button>
+          </form>
+        ) : (
+        /* Login form */
         <form onSubmit={handleSubmit} style={{ background: 'linear-gradient(145deg, #0d1b18, #0a1613)', border: '1px solid #1e332d', borderRadius: 14, padding: 28, boxShadow: '0 24px 64px #00000055' }}>
           {error && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: '#2b1515', border: '1px solid #5c2626', color: '#ff9b94', fontSize: 12 }}>
@@ -133,6 +202,7 @@ export default function LoginPage() {
             {submitting ? '验证中...' : '登录'}
           </Button>
         </form>
+        )}
 
         <p style={{ textAlign: 'center', fontSize: 11, color: '#5e7c73', marginTop: 20 }}>
           仅限授权人员访问；如需账号请联系安全管理员

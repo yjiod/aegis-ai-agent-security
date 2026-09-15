@@ -378,6 +378,42 @@ export async function pgSetSessionRevocation(subject: string, ts: number): Promi
   return r.ok;
 }
 
+/* ─── MFA / TOTP 两步验证状态（4A · Authentication）──────────────────
+ * 键 mfa:<subject> = JSON {secret, enabled}。secret 为 base32 TOTP 密钥；
+ * enabled=false 表示已生成待确认（enroll 后需提交一个有效码才启用），
+ * enabled=true 表示登录强制二次验证。默认无记录 = 未启用（不影响既有登录）。
+ */
+const MFA_KEY_PREFIX = 'mfa:';
+
+export interface MfaRecord {
+  secret: string;
+  enabled: boolean;
+}
+
+export async function pgGetMfa(subject: string): Promise<MfaRecord | null> {
+  const r = await withClient('getMfa', (c) =>
+    c.query('SELECT value FROM settings WHERE key=$1', [MFA_KEY_PREFIX + subject]),
+  );
+  if (!r.ok || !r.value?.rows?.length) return null;
+  try {
+    const parsed = JSON.parse(String((r.value.rows[0] as { value: unknown }).value)) as Partial<MfaRecord>;
+    if (typeof parsed.secret !== 'string' || !parsed.secret) return null;
+    return { secret: parsed.secret, enabled: Boolean(parsed.enabled) };
+  } catch {
+    return null;
+  }
+}
+
+export async function pgSetMfa(subject: string, rec: MfaRecord): Promise<boolean> {
+  const r = await withClient('setMfa', (c) =>
+    c.query(
+      'INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=$2',
+      [MFA_KEY_PREFIX + subject, JSON.stringify(rec)],
+    ),
+  );
+  return r.ok;
+}
+
 /* ─── 签名策略发布件（policy_releases） ─────────────────────────────── */
 export interface PolicyReleaseRow {
   release_id: string;
