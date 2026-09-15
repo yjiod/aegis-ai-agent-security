@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-BASE_URL="https://aegis.example.com/downloads"
+BASE_URL="${AEGIS_BASE_URL:-https://aegis.example.com/downloads}"
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST="/Library/LaunchDaemons/com.company.aegis-agent.plist"
 PYTHON_BIN="$(command -v python3 || true)"

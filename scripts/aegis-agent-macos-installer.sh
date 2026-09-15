@@ -20,7 +20,11 @@ set -eu
 VERSION="0.31.0"
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST_PATH="/Library/LaunchDaemons/com.aegis.agent.plist"
-COLLECTOR_URL="${AEGIS_COLLECTOR_URL:-http://192.0.2.98:8931}"
+# 默认走公网 HTTPS 上报入口（nginx 把 /aegis/* 反代到 Collector，终端 POST
+# https://aegis.example.com/aegis/v1/reports）。旧默认是内网 mesh IP 192.0.2.98:8931，
+# 离线/跨网新机器根本连不上→安装后首次上报即失败。mesh 内部署仍可用
+# AEGIS_COLLECTOR_URL 或 --collector 覆盖回 http://192.0.2.98:8931。
+COLLECTOR_URL="${AEGIS_COLLECTOR_URL:-https://aegis.example.com/aegis}"
 COLLECTOR_TOKEN="${AEGIS_COLLECTOR_TOKEN:-}"
 DEVICE_ID="${AEGIS_DEVICE_ID:-}"
 SCAN_INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
