@@ -44,7 +44,6 @@ import { Progress } from '@/components/ui/progress';
 import { Spinner } from '@/components/ui/spinner';
 import { useCollector } from '@/components/collector-context';
 import DeviceForm, {
-  AGENT_TYPE_OPTIONS,
   agentTypeLabel,
   agentVersionLabel,
   parseDevice,
@@ -396,8 +395,9 @@ export default function DevicesPage() {
 
   const onlineCount = devices.filter((device) => device.status === 'online').length;
   const staleCount = devices.filter((device) => device.status === 'stale').length;
+  // 关注态：collector 源用独立 attention 布尔（连接态与关注态分离）；注册表源沿用 needs_attention。
   const attentionCount = devices.filter(
-    (device) => device.status === 'needs_attention',
+    (device) => (device as { attention?: boolean }).attention === true || device.status === 'needs_attention',
   ).length;
   const reportedCount = devices.filter(
     (device) => agentVersionLabel(device.agent_version) !== '未上报',
@@ -425,16 +425,24 @@ export default function DevicesPage() {
     };
   }, [devices.length, fleet, onlineCount, reportedCount]);
 
+  // 按 AI 工具覆盖：聚合每台设备上报的**全部** ai_agent 工具（device.tools），
+  // 而非单一 agent_type（此前只取 tools[0]，导致多工具终端只显示一个工具——用户反馈 bug）。
   const coverageRows = useMemo(() => {
     if (source !== 'api' || devices.length === 0) return [];
-    return AGENT_TYPE_OPTIONS.map((option) => {
-      const rows = devices.filter((device) => device.agent_type === option.value);
-      return {
-        name: option.label,
-        total: rows.length,
-        online: rows.filter((device) => device.status === 'online').length,
-      };
-    }).filter((row) => row.total > 0);
+    const map = new Map<string, { total: number; online: number }>();
+    for (const device of devices) {
+      const tools = ((device as { tools?: string[] }).tools ?? []) as string[];
+      const list = tools.length > 0 ? tools : [device.agent_type ?? 'unknown'];
+      for (const tool of list) {
+        const cur = map.get(tool) ?? { total: 0, online: 0 };
+        cur.total += 1;
+        if (device.status === 'online') cur.online += 1;
+        map.set(tool, cur);
+      }
+    }
+    return [...map.entries()]
+      .map(([name, v]) => ({ name, total: v.total, online: v.online }))
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
   }, [devices, source]);
 
 
@@ -641,7 +649,10 @@ export default function DevicesPage() {
                     <span style={{ fontSize: 10 }}>{device.hostname}</span>
                   </div>
                   <span>
-                    {device.owner || '未指派'} · {agentTypeLabel(device.agent_type)}
+                    {device.owner || '未指派'} · {(((device as { tools?: string[] }).tools ?? []).length > 0
+                      ? ((device as { tools?: string[] }).tools as string[]).slice(0, 3).join(' / ') +
+                        (((device as { tools?: string[] }).tools as string[]).length > 3 ? ' …' : '')
+                      : agentTypeLabel(device.agent_type))}
                   </span>
                   <span>{agentVersionLabel(device.agent_version)}</span>
                   <div
@@ -661,6 +672,9 @@ export default function DevicesPage() {
                     >
                       {meta.label}
                     </i>
+                    {(device as { attention?: boolean }).attention === true && (
+                      <i className="fail" title="有 critical/high 发现待人工研判">需处理</i>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon-xs"

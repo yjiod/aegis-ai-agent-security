@@ -51,12 +51,21 @@ async function fetchCollectorDevices(): Promise<CollectorDevice[] | null> {
   }
 }
 
-function severityToStatus(sev?: { critical: number; high: number; medium: number; low: number }, lastSeen?: number): string {
+/**
+ * 连接态（connectivity）与关注态（attention）分离：
+ * - status 只反映"是否在线/过期/离线"（由 last_seen 推导），不被发现严重度覆盖；
+ *   否则一台在线但有高危发现的终端会被标 needs_attention 而"在线数"恒为 0（用户反馈 bug）。
+ * - attention 单独布尔：有 critical/high 发现需人工研判。
+ */
+function connectivityStatus(lastSeen?: number): string {
   const now = Math.floor(Date.now() / 1000);
-  if (lastSeen && now - lastSeen > 86400) return 'offline';
-  if (sev && (sev.critical > 0 || sev.high > 0)) return 'needs_attention';
-  if (lastSeen && now - lastSeen > 7200) return 'stale';
+  if (!lastSeen) return 'offline';
+  if (now - lastSeen > 86400) return 'offline';
+  if (now - lastSeen > 7200) return 'stale';
   return 'online';
+}
+function hasAttention(sev?: { critical: number; high: number; medium: number; low: number }): boolean {
+  return Boolean(sev && (sev.critical > 0 || sev.high > 0));
 }
 
 export async function GET(request: Request) {
@@ -76,7 +85,8 @@ export async function GET(request: Request) {
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',
       policy_version: d.policy_version ?? '0.0.0',
-      status: severityToStatus(d.latest_severity, d.last_seen),
+      status: connectivityStatus(d.last_seen),
+      attention: hasAttention(d.latest_severity),
       last_seen: d.last_seen,
       registered_at: d.last_seen,
       report_count: d.report_count ?? 0,
