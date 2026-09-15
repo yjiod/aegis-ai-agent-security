@@ -52,3 +52,5 @@ obj/
 scripts/aegis-adapters.production.json
 /public/downloads/aegis-agent-macos.pkg
 /public/downloads/aegis-agent-windows.exe
+/public/downloads/aegis-agent-windows.msi
+/public/downloads/aegis-agent-windows.msi.sha256
