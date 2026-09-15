@@ -71,7 +71,8 @@ export default function TeamPage() {
           <p>连接企业身份源，实现基于角色的访问控制与操作审计。</p>
         </div>
         <div className="head-actions">
-          <Button onClick={() => setToast('提示：配置向导尚未连接企业后端。')}>
+          {/* 诚实原则：配置向导未接入企业后端，不放"点了只弹提示"的活按钮。 */}
+          <Button disabled title="配置向导尚未连接企业身份源后端；当前 SSO 通过服务端环境变量/白名单配置">
             <Users size={16} />
             打开配置向导
           </Button>
@@ -126,15 +127,12 @@ export default function TeamPage() {
 
       <div className="empty-detail">
         <ShieldCheck size={44} />
-        <h2>团队与权限已接入</h2>
+        <h2>统一身份与权限已启用</h2>
         <p>
-          下一阶段可连接企业身份源（Azure AD / LDAP / SAML），
+          已支持企业 SSO（OIDC / UAC 工号白名单）+ 服务端推导的三档 RBAC（管理员 / 审计员 / 只读）+ 全量操作审计。
           <br />
-          实现 RBAC 角色管理、操作审计与多租户隔离。
+          下一阶段（规划中）：细粒度角色（运维工程师 / 开发者）、跨设备会话吊销与多租户隔离。
         </p>
-        <Button onClick={() => setToast('提示：配置向导尚未连接企业后端。')}>
-          打开配置向导
-        </Button>
       </div>
 
       <div className="panel" style={{ marginTop: 24 }}>

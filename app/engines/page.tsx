@@ -1,7 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, CircleDot, Cpu, Inbox, RefreshCw, Zap } from 'lucide-react';
+import { Check, Cpu, Inbox, RefreshCw, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
@@ -38,10 +37,6 @@ const SCOPE_LABELS: Record<string, string> = {
 const GATES = ['许可证兼容', 'SHA-256 哈希', '结构验证', '回归测试'];
 
 export default function EnginesPage() {
-  const [toast, setToast] = useState('');
-
-  function notify(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500); }
-
   const builtinCount = ENGINES.filter((e) => e.builtin).length;
   const pendingCount = ENGINES.filter((e) => !e.builtin).length;
 
@@ -54,16 +49,15 @@ export default function EnginesPage() {
           <p>Cisco skill-scanner · Snyk agent-scan · Semgrep · Gitleaks — 各自独立规则源，不强行转换语法。</p>
         </div>
         <div className="head-actions">
-          <Button variant="outline" onClick={() => notify('提示：引擎同步 API 尚未连接，未修改任何规则。')}>
+          {/* 诚实原则：未接入后端的能力不放"点了只弹提示"的活按钮，直接禁用并说明原因。 */}
+          <Button variant="outline" disabled title="引擎同步 API 尚未连接：规则更新管道在引擎框架内运行，未接入控制台">
             <RefreshCw size={16} /> 同步规则库
           </Button>
-          <Button onClick={() => notify('提示：全量扫描需连接终端 Agent。')}>
+          <Button disabled title="需先连接终端 Agent 才能发起全量扫描">
             <Zap size={16} /> 全量扫描
           </Button>
         </div>
       </div>
-
-      {toast && <div className="toast" role="status"><CircleDot size={16} />{toast}</div>}
 
       {/* KPIs — 均由静态引擎注册表派生（设计事实），非实时探测遥测 */}
       <div className="detail-kpis animate-entrance animate-entrance-2">

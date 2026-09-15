@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminAllowlist, auditorAllowlist } from '@/lib/auth';
+import { logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,10 +103,15 @@ export async function GET(request: Request) {
   // allowlist are DENIED login entirely. The concrete role (admin vs read-only
   // auditor) is derived per-request server-side from the allowlists.
   if (!adminAllowlist().has(subject) && !auditorAllowlist().has(subject)) {
+    // 4A · Accounting：白名单外的 SSO 拒绝登录也留审计（越权尝试可见）。
+    logAudit({ actor: subject, action: 'auth:sso_denied', resource_type: 'system', detail: 'method=uac reason=not_in_allowlist' });
     return NextResponse.redirect(
       new URL(`/login?error=not_authorized&subject=${encodeURIComponent(subject)}`, url.origin),
     );
   }
+
+  // 4A · Accounting：SSO 登录成功留审计（actor=工号 subject）。
+  logAudit({ actor: subject, action: 'auth:sso_login', resource_type: 'system', detail: 'method=uac' });
 
   // 3) 签发 Aegis 会话 cookie (HMAC, 与 local/oidc 同机制)
   const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;

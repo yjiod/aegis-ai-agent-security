@@ -241,3 +241,59 @@ test.describe('findings honesty contract', () => {
     }
   });
 });
+
+/**
+ * 4A 契约（Authentication 限流锁定 + Accounting 认证事件审计）。
+ *
+ * - 定向爆破防护：同一 (IP, 用户名) 连续失败满 5 次后，第 6 次直接 429
+ *   account_temporarily_locked，不再校验密码。用独立用户名探测，避免锁掉
+ *   e2e 管理员账号影响后续用例。
+ * - 认证事件全审计：login 成功/失败/锁定、logout 都写审计trail；/api/audit
+ *   合并 Collector 与控制台两源，故认证事件在 demo 与 live 模式都可见。
+ */
+test.describe('auth 4A contract', () => {
+  const PROBE_USER = 'lockout-probe-e2e';
+
+  test('repeated failed logins lock the account and every auth event is audited', async ({
+    request,
+  }) => {
+    // 5 failures -> each 401
+    for (let i = 0; i < 5; i += 1) {
+      const res = await request.post('/api/auth/login', {
+        data: { username: PROBE_USER, password: 'definitely-wrong' },
+      });
+      expect(res.status(), `failure #${i + 1} must be 401`).toBe(401);
+    }
+    // 6th attempt -> locked (429), password not even checked
+    const locked = await request.post('/api/auth/login', {
+      data: { username: PROBE_USER, password: 'definitely-wrong' },
+    });
+    expect(locked.status()).toBe(429);
+    const lb = (await locked.json()) as { error?: string };
+    expect(lb.error).toBe('account_temporarily_locked');
+
+    // auth events audited (console source merged into /api/audit)
+    await login(request);
+    const audit = await request.get('/api/audit?limit=200');
+    expect(audit.status()).toBe(200);
+    const ab = (await audit.json()) as { entries?: Array<{ action: string; actor: string }> };
+    const actions = (ab.entries ?? []).map((e) => `${e.actor}|${e.action}`);
+    expect(actions.some((a) => a === `${PROBE_USER}|auth:login_failed`), 'auth:login_failed must be audited').toBe(true);
+    expect(actions.some((a) => a === `${PROBE_USER}|auth:login_locked`), 'auth:login_locked must be audited').toBe(true);
+  });
+
+  test('successful login and server-side logout are audited', async ({ request }) => {
+    await login(request); // produces auth:login for the admin subject
+    const logout = await request.post('/api/auth/logout');
+    expect(logout.status()).toBe(200);
+
+    // re-login to read the audit trail (logout cleared this context's session)
+    await login(request);
+    const audit = await request.get('/api/audit?limit=200');
+    expect(audit.status()).toBe(200);
+    const ab = (await audit.json()) as { entries?: Array<{ action: string; actor: string }> };
+    const actions = (ab.entries ?? []).map((e) => `${e.actor}|${e.action}`);
+    expect(actions.some((a) => a === `${USER}|auth:login`), 'auth:login must be audited').toBe(true);
+    expect(actions.some((a) => a === `${USER}|auth:logout`), 'auth:logout must be audited').toBe(true);
+  });
+});

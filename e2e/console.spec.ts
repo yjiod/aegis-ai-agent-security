@@ -74,19 +74,13 @@ function numericPart(text: string): number {
 const SESSION_SECRET = process.env.AEGIS_SESSION_SECRET ?? 'e2e-secret-0123456789';
 const ADMIN_USER = process.env.E2E_ADMIN_USER ?? 'e2eadmin';
 
-// ⚠ 临时整体隔离（quarantine，跟踪项 modernize-console-spec）：
-// 本文件多数断言编码的是"演示模式伪造样例数据"的旧 UI——.demo-notice 文案、
-// .panel.risks「风险事件样例」、.panel.score「安全评分」、演示模式 toast、metrics
-// 非零、devices ≥4 行等。产品已按"绝不伪造数据"红线重构为诚实空态：断连时 metrics
-// 显示「—」、展示 onboarding 引导与 capabilities/coverage 面板，上述文案/面板已移除。
-// 因此这些断言在 demo 与 live 两种模式下都不再成立（18/22 失败）。鉴权 beforeEach
-// 已修好并保留；待按当前 UI 重写断言（含 4 个仍通过的冒烟项：品牌可见、四张指标卡、
-// 近期动态、设备表渲染）后移除下面的 test.skip。绝不为了变绿而伪造 UI 或放宽断言。
+// 部分隔离（partial quarantine，跟踪项 modernize-console-spec）：
+// beforeEach 只负责注入 HMAC 管理员会话 Cookie（控制台页面在会话中间件之后）。
+// 仍编码"演示态伪造 UI"旧断言的 describe（navigation / overview / devices / risks /
+// policies / responsive）逐个 test.describe.skip，待按当前诚实 UI 重写后解除；
+// 已现代化的 scanner pages 块保持运行（断言真实数据/诚实空态，无伪造样例）。
+// 绝不为了变绿而伪造 UI 或放宽断言。
 test.beforeEach(async ({ context }) => {
-  test.skip(
-    true,
-    'console.spec 断言已随"诚实空态"UI 重构失效，待按当前 UI 重写（modernize-console-spec）',
-  );
   const { createHmac } = await import('node:crypto');
   const expiry = Date.now() + 3_600_000;
   const payload = `${ADMIN_USER}.${expiry}`;
@@ -105,7 +99,7 @@ test.beforeEach(async ({ context }) => {
   ]);
 });
 
-test.describe('navigation', () => {
+test.describe.skip('navigation', () => { // 仍编码旧演示态 UI，待 modernize-console-spec 重写后解除
   test('sidebar links navigate to their routes and render the page heading', async ({
     page,
   }) => {
@@ -151,7 +145,7 @@ test.describe('navigation', () => {
   });
 });
 
-test.describe('overview dashboard', () => {
+test.describe.skip('overview dashboard', () => { // 仍编码旧演示态 UI，待 modernize-console-spec 重写后解除
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
   });
@@ -244,7 +238,7 @@ test.describe('overview dashboard', () => {
   });
 });
 
-test.describe('devices page', () => {
+test.describe.skip('devices page', () => { // 仍编码旧演示态 UI，待 modernize-console-spec 重写后解除
   test.beforeEach(async ({ page }) => {
     await page.goto('/devices');
     await expect(page.locator('main h1')).toHaveText('设备与 Agent');
@@ -284,7 +278,7 @@ test.describe('devices page', () => {
   });
 });
 
-test.describe('risks page', () => {
+test.describe.skip('risks page', () => { // 仍编码旧演示态 UI，待 modernize-console-spec 重写后解除
   test.beforeEach(async ({ page }) => {
     await page.goto('/risks');
     await expect(page.locator('main h1')).toHaveText('风险中心');
@@ -325,7 +319,7 @@ test.describe('risks page', () => {
   });
 });
 
-test.describe('policies page', () => {
+test.describe.skip('policies page', () => { // 仍编码旧演示态 UI，待 modernize-console-spec 重写后解除
   test.beforeEach(async ({ page }) => {
     await page.goto('/policies');
     await expect(page.locator('main h1')).toHaveText('终端安全策略');
@@ -411,7 +405,7 @@ test.describe('scanner pages', () => {
   }
 });
 
-test.describe('responsive layout', () => {
+test.describe.skip('responsive layout', () => { // 仍编码旧演示态 UI，待 modernize-console-spec 重写后解除
   test('metric grid collapses to two columns at 768px', async ({ page }) => {
     // app/globals.css `@media (max-width: 1050px)` -> .metrics { 1fr 1fr }.
     await page.setViewportSize({ width: 768, height: 1024 });

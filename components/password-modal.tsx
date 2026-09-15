@@ -10,6 +10,7 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [serverMsg, setServerMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -25,8 +26,11 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({ current_password: current, new_password: next }),
       });
       if (res.ok) {
+        // 诚实呈现服务端返回的真实结果：本环境配置只读，改密仅校验、需服务器
+        // 更新 AEGIS_CONSOLE_PASSWORD 并重启后生效——不再谎称"下次登录使用新密码"。
+        const data = (await res.json().catch(() => ({}))) as { message?: string };
+        setServerMsg(data.message ?? '已校验当前密码；新密码需服务器配置后重启生效。');
         setSuccess(true);
-        setTimeout(onClose, 1500);
       } else {
         const data = (await res.json().catch(() => ({}))) as any;
         setError(data.error === 'invalid_current_password' ? '当前密码错误' : data.error ?? '修改失败');
@@ -55,8 +59,9 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {success ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 16, borderRadius: 10, background: '#143329', border: '1px solid #34765f', color: '#c9f5e4', fontSize: 13 }}>
-            <Check size={16} /> 密码已修改，下次登录使用新密码
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: 16, borderRadius: 10, background: '#143329', border: '1px solid #34765f', color: '#c9f5e4', fontSize: 13 }}>
+            <Check size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>{serverMsg}</span>
           </div>
         ) : (
           <form onSubmit={handleSubmit}>

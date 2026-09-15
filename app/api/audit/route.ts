@@ -54,11 +54,16 @@ export async function GET(request: Request) {
   const resourceType = url.searchParams.get('resource_type');
   const actionFilter = url.searchParams.get('action');
 
-  // Try real Collector audit log first
+  // 合并两个审计源（4A · Accounting 完整性）：
+  //   - Collector /v1/audit：终端/设备侧事件；
+  //   - 控制台 logAudit 存储：控制面操作 + 认证事件（login/logout/改密/SSO/锁定）。
+  // 此前"Collector 有数据就只返回 Collector"，会导致认证/控制面审计在生产（Collector
+  // 已连接）不可见——审计trail 必须两源合并，缺一不可。
   const collectorEntries = await fetchCollectorAudit();
+  const consoleEntries = getAuditStore();
 
-  if (collectorEntries && collectorEntries.length > 0) {
-    let entries = collectorEntries.map((e, i) => ({
+  let entries: Array<Record<string, unknown>> = [
+    ...(collectorEntries ?? []).map((e, i) => ({
       id: e.id ?? i + 1,
       timestamp: e.timestamp,
       actor: e.actor ?? 'collector',
@@ -66,22 +71,31 @@ export async function GET(request: Request) {
       resource_type: (e.resource_type ?? 'system') as 'device' | 'ticket' | 'policy' | 'system',
       resource_id: e.resource_id,
       detail: e.detail,
-    }));
+      source: 'collector',
+    })),
+    ...consoleEntries.map((e) => ({
+      id: e.id,
+      timestamp: e.timestamp,
+      actor: e.actor,
+      action: e.action,
+      resource_type: e.resource_type,
+      resource_id: e.resource_id,
+      detail: e.detail,
+      source: 'console',
+    })),
+  ];
 
-    if (resourceType) entries = entries.filter((e) => e.resource_type === resourceType);
-    if (actionFilter) entries = entries.filter((e) => e.action.startsWith(actionFilter));
-
-    entries.sort((a, b) => b.timestamp - a.timestamp);
-    const total = entries.length;
-    return json({ entries: entries.slice(offset, offset + limit), total, limit, offset, connected: true, source: 'collector' });
-  }
-
-  // Fallback: console-side audit store
-  let entries = getAuditStore();
   if (resourceType) entries = entries.filter((e) => e.resource_type === resourceType);
-  if (actionFilter) entries = entries.filter((e) => e.action.startsWith(actionFilter));
-  entries.sort((a, b) => b.timestamp - a.timestamp);
-  const total = entries.length;
+  if (actionFilter) entries = entries.filter((e) => String(e.action).startsWith(actionFilter));
 
-  return json({ entries: entries.slice(offset, offset + limit), total, limit, offset, connected: false, source: 'console' });
+  entries.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+  const total = entries.length;
+  return json({
+    entries: entries.slice(offset, offset + limit),
+    total,
+    limit,
+    offset,
+    connected: collectorEntries !== null,
+    source: collectorEntries && collectorEntries.length > 0 ? 'merged' : 'console',
+  });
 }
