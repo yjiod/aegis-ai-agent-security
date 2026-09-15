@@ -1,8 +1,16 @@
 {
-  "release": "0.68.0",
+  "release": "0.69.0",
   "channel": "pilot",
-  "published_at": "2026-09-14T22:50:00+08:00",
+  "published_at": "2026-09-15T11:10:05+08:00",
   "features": [
+    "version_posture_single_source",
+    "zero_downtime_collector_token_rotation",
+    "console_secret_at_rest_hardening",
+    "client_install_live_host_fix",
+    "user_level_macos_enroll",
+    "reporting_signing_secret_contract",
+    "ci_playwright_e2e_gates",
+    "deployment_guide_rotation_runbook",
     "console_rbac_auditor_role",
     "session_signature_verification",
     "signed_policy_publish",

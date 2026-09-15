@@ -12,7 +12,7 @@ HASH_CONSUMERS={
 }
 BUNDLE_FILES=(
     "DEPLOYMENT-GUIDE.md","aegis-policy.json","aegis-security-baseline.md","aegis-report.schema.json",
-    "aegis_agent.py","aegis_collector.py","aegis-windows.ps1","install-aegis.sh","mdm-windows-detect.ps1",
+    "aegis_agent.py","aegis_collector.py","aegis-windows.ps1","install-aegis.sh","aegis-agent-macos-enroll.sh","mdm-windows-detect.ps1",
     "mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1","mdm-compliance-policy.json","mdm-macos-install.sh",
     "mdm-macos-compliance.sh","mdm-macos-compliance-policy.json","rollback-aegis-windows.ps1","rollback-aegis-macos.sh",
     "uninstall-aegis-windows.ps1","uninstall-aegis-macos.sh","CHECKSUMS.sha256","release.json","aegis_adapter.py",
