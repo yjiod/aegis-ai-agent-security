@@ -40,8 +40,8 @@ DEVICE_POOLS = [
 
 USERS = [
     "demo.eng", "demo.eng2", "demo.mkt", "demo.mkt2", "demo.ops",
-    "j.rivera", "k.tanaka", "a.okafor", "m.lindqvist", "s.patel",
-    "t.nguyen", "r.castellanos",
+    "zhangsan", "lisi", "wangwu", "zhaoliu", "sunqi",
+    "zhouba", "wujiu",
 ]
 
 AI_TOOLS = [

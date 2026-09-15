@@ -397,7 +397,7 @@ export default function DeviceForm({
           id={ids.owner}
           value={owner}
           onChange={(event) => setOwner(event.target.value)}
-          placeholder="陈昊"
+          placeholder="张三"
           autoComplete="off"
           disabled={submitting}
           required

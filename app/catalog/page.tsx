@@ -108,9 +108,9 @@ const categories = [
 ];
 
 const deviceRows = [
-  ['dev-mac-0142', '沈磊 · Cursor', '4.8.1', '通过', 'pass'],
+  ['dev-mac-0142', '张三 · Cursor', '4.8.1', '通过', 'pass'],
   ['ci-runner-007', '流水线 · Claude Code', '4.7.9', '告警', 'warn'],
-  ['win-laptop-2210', '郭婷 · Copilot', '4.6.2', '拦截', 'fail'],
+  ['win-laptop-2210', '李四 · Copilot', '4.6.2', '拦截', 'fail'],
 ] as const;
 
 /* ---------- 目录骨架组件 ---------- */
