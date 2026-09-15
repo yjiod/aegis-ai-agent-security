@@ -159,6 +159,15 @@ export default function AuditPage() {
           <h1>审计日志</h1>
           <p>追溯每一次治理操作：谁、在何时、对哪个资源做了什么。</p>
         </div>
+        {/* 4A · Accounting 合规导出：全量附件下载（服务端留审计）。 */}
+        <div className="head-actions">
+          <a className="handle" href="/api/audit?format=csv" download style={{ fontSize: 12 }}>
+            导出 CSV
+          </a>
+          <a className="handle" href="/api/audit?format=json" download style={{ fontSize: 12 }}>
+            导出 JSON
+          </a>
+        </div>
       </div>
 
       {/* Filters */}

@@ -365,3 +365,35 @@ test.describe('auth 4A contract', () => {
     }
   });
 });
+
+/** 4A · Accounting 合规导出：CSV/JSON 全量附件，且导出行为自身被审计。 */
+test.describe('audit export', () => {
+  test('csv and json exports return the full trail as attachments', async ({ request }) => {
+    await login(request);
+
+    const csv = await request.get('/api/audit?format=csv');
+    expect(csv.status()).toBe(200);
+    expect(csv.headers()['content-type'] ?? '').toContain('text/csv');
+    expect(csv.headers()['content-disposition'] ?? '').toContain('attachment');
+    const csvText = await csv.text();
+    const lines = csvText.trim().split('\n');
+    expect(lines[0]).toBe('timestamp,actor,action,resource_type,resource_id,detail,source');
+    expect(lines.length, 'export must include at least the header + one row').toBeGreaterThanOrEqual(2);
+
+    const js = await request.get('/api/audit?format=json');
+    expect(js.status()).toBe(200);
+    expect(js.headers()['content-disposition'] ?? '').toContain('attachment');
+    const arr = (await js.json()) as unknown;
+    expect(Array.isArray(arr)).toBe(true);
+  });
+
+  test('unauthenticated export is gated to login', async ({ playwright }) => {
+    const anon = await playwright.request.newContext({ baseURL: BASE_URL });
+    try {
+      const res = await anon.get('/api/audit?format=csv', { maxRedirects: 0 });
+      expect(res.status()).toBe(307);
+    } finally {
+      await anon.dispose();
+    }
+  });
+});
