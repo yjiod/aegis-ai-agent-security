@@ -86,7 +86,7 @@ server,install_dir,device_id=sys.argv[1:4]
 base=server.rstrip('/')
 try:
     d=json.load(urllib.request.urlopen(urllib.request.Request(base+'/api/enroll',
-        data=json.dumps({"hostname":socket.gethostname(),"device_id":device_id,"agent_version":"0.33.0"}).encode(),
+        data=json.dumps({"hostname":socket.gethostname(),"device_id":device_id,"agent_version":"0.33.1"}).encode(),
         headers={"Content-Type":"application/json"}),timeout=30))
     tok=d.get('report_token') or ''; sec=d.get('signing_secret') or secrets.token_hex(32)
     rurl=d.get('report_url') or (base+'/aegis/v1/reports'); pol=d.get('policy')

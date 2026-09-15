@@ -48,7 +48,7 @@ $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN"
 $sha = [Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-', '').Substring(0, 12).ToLower()
 $sha.Dispose()
-$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.33.0' } | ConvertTo-Json -Compress
+$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.33.1' } | ConvertTo-Json -Compress
 $enroll = Invoke-RestMethod -Uri "$server/api/enroll" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 30
 if (-not $enroll.report_token) { throw '入网响应缺少 report_token（服务端未配置上报令牌？）。' }
 $reportUrl = if ($enroll.report_url) { [string]$enroll.report_url } else { "$server/aegis/v1/reports" }
