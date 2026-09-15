@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { ensurePgHydrated } from '@/lib/store';
+import { ensurePolicyReleasesLoaded, currentPolicyRelease } from '@/lib/policy';
+import { fetchCollectorDevices, computeVersionPosture } from '@/lib/collector-devices';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,6 +105,48 @@ function unavailable(error: string, status = 503) {
   );
 }
 
+type SanitizedSummary = NonNullable<ReturnType<typeof sanitizedSummary>>;
+
+/**
+ * 版本姿态单一可信源：用控制台已发布策略版本重算 version_posture 并覆盖
+ * required_policy_version，使仪表盘与 /api/policy/posture 对同一批终端给出一致结论
+ * （此前 summary 用 Collector 静态 4.8.0 分桶、posture 用已发布 4.9.0+，结论相反）。
+ *
+ * 诚实降级：设备集与 summary 计数不一致（缓存陈旧 / 新终端刚入网）时先绕过缓存重取
+ * 一次；仍拿不到可逐台核对的设备集，就保留 Collector 原分桶与其静态 required 版本，
+ * 并标注 required_policy_version_source='collector_static'、version_posture_recomputed=false
+ * ——绝不伪造姿态，也不把未重算的分桶冠以"权威版本"之名。
+ */
+async function withAuthoritativePosture(summary: SanitizedSummary): Promise<Record<string, unknown>> {
+  await ensurePgHydrated().catch(() => {});
+  await ensurePolicyReleasesLoaded().catch(() => {});
+  const rel = currentPolicyRelease();
+  // validSummary 已保证这些字段的类型/取值范围，此处的强制转换是安全的收窄。
+  const totalDevices = Number(summary.total_devices);
+  const requiredAgent = String(summary.required_agent_version);
+  const authoritativePolicy = rel?.policy.version ?? String(summary.required_policy_version);
+
+  let devices = await fetchCollectorDevices();
+  if (devices && devices.length !== totalDevices) devices = await fetchCollectorDevices(true);
+
+  if (!devices || devices.length !== totalDevices) {
+    return {
+      ...summary,
+      required_policy_version_source: 'collector_static',
+      version_posture_recomputed: false,
+    };
+  }
+
+  const posture = computeVersionPosture(devices, requiredAgent, authoritativePolicy);
+  return {
+    ...summary,
+    required_policy_version: authoritativePolicy,
+    version_posture: posture,
+    required_policy_version_source: rel ? 'published_release' : 'collector_default',
+    version_posture_recomputed: true,
+  };
+}
+
 export async function GET() {
   const endpoint = process.env.AEGIS_COLLECTOR_URL;
   const allowedHost = process.env.AEGIS_COLLECTOR_ALLOWED_HOST;
@@ -142,7 +187,7 @@ export async function GET() {
     const summary = sanitizedSummary(await readBoundedJson(response));
     if (!summary) return unavailable('collector_contract_invalid', 502);
     return NextResponse.json(
-      { connected: true, summary },
+      { connected: true, summary: await withAuthoritativePosture(summary) },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch {

@@ -206,3 +206,62 @@ test.describe('policy artifact (endpoint-loadable)', () => {
     expect(pj.current_version).toBe(art.version);
   });
 });
+
+test.describe('version posture single source of truth', () => {
+  /**
+   * 回归：仪表盘(/api/summary)与策略页(/api/policy/posture)必须对"当前应有的策略版本"
+   * 给出同一个权威值。此前 summary 用 Collector 静态 required_policy_version(4.8.0)分桶、
+   * posture 用已发布版本(4.9.0+)，对同一批终端得出相反的 current/drifted 结论。
+   * 修复后 summary 在控制台侧用已发布版本重算 version_posture 并覆盖 required_policy_version。
+   *
+   * 已认证读取（login 后 request 上下文带会话 Cookie；/api/summary 受中间件保护）。
+   * 未连接 Collector 时诚实降级：不附 summary，无从比较——用例据此收敛，绝不断言虚构值。
+   */
+  test('summary adopts the authoritative published version and agrees with posture', async ({ request }) => {
+    await login(request);
+
+    // 串行发布一个已知的权威版本（本文件 serial，避免与其它用例竞争单调版本号）。
+    const pub = await request.post('/api/policy/publish', { data: { note: 'e2e posture-source' } });
+    expect(pub.status()).toBe(200);
+
+    const postureRes = await request.get('/api/policy/posture');
+    expect(postureRes.status()).toBe(200);
+    const posture = (await postureRes.json()) as { published: boolean; current_version?: string };
+    expect(posture.published).toBe(true);
+    const authoritative = posture.current_version as string;
+    expect(authoritative, 'posture must expose a semver current_version').toMatch(/^\d+\.\d+\.\d+$/);
+
+    const sumRes = await request.get('/api/summary');
+    expect(sumRes.status()).toBe(200);
+    const sum = (await sumRes.json()) as {
+      connected: boolean;
+      summary?: {
+        required_policy_version: string;
+        required_policy_version_source?: string;
+        version_posture_recomputed?: boolean;
+        total_devices: number;
+        version_posture: Record<string, number>;
+      };
+    };
+
+    if (!sum.connected) {
+      // 未连接 Collector：诚实降级为 demo 模式，不附 summary。
+      expect(sum.summary, 'disconnected summary must not fabricate a summary body').toBeUndefined();
+      return;
+    }
+
+    const s = sum.summary as NonNullable<typeof sum.summary>;
+    if (s.version_posture_recomputed) {
+      // 单一可信源：仪表盘的 required_policy_version 必须等于策略页的权威已发布版本。
+      expect(s.required_policy_version, 'summary must adopt the authoritative published policy version').toBe(authoritative);
+      expect(s.required_policy_version_source).toBe('published_release');
+      // 分桶守恒：重算后各姿态计数之和仍等于设备总数（不凭空增减终端）。
+      const bucketSum = Object.values(s.version_posture).reduce((a, b) => a + Number(b), 0);
+      expect(bucketSum, 'recomputed posture buckets must conserve total_devices').toBe(s.total_devices);
+    } else {
+      // 设备集与计数无法逐台核对时诚实标注为静态来源，绝不冠以"权威版本"之名。
+      expect(s.required_policy_version_source).toBe('collector_static');
+    }
+  });
+});
+
