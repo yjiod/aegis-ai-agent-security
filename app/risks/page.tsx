@@ -29,7 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { RiskSignalHelp, SignalSummary } from '@/components/risk-signal-help';
+import { RiskSignalHelp, SignalSummary, SignalDetails } from '@/components/risk-signal-help';
 import {
   NativeSelect,
   NativeSelectOption,
@@ -953,6 +953,7 @@ function LinkedFindings({ deviceId }: { deviceId: string }) {
                 {String(f.message ?? '')}
                 <br />
                 <SignalSummary text={String(f.message ?? '')} />
+                <SignalDetails matches={f.signal_matches} />
                 {f.path ? (
                   <>
                     <br />

@@ -24,6 +24,29 @@ def db_open(path):
         db.execute("CREATE TABLE IF NOT EXISTS device_auth_state(device_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,generation INTEGER NOT NULL)"); db.commit()
         yield db
     finally: db.close()
+def valid_signal_matches(sm):
+    """有界校验 Agent 回收的能力命中证据（可选字段，向后兼容旧 Agent）。
+    形状：{counts:{exec,cred,network,filewrite}, score:0..6, samples:[{cap,file,line,text}]}。
+    只放宽到必要边界，任何越界/类型不符一律拒绝，防止报告被用来撑爆存储或注入。"""
+    if not isinstance(sm,dict) or not set(sm)<={"counts","score","samples"}: return False
+    counts=sm.get("counts")
+    if counts is not None:
+        if not isinstance(counts,dict) or not set(counts)<={"exec","cred","network","filewrite"}: return False
+        if any(not isinstance(v,int) or isinstance(v,bool) or v<0 or v>1000000 for v in counts.values()): return False
+    if "score" in sm:
+        sc=sm["score"]
+        if not isinstance(sc,int) or isinstance(sc,bool) or not 0<=sc<=6: return False
+    samples=sm.get("samples")
+    if samples is not None:
+        if not isinstance(samples,list) or len(samples)>64: return False
+        for m in samples:
+            if not isinstance(m,dict) or not set(m)<={"cap","file","line","text"}: return False
+            if m.get("cap") not in {"exec","cred","network","filewrite"}: return False
+            if not isinstance(m.get("file"),str) or not 1<=len(m["file"])<=512: return False
+            ln=m.get("line")
+            if not isinstance(ln,int) or isinstance(ln,bool) or ln<1: return False
+            if not isinstance(m.get("text"),str) or len(m["text"])>200: return False
+    return True
 def valid_report(d,now=None):
     """Validate the published v1 contract without a third-party JSON Schema runtime."""
     if not isinstance(d,dict): return False
@@ -47,11 +70,12 @@ def valid_report(d,now=None):
     counts={x:0 for x in levels}
     for finding in findings:
         if not isinstance(finding,dict) or not {"kind","severity","path","message"}.issubset(finding): return False
-        if not set(finding).issubset({"kind","severity","path","message","evidence"}): return False
+        if not set(finding).issubset({"kind","severity","path","message","evidence","signal_matches"}): return False
         if finding.get("severity") not in counts: return False
         if any(not isinstance(finding.get(k),str) for k in ("kind","path","message")): return False
         if not 1<=len(finding["kind"])<=128 or len(finding["path"])>2048 or not 1<=len(finding["message"])<=2048: return False
         if "evidence" in finding and (not isinstance(finding["evidence"],str) or len(finding["evidence"])>512): return False
+        if "signal_matches" in finding and not valid_signal_matches(finding["signal_matches"]): return False
         counts[finding["severity"]]+=1
     return counts==summary
 def signature_index(headers,body,secrets,now=None,max_skew=300):
@@ -185,7 +209,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("AEGIS_REQUIRED_AGENT_VERSION","0.31.0"); required_policy=required_policy or required_version("AEGIS_REQUIRED_POLICY_VERSION","4.8.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("AEGIS_REQUIRED_AGENT_VERSION","0.32.0"); required_policy=required_policy or required_version("AEGIS_REQUIRED_POLICY_VERSION","4.8.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
     for _,severity,agent,policy,generation in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1

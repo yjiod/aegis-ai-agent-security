@@ -35,7 +35,39 @@
           "severity": {"enum": ["critical", "high", "medium", "low"]},
           "path": {"type": "string", "maxLength": 2048},
           "message": {"type": "string", "minLength": 1, "maxLength": 2048},
-          "evidence": {"type": "string", "maxLength": 512}
+          "evidence": {"type": "string", "maxLength": 512},
+          "signal_matches": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "counts": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "exec": {"type": "integer", "minimum": 0, "maximum": 1000000},
+                  "cred": {"type": "integer", "minimum": 0, "maximum": 1000000},
+                  "network": {"type": "integer", "minimum": 0, "maximum": 1000000},
+                  "filewrite": {"type": "integer", "minimum": 0, "maximum": 1000000}
+                }
+              },
+              "score": {"type": "integer", "minimum": 0, "maximum": 6},
+              "samples": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["cap", "file", "line", "text"],
+                  "properties": {
+                    "cap": {"enum": ["exec", "cred", "network", "filewrite"]},
+                    "file": {"type": "string", "minLength": 1, "maxLength": 512},
+                    "line": {"type": "integer", "minimum": 1},
+                    "text": {"type": "string", "maxLength": 200}
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

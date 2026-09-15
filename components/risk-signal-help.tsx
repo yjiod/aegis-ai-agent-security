@@ -82,3 +82,122 @@ export function RiskSignalHelp() {
     </div>
   );
 }
+
+/* ─── 命中证据"详细信息"（避免误伤）───────────────────────────── */
+
+type SignalSample = { cap: string; file: string; line: number; text: string };
+type SignalMatches = { counts: Record<string, number>; score?: number; samples: SignalSample[] };
+
+const CAP_ORDER = ['exec', 'cred', 'network', 'filewrite'] as const;
+
+/**
+ * 防御性解析 Agent 回收、经 Collector 透传的命中证据。该数据来自终端（不可信输入），
+ * 逐项校验类型与边界，任何不合规字段丢弃而非渲染，绝不把原始对象直接塞进 DOM。
+ */
+export function parseSignalMatches(raw: unknown): SignalMatches | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const counts: Record<string, number> = {};
+  if (o.counts && typeof o.counts === 'object' && !Array.isArray(o.counts)) {
+    for (const [k, v] of Object.entries(o.counts as Record<string, unknown>)) {
+      if ((CAP_ORDER as readonly string[]).includes(k) && typeof v === 'number' && Number.isFinite(v) && v >= 0)
+        counts[k] = Math.floor(v);
+    }
+  }
+  const samples: SignalSample[] = [];
+  if (Array.isArray(o.samples)) {
+    for (const s of o.samples.slice(0, 64)) {
+      if (!s || typeof s !== 'object' || Array.isArray(s)) continue;
+      const m = s as Record<string, unknown>;
+      if (typeof m.cap === 'string' && typeof m.file === 'string' && typeof m.line === 'number' && typeof m.text === 'string')
+        samples.push({ cap: m.cap, file: m.file.slice(0, 512), line: Math.floor(m.line), text: m.text.slice(0, 200) });
+    }
+  }
+  const score = typeof o.score === 'number' && Number.isFinite(o.score) ? o.score : undefined;
+  if (Object.keys(counts).length === 0 && samples.length === 0) return null;
+  return { counts, score, samples };
+}
+
+/**
+ * "详细信息"按钮：展开某条 Skill 发现的能力命中证据——四类能力各命中几处、综合分，
+ * 以及每处命中到底在技能包里哪个文件的哪一行、那一行写了什么。让安全运营据此核对
+ * 是真命中还是文档里的无害提及（如 README 里只是"提到"了 curl），避免误伤加白/拉黑。
+ */
+export function SignalDetails({ matches }: { matches?: unknown }) {
+  const [open, setOpen] = useState(false);
+  const data = parseSignalMatches(matches);
+  if (!data) return null;
+  const { counts, score, samples } = data;
+  const grouped = CAP_ORDER.map((cap) => ({ cap, items: samples.filter((s) => s.cap === cap) })).filter(
+    (g) => (counts[g.cap] ?? 0) > 0 || g.items.length > 0,
+  );
+  return (
+    <span style={{ display: 'block', marginTop: 4 }}>
+      <button
+        className="handle"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: 0 }}
+      >
+        详细信息{open ? ' ▴' : ' ▾'}
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: 6,
+            padding: 8,
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            fontSize: 11,
+            lineHeight: 1.7,
+          }}
+        >
+          <div style={{ marginBottom: 4, color: 'var(--muted-foreground)' }}>
+            能力命中处数（数字=命中几处，非危险度）：
+            {CAP_ORDER.filter((c) => (counts[c] ?? 0) > 0).map((c) => (
+              <span key={c} style={{ marginRight: 8 }}>
+                {SIGNAL_LABEL[c]} <b>{counts[c]}</b> 处
+              </span>
+            ))}
+            {score !== undefined && (
+              <>
+                · 综合分 <b>{score}</b>（{scoreBand(score).label}）
+              </>
+            )}
+          </div>
+          <div style={{ marginBottom: 4, color: 'var(--muted-foreground)' }}>
+            命中位置（据此核对到底引用了哪个文件的哪一行、触发了计数；样本有界，超出部分只计处数不逐条展示）：
+          </div>
+          {grouped.map(({ cap, items }) => (
+            <div key={cap} style={{ marginBottom: 4 }}>
+              <b>
+                {SIGNAL_LABEL[cap] ?? cap}
+                <span style={{ fontWeight: 400, color: 'var(--muted-foreground)' }}>
+                  {' '}
+                  （共 {counts[cap] ?? items.length} 处，展示 {items.length} 处）
+                </span>
+              </b>
+              {items.length > 0 ? (
+                <ul style={{ margin: '2px 0 0', paddingLeft: 16 }}>
+                  {items.map((m, i) => (
+                    <li key={i} style={{ wordBreak: 'break-all' }}>
+                      <code style={{ opacity: 0.85 }}>
+                        {m.file}:{m.line}
+                      </code>{' '}
+                      <span style={{ color: 'var(--muted-foreground)' }}>{m.text || '（该行无可显示内容）'}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div style={{ color: 'var(--muted-foreground)', paddingLeft: 16 }}>仅计入处数，无逐条样本。</div>
+              )}
+            </div>
+          ))}
+          {grouped.length === 0 && (
+            <div style={{ color: 'var(--muted-foreground)' }}>该发现未附带可展示的命中位置。</div>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
