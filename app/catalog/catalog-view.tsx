@@ -16,9 +16,9 @@
  *
  * 本文件是纯客户端视图（CatalogView）；同目录 page.tsx 是服务端组件门禁：
  *   `if (process.env.NODE_ENV === 'production') notFound();`
- * workerd 运行时恒为 NODE_ENV=production，故部署后 /catalog 直接 404；
- * 本地 `vinext dev`（development）下正常渲染，保留组件走查用途。
- * 生产导航、站点地图与文档均不链接本页。
+ * workerd 运行时恒为 NODE_ENV=production，故部署后 /catalog 被拦截（实测应答为
+ * 307 重定向到控制台首页 `/`，不渲染本页示例数据）；本地 `vinext dev`（development）
+ * 下正常渲染，保留组件走查用途。生产导航、站点地图与文档均不链接本页。
  * ─────────────────────────────────────────────────────────────
  */
 
