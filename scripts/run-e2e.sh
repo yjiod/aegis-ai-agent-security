@@ -36,6 +36,7 @@ export AEGIS_CONSOLE_PASSWORD="${E2E_ADMIN_PASSWORD:-E2e-Pass-123}"
 export AEGIS_SESSION_SECRET="${AEGIS_SESSION_SECRET:-e2e-secret-0123456789}"
 export AEGIS_ADMIN_USERS="${AEGIS_ADMIN_USERS:-e2eadmin}"
 export AEGIS_AUDITOR_USERS="${AEGIS_AUDITOR_USERS:-e2eauditor}"
+export AEGIS_OPERATOR_USERS="${AEGIS_OPERATOR_USERS:-e2eoperator}"
 export AEGIS_POLICY_SIGNING_KEYS="${AEGIS_POLICY_SIGNING_KEYS:-{\"k1\":\"e2e-signing-key-1-0123456789abcdef\",\"k2\":\"e2e-signing-key-2-0123456789abcdef\"}}"
 export AEGIS_POLICY_ACTIVE_KEY_ID="${AEGIS_POLICY_ACTIVE_KEY_ID:-k1}"
 # vinext/Vite 默认把 localhost 解析到 IPv6 ::1，探针走 IPv4 127.0.0.1 会连不上。

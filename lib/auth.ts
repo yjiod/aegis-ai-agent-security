@@ -20,7 +20,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getAdminStore, getAuditorStore } from '@/lib/store';
 import { pgGetSessionRevocations } from '@/lib/pg-store';
 
-export type Role = 'admin' | 'auditor' | 'viewer';
+export type Role = 'admin' | 'operator' | 'auditor' | 'viewer';
 
 export interface Session {
   subject: string; // username (local) or employeeNo (UAC)
@@ -197,11 +197,35 @@ export function auditorAllowlist(): Set<string> {
   return allowlistFrom(process.env.AEGIS_AUDITOR_USERS, persisted);
 }
 
-/** Resolve a subject to its highest-privilege role (admin > auditor > viewer). */
+/**
+ * Operator allowlist（运维工程师档，4A 最小权限）：env AEGIS_OPERATOR_USERS。
+ * operator 仅获得 device:write（终端登记/更新/移除）+ 非审计只读；不能发布策略、
+ * 不能处置打标、不能管用户、不能读审计。fail-closed：未配置即无 operator。
+ * （持久化 + UI 管理属批 2b，本批仅 env 配置，避免 schema 迁移与缓存复杂度。）
+ */
+export function operatorAllowlist(): Set<string> {
+  return allowlistFrom(process.env.AEGIS_OPERATOR_USERS, []);
+}
+
+/** Resolve a subject to its highest-privilege role (admin > operator > auditor > viewer). */
 export function roleForSubject(subject: string): Role {
   if (adminAllowlist().has(subject)) return 'admin';
+  if (operatorAllowlist().has(subject)) return 'operator';
   if (auditorAllowlist().has(subject)) return 'auditor';
   return 'viewer';
+}
+
+/** 终端写权限：admin 或 operator（4A capability 门禁）。 */
+export function canWriteDevices(role: Role | null | undefined): boolean {
+  return role === 'admin' || role === 'operator';
+}
+
+/** 设备写门禁：未认证 401；无 device:write 能力 403。 */
+export function requireDeviceWriter(request: Request): NextResponse | null {
+  const session = getSession(request);
+  if (!session) return NextResponse.json({ error: 'unauthenticated' }, { status: 401 });
+  if (!canWriteDevices(session.role)) return forbidden();
+  return null;
 }
 
 /** Parse and cryptographically verify the aegis_session cookie `subject.expiry.sig`. */
