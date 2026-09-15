@@ -1,6 +1,6 @@
 #!/bin/sh
 # ═══════════════════════════════════════════════════════════
-# Aegis Agent for macOS v0.33.0 — 自包含安装器
+# Aegis Agent for macOS v0.33.1 — 自包含安装器
 #
 # 用法:
 #   sudo sh aegis-agent-macos.run [选项]
@@ -17,7 +17,7 @@
 # ═══════════════════════════════════════════════════════════
 set -eu
 
-VERSION="0.33.0"
+VERSION="0.33.1"
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST_PATH="/Library/LaunchDaemons/com.aegis.agent.plist"
 # 默认走公网 HTTPS 上报入口（nginx 把 /aegis/* 反代到 Collector，终端 POST

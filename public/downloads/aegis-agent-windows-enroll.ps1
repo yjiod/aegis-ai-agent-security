@@ -36,7 +36,7 @@ param(
   [switch]$Local   # 由原生 .exe 调用时置位：运行时已内嵌解压到 $Dir，跳过下载
 )
 $ErrorActionPreference = 'Stop'
-$AgentVersion = '0.33.0'
+$AgentVersion = '0.33.1'
 $Dir = Join-Path $env:ProgramData 'AegisAgent'
 $Base = ($Server -replace '/+$','')
 

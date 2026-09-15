@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Aegis endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
-import argparse, hashlib, hmac, json, os, re, stat, sys, tempfile, time, urllib.request
+import argparse, hashlib, hmac, json, os, re, stat, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 DEFAULT_POLICY=Path(__file__).with_name("aegis-policy.json")
@@ -374,7 +374,9 @@ def scan(root,policy):
     except (TypeError,ValueError): file_limit=10000
     scanned=0; truncated=False
     for current,dirs,files in os.walk(root,followlinks=False):
-        dirs[:]=[name for name in dirs if name not in [".git","node_modules","vendor","dist","build",".venv"] and not (Path(current)/name).is_symlink()]
+        # 剪枝：跳过 .git/node_modules 等、符号链接、以及**子目录挂载点**（网络/合成/
+        # FUSE 文件系统可能无限期阻塞 opendir/open，曾导致 watch 模式挂死）。根目录本身不剪。
+        dirs[:]=[name for name in dirs if name not in [".git","node_modules","vendor","dist","build",".venv"] and not (Path(current)/name).is_symlink() and not os.path.ismount(os.path.join(current,name))]
         for name in files:
             p=Path(current)/name
             if p.is_symlink() or not (p.suffix.lower() in suffixes or p.name in DEPENDENCY_MANIFESTS): continue
@@ -583,7 +585,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.33.0"
+AGENT_VERSION = "0.33.1"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -649,6 +651,20 @@ def maybe_self_update(policy, report_url):
 
 def main():
     ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); ap.add_argument("--enrollment-config",default=os.getenv("AEGIS_ENROLLMENT_CONFIG","")); ap.add_argument("--enrollment-dir",default=os.getenv("AEGIS_ENROLLMENT_DIR","")); args=ap.parse_args()
+    # 扫描看门狗（watch 模式）：每个周期在**子进程**内跑一次性扫描+上报，父进程以
+    # 时间预算(AEGIS_SCAN_BUDGET_SECONDS,默认1800s)监督；子进程挂死(如阻塞在 hung/
+    # 网络挂载的 open())会被 kill，父进程记录 scan_timeout 并进入下一周期，绝不让
+    # 守护循环整体挂死。配合 scan() 跳过子目录挂载点，双保险。
+    if args.watch:
+        try: budget=min(max(int(os.getenv("AEGIS_SCAN_BUDGET_SECONDS","1800")),60),86400)
+        except (TypeError,ValueError): budget=1800
+        child_argv=[sys.executable,str(Path(__file__).resolve())]+[a for a in sys.argv[1:] if a!="--watch"]
+        while True:
+            try:
+                subprocess.run(child_argv,timeout=budget,check=False)
+            except subprocess.TimeoutExpired:
+                print(f"aegis scan cycle exceeded budget {budget}s; child killed (scan_timeout); will retry next interval",file=sys.stderr)
+            time.sleep(max(args.interval,60))
     host_device_id=hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
     # 每设备入网凭据优先：显式 --enrollment-config > --enrollment-dir/<本机device_id>.json > 全网 reporting.json(向后兼容)。
     enroll_path=args.enrollment_config
