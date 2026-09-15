@@ -335,4 +335,33 @@ test.describe('auth 4A contract', () => {
       expect(stillOk.status(), 'env password must still work when store unavailable').toBe(200);
     }
   });
+
+  /**
+   * 4A 跨设备会话吊销：管理员显式 revoke 后，既有会话（含当前）即刻失效；
+   * 重新登录签发的新会话不受影响。无 PG 时如实 503 不假装吊销。
+   */
+  test('admin revoke invalidates existing sessions; fresh login still works', async ({
+    request,
+  }) => {
+    await login(request);
+    // sanity: current session is valid pre-revoke
+    const before = await request.get('/api/tickets', { maxRedirects: 0 });
+    expect(before.status(), 'session must be valid before revoke').toBe(200);
+
+    const revoke = await request.post('/api/auth/revoke', { data: { subject: USER } });
+    if (revoke.status() === 200) {
+      // existing (pre-revoke) session must now be rejected (307 gate / 401)
+      const after = await request.get('/api/tickets', { maxRedirects: 0 });
+      expect([307, 401], 'revoked session must not access protected API').toContain(after.status());
+      // fresh login issues a new session that works
+      await login(request);
+      const fresh = await request.get('/api/tickets', { maxRedirects: 0 });
+      expect(fresh.status(), 'fresh session after revoke must work').toBe(200);
+    } else {
+      // no PG: honest 503, session untouched
+      expect(revoke.status()).toBe(503);
+      const still = await request.get('/api/tickets', { maxRedirects: 0 });
+      expect(still.status()).toBe(200);
+    }
+  });
 });

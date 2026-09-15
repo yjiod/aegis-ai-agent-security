@@ -18,12 +18,46 @@
 import { NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getAdminStore, getAuditorStore } from '@/lib/store';
+import { pgGetSessionRevocations } from '@/lib/pg-store';
 
 export type Role = 'admin' | 'auditor' | 'viewer';
 
 export interface Session {
   subject: string; // username (local) or employeeNo (UAC)
   role: Role;
+}
+
+/** 会话寿命（与 login/oidc/uac 签发 expiry = now + 7d 保持一致）。 */
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/* ── 4A · 跨设备会话吊销 ───────────────────────────────────────────
+ * parseSession 是同步热路径（每个受保护请求都调），不能在其中做 PG I/O。
+ * 故用模块级缓存（30s TTL）持有 {subject -> invalid_before}，由 middleware
+ * 每请求异步预热（refreshSessionRevocations）。同步查询只读缓存：
+ *   - 缓存未命中/PG 不可用 → 返回 0（不吊销，fail-open 保可用性）；
+ *   - 吊销生效延迟 ≤ TTL（30s），对"改密/移除/显式吊销"足够。
+ */
+const REVOCATION_TTL_MS = 30_000;
+let revocationCache: { at: number; map: Map<string, number> } | null = null;
+
+export async function refreshSessionRevocations(): Promise<void> {
+  if (revocationCache && Date.now() - revocationCache.at < REVOCATION_TTL_MS) return;
+  const data = await pgGetSessionRevocations();
+  if (data === null) return; // PG 不可用：保留旧缓存（fail-open）
+  revocationCache = { at: Date.now(), map: new Map(Object.entries(data)) };
+}
+
+/** 同步读取某 subject 的会话失效时间戳（0 = 无吊销记录）。 */
+export function sessionRevokedBefore(subject: string): number {
+  return revocationCache?.map.get(subject) ?? 0;
+}
+
+/** 记录一次吊销（改密/移除白名单/显式吊销调用），并立即刷新本地缓存使其即刻生效。 */
+export async function revokeSessions(subject: string): Promise<boolean> {
+  const { pgSetSessionRevocation } = await import('@/lib/pg-store');
+  const ok = await pgSetSessionRevocation(subject, Date.now());
+  if (ok) revocationCache = null; // 失效缓存，下次读取重新加载
+  return ok;
 }
 
 /**
@@ -126,6 +160,9 @@ export function parseSession(cookieValue: string | undefined): Session | null {
   const signedPayload = parts.slice(0, parts.length - 1).join('.');
   const sigHex = parts[parts.length - 1];
   if (!verifySessionSignature(signedPayload, sigHex)) return null;
+  // 4A 会话吊销：签发时间(expiry-7d)早于该 subject 的 invalid_before 即失效。
+  const issued = expiry - SESSION_TTL_MS;
+  if (issued < sessionRevokedBefore(subject)) return null;
   return { subject, role: roleForSubject(subject) };
 }
 

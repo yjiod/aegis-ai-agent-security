@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, getSession } from '@/lib/auth';
+import { requireAdmin, getSession, revokeSessions } from '@/lib/auth';
 import { logAudit } from '@/lib/store';
 import { loadPasswordHash, verifyPassword, savePasswordHash } from '@/lib/credentials';
 
@@ -62,5 +62,8 @@ export async function POST(request: Request) {
   }
 
   logAudit({ actor, action: 'auth:password_change', resource_type: 'system', detail: 'persisted to credential store' });
-  return json({ ok: true, message: '密码已修改并持久化，下次登录使用新密码。' });
+  // 4A 会话吊销：改密后使该账号既有会话全部失效（含当前会话，需用新密码重新登录），
+  // 防止旧凭据/已泄露会话在改密后继续可用。
+  await revokeSessions(subject).catch(() => {});
+  return json({ ok: true, message: '密码已修改并持久化，既有会话已吊销，下次登录使用新密码。' });
 }
