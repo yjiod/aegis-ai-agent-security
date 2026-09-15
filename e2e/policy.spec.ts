@@ -232,7 +232,9 @@ test.describe('version posture single source of truth', () => {
     expect(authoritative, 'posture must expose a semver current_version').toMatch(/^\d+\.\d+\.\d+$/);
 
     const sumRes = await request.get('/api/summary');
-    expect(sumRes.status()).toBe(200);
+    // /api/summary 连接态返回 200；未配置/不可达/契约非法返回 5xx（demo 模式即 503）。
+    // 两种都是诚实结果，故接受这一组状态码，再按 connected 分支断言。
+    expect([200, 502, 503], `unexpected summary status ${sumRes.status()}`).toContain(sumRes.status());
     const sum = (await sumRes.json()) as {
       connected: boolean;
       summary?: {
