@@ -39,6 +39,16 @@ ssh $SSH_OPTS "$SERVER" "rm -rf /opt/aegis/client && mkdir -p /opt/aegis/client"
 scp $SCP_OPTS -r dist/client/* "$SERVER:/opt/aegis/client/" >/dev/null
 echo "  ✓ uploaded"
 
+# 大体积原生安装包（Windows .msi ~32MB，自包含 .NET 运行时）超过 Cloudflare Workers
+# 单资产 25MiB 上限，不能进 dist/client（否则 wrangler 启动失败、控制台 502）。单独上传到
+# /opt/aegis/native-dist/，由 nginx 以精确匹配 location 静态直供（见该目录的 README/部署说明）。
+if [ -f native-dist/aegis-agent-windows.msi ]; then
+  ssh $SSH_OPTS "$SERVER" "mkdir -p /opt/aegis/native-dist"
+  scp $SCP_OPTS native-dist/aegis-agent-windows.msi "$SERVER:/opt/aegis/native-dist/" >/dev/null
+  [ -f native-dist/aegis-agent-windows.msi.sha256 ] && scp $SCP_OPTS native-dist/aegis-agent-windows.msi.sha256 "$SERVER:/opt/aegis/native-dist/" >/dev/null
+  echo "  ✓ native .msi uploaded -> /opt/aegis/native-dist/ (nginx 静态直供)"
+fi
+
 echo "═══ 合并 vars (备份 + /etc/aegis/console.env 全量) 并重启 ═══"
 ssh $SSH_OPTS "$SERVER" '
 set -e

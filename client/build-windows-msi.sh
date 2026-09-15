@@ -15,7 +15,11 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 CLIENT="$ROOT/client"
 DL="$ROOT/public/downloads"
-OUT="$DL/aegis-agent-windows.msi"
+# .msi 约 32MB（自包含 .NET 运行时），超过 Cloudflare Workers 单资产 25MiB 上限，
+# 绝不能放进 public/（会被 vinext 当作 Workers 资产打包，导致 wrangler 启动失败、控制台 502）。
+# 故输出到仓库根的 native-dist/（gitignore），由部署单独 scp 到服务器、nginx 以静态文件直供。
+NATIVE="$ROOT/native-dist"
+OUT="$NATIVE/aegis-agent-windows.msi"
 SERVER="${AEGIS_PUBLIC_ORIGIN:-https://aegis.example.com}"
 INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
 
@@ -24,6 +28,7 @@ if ! command -v wixl >/dev/null 2>&1; then echo "  · 跳过 Windows .msi（未�
 for f in aegis-windows.ps1 aegis-policy.json aegis-security-baseline.md; do
   [ -f "$DL/$f" ] || { echo "缺少 $DL/$f" >&2; exit 1; }
 done
+mkdir -p "$NATIVE"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT INT TERM
@@ -52,5 +57,5 @@ if grep -rInE '"report_token":"[^"]{32,}"|"signing_secret":"[^"]{32,}"|__PILOT_T
 fi
 
 SUM=$(if command -v sha256sum >/dev/null 2>&1; then sha256sum "$OUT" | cut -d' ' -f1; else shasum -a 256 "$OUT" | cut -d' ' -f1; fi)
-printf '%s  %s\n' "$SUM" "$(basename "$OUT")" > "$DL/aegis-agent-windows.msi.sha256"
+printf '%s  %s\n' "$SUM" "$(basename "$OUT")" > "$NATIVE/aegis-agent-windows.msi.sha256"
 echo "  ✓ 已生成 $OUT (server $SERVER, $(wc -c < "$OUT" | tr -d ' ') bytes, sha256 ${SUM:0:12}…)"
