@@ -61,6 +61,13 @@ export default function TeamPage() {
     void loadAuditors();
   }
 
+  /** 4A · 会话生命周期：强制下线某工号的全部既有会话（不改白名单/角色）。 */
+  async function revokeSessionsFor(emp: string) {
+    if (!window.confirm(`确认吊销工号「${emp}」的全部既有会话？其需重新登录。`)) return;
+    const r = await fetch('/api/auth/revoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: emp }) });
+    setToast(r.ok ? `已吊销 ${emp} 的既有会话` : '吊销失败（可能无权限或凭据存储不可用）');
+  }
+
   return (
     <>
       
@@ -97,7 +104,7 @@ export default function TeamPage() {
               <strong>{a}</strong>
               <span>{a === 'admin' ? '本地' : '白名单'}</span>
               <span>{a === 'admin' ? '恒为管理员' : '管理员'}</span>
-              <span>{a !== 'admin' && <button className="handle" onClick={() => void delAdmin(a)}>移除</button>}</span>
+              <span>{a !== 'admin' && <><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <button className="handle" onClick={() => void delAdmin(a)}>移除</button></>}</span>
             </div>
           ))}
         </div>
@@ -120,7 +127,7 @@ export default function TeamPage() {
               <strong>{a}</strong>
               <span>白名单</span>
               <span>只读审计</span>
-              <span><button className="handle" onClick={() => void delAuditor(a)}>移除</button></span>
+              <span><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <button className="handle" onClick={() => void delAuditor(a)}>移除</button></span>
             </div>
           ))}
         </div>
