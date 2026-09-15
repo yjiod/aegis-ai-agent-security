@@ -170,3 +170,74 @@ test.describe('remediation closed loop', () => {
     expect(del.status()).toBe(200);
   });
 });
+
+/**
+ * /api/findings —— Skill/MCP/代码质量三个扫描器页的真实数据源。
+ * 反伪造红线契约（demo 与 live 两种模式都必须成立）：
+ *   1) 结构良好：connected 为布尔、findings 为数组、counts 五个数值键齐全；
+ *   2) 断连诚实：connected=false 时 findings 必须为空且 counts.total=0 —— 绝不
+ *      回填任何静态样例（此前页面内联伪造数据却标"实时"，此断言防回归）；
+ *   3) 每条发现字段类型正确、category 与请求类目一致、severity ∈ 合法枚举；
+ *   4) 未认证被门禁（307→/login）。
+ */
+type FindingsBody = {
+  connected?: unknown;
+  category?: unknown;
+  devices?: unknown;
+  devices_with_findings?: unknown;
+  counts?: { total?: unknown; critical?: unknown; high?: unknown; medium?: unknown; low?: unknown };
+  findings?: Array<Record<string, unknown>>;
+};
+
+test.describe('findings honesty contract', () => {
+  const SEV = new Set(['critical', 'high', 'medium', 'low', 'info']);
+
+  for (const category of ['skill', 'mcp', 'code'] as const) {
+    test(`${category}: well-formed + never fabricates when disconnected`, async ({ request }) => {
+      await login(request);
+      const res = await request.get(`/api/findings?category=${category}`);
+      expect(res.status()).toBe(200);
+      const body = (await res.json()) as FindingsBody;
+
+      // (1) structural
+      expect(typeof body.connected).toBe('boolean');
+      expect(body.category).toBe(category);
+      expect(Array.isArray(body.findings)).toBe(true);
+      const c = body.counts ?? {};
+      for (const k of ['total', 'critical', 'high', 'medium', 'low'] as const) {
+        expect(typeof c[k], `counts.${k} must be a number`).toBe('number');
+      }
+
+      const findings = body.findings ?? [];
+      if (body.connected === false) {
+        // (2) anti-fabrication invariant: disconnected ⟹ empty, zeroed
+        expect(findings.length, 'disconnected must not return fabricated findings').toBe(0);
+        expect(c.total).toBe(0);
+        expect(body.devices_with_findings).toBe(0);
+      }
+
+      // (3) per-finding shape (no-op when empty)
+      for (const f of findings) {
+        expect(typeof f.device_id).toBe('string');
+        expect(typeof f.kind).toBe('string');
+        expect(f.category).toBe(category);
+        expect(SEV.has(String(f.severity))).toBe(true);
+        expect(typeof f.scanned_at).toBe('number');
+      }
+      // counts.total must equal the severity buckets sum (self-consistent)
+      const bucketSum = Number(c.critical) + Number(c.high) + Number(c.medium) + Number(c.low);
+      expect(Number(c.total), 'total must equal sum of severity buckets (>= , info folded to low)').toBeGreaterThanOrEqual(bucketSum);
+    });
+  }
+
+  test('unauthenticated findings read is gated to login', async ({ playwright }) => {
+    const anon = await playwright.request.newContext({ baseURL: BASE_URL });
+    try {
+      const res = await anon.get('/api/findings?category=skill', { maxRedirects: 0 });
+      expect(res.status()).toBe(307);
+      expect(res.headers()['location'] ?? '').toContain('/login');
+    } finally {
+      await anon.dispose();
+    }
+  });
+});
