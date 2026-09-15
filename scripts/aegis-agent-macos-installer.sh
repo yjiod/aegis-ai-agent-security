@@ -75,6 +75,17 @@ if [ -z "$COLLECTOR_TOKEN" ]; then
   echo "      安装器不再内置默认令牌——硬编码凭据绝不应进入（公开）代码仓库。"
   exit 1
 fi
+# 令牌前置校验 + 上报签名密钥：Agent 的 load_reporting_config 强制 token 与 signing_secret
+# 均为 32–4096 字符且互不相等，否则本轮拒绝上报（旧版写 signing_secret="" 会让装好的
+# Agent 静默不上报）。生产 Collector 处于显式允许未签名模式（只验 Bearer 令牌），故本机
+# 用 CSPRNG 生成独立 signing_secret 满足契约；服务端若启用强制验签，用 AEGIS_REPORT_SIGNING_SECRET 传入一致密钥。
+case "$COLLECTOR_TOKEN" in
+  *"<"*">"*|*'TOKEN'*) echo "错误: 令牌看起来是占位符（如 '<令牌>'），请填入真实的 64 位十六进制令牌。" >&2; exit 1 ;;
+esac
+if [ "${#COLLECTOR_TOKEN}" -lt 32 ] || [ "${#COLLECTOR_TOKEN}" -gt 4096 ]; then
+  echo "错误: 令牌长度 ${#COLLECTOR_TOKEN} 不在 32–4096 之间（Agent 上报契约要求）。" >&2; exit 1
+fi
+SIGNING_SECRET="${AEGIS_REPORT_SIGNING_SECRET:-$(python3 -c 'import secrets;print(secrets.token_hex(32))')}"
 
 echo "═══ Aegis Agent for macOS v${VERSION} ═══"
 echo "  Collector:  ${COLLECTOR_URL}"
@@ -104,7 +115,7 @@ cat > "$INSTALL_DIR/config.json" << CFGEOF
   "reportURL": "${COLLECTOR_URL}/v1/reports",
   "deviceId": "${DEVICE_ID}",
   "token": "${COLLECTOR_TOKEN}",
-  "hmacSecret": "",
+  "hmacSecret": "${SIGNING_SECRET}",
   "scanIntervalSeconds": ${SCAN_INTERVAL},
   "scanRoot": null
 }
@@ -112,7 +123,7 @@ CFGEOF
 chmod 600 "$INSTALL_DIR/config.json"
 
 cat > "$INSTALL_DIR/reporting.json" << RPTEOF
-{"schema":"aegis.reporting/v1","report_url":"${COLLECTOR_URL}/v1/reports","report_token":"${COLLECTOR_TOKEN}","signing_secret":""}
+{"schema":"aegis.reporting/v1","report_url":"${COLLECTOR_URL}/v1/reports","report_token":"${COLLECTOR_TOKEN}","signing_secret":"${SIGNING_SECRET}"}
 RPTEOF
 chmod 600 "$INSTALL_DIR/reporting.json"
 echo "  ✓ 配置已写入"
