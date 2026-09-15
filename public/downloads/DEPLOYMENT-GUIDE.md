@@ -88,6 +88,25 @@ MDM 修复脚本先把新版本下载到受限暂存目录，校验扫描器、�
 
 卸载使用 `uninstall-aegis-windows.ps1` 或 `uninstall-aegis-macos.sh`。卸载会移除运行时、周期任务以及 Codex/Claude 用户指令文件中带 Aegis 起止标记的受管区块，保留用户自定义内容；符号链接或重解析点不会被修改。已进入源码管理的仓库基线文件仍会保留，必须通过正常代码评审移除，避免绕过审计。
 
+## Collector 令牌轮转（运维手册）
+
+全局 Collector 令牌（`AEGIS_COLLECTOR_TOKEN`）同时用于控制台读取，以及（未启用每设备凭据 `AEGIS_DEVICE_CREDENTIALS_FILE` 时的）终端上报；一旦泄露必须轮转。`scripts/rotate-collector-token.sh` 在服务器本地执行零停机三段式轮转，自动一致更新四处驻留（`/etc/aegis/collector.env`、`/etc/aegis/console.env`、`wrangler.json` 的 vars、systemd unit），每步带"已认证连通"校验与失败自动回滚，全程不打印明文（仅输出 sha256 指纹供核对）：
+
+1. **A 双令牌过渡**：Collector 经 `AEGIS_COLLECTOR_TOKENS='["旧","新"]'`（JSON 数组，最多 5 个）同时接受新旧令牌，读取与上报都不中断。
+2. **B 控制台切换**：把新令牌写入 `console.env` 并合并进 `wrangler.json` 的 vars，重启后控制台改用新令牌读取。
+3. **C 旧令牌作废**：移除过渡数组，Collector 只保留新令牌，泄露的旧令牌立即返回 401。
+
+轮转后新令牌存于服务器 `/etc/aegis/.collector-token-current`（0600），供终端重新入网取用；切勿写入仓库、工单、日志或聊天。脚本可断点续跑：若上次已完成 A 步（`collector.env` 存在 `AEGIS_COLLECTOR_TOKENS`），再次运行会自动恢复新/旧令牌并继续 B、C。
+
+**终端重新入网**：已部署 Agent 的令牌驻留于 `/Library/Application Support/AegisAgent/` 下的 `config.json`、`reporting.json` 与 LaunchDaemon plist（均 0600/root）。用新令牌重跑安装器即可原子重写三处并重载周期任务：
+
+```bash
+sudo AEGIS_COLLECTOR_TOKEN='<新令牌>' sh aegis-agent-macos.run
+# 或等价地： sudo sh aegis-agent-macos.run --token '<新令牌>'
+```
+
+在执行 C 步作废旧令牌之前，存量终端仍可用旧令牌上报（A 步过渡窗口），因此可先在过渡态下批量迁移：按 MDM 受保护配置分批下发新令牌、确认全部终端活跃后，再执行 C 步收口。Windows 终端同理——经 MDM 更新受保护的 `AEGIS_REPORT_TOKEN` 并重载计划任务。密钥永不进入脚本、策略、发布包或源码管理。
+
 ## 项目级基线加载
 
 对受管代码仓库执行 `aegis_agent.py <项目目录> --install-baseline`。该命令为 Cursor 创建 Always Project Rule，为 Windsurf 创建项目规则，并以带标记的增量内容接入 `AGENTS.md` 和 `CLAUDE.md`；不会覆盖仓库已有规范。`--auto-enroll` 还会仅针对已存在 `.codex` 或 `.claude` 安装标记的用户，将受管区块增量写入用户级 `AGENTS.md`/`CLAUDE.md`；区块可随基线升级原位更新，不会为未安装工具创建目录。所有写入在执行前都会解析父目录真实路径，并拒绝越出仓库/用户根目录的符号链接或 Windows 重解析点。随后使用 `--watch --interval 300` 持续发现新增 Agent 配置、Skill、MCP 和代码风险。
