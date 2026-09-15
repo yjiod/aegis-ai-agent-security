@@ -480,3 +480,56 @@ test.describe('mfa totp lifecycle', () => {
     }
   });
 });
+
+/**
+ * 4A · capability RBAC 批2b：operator 白名单持久化生命周期。
+ * admin 添加 → 该工号获得 device:write → admin 移除 → 回落 viewer(403)。
+ * 持久化在 PG settings(allowlist:operators)，写后 invalidate 缓存即刻生效。
+ */
+test.describe('operator persisted lifecycle', () => {
+  const OP = 'e2eop-persist';
+
+  function mintCookie(subject: string): string {
+    const expiry = Date.now() + 3_600_000;
+    const payload = `${subject}.${expiry}`;
+    const sig = createHmac('sha256', process.env.AEGIS_SESSION_SECRET ?? 'e2e-secret-0123456789').update(payload).digest('hex');
+    return `aegis_session=${payload}.${sig}`;
+  }
+
+  test('add operator grants device:write; remove revokes it', async ({ request, playwright }) => {
+    await login(request);
+    const add = await request.post('/api/operators', { data: { employeeNo: OP } });
+    if (add.status() === 503) return; // no PG (demo): honest credential_store_unavailable, nothing persisted
+    expect([201, 409], 'admin must be able to add operator').toContain(add.status());
+
+    const opCtx = await playwright.request.newContext({ baseURL: BASE_URL });
+    try {
+      const cookie = mintCookie(OP);
+      const write = await opCtx.post('/api/devices', {
+        headers: { Cookie: cookie },
+        data: { device_id: 'op-persist-01', hostname: 'op-h', owner: 'ops', agent_type: 'aegis', agent_version: '0.33.1', policy_version: '4.11.0' },
+        maxRedirects: 0,
+      });
+      expect([200, 201], 'persisted operator must have device:write').toContain(write.status());
+      await opCtx.delete(`/api/devices?device_id=op-persist-01`, { headers: { Cookie: cookie }, maxRedirects: 0 });
+    } finally {
+      await opCtx.dispose();
+    }
+
+    const del = await request.delete(`/api/operators?employeeNo=${OP}`);
+    expect(del.status(), 'admin must be able to remove operator').toBe(200);
+
+    const opCtx2 = await playwright.request.newContext({ baseURL: BASE_URL });
+    try {
+      const cookie = mintCookie(OP);
+      const after = await opCtx2.post('/api/devices', {
+        headers: { Cookie: cookie },
+        data: { device_id: 'op-persist-02', hostname: 'op-h', owner: 'ops', agent_type: 'aegis', agent_version: '0.33.1', policy_version: '4.11.0' },
+        maxRedirects: 0,
+      });
+      expect(after.status(), 'removed operator must fall back to viewer (403)').toBe(403);
+    } finally {
+      await opCtx2.dispose();
+    }
+  });
+});

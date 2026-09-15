@@ -5,6 +5,7 @@ import { startUpstreamSyncLoop } from '@/lib/baselines';
 import { startIntegrationAlertSync } from '@/lib/integrations';
 import {
   refreshSessionRevocations,
+  refreshOperators,
   sessionRevokedBefore,
   SESSION_TTL_MS,
 } from '@/lib/auth';
@@ -24,6 +25,8 @@ export async function middleware(request: NextRequest) {
   await ensurePgHydrated().catch(() => {});
   // 预热会话吊销缓存（30s TTL；PG 不可用 fail-open，不阻塞流量）。
   await refreshSessionRevocations().catch(() => {});
+  // 预热 operator 白名单缓存（60s TTL；写操作 invalidate）。
+  await refreshOperators().catch(() => {});
   startUpstreamSyncLoop();
   startIntegrationAlertSync();
   const { pathname } = request.nextUrl;

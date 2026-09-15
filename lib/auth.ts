@@ -198,13 +198,34 @@ export function auditorAllowlist(): Set<string> {
 }
 
 /**
- * Operator allowlist（运维工程师档，4A 最小权限）：env AEGIS_OPERATOR_USERS。
- * operator 仅获得 device:write（终端登记/更新/移除）+ 非审计只读；不能发布策略、
- * 不能处置打标、不能管用户、不能读审计。fail-closed：未配置即无 operator。
- * （持久化 + UI 管理属批 2b，本批仅 env 配置，避免 schema 迁移与缓存复杂度。）
+ * Operator 白名单（运维工程师档，4A 最小权限）：env AEGIS_OPERATOR_USERS ∪ 持久化
+ * （settings 表 allowlist:operators）。持久化部分经 middleware 预热的内存缓存同步读取
+ * （roleForSubject 是同步热路径）；写操作 invalidate 缓存使其下次请求生效。
+ * fail-closed：env 与持久化皆空即无 operator。
  */
+const OPERATOR_CACHE_TTL_MS = 60_000;
+let operatorCache: { at: number; list: string[] } | null = null;
+
+export async function refreshOperators(): Promise<void> {
+  if (operatorCache && Date.now() - operatorCache.at < OPERATOR_CACHE_TTL_MS) return;
+  const { pgGetOperators } = await import('@/lib/pg-store');
+  const list = await pgGetOperators();
+  if (list === null) return; // PG 不可用：保留旧缓存（fail-open 读、不扩权）
+  operatorCache = { at: Date.now(), list };
+}
+
+export function invalidateOperatorCache(): void {
+  operatorCache = null;
+}
+
 export function operatorAllowlist(): Set<string> {
-  return allowlistFrom(process.env.AEGIS_OPERATOR_USERS, []);
+  const set = new Set<string>();
+  for (const part of (process.env.AEGIS_OPERATOR_USERS ?? '').split(',')) {
+    const v = part.trim();
+    if (v) set.add(v);
+  }
+  for (const v of operatorCache?.list ?? []) set.add(v);
+  return set;
 }
 
 /** Resolve a subject to its highest-privilege role (admin > operator > auditor > viewer). */
