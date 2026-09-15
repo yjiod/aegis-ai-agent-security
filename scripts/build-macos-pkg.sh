@@ -84,6 +84,8 @@ DEVICE_ID="MAC-$(hostname | cut -c1-12 | tr '[:lower:]' '[:upper:]' | tr ' ' '-'
 import json,os,sys,socket,secrets,urllib.request
 server,install_dir,device_id=sys.argv[1:4]
 base=server.rstrip('/')
+os.makedirs(install_dir,exist_ok=True)
+enroll_ok=True
 try:
     d=json.load(urllib.request.urlopen(urllib.request.Request(base+'/api/enroll',
         data=json.dumps({"hostname":socket.gethostname(),"device_id":device_id,"agent_version":"0.33.1"}).encode(),
@@ -91,8 +93,17 @@ try:
     tok=d.get('report_token') or ''; sec=d.get('signing_secret') or secrets.token_hex(32)
     rurl=d.get('report_url') or (base+'/aegis/v1/reports'); pol=d.get('policy')
 except Exception as e:
+    enroll_ok=False
     tok=''; sec=secrets.token_hex(32); rurl=base+'/aegis/v1/reports'; pol=None
     sys.stderr.write("auto-enroll deferred (%s); 请确认能访问 %s 后重装或手动入网\n"%(type(e).__name__,base+'/api/enroll'))
+    # 写标记供 postinstall 弹 GUI 提示（双击安装看不到 stderr，避免"没反应"）。
+    try:
+        open(install_dir+'/enroll-pending','w').write("%s %s\n"%(type(e).__name__,base+'/api/enroll'))
+        os.chmod(install_dir+'/enroll-pending',0o644)
+    except Exception: pass
+if enroll_ok:
+    try: os.remove(install_dir+'/enroll-pending')
+    except Exception: pass
 os.makedirs(install_dir,exist_ok=True)
 if tok:
     open(install_dir+'/reporting.json','w').write(json.dumps({"schema":"aegis.reporting/v1","report_url":rurl,"report_token":tok,"signing_secret":sec},ensure_ascii=False))
@@ -102,6 +113,12 @@ if tok:
     if isinstance(pol,dict) and pol.get('schema')=='aegis.policy/v1':
         open(install_dir+'/aegis-policy.json','w').write(json.dumps(pol,ensure_ascii=False)); os.chmod(install_dir+'/aegis-policy.json',0o600)
 PY
+# 入网失败时对双击安装的用户弹 GUI 提示（stderr 不可见，避免"装完没反应"）。
+# 守护进程带 --auto-enroll，网络/地址恢复后会自动重试入网。
+if [ -f "$INSTALL_DIR/enroll-pending" ]; then
+  REASON="$(head -1 "$INSTALL_DIR/enroll-pending" 2>/dev/null || echo unknown)"
+  osascript -e "display dialog \"Aegis 已安装，但零接触入网暂失败（$REASON）。守护进程会在能访问控制台后自动重试；如需立即入网请确认网络或使用已烘焙正确地址的安装包。\" with title \"Aegis 安装提示\" buttons {\"知道了\"} default button 1" 2>/dev/null || true
+fi
 chown -R root:wheel "$INSTALL_DIR" 2>/dev/null || true
 launchctl bootout system "$PLIST" 2>/dev/null || true
 launchctl bootstrap system "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null || true
