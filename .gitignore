@@ -41,6 +41,8 @@ next-env.d.ts
 *.tsbuildinfo
 /dist/
 /.wrangler/
+# 构建生成的自包含 macOS 安装包（npm run build 前置 scripts/build-macos-standalone.sh 重打）
+/public/downloads/aegis-agent-macos-standalone.run
 /outputs/
 /work/
 __pycache__/
