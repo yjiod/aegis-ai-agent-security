@@ -185,3 +185,41 @@ test.describe('session signature verification', () => {
     }
   });
 });
+
+/**
+ * 4A · capability RBAC：operator（运维工程师）档最小权限矩阵。
+ * operator = device:write + 非审计只读；不得读审计、不得管用户、不得写工单/策略/打标。
+ * fail-closed：未配置 AEGIS_OPERATOR_USERS 时该档不存在（此处 e2e 已配置 e2eoperator）。
+ */
+test.describe('RBAC operator capability matrix', () => {
+  const OPERATOR = process.env.E2E_OPERATOR_USER ?? 'e2eoperator';
+
+  test('operator can write devices but not audit/users/tickets', async () => {
+    const ctx = await ctxWithCookie(signedCookie(OPERATOR));
+    try {
+      // device:write 允许
+      const create = await ctx.post('/api/devices', {
+        data: { device_id: 'op-e2e-0001', hostname: 'op-host', owner: 'ops', agent_type: 'aegis', agent_version: '0.33.1', policy_version: '4.11.0' },
+        maxRedirects: 0,
+      });
+      expect([200, 201], 'operator must have device:write').toContain(create.status());
+
+      // 审计只读拒绝
+      const audit = await ctx.get('/api/audit', { maxRedirects: 0 });
+      expect(audit.status(), 'operator must NOT read audit').toBe(403);
+
+      // 用户管理拒绝
+      const admins = await ctx.post('/api/admins', { data: { employeeNo: 'x1' }, maxRedirects: 0 });
+      expect(admins.status(), 'operator must NOT manage users').toBe(403);
+
+      // 工单写拒绝
+      const ticket = await ctx.post('/api/tickets', { data: { title: 'op', severity: 'high', source: 'e2e', device_id: 'd1' }, maxRedirects: 0 });
+      expect(ticket.status(), 'operator must NOT write tickets').toBe(403);
+
+      // cleanup（operator 有 device:write 含删除）
+      await ctx.delete('/api/devices?device_id=op-e2e-0001', { maxRedirects: 0 });
+    } finally {
+      await ctx.dispose();
+    }
+  });
+});
