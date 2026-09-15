@@ -61,6 +61,11 @@ json.dump(cfg, open("/opt/aegis/console-server/wrangler.json", "w"), indent=2)
 print("  ✓ vars merged:", len(merged), "keys (backup base + console.env overlay)")
 print("  ✓ AEGIS_PG_URL present:", "AEGIS_PG_URL" in merged)
 PYEOF
+# wrangler.json 的 vars 内含全部控制台密钥（Collector 令牌/会话密钥/UAC/PG URL）。
+# scp 默认 644 会让本机任意用户读到密钥，故每次合并后强制收紧为 600（workerd 以
+# root 运行，600 不影响读取）。
+chmod 600 /opt/aegis/console-server/wrangler.json
+echo "  ✓ wrangler.json 权限收紧为 600"
 systemctl restart aegis-console
 sleep 6
 systemctl is-active aegis-console
