@@ -143,12 +143,16 @@ for line in open("/etc/aegis/console.env"):
 cfg["vars"]=merged; json.dump(cfg,open(p,"w"),indent=2)
 print("  ✓ wrangler vars 合并:",len(merged),"keys (含 UAC/PG/admin，未丢配置)")
 PY
-python3 - "$NEW" <<'PY'
-import sys,re
-new=sys.argv[1]; p="/etc/systemd/system/aegis-console.service"
+# wrangler.json vars 内含全部控制台密钥，强制 600（workerd 以 root 运行，不影响读取）。
+chmod 600 "$WRANGLER"
+# 令牌已由 wrangler.json vars(600) 提供给 workerd；world-readable(644) 的 unit 文件里
+# 不再驻留任何密钥——移除冗余的 Environment=AEGIS_COLLECTOR_TOKEN（若存在）。
+python3 - <<'PY'
+import re
+p="/etc/systemd/system/aegis-console.service"
 s=open(p).read()
-s2=re.sub(r'(?m)^Environment=AEGIS_COLLECTOR_TOKEN=.*$','Environment=AEGIS_COLLECTOR_TOKEN='+new,s)
-open(p,"w").write(s2); print("  ✓ unit Environment= 更新:", s!=s2)
+s2=re.sub(r'(?m)^Environment=AEGIS_COLLECTOR_TOKEN=.*\n?','',s)
+open(p,"w").write(s2); print("  ✓ unit 内冗余 AEGIS_COLLECTOR_TOKEN 已移除:", s!=s2)
 PY
 systemctl daemon-reload; systemctl restart aegis-console
 echo -n "  等待控制台就绪"; ready=000
