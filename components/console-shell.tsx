@@ -206,7 +206,13 @@ export default function ConsoleShell({
                   </button>
                   <button
                     style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '10px 14px', background: 'none', border: 0, color: 'var(--muted-foreground)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
-                    onClick={() => { document.cookie = 'aegis_session=; path=/; max-age=0'; window.location.href = '/login'; }}
+                    onClick={() => {
+                      // 服务端登出：记录 auth:logout 审计并使本浏览器会话 Cookie 失效。
+                      // keepalive 保证导航离开时请求仍能完成；失败也不阻塞本地清 Cookie。
+                      fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch(() => {});
+                      document.cookie = 'aegis_session=; path=/; max-age=0';
+                      window.location.href = '/login';
+                    }}
                   >
                     <LogOut size={14} /> 退出登录
                   </button>

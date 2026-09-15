@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,6 +60,9 @@ export async function GET(request: Request) {
   const key = await crypto.subtle.importKey('raw', encoder.encode(sessionSecret || clientSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payloadStr));
   const sigHex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+  // 4A · Accounting：SSO 登录成功留审计（actor=IdP subject）。
+  logAudit({ actor: subject, action: 'auth:sso_login', resource_type: 'system', detail: 'method=oidc' });
 
   const response = NextResponse.redirect(new URL('/', url.origin));
   response.cookies.set('aegis_session', `${payloadStr}.${sigHex}`, {

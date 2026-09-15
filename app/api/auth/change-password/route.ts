@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdmin, getSession } from '@/lib/auth';
+import { logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,7 @@ export async function POST(request: Request) {
 
   const current = String(body.current_password ?? '');
   const next = String(body.new_password ?? '');
+  const actor = getSession(request)?.subject ?? 'anonymous';
 
   const expectedPass = process.env.AEGIS_CONSOLE_PASSWORD ?? '';
   if (!expectedPass) return json({ error: 'auth_not_configured' }, 503);
@@ -41,9 +43,15 @@ export async function POST(request: Request) {
   // Constant-time compare current password
   const ok = current.length === expectedPass.length &&
     current.split('').reduce((acc, c, i) => acc | (c.charCodeAt(0) ^ expectedPass.charCodeAt(i)), 0) === 0;
-  if (!ok) return json({ error: 'invalid_current_password' }, 401);
+  if (!ok) {
+    logAudit({ actor, action: 'auth:password_change_failed', resource_type: 'system', detail: 'reason=invalid_current_password' });
+    return json({ error: 'invalid_current_password' }, 401);
+  }
 
   if (next.length < 8) return json({ error: 'password_too_short', hint: '至少 8 个字符' }, 400);
+
+  // 4A · Accounting：改密尝试（无论是否在本环境持久化）都留审计。
+  logAudit({ actor, action: 'auth:password_change', resource_type: 'system', detail: 'validated; persistence requires server AEGIS_CONSOLE_PASSWORD update + restart' });
 
   // In a full deployment this would persist the new password.
   // For the current VPS + wrangler setup, we signal success and the
