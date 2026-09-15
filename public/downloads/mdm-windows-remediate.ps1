@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$baseUrl = 'https://aegis.example.com/downloads'
+$baseUrl = if ($env:AEGIS_BASE_URL) { $env:AEGIS_BASE_URL } else { 'https://aegis.example.com/downloads' }
 $installDir = Join-Path $env:ProgramData 'AegisAgent'
 $reportDir = Join-Path $installDir 'reports'
 $previousDir = Join-Path $installDir 'previous'
