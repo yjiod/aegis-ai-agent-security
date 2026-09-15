@@ -1,8 +1,11 @@
 {
-  "release": "0.69.0",
+  "release": "0.70.0",
   "channel": "pilot",
-  "published_at": "2026-09-15T11:10:05+08:00",
+  "published_at": "2026-09-15T11:38:54+08:00",
   "features": [
+    "skill_signal_match_provenance",
+    "risk_center_finding_details",
+    "agent_0_32",
     "version_posture_single_source",
     "zero_downtime_collector_token_rotation",
     "console_secret_at_rest_hardening",

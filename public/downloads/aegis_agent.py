@@ -253,19 +253,41 @@ _SKILL_EXEC=re.compile(r"\b(subprocess|os\.system|exec\(|eval\(|bash\s+-c|os\.po
 _SKILL_CRED=re.compile(r"\b(api[_-]?key|secret|password|token|credential|\.env|keychain)",re.I)
 _SKILL_FW=re.compile(r"\b(open\([^)]*['\"]w|write\(|rm\s+-|shutil\.rmtree|unlink|remove\()",re.I)
 def skill_risk_score(skill_file):
-    """Score a Skill package by risk signals: exec+2, cred+2, network+1, filewrite+1."""
-    root=skill_file.parent; text=""; 
+    """Score a Skill package by risk signals: exec+2, cred+2, network+1, filewrite+1.
+
+    同时回收每类能力命中的"证据位置"(相对文件:行号:该行片段)，供控制台"详细信息"
+    展开——让安全运营核对到底是技能包里哪个 .md/.py 的哪一处字段触发了计数，判断是
+    真命中还是文档里的无害提及，避免误伤。sig 仍是全量命中处数(与旧口径一致)，证据
+    samples 是有界样本(每类≤8、总≤32)，绝不无限膨胀报告。逐文件计数等价于旧的拼接计数
+    (正则均为词边界匹配，不跨文件)，但能给出准确文件/行号。
+    """
+    root=skill_file.parent
     readable={".md",".txt",".py",".js",".ts",".tsx",".jsx",".sh",".ps1",".json",".toml",".yaml",".yml"}
-    n=0
+    pats=(("exec",_SKILL_EXEC),("cred",_SKILL_CRED),("network",_SKILL_NET),("filewrite",_SKILL_FW))
+    sig={"exec":0,"cred":0,"network":0,"filewrite":0}
+    samples=[]; per_cap={"exec":0,"cred":0,"network":0,"filewrite":0}
+    PER_CAP=8; TOTAL=32; n=0
     for current,dirs,files in os.walk(root,followlinks=False):
         dirs[:]=[x for x in dirs if x not in [".git","node_modules","vendor","dist","build"]]
         for f in files:
-            if Path(f).suffix.lower() in readable and n<200:
-                try: text+=Path(current,f).read_text(errors="ignore")[:200000]; n+=1
-                except OSError: pass
-    sig={"exec":len(_SKILL_EXEC.findall(text)),"cred":len(_SKILL_CRED.findall(text)),"network":len(_SKILL_NET.findall(text)),"filewrite":len(_SKILL_FW.findall(text))}
+            if Path(f).suffix.lower() not in readable or n>=200: continue
+            fp=Path(current,f)
+            try: text=fp.read_text(errors="ignore")[:200000]
+            except OSError: continue
+            n+=1
+            try: rel=str(fp.relative_to(root))
+            except ValueError: rel=f
+            rel=rel[:512]; lines=text.split("\n")
+            for cap,pat in pats:
+                for m in pat.finditer(text):
+                    sig[cap]+=1
+                    if per_cap[cap]<PER_CAP and len(samples)<TOTAL:
+                        per_cap[cap]+=1
+                        ln=text.count("\n",0,m.start())+1
+                        snippet=(lines[ln-1].strip() if 1<=ln<=len(lines) else m.group(0))[:160]
+                        samples.append({"cap":cap,"file":rel,"line":ln,"text":snippet})
     score=(2 if sig["exec"] else 0)+(2 if sig["cred"] else 0)+(1 if sig["network"] else 0)+(1 if sig["filewrite"] else 0)
-    return score,sig
+    return score,sig,samples
 SKILL_CATEGORY_RULES={
   "dingtalk-cli":{"label":"钉钉 CLI 集成类","action":"monitor","severity":"medium","tags":["cli","network","credential-pass"],"desc":"通过 dws CLI 调用钉钉 OpenAPI；exec/network/cred 为正常 CLI 调用模式。预制规则: 保持 monitor + 记录每次调用审计; 只读子能力可个案加白, 写操作(审批/写表)保持告警。"},
   "doc-processing":{"label":"文档处理类","action":"monitor","severity":"medium","tags":["filewrite","network-deps"],"desc":"文档读写/转换技能, 含文件写与依赖下载。预制规则: monitor + 锁定版本 + 监控文件写范围; 业务必需可加白+监控。"},
@@ -286,14 +308,18 @@ def scan_skill(skill_file,policy,max_files=500):
     allowed=set(policy.get("allowed_skills",[]))
     if "allowed_skills" in policy and name not in allowed:
         action=policy.get("enforcement",{}).get("unknown_skill","audit")
-        score,sig=skill_risk_score(skill_file)
+        score,sig,samples=skill_risk_score(skill_file)
         cat=skill_category(name); rule=SKILL_CATEGORY_RULES.get(cat,SKILL_CATEGORY_RULES["unknown"])
         # severity = max(risk-signal severity, category preset severity)
         sig_sev="high" if score>=4 else ("medium" if score>=2 else "low")
         order={"low":0,"medium":1,"high":2}
         severity=sig_sev if order[sig_sev]>=order[rule["severity"]] else rule["severity"]
         dom=max(sig,key=sig.get)
-        out.append(finding("unknown_skill",severity,skill_file,f"未批准的 Skill: {name} [类别:{rule['label']}] (风险信号 {dom}={sig[dom]}, score={score}) 预制规则: {rule['desc']}"))
+        f=finding("unknown_skill",severity,skill_file,f"未批准的 Skill: {name} [类别:{rule['label']}] (风险信号 {dom}={sig[dom]}, score={score}) 预制规则: {rule['desc']}")
+        # 结构化证据：四类能力的全量命中处数 + 综合分 + 有界命中位置样本，
+        # 供控制台"详细信息"展开核对到底是哪个 .md/.py 的哪一行触发了计数（避免误伤）。
+        f["signal_matches"]={"counts":sig,"score":score,"samples":samples}
+        out.append(f)
     readable={".md",".txt",".py",".js",".ts",".tsx",".jsx",".sh",".ps1",".json",".toml",".yaml",".yml"}
     root_resolved=root.resolve()
     for current,dirs,files in os.walk(root,followlinks=False):
@@ -557,7 +583,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.31.0"
+AGENT_VERSION = "0.32.0"
 
 
 def maybe_self_update(policy, report_url):

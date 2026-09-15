@@ -227,6 +227,23 @@ class AegisTests(unittest.TestCase):
         oversized_inventory={**report,'inventory':[{}]*5001}; self.assertFalse(self.collector.valid_report(oversized_inventory,now))
         oversized_version={**report,'agent_version':'x'*65}; self.assertFalse(self.collector.valid_report(oversized_version,now))
         oversized_finding={**report,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'x','severity':'high','path':'p','message':'x'*2049}]}; self.assertFalse(self.collector.valid_report(oversized_finding,now))
+        # signal_matches（能力命中证据）契约：合法接受、缺省向后兼容、畸形一律拒绝。
+        sm_ok={'counts':{'exec':3,'cred':0,'network':1,'filewrite':0},'score':5,'samples':[{'cap':'exec','file':'SKILL.md','line':2,'text':'run subprocess to launch'}]}
+        hi={'critical':0,'high':1,'medium':0,'low':0}
+        with_sm={**report,'summary':hi,'findings':[{'kind':'unknown_skill','severity':'high','path':'p','message':'m','signal_matches':sm_ok}]}
+        self.assertTrue(self.collector.valid_report(with_sm,now))
+        without_sm={**report,'summary':hi,'findings':[{'kind':'unknown_skill','severity':'high','path':'p','message':'m'}]}
+        self.assertTrue(self.collector.valid_report(without_sm,now))  # 旧 Agent 无该字段仍接受
+        sm_report=lambda sm:{**report,'summary':hi,'findings':[{'kind':'unknown_skill','severity':'high','path':'p','message':'m','signal_matches':sm}]}
+        self.assertFalse(self.collector.valid_report(sm_report({'counts':{'exec':'3'}}),now))                          # 计数非 int
+        self.assertFalse(self.collector.valid_report(sm_report({'counts':{'rm':1}}),now))                               # 非法能力名
+        self.assertFalse(self.collector.valid_report(sm_report({'score':9}),now))                                       # score 越界(>6)
+        self.assertFalse(self.collector.valid_report(sm_report({'samples':[{'cap':'nope','file':'f','line':1,'text':'t'}]}),now))  # 非法 cap
+        self.assertFalse(self.collector.valid_report(sm_report({'samples':[{'cap':'exec','file':'f','line':0,'text':'t'}]}),now))   # line<1
+        self.assertFalse(self.collector.valid_report(sm_report({'samples':[{'cap':'exec','file':'f','line':1,'text':'x'*201}]}),now)) # text 越界
+        self.assertFalse(self.collector.valid_report(sm_report({'samples':[{'cap':'exec','file':'f','line':1,'text':'t','extra':1}]}),now)) # 多余键
+        self.assertFalse(self.collector.valid_report(sm_report({'samples':[{'cap':'exec','file':'f','line':1,'text':'t'}]*65}),now))  # 样本超限
+        self.assertFalse(self.collector.valid_report(sm_report('not-an-object'),now))                                   # 非对象
         schema=json.loads((DOWNLOADS/'aegis-report.schema.json').read_text())
         self.assertEqual(schema['properties']['inventory']['maxItems'],5000); self.assertEqual(schema['properties']['findings']['maxItems'],10000)
         self.assertFalse(schema['properties']['findings']['items']['additionalProperties'])
@@ -577,6 +594,26 @@ class AegisTests(unittest.TestCase):
             findings,count=self.agent.scan_skill(skill,self.policy); kinds={f['kind'] for f in findings}
             self.assertEqual(count,2); self.assertIn('unknown_skill',kinds); self.assertIn('hardcoded_secret',kinds)
         windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertLess(windows.index("$skillManifests=@(Get-ChildItem"),windows.index('$oversized=@(')); self.assertIn("kind='skill_scan_truncated'",windows); self.assertIn("kind='project_scan_truncated'",windows); self.assertIn("kind='skill_link_findings_truncated'",windows)
+    def test_unknown_skill_finding_carries_match_provenance(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/'risky-skill'; root.mkdir()
+            (root/'SKILL.md').write_text('# risky\nrun subprocess to launch\ncurl https://example.invalid to fetch\n')
+            (root/'helper.py').write_text('import os\nos.system("ls")\n')
+            findings,_=self.agent.scan_skill(root/'SKILL.md',self.policy)
+            unk=[f for f in findings if f['kind']=='unknown_skill']
+            self.assertEqual(len(unk),1)
+            sm=unk[0].get('signal_matches'); self.assertIsInstance(sm,dict)
+            counts=sm['counts']
+            self.assertGreaterEqual(counts['exec'],2)    # subprocess(SKILL.md) + os.system(helper.py)
+            self.assertGreaterEqual(counts['network'],1)  # curl / https://
+            self.assertEqual(sm['score'],(2 if counts['exec'] else 0)+(2 if counts['cred'] else 0)+(1 if counts['network'] else 0)+(1 if counts['filewrite'] else 0))
+            samples=sm['samples']; self.assertTrue(1<=len(samples)<=32)
+            for m in samples:
+                self.assertIn(m['cap'],{'exec','cred','network','filewrite'})
+                self.assertTrue(isinstance(m['file'],str) and m['file'] and len(m['file'])<=512)
+                self.assertGreaterEqual(m['line'],1); self.assertTrue(isinstance(m['text'],str) and len(m['text'])<=200)
+            # 证据可定位到 SKILL.md 第2行的 exec 命中——运营据此核对是否误伤
+            self.assertTrue(any(m['cap']=='exec' and m['file']=='SKILL.md' and m['line']==2 for m in samples), samples)
     def test_approved_skill_and_symlink_boundary(self):
         with tempfile.TemporaryDirectory() as d:
             base=Path(d); root=base/'approved'; root.mkdir(); skill=root/'SKILL.md'; skill.write_text('# safe')
@@ -599,8 +636,8 @@ class AegisTests(unittest.TestCase):
         for name in ('aegis_agent.py','aegis-windows.ps1','aegis-policy.json','aegis-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-aegis-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-aegis-macos.sh').exists())
-        self.assertIn("agent_version='0.31.0'",(DOWNLOADS/'aegis-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'AegisAgent/0.31.0')
+        self.assertIn("agent_version='0.32.0'",(DOWNLOADS/'aegis-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'AegisAgent/0.32.0')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'AEGIS_INSTALL_DIR':str(install),'AEGIS_BASE_URL':source.as_uri()}
