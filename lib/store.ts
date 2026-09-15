@@ -510,7 +510,7 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
     device_id: 'OPS-MBP-0314',
     description:
       'postgres-mcp 向未在企业白名单内的公网地址发起出站连接，且二进制缺少可信发布者签名。设备随后离线，需先恢复上报再研判。',
-    finding_ref: 'unsigned_mcp_server:/Users/luoning/.cursor/mcp.json',
+    finding_ref: 'unsigned_mcp_server:/Users/zhangsan/.cursor/mcp.json',
     assignee: '赵六',
     age_ms: 46 * MINUTE,
     trail: [
@@ -567,7 +567,7 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
     description:
       'prompt-helper Skill 在系统提示中嵌入了不可见的指令覆盖片段，可能改变 Agent 的工具调用边界。',
     finding_ref:
-      'prompt_injection_artifact:/Users/chenhao/.cursor/skills/prompt-helper/SKILL.md',
+      'prompt_injection_artifact:/Users/lisi/.cursor/skills/prompt-helper/SKILL.md',
     age_ms: 18 * MINUTE,
   },
   // 0007 — risks page row 1 (高危, 2 分钟前).
@@ -579,7 +579,7 @@ const TICKET_SEEDS: readonly TicketSeed[] = [
     device_id: 'MKT-LT-2841',
     description:
       'filesystem MCP Server 尝试读取声明作用域之外的目录，已被本地策略拦截并上报，等待安全运营研判。',
-    finding_ref: 'mcp_unauthorized_path:/Users/linyan/.cursor/mcp.json',
+    finding_ref: 'mcp_unauthorized_path:/Users/wangwu/.cursor/mcp.json',
     age_ms: 2 * MINUTE,
   },
 ];
