@@ -50,3 +50,4 @@ __pycache__/
 bin/
 obj/
 scripts/aegis-adapters.production.json
+/public/downloads/aegis-agent-macos.pkg
