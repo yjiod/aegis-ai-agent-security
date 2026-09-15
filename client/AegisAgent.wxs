@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AegisAgent.wxs — Windows 原生安装器（用 wixl/msitools 构建，可在 macOS/Linux 交叉产出 .msi）。
+  关键点：自定义动作用 FileKey 型（运行已安装的 AegisServiceHost.exe），wixl 支持；
+  不要用属性型 ExeCommand='[INSTALLDIR]...'（wixl 会断言失败 Source!=NULL）。
+  server.json 由 build-windows-msi.sh 在构建时生成（烘焙真实 origin），公开仓库不含真实主机。
+  安装包不含任何凭据：令牌在装机时由 Install-Aegis-Windows.ps1 经 /api/enroll 零接触获取。
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Aegis AI Agent Security" Language="2052" Version="0.32.0" Manufacturer="Aegis" UpgradeCode="3CD9719D-F9BC-4163-ABA5-1009CC4250F6">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 Aegis Agent。" />
+    <Media Id="1" Cabinet="aegis.cab" EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="AegisAgent">
+          <Component Id="AgentFiles" Guid="3BB058FC-2676-470B-8BE9-DF8E09CF0B7E" Win64="yes">
+            <File Id="ServiceHost" Source="AegisServiceHost.exe" KeyPath="yes" />
+            <File Id="Scanner" Source="aegis-windows.ps1" />
+            <File Id="Policy" Source="aegis-policy.json" />
+            <File Id="Baseline" Source="aegis-security-baseline.md" />
+            <File Id="Installer" Source="Install-Aegis-Windows.ps1" />
+            <File Id="ServerCfg" Source="server.json" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="MainFeature" Title="Aegis Agent" Level="1">
+      <ComponentRef Id="AgentFiles" />
+    </Feature>
+
+    <!-- 安装后（SYSTEM，延迟）跑 host 的 install 动词：零接触入网 + DPAPI 配置 + sc.exe 注册服务并启动 -->
+    <CustomAction Id="InstallAegis" FileKey="ServiceHost" ExeCommand="--install" Execute="deferred" Impersonate="no" Return="check" />
+    <!-- 卸载前（host 仍在）跑 host 的 uninstall 动词：停止并删除服务 -->
+    <CustomAction Id="UninstallAegis" FileKey="ServiceHost" ExeCommand="--uninstall" Execute="deferred" Impersonate="no" Return="check" />
+
+    <InstallExecuteSequence>
+      <Custom Action="InstallAegis" After="InstallFiles">NOT Installed</Custom>
+      <Custom Action="UninstallAegis" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+  </Product>
+</Wix>
