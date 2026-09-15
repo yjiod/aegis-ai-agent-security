@@ -317,6 +317,34 @@ export function pgSetSetting(key: string, value: string): void {
   );
 }
 
+/* ─── 控制台凭据（改密持久化 · 4A 凭据生命周期）──────────────────────
+ * 复用 settings 键值表（无需新迁移），键为 console_password_hash:<subject>，
+ * 值为 PBKDF2-SHA256 哈希串。与 pgSetSetting 的 fire-and-forget 不同，这里用
+ * withClient 同步确认写入结果——改密必须能如实告知"是否真的持久化"，绝不能
+ * 假装成功（红线）。PG 未配置/不可达时返回 null/false，调用方回落到 env 凭据
+ * 或如实报错。
+ */
+const CRED_KEY_PREFIX = 'console_password_hash:';
+
+export async function pgGetCredential(subject: string): Promise<string | null> {
+  const r = await withClient('getCredential', (c) =>
+    c.query('SELECT value FROM settings WHERE key=$1', [CRED_KEY_PREFIX + subject]),
+  );
+  if (!r.ok || !r.value?.rows?.length) return null;
+  const v = (r.value.rows[0] as { value?: unknown }).value;
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+export async function pgSetCredential(subject: string, hash: string): Promise<boolean> {
+  const r = await withClient('setCredential', (c) =>
+    c.query(
+      'INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=$2',
+      [CRED_KEY_PREFIX + subject, hash],
+    ),
+  );
+  return r.ok;
+}
+
 /* ─── 签名策略发布件（policy_releases） ─────────────────────────────── */
 export interface PolicyReleaseRow {
   release_id: string;
