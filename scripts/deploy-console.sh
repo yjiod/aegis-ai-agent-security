@@ -26,8 +26,13 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 echo "═══ 构建控制台 ═══"
 cd "$ROOT"
+# vinext build 不清理 dist/，反复本地构建会累积陈旧的 hash 命名 chunk（旧页面代码，
+# 含已删除的伪造数据/已修复的缺陷），并随 scp 一并上传，仍可按直链 URL 访问。
+# dist/ 是 .gitignore 的纯构建产物、下一行即刻重新生成，故构建前先清空以保证部署
+# 产物与当前源码一一对应（CI 全新 checkout 无此问题，仅本地重复部署需要）。
+rm -rf dist
 npm run build >/dev/null 2>&1
-echo "  ✓ build complete"
+echo "  ✓ build complete (clean dist)"
 
 echo "═══ 备份当前 wrangler vars (scp 会覆盖 wrangler.json) ═══"
 ssh $SSH_OPTS "$SERVER" 'cp -a /opt/aegis/console-server/wrangler.json /tmp/aegis-wrangler-vars.bak 2>/dev/null || printf "{\"vars\":{}}" > /tmp/aegis-wrangler-vars.bak; echo "  ✓ backed up"'
