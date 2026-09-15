@@ -1332,6 +1332,24 @@ button.risk-row {
   transition: box-shadow var(--dur) ease, border-color var(--dur) ease;
 }
 
+/* 已闭环（resolved/dismissed）工单的严重度徽章：中性灰、无发光，不再以红/橙示警。
+   已处置事件属于历史记录，若继续用告警色会被误读为当前活跃威胁。用主题令牌，
+   暗色/亮色两套主题均成立。 */
+.severity.closed {
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted-foreground) 12%, transparent);
+  border-color: color-mix(in srgb, var(--muted-foreground) 32%, transparent);
+  box-shadow: none;
+}
+
+/* 已闭环工单整行降调，与未闭环的活跃事件在视觉上区分开。 */
+.risk-row.closed {
+  opacity: 0.62;
+}
+.risk-row.closed:hover {
+  opacity: 0.85;
+}
+
 .severity.critical {
   background: linear-gradient(160deg, #6b1d19, #4a1210);
   color: #ffd7d3;

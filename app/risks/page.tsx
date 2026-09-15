@@ -542,10 +542,13 @@ export default function RisksPage() {
             const transitions = ticketTransitions(ticket.status);
             const expanded = expandedId === ticket.ticket_id;
             const busy = pendingAction?.id === ticket.ticket_id;
+            // 已闭环（已解决/已驳回）属于历史处置记录：严重度徽章中性化、整行降调，
+            // 避免把已处置事件继续以红/橙示警、误读为当前活跃威胁。
+            const closed = ticket.status === 'resolved' || ticket.status === 'dismissed';
             return (
               <Fragment key={ticket.ticket_id}>
                 <div
-                  className="risk-row wide animate-row-entrance"
+                  className={`risk-row wide animate-row-entrance${closed ? ' closed' : ''}`}
                   style={{
                     animationDelay: `${index * 30 + 200}ms`,
                     gridTemplateColumns: TICKET_ROW_GRID,
@@ -554,9 +557,13 @@ export default function RisksPage() {
                   onClick={() => setExpandedId(expanded ? null : ticket.ticket_id)}
                 >
                   <span
-                    className={`severity ${severity.tone}`}
-                    style={severityStyle(ticket.severity)}
-                    title={`严重等级：${severity.hint}`}
+                    className={`severity ${closed ? 'closed' : severity.tone}`}
+                    style={closed ? undefined : severityStyle(ticket.severity)}
+                    title={
+                      closed
+                        ? `已${statusLabel(ticket.status)} · 严重等级仅作历史记录：${severity.hint}`
+                        : `严重等级：${severity.hint}`
+                    }
                   >
                     {severity.label}
                   </span>

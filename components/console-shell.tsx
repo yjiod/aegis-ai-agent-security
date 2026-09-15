@@ -123,7 +123,10 @@ export default function ConsoleShell({
   }, [pathname]);
 
   useEffect(() => {
-    fetch('/api/tickets?limit=1', { cache: 'no-store' })
+    // 侧栏「风险中心」告警角标只统计未闭环工单（open/acknowledged/investigating）。
+    // 已解决/已驳回属于历史处置记录，不应继续以红色角标示警，否则会把已处置事件
+    // 误读为当前活跃威胁。status 过滤在服务端完成，total 即过滤后计数。
+    fetch('/api/tickets?status=open,acknowledged,investigating&limit=1', { cache: 'no-store' })
       .then((r) => (r.ok ? (r.json() as Promise<Record<string, unknown>>) : null))
       .then((d) => { if (d && typeof d.total === 'number') setTicketCount(d.total); })
       .catch(() => setTicketCount(null));
