@@ -15,6 +15,11 @@ const SUMMARY_PATH = '/api/summary';
 /** HTTP statuses the route is allowed to return. */
 const ACCEPTED_STATUSES = [200, 502, 503];
 
+// /api/summary 受会话中间件保护：未认证会被 307 重定向到 /login（返回 HTML），
+// 因此契约探针必须先登录，让 request 上下文带上会话 Cookie，才能真正命中路由。
+const USER = process.env.E2E_ADMIN_USER ?? 'e2eadmin';
+const PASS = process.env.E2E_ADMIN_PASSWORD ?? 'E2e-Pass-123';
+
 const LEVELS = ['critical', 'high', 'normal'] as const;
 const POSTURES = [
   'current',
@@ -36,6 +41,11 @@ type Summary = {
 };
 
 test.describe('GET /api/summary', () => {
+  test.beforeEach(async ({ request }) => {
+    const login = await request.post('/api/auth/login', { data: { username: USER, password: PASS } });
+    expect(login.status(), 'e2e login must succeed (dev server needs AEGIS_CONSOLE_USER/PASSWORD)').toBe(200);
+  });
+
   test('responds with a JSON document', async ({ request }) => {
     const response = await request.get(SUMMARY_PATH);
 
@@ -73,7 +83,8 @@ test.describe('GET /api/summary', () => {
     const response = await request.get(SUMMARY_PATH);
 
     expect(ACCEPTED_STATUSES).toContain(response.status());
-    expect(response.headers()['cache-control']).toBe('no-store');
+    // 运行时可能追加 must-revalidate 等指令；核心契约是"绝不缓存"，故断言包含 no-store。
+    expect(response.headers()['cache-control']).toContain('no-store');
   });
 
   test('connected summaries satisfy the internal consistency contract', async ({
