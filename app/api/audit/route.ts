@@ -6,8 +6,8 @@
  */
 
 import { NextResponse } from 'next/server';
-import { requireAuditor } from '@/lib/auth';
-import { getAuditStore } from '@/lib/store';
+import { requireAuditor, getSession } from '@/lib/auth';
+import { getAuditStore, logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,6 +89,33 @@ export async function GET(request: Request) {
   if (actionFilter) entries = entries.filter((e) => String(e.action).startsWith(actionFilter));
 
   entries.sort((a, b) => Number(b.timestamp) - Number(a.timestamp));
+
+  // 4A · Accounting 合规导出：?format=csv|json 返回全量（不分页）附件下载，
+  // 并对导出行为本身留审计（谁在何时导出了多少行）。只读，不改变任何状态。
+  const format = url.searchParams.get('format');
+  if (format === 'csv' || format === 'json') {
+    const actor = getSession(request)?.subject ?? 'anonymous';
+    logAudit({ actor, action: 'audit:export', resource_type: 'system', detail: `format=${format} rows=${entries.length}` });
+    if (format === 'json') {
+      return new NextResponse(JSON.stringify(entries, null, 2), {
+        headers: { ...HEADERS, 'Content-Type': 'application/json', 'Content-Disposition': 'attachment; filename="aegis-audit.json"' },
+      });
+    }
+    const esc = (v: unknown) => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [
+      'timestamp,actor,action,resource_type,resource_id,detail,source',
+      ...entries.map((e) =>
+        [e.timestamp, e.actor, e.action, e.resource_type, e.resource_id ?? '', e.detail ?? '', e.source ?? ''].map(esc).join(','),
+      ),
+    ];
+    return new NextResponse(lines.join('\n'), {
+      headers: { ...HEADERS, 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aegis-audit.csv"' },
+    });
+  }
+
   const total = entries.length;
   return json({
     entries: entries.slice(offset, offset + limit),
