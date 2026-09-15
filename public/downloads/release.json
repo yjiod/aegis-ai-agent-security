@@ -1,8 +1,12 @@
 {
-  "release": "0.70.1",
+  "release": "0.71.0",
   "channel": "pilot",
-  "published_at": "2026-09-15T11:57:17+08:00",
+  "published_at": "2026-09-15T13:26:03+08:00",
   "features": [
+    "zero_touch_auto_enrollment",
+    "enroll_endpoint_token_and_policy_delivery",
+    "de_signed_policy_over_tls",
+    "https_report_url_forwarded_proto",
     "enroll_token_prevalidation",
     "skill_signal_match_provenance",
     "risk_center_finding_details",
