@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { logAudit } from '@/lib/store';
 import { loadPasswordHash, verifyPassword } from '@/lib/credentials';
+import { issueMfaToken, signSessionToken, attachSessionCookie } from '@/lib/auth';
+import { pgGetMfa } from '@/lib/pg-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -132,26 +134,20 @@ export async function POST(request: Request) {
   }
 
   clearFailures(lockKey);
+
+  // 4A · MFA：已启用 TOTP 的账号，密码通过后不直接发会话，改为下发 5 分钟挑战令牌；
+  // 客户端提交有效 TOTP 码（POST /api/auth/mfa/verify）后才签发会话。未启用 MFA 的
+  // 账号行为不变（直接发会话），故默认不影响既有登录与 e2e。
+  const mfa = await pgGetMfa(username).catch(() => null);
+  if (mfa?.enabled) {
+    logAudit({ actor: username, action: 'auth:mfa_challenge', resource_type: 'system', detail: `ip=${bounded(ip)}` });
+    return json({ mfa_required: true, mfa_token: issueMfaToken(username) });
+  }
+
   logAudit({ actor: username, action: 'auth:login', resource_type: 'system', detail: `ip=${bounded(ip)} method=local` });
-
-  // Create signed session token
-  const secret = process.env.AEGIS_SESSION_SECRET ?? expectedPass;
-  const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
-  const payload = `${username}.${expiry}`;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
-  const sigHex = Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  const token = `${payload}.${sigHex}`;
-
-  const response = json({ ok: true, username, expiry });
-  response.cookies.set('aegis_session', token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 7 * 24 * 60 * 60,
-  });
+  const token = await signSessionToken(username);
+  const response = json({ ok: true, username, expiry: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+  attachSessionCookie(response, token);
   return response;
 }
 

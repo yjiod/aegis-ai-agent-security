@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { createHmac } from 'node:crypto';
 
 /**
  * 控制台 API e2e(认证态): 登录/工单 CRUD/基线/设置/集成控制面。
@@ -394,6 +395,88 @@ test.describe('audit export', () => {
       expect(res.status()).toBe(307);
     } finally {
       await anon.dispose();
+    }
+  });
+});
+
+/* ── RFC6238 TOTP helper（Node 侧，e2e 生成有效码）────────────────── */
+function b32decode(input: string): Buffer {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let value = 0;
+  const out: number[] = [];
+  for (const ch of input.replace(/=+$/g, '').toUpperCase()) {
+    const idx = A.indexOf(ch);
+    if (idx === -1) continue;
+    value = (value << 5) | idx;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+function totpCode(secret: string): string {
+  const counter = Math.floor(Date.now() / 1000 / 30);
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(counter));
+  const hmac = createHmac('sha1', b32decode(secret)).update(buf).digest();
+  const off = hmac[hmac.length - 1] & 0x0f;
+  const code =
+    (((hmac[off] & 0x7f) << 24) | ((hmac[off + 1] & 0xff) << 16) | ((hmac[off + 2] & 0xff) << 8) | (hmac[off + 3] & 0xff)) %
+    1_000_000;
+  return String(code).padStart(6, '0');
+}
+
+/**
+ * 4A · MFA(TOTP) 全生命周期：enroll → confirm → 登录二次验证 → disable。
+ * finally 保证恢复单因素，避免污染后续用例的密码登录。无 PG 时 enroll 如实 503，
+ * 该用例跳过启用断言（仅验证不假成功）。
+ */
+test.describe('mfa totp lifecycle', () => {
+  test('enroll, confirm, two-step login, then disable restores single-factor', async ({
+    request,
+  }) => {
+    let secret = '';
+    await login(request);
+    try {
+      const enroll = await request.post('/api/auth/mfa', { data: { action: 'enroll' } });
+      if (enroll.status() === 503) return; // no PG: honest unavailable, nothing enabled
+      expect(enroll.status()).toBe(200);
+      const eb = (await enroll.json()) as { secret?: string; otpauth_uri?: string };
+      expect(typeof eb.secret).toBe('string');
+      expect(eb.otpauth_uri ?? '').toContain('otpauth://totp/');
+      secret = eb.secret as string;
+
+      const confirm = await request.post('/api/auth/mfa', { data: { action: 'confirm', code: totpCode(secret) } });
+      expect(confirm.status()).toBe(200);
+
+      // password-only login now returns a challenge (200 + mfa_required), no session
+      const pw = await request.post('/api/auth/login', { data: { username: USER, password: PASS } });
+      expect(pw.status()).toBe(200);
+      const pb = (await pw.json()) as { mfa_required?: boolean; mfa_token?: string };
+      expect(pb.mfa_required, 'MFA-enabled account must get a challenge').toBe(true);
+      expect(typeof pb.mfa_token).toBe('string');
+
+      // correct code issues a session
+      const good = await request.post('/api/auth/mfa', {
+        data: { action: 'verify', mfa_token: pb.mfa_token, code: totpCode(secret) },
+      });
+      expect(good.status()).toBe(200);
+
+      // disable with a valid code (session from verify)
+      const disable = await request.post('/api/auth/mfa', { data: { action: 'disable', code: totpCode(secret) } });
+      expect(disable.status()).toBe(200);
+      secret = ''; // disabled successfully
+
+      // single-factor login works again
+      await login(request);
+    } finally {
+      if (secret) {
+        // mid-test failure: force-disable using the known secret + still-valid pre-enable session
+        await request.post('/api/auth/mfa', { data: { action: 'disable', code: totpCode(secret) } });
+      }
     }
   });
 });

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ShieldCheck, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toast } from '@/components/toast';
+import { MfaPanel } from '@/components/mfa-panel';
 
 const plannedRoles: Array<[string, string, string, string]> = [
   ['安全管理员', '全部权限', '策略发布、事件处置、设备管理、审计导出', '已启用'],
@@ -159,6 +160,8 @@ export default function TeamPage() {
           ))}
         </div>
       </div>
+
+      <MfaPanel />
     </>
   );
 }
