@@ -345,6 +345,39 @@ export async function pgSetCredential(subject: string, hash: string): Promise<bo
   return r.ok;
 }
 
+/* ─── 会话吊销（4A · 跨设备会话生命周期）────────────────────────────
+ * 键 session_invalid_before:<subject> =  epoch ms。凡"签发时间早于该值"的会话
+ * 一律失效（改密/移除白名单/管理员显式吊销时写入）。会话为无状态 HMAC Cookie
+ * （subject.expiry.sig，expiry=签发+7d），故签发时间可由 expiry-7d 还原，无需改
+ * Cookie 格式即可实现吊销。读取走 lib/auth 的 30s TTL 内存缓存（middleware 预热），
+ * PG 不可用时缓存保持旧值/空 → fail-open，保可用性不锁死登录。
+ */
+const REVOKE_KEY_PREFIX = 'session_invalid_before:';
+
+export async function pgGetSessionRevocations(): Promise<Record<string, number> | null> {
+  const r = await withClient('getSessionRevocations', (c) =>
+    c.query('SELECT key,value FROM settings WHERE key LIKE $1', [REVOKE_KEY_PREFIX + '%']),
+  );
+  if (!r.ok) return null;
+  const out: Record<string, number> = {};
+  for (const row of r.value.rows as Array<{ key: string; value: string }>) {
+    const subject = row.key.slice(REVOKE_KEY_PREFIX.length);
+    const ts = Number(row.value);
+    if (subject && Number.isFinite(ts)) out[subject] = ts;
+  }
+  return out;
+}
+
+export async function pgSetSessionRevocation(subject: string, ts: number): Promise<boolean> {
+  const r = await withClient('setSessionRevocation', (c) =>
+    c.query(
+      'INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=$2',
+      [REVOKE_KEY_PREFIX + subject, String(ts)],
+    ),
+  );
+  return r.ok;
+}
+
 /* ─── 签名策略发布件（policy_releases） ─────────────────────────────── */
 export interface PolicyReleaseRow {
   release_id: string;

@@ -3,6 +3,11 @@ import type { NextRequest } from 'next/server';
 import { ensurePgHydrated } from '@/lib/store';
 import { startUpstreamSyncLoop } from '@/lib/baselines';
 import { startIntegrationAlertSync } from '@/lib/integrations';
+import {
+  refreshSessionRevocations,
+  sessionRevokedBefore,
+  SESSION_TTL_MS,
+} from '@/lib/auth';
 
 /**
  * Session guard: all console pages require a valid aegis_session cookie.
@@ -17,6 +22,8 @@ import { startIntegrationAlertSync } from '@/lib/integrations';
  */
 export async function middleware(request: NextRequest) {
   await ensurePgHydrated().catch(() => {});
+  // 预热会话吊销缓存（30s TTL；PG 不可用 fail-open，不阻塞流量）。
+  await refreshSessionRevocations().catch(() => {});
   startUpstreamSyncLoop();
   startIntegrationAlertSync();
   const { pathname } = request.nextUrl;
@@ -58,6 +65,18 @@ export async function middleware(request: NextRequest) {
   const [, expiryStr] = parts;
   const expiry = Number(expiryStr);
   if (!Number.isFinite(expiry) || expiry < Date.now()) {
+    const loginUrl = new URL('/login', request.url);
+    const response = NextResponse.redirect(loginUrl);
+    response.cookies.delete('aegis_session');
+    return response;
+  }
+
+  // 4A 会话吊销：签发时间(expiry-7d)早于该 subject 的 invalid_before 即已吊销
+  // （改密/移除白名单/管理员显式吊销）。页面请求回登录并清 Cookie；API 的权威
+  // 拒绝由各路由 getSession/parseSession 完成（401）。
+  const subject = parts.slice(0, parts.length - 2).join('.');
+  const issued = expiry - SESSION_TTL_MS;
+  if (subject && issued < sessionRevokedBefore(subject)) {
     const loginUrl = new URL('/login', request.url);
     const response = NextResponse.redirect(loginUrl);
     response.cookies.delete('aegis_session');

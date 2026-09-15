@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, requireAuditor } from '@/lib/auth';
+import { requireAdmin, requireAuditor, revokeSessions } from '@/lib/auth';
 import { getAdminStore, addAdmin, removeAdmin, logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
@@ -40,5 +40,7 @@ export async function DELETE(request: Request) {
   if (employeeNo === 'admin') return NextResponse.json({ error: 'cannot_remove_local_admin' }, { status: 400 });
   const removed = removeAdmin(employeeNo);
   logAudit({ actor: 'console', action: 'admin:remove', resource_type: 'system', resource_id: employeeNo, detail: removed ? 'removed' : 'not_found' });
+  // 4A：移除白名单即吊销该工号既有会话（强制下线）。
+  if (removed) await revokeSessions(employeeNo).catch(() => {});
   return NextResponse.json({ removed, employeeNo });
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin, requireAuditor } from '@/lib/auth';
+import { requireAdmin, requireAuditor, revokeSessions } from '@/lib/auth';
 import { getAuditorStore, addAuditor, removeAuditor, logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
@@ -71,5 +71,7 @@ export async function DELETE(request: Request) {
     resource_id: employeeNo,
     detail: removed ? 'removed' : 'not_found',
   });
+  // 4A：移除白名单即吊销该工号既有会话（强制下线）。
+  if (removed) await revokeSessions(employeeNo).catch(() => {});
   return NextResponse.json({ removed, employeeNo }, { headers: NO_STORE });
 }
