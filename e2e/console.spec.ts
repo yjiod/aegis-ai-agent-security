@@ -32,11 +32,18 @@ const NAV_ITEMS = [
   { href: '/settings', label: '系统设置', heading: '系统设置' },
 ] as const;
 
-/** Scanner pages share the same "bar chart + data table" shape. */
+/**
+ * Scanner pages now share <ScanExplorer> (real data via /api/findings). The old
+ * "bar chart + fabricated rows + .demo-notice" shape was removed under the
+ * "绝不伪造数据" red line, so these assert the honest structure instead: heading,
+ * 3 KPI cards, a refresh/去处置 head, and EITHER real result rows (connected with
+ * findings) OR an honest empty/disconnect state (.empty-detail). No minRows floor,
+ * no fabricated trend chart, no demo banner.
+ */
 const SCANNER_PAGES = [
-  { href: '/skills', heading: 'Skill 扫描器', minRows: 1 },
-  { href: '/mcp', heading: 'MCP 扫描器', minRows: 1 },
-  { href: '/quality', heading: '代码质量扫描', minRows: 1 },
+  { href: '/skills', heading: 'Skill 扫描器' },
+  { href: '/mcp', heading: 'MCP 扫描器' },
+  { href: '/quality', heading: '代码质量扫描' },
 ] as const;
 
 function absoluteUrl(href: string): string {
@@ -363,34 +370,43 @@ test.describe('policies page', () => {
 });
 
 test.describe('scanner pages', () => {
-  for (const { href, heading, minRows } of SCANNER_PAGES) {
-    test(`${href} loads a scan trend chart and a results table`, async ({
+  for (const { href, heading } of SCANNER_PAGES) {
+    test(`${href} renders honest real-data scanner (no fabricated samples)`, async ({
       page,
     }) => {
       await page.goto(href);
       await expect(page.locator('main h1')).toHaveText(heading);
 
-      // Demo banner is present on every scanner page.
-      await expect(page.locator('.demo-notice')).toBeVisible();
-
-      // recharts BarChart inside .panel.scan-trend.
-      const chart = page.locator('.panel.scan-trend');
-      await expect(chart).toBeVisible();
-      const surface = chart.locator('svg').first();
-      await surface.waitFor({ state: 'visible' });
-      const box = await surface.boundingBox();
-      expect(box, 'chart svg collapsed to zero width').not.toBeNull();
-      expect(box?.width ?? 0).toBeGreaterThan(0);
-      expect(await chart.locator('.recharts-surface').count()).toBeGreaterThan(0);
-
-      // Results table below the chart.
-      const rows = page.locator('.data-table .data-row');
-      await rows.first().waitFor();
-      expect(await rows.count()).toBeGreaterThanOrEqual(minRows);
-      await expect(page.locator('.data-table .data-head')).toHaveCount(1);
-
-      // KPI strip shared by all three scanners.
+      // KPI strip: three real counters (本类发现 / 严重·高危 / 涉及终端).
       await expect(page.locator('.detail-kpis article strong')).toHaveCount(3);
+
+      // Head actions: refresh + a link into the disposition center (replaces the
+      // old "同步规则库" stub button that only fired a "未接入" toast).
+      await expect(page.locator('.head-actions a[href="/dispositions"]')).toHaveCount(1);
+
+      // The fabricated 7-day trend chart and demo banner must be GONE.
+      await expect(page.locator('.panel.scan-trend')).toHaveCount(0);
+
+      // After the fetch settles, the results panel shows EITHER real rows OR an
+      // honest empty/disconnect state — never a fabricated sample table.
+      const panel = page.locator('.panel').last();
+      await expect(panel).toBeVisible();
+      const rows = page.locator('.data-table .data-row');
+      const emptyState = page.locator('.empty-detail');
+      // Wait for one of the two terminal states to appear.
+      await Promise.race([
+        rows.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
+        emptyState.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
+      ]);
+      const rowCount = await rows.count();
+      const emptyCount = await emptyState.count();
+      expect(
+        rowCount > 0 || emptyCount > 0,
+        'scanner must show either real findings or an honest empty/disconnect state',
+      ).toBe(true);
+      if (rowCount > 0) {
+        await expect(page.locator('.data-table .data-head')).toHaveCount(1);
+      }
     });
   }
 });
