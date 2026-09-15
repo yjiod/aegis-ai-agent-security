@@ -482,6 +482,31 @@ test.describe('mfa totp lifecycle', () => {
 });
 
 /**
+ * 设备连接态与关注态分离（用户反馈 bug 回归锁）：collector 源下 status 只反映连接
+ * (online/stale/offline)，不被发现严重度覆盖；关注态用独立 attention 布尔；
+ * 每台设备上报全部 ai_agent 工具于 tools[]（覆盖面板据此聚合，不再只取 tools[0]）。
+ */
+test.describe('devices connectivity vs attention', () => {
+  test('collector-sourced devices separate connectivity from attention and expose tools', async ({
+    request,
+  }) => {
+    await login(request);
+    const res = await request.get('/api/devices');
+    expect(res.status()).toBe(200);
+    const body = (await res.json()) as {
+      source?: string;
+      devices?: Array<{ status?: string; attention?: unknown; tools?: unknown }>;
+    };
+    if (body.source !== 'collector' || (body.devices ?? []).length === 0) return; // demo/无终端: 不适用
+    for (const d of body.devices ?? []) {
+      expect(['online', 'stale', 'offline'], 'status must be connectivity only').toContain(d.status);
+      expect(typeof d.attention, 'attention must be a boolean').toBe('boolean');
+      expect(Array.isArray(d.tools), 'tools must be an array').toBe(true);
+    }
+  });
+});
+
+/**
  * 4A · capability RBAC 批2b：operator 白名单持久化生命周期。
  * admin 添加 → 该工号获得 device:write → admin 移除 → 回落 viewer(403)。
  * 持久化在 PG settings(allowlist:operators)，写后 invalidate 缓存即刻生效。
