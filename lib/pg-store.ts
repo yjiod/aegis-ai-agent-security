@@ -414,6 +414,36 @@ export async function pgSetMfa(subject: string, rec: MfaRecord): Promise<boolean
   return r.ok;
 }
 
+/* ─── Operator 白名单持久化（4A · capability RBAC 批2b）──────────────
+ * 复用 settings 表（键 allowlist:operators = JSON 数组），避免新增 PG 表/迁移。
+ * 返回 [] 表示"已连接但无记录"（空白名单）；返回 null 表示 PG 不可用（调用方保留旧缓存）。
+ */
+const OPERATORS_KEY = 'allowlist:operators';
+
+export async function pgGetOperators(): Promise<string[] | null> {
+  const r = await withClient('getOperators', (c) =>
+    c.query('SELECT value FROM settings WHERE key=$1', [OPERATORS_KEY]),
+  );
+  if (!r.ok) return null;
+  if (!r.value?.rows?.length) return [];
+  try {
+    const arr = JSON.parse(String((r.value.rows[0] as { value: unknown }).value));
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function pgSetOperators(list: string[]): Promise<boolean> {
+  const r = await withClient('setOperators', (c) =>
+    c.query(
+      'INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=$2',
+      [OPERATORS_KEY, JSON.stringify(list)],
+    ),
+  );
+  return r.ok;
+}
+
 /* ─── 签名策略发布件（policy_releases） ─────────────────────────────── */
 export interface PolicyReleaseRow {
   release_id: string;
