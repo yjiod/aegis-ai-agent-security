@@ -2,34 +2,40 @@
 # ═══════════════════════════════════════════════════════════════════════
 # aegis-agent-macos-standalone.sh — 自包含 macOS 终端安装器（用户级，无需 sudo）。
 #
-# 这是"独立的包"的安装器头部：运行时(aegis_agent.py / aegis-policy.json /
-# aegis-security-baseline.md)以 tar.gz 形式内嵌在本文件 __PAYLOAD__ 标记之后，
-# 由 scripts/build-macos-standalone.sh 打包成单文件 aegis-agent-macos-standalone.run。
-# 安装时**不联网下载运行时**（只在上报时连 Collector），因此可拷到任意机器离线安装，
-# 不依赖 MDM / EDR / 任何下发系统。
+# "独立的包"：运行时(aegis_agent.py / aegis-policy.json / aegis-security-baseline.md)
+# 以 tar.gz 内嵌在本文件 __PAYLOAD__ 标记之后，由 scripts/build-macos-standalone.sh
+# 打成单文件 aegis-agent-macos-standalone.run。安装时不联网下载运行时，可离线安装，
+# 不依赖 MDM / EDR。直接对接 Aegis 安全中心（默认占位 https://aegis.example.com；
+# 安装时用 AEGIS_SERVER_URL 或 --server 指定真实控制台地址——真实主机绝不入库）。
 #
-# 直接对接 Aegis 安全中心：report_url 默认 https://aegis.example.com/aegis/v1/reports
-# （nginx 反代 /aegis/*→Collector）。安装后注册用户级 LaunchAgent，开机自启+周期上报。
+# 零接触自动入网：不带令牌运行时，自动向 ${SERVER}/api/enroll 申请——拿回上报令牌、
+# 每设备独立 signing_secret、以及当前已发布策略（去签名，经 TLS 信任加载），写入本地后
+# 立即上报。无需管理员手动下发令牌。也可用 AEGIS_COLLECTOR_TOKEN 手动指定令牌。
 #
-# 用法（先下载本 .run，再运行；不要用 curl|sh，自解压需要读取文件本身）：
-#   AEGIS_COLLECTOR_TOKEN='<64位令牌>' sh aegis-agent-macos-standalone.run
-#   可选： --collector URL  --token T  --device-id ID  --interval SEC  --uninstall
-# 令牌是敏感凭据，只经环境变量/参数传入，绝不写进包内或日志。
+# 用法（先下载 .run 再运行；勿用 curl|sh，自解压需读取文件本身）：
+#   AEGIS_SERVER_URL=https://你的控制台 sh aegis-agent-macos-standalone.run        # 零接触自动入网（推荐）
+#   AEGIS_SERVER_URL=https://你的控制台 AEGIS_COLLECTOR_TOKEN='<令牌>' sh aegis-agent-macos-standalone.run
+#   可选： --server URL --collector URL --token T --device-id ID --interval SEC --uninstall
 # ═══════════════════════════════════════════════════════════════════════
 set -eu
 
-COLLECTOR_URL="${AEGIS_COLLECTOR_URL:-https://aegis.example.com/aegis}"
+SERVER="${AEGIS_SERVER_URL:-https://aegis.example.com}"
+COLLECTOR_URL="${AEGIS_COLLECTOR_URL:-${SERVER%/}/aegis}"
+ENROLL_URL="${AEGIS_ENROLL_URL:-${SERVER%/}/api/enroll}"
 TOKEN="${AEGIS_COLLECTOR_TOKEN:-}"
 INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
 DEVICE_ID="${AEGIS_DEVICE_ID:-MAC-$(hostname | cut -c1-12 | tr '[:lower:]' '[:upper:]' | tr ' ' '-')}"
 INSTALL_DIR="${AEGIS_INSTALL_DIR:-$HOME/Library/Application Support/AegisAgent}"
-PLIST="$HOME/Library/LaunchAgents/com.aegis.agent.plist"
+PLIST="${AEGIS_PLIST:-$HOME/Library/LaunchAgents/com.aegis.agent.plist}"
+LABEL="${AEGIS_LABEL:-com.aegis.agent}"
 PYTHON_BIN="$(command -v python3 || true)"
 DO_UNINSTALL=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --server) SERVER="$2"; COLLECTOR_URL="${SERVER%/}/aegis"; ENROLL_URL="${SERVER%/}/api/enroll"; shift 2 ;;
     --collector) COLLECTOR_URL="$2"; shift 2 ;;
+    --enroll-url) ENROLL_URL="$2"; shift 2 ;;
     --token) TOKEN="$2"; shift 2 ;;
     --device-id) DEVICE_ID="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
@@ -40,33 +46,23 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$DO_UNINSTALL" = "1" ]; then
-  launchctl bootout "gui/$(id -u)/com.aegis.agent" 2>/dev/null || true
+  launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
   [ -f "$PLIST" ] && mv -f "$PLIST" "$HOME/.Trash/" 2>/dev/null || true
   echo "已卸载用户级 LaunchAgent；运行时目录保留在 $INSTALL_DIR（如需清理请手动移入废纸篓）。"
   exit 0
 fi
 
-# 令牌前置校验：Agent 上报契约要求 32–4096 字符。占位符/过短直接拦下并给明确提示，
-# 而不是写坏 reporting.json 让 Agent 回一句晦涩的"上报配置契约无效"。
-if [ -z "$TOKEN" ]; then
-  echo "错误: 需要令牌。请用 AEGIS_COLLECTOR_TOKEN='<令牌>' 或 --token 传入。" >&2
-  echo "      管理员从服务器 /etc/aegis/.collector-token-current(0600) 获取 64 位令牌。" >&2
-  exit 1
-fi
-case "$TOKEN" in
-  *"<"*">"*|*'TOKEN'*) echo "错误: 令牌看起来是占位符（如 '<令牌>'），请填入真实的 64 位十六进制令牌。" >&2; exit 1 ;;
-esac
-if [ "${#TOKEN}" -lt 32 ] || [ "${#TOKEN}" -gt 4096 ]; then
-  echo "错误: 令牌长度 ${#TOKEN} 不在 32–4096 之间（很可能把示例里的 '<令牌>' 原样粘进来了）。" >&2; exit 1
-fi
 if [ -z "$PYTHON_BIN" ]; then echo "错误: 需要 python3" >&2; exit 1; fi
 
 echo "═══ Aegis 终端安装（自包含 / 用户级 / 无需 sudo）═══"
 echo "  设备 ID    : $DEVICE_ID"
-echo "  Collector  : $COLLECTOR_URL"
+echo "  安全中心   : $SERVER"
+echo "  上报地址   : $COLLECTOR_URL/v1/reports"
+echo "  入网地址   : $ENROLL_URL"
 echo "  安装目录   : $INSTALL_DIR"
+if [ -n "$TOKEN" ]; then echo "  凭据来源   : 手动指定令牌"; else echo "  凭据来源   : 零接触自动入网"; fi
 
-mkdir -p "$INSTALL_DIR" "$HOME/Library/LaunchAgents"
+mkdir -p "$INSTALL_DIR" "$(dirname "$PLIST")"
 chmod 700 "$INSTALL_DIR"
 
 echo "═══ 1. 解包内嵌运行时（不联网下载）═══"
@@ -78,39 +74,63 @@ for f in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do
 done
 chmod 700 "$INSTALL_DIR/aegis_agent.py"
 chmod 600 "$INSTALL_DIR/aegis-policy.json" "$INSTALL_DIR/aegis-security-baseline.md"
-echo "  ✓ 运行时已就位"
+AGENT_VER=$(grep -m1 'AGENT_VERSION =' "$INSTALL_DIR/aegis_agent.py" | sed 's/[^"]*"\([^"]*\)".*/\1/')
+echo "  ✓ 运行时已就位（agent ${AGENT_VER:-unknown}）"
 
-# Agent 强制 reporting.json 的 signing_secret 为 32+ 字符且不同于 token，否则拒绝上报。
-# 生产 Collector 处于显式允许未签名模式（只验 Bearer 令牌、忽略报告签名），故本机用
-# CSPRNG 生成独立 signing_secret 满足契约；若服务端启用强制验签，用 AEGIS_REPORT_SIGNING_SECRET 传入一致密钥。
-SIGNING_SECRET="${AEGIS_REPORT_SIGNING_SECRET:-$("$PYTHON_BIN" -c 'import secrets;print(secrets.token_hex(32))')}"
-
-echo "═══ 2. 写入上报配置（0600）═══"
-umask 077
-cat > "$INSTALL_DIR/config.json" <<CFGEOF
-{
-  "collectorURL": "${COLLECTOR_URL}",
-  "reportURL": "${COLLECTOR_URL}/v1/reports",
-  "deviceId": "${DEVICE_ID}",
-  "token": "${TOKEN}",
-  "hmacSecret": "${SIGNING_SECRET}",
-  "scanIntervalSeconds": ${INTERVAL},
-  "scanRoot": null
-}
-CFGEOF
-cat > "$INSTALL_DIR/reporting.json" <<RPTEOF
-{"schema":"aegis.reporting/v1","report_url":"${COLLECTOR_URL}/v1/reports","report_token":"${TOKEN}","signing_secret":"${SIGNING_SECRET}"}
-RPTEOF
-chmod 600 "$INSTALL_DIR/config.json" "$INSTALL_DIR/reporting.json"
-echo "  ✓ config.json / reporting.json 已写入"
+echo "═══ 2. 获取凭据与策略，写入配置（0600）═══"
+# 手动模式校验令牌；自动模式向 /api/enroll 申请令牌+signing_secret+去签名策略。
+# 全部在 python 内完成（写 config.json / reporting.json，必要时用服务端策略覆盖出厂策略）。
+if ! "$PYTHON_BIN" - "$INSTALL_DIR" "$COLLECTOR_URL" "$ENROLL_URL" "$DEVICE_ID" "$INTERVAL" "$TOKEN" "$AGENT_VER" <<'PY'
+import json,os,sys,socket,secrets,urllib.request,urllib.error
+install_dir,collector_url,enroll_url,device_id,interval,token,agent_ver=sys.argv[1:8]
+interval=int(interval); manual=bool(token)
+report_url=collector_url.rstrip('/')+'/v1/reports'
+signing_secret=os.environ.get('AEGIS_REPORT_SIGNING_SECRET','')
+policy=None
+if manual:
+    if '<' in token and '>' in token:
+        print("  x 令牌是占位符（如 '<令牌>'）。请填真实令牌，或留空以零接触自动入网。",file=sys.stderr); sys.exit(2)
+    if not (32<=len(token)<=4096):
+        print("  x 令牌长度 %d 不在 32-4096。请填真实令牌，或留空以自动入网。"%len(token),file=sys.stderr); sys.exit(2)
+    if not signing_secret: signing_secret=secrets.token_hex(32)
+else:
+    req=urllib.request.Request(enroll_url,data=json.dumps({"hostname":socket.gethostname(),"device_id":device_id,"agent_version":agent_ver}).encode(),headers={"Content-Type":"application/json"})
+    try:
+        d=json.load(urllib.request.urlopen(req,timeout=25))
+    except urllib.error.HTTPError as e:
+        print("  x 自动入网失败 HTTP %s: %s"%(e.code,e.read().decode()[:200]),file=sys.stderr); sys.exit(3)
+    except Exception as e:
+        print("  x 自动入网失败 %s（请检查能否访问 %s）"%(type(e).__name__,enroll_url),file=sys.stderr); sys.exit(3)
+    token=d.get('report_token') or ''
+    signing_secret=d.get('signing_secret') or signing_secret or secrets.token_hex(32)
+    report_url=d.get('report_url') or report_url
+    pol=d.get('policy')
+    if isinstance(pol,dict) and pol.get('schema')=='aegis.policy/v1': policy=pol
+    if not (32<=len(token)<=4096):
+        print("  x 入网响应缺少有效 report_token（服务端未配置 AEGIS_COLLECTOR_TOKEN？）",file=sys.stderr); sys.exit(4)
+# 服务端下发的去签名已发布策略覆盖包内出厂策略（终端从而跑到当前策略而非出厂版）。
+if policy is not None:
+    p=os.path.join(install_dir,'aegis-policy.json')
+    open(p,'w').write(json.dumps(policy,ensure_ascii=False)); os.chmod(p,0o600)
+os.makedirs(install_dir,exist_ok=True)
+cfg={"collectorURL":collector_url,"reportURL":report_url,"deviceId":device_id,"token":token,"hmacSecret":signing_secret,"scanIntervalSeconds":interval,"scanRoot":None}
+open(os.path.join(install_dir,'config.json'),'w').write(json.dumps(cfg,ensure_ascii=False)); os.chmod(os.path.join(install_dir,'config.json'),0o600)
+rpt={"schema":"aegis.reporting/v1","report_url":report_url,"report_token":token,"signing_secret":signing_secret}
+open(os.path.join(install_dir,'reporting.json'),'w').write(json.dumps(rpt,ensure_ascii=False)); os.chmod(os.path.join(install_dir,'reporting.json'),0o600)
+print("  + 凭据来源: %s | 上报: %s | 策略: %s"%('手动令牌' if manual else '自动入网',report_url,(policy or {}).get('version','包内出厂')))
+PY
+then
+  echo "错误: 凭据/策略获取失败，安装中止（未注册 LaunchAgent）。" >&2; exit 1
+fi
 
 echo "═══ 3. 安装用户级 LaunchAgent ═══"
+# 令牌/签名密钥都在 reporting.json（0600），Agent 经 --report-config 读取，plist 不再内嵌令牌。
 cat > "$PLIST" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>com.aegis.agent</string>
+    <key>Label</key><string>${LABEL}</string>
     <key>ProgramArguments</key>
     <array>
         <string>${PYTHON_BIN}</string>
@@ -126,21 +146,19 @@ cat > "$PLIST" <<PLISTEOF
     <key>KeepAlive</key><true/>
     <key>StandardOutPath</key><string>${INSTALL_DIR}/agent.log</string>
     <key>StandardErrorPath</key><string>${INSTALL_DIR}/agent-error.log</string>
-    <key>EnvironmentVariables</key>
-    <dict><key>AEGIS_REPORT_TOKEN</key><string>${TOKEN}</string></dict>
 </dict>
 </plist>
 PLISTEOF
 chmod 600 "$PLIST"
-launchctl bootout "gui/$(id -u)/com.aegis.agent" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null || true
 echo "  ✓ LaunchAgent 已加载（开机自启 + 每 ${INTERVAL}s 上报）"
 
 echo "═══ 4. 立即首报并确认连通 ═══"
-AEGIS_REPORT_TOKEN="$TOKEN" "$PYTHON_BIN" "$INSTALL_DIR/aegis_agent.py" "$HOME" \
+"$PYTHON_BIN" "$INSTALL_DIR/aegis_agent.py" "$HOME" \
   --policy "$INSTALL_DIR/aegis-policy.json" \
   --report-config "$INSTALL_DIR/reporting.json" \
-  --output "$INSTALL_DIR/last-report.json" --auto-enroll 2>&1 | tail -6 || echo "  （首报返回非零，见 $INSTALL_DIR/agent-error.log）"
+  --output "$INSTALL_DIR/last-report.json" --auto-enroll 2>&1 | tail -4 || echo "  （首报返回非零，见 $INSTALL_DIR/agent-error.log）"
 echo "═══ 完成。Aegis 安全中心顶栏应很快显示该终端在线。═══"
 exit 0
 __PAYLOAD__

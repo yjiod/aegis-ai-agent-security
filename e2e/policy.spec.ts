@@ -267,3 +267,61 @@ test.describe('version posture single source of truth', () => {
   });
 });
 
+test.describe('zero-touch enrollment', () => {
+  /**
+   * /api/enroll 必须中间件豁免（终端首次入网时还没有会话），并在服务端配置了上报令牌时
+   * 自动下发：report_token + 每设备 signing_secret + report_url + 去签名的已发布策略体。
+   * 关键安全断言：下发的策略**不含 signature/signing_key_id**——绝不暴露 HMAC 签名/验签密钥
+   * （否则任何人都能伪造"已签名"策略）。未配置上报令牌时（demo 模式）诚实返回 503。
+   */
+  test('POST /api/enroll is session-exempt and issues token + unsigned policy', async ({ request, playwright }) => {
+    // 先用管理员会话发布一个策略，确保有已发布策略可下发。
+    await login(request);
+    const pub = await request.post('/api/policy/publish', { data: { note: 'e2e enroll' } });
+    expect(pub.status()).toBe(200);
+    const published = (await pub.json()) as { policy?: { version?: string } };
+
+    // 全新无会话上下文，模拟终端首次入网。
+    const ctx = await playwright.request.newContext({
+      baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000',
+    });
+    try {
+      const res = await ctx.post('/api/enroll', {
+        data: { hostname: 'e2e-enroll-host', device_id: 'e2e-enroll-dev', agent_version: '0.32.0' },
+        maxRedirects: 0,
+      });
+      // 中间件豁免：绝不能被 307 重定向到 /login。
+      expect(res.status(), '/api/enroll must be middleware-exempt (never 307)').not.toBe(307);
+      expect([200, 503], `unexpected enroll status ${res.status()}`).toContain(res.status());
+      const body = (await res.json()) as Record<string, unknown>;
+
+      if (res.status() === 503) {
+        // demo 模式：服务端未配置上报令牌，诚实拒绝而非伪造凭据。
+        expect(body.error).toBe('enrollment_not_configured');
+        return;
+      }
+
+      expect(body.schema).toBe('aegis.enrollment/v1');
+      expect(typeof body.report_token).toBe('string');
+      expect((body.report_token as string).length).toBeGreaterThanOrEqual(32);
+      expect(typeof body.signing_secret).toBe('string');
+      expect((body.signing_secret as string).length).toBeGreaterThanOrEqual(32);
+      expect(body.signing_secret).not.toBe(body.report_token);
+      expect(body.report_url).toMatch(/\/aegis\/v1\/reports$/);
+
+      const policy = body.policy as Record<string, unknown> | undefined;
+      if (policy) {
+        expect(policy.schema).toBe('aegis.policy/v1');
+        // 安全红线：下发策略去签名，绝不泄露签名/验签密钥。
+        expect(policy.signature, 'enrolled policy must NOT carry a signature').toBeUndefined();
+        expect(policy.signing_key_id, 'enrolled policy must NOT carry a key id').toBeUndefined();
+        expect(typeof policy.version).toBe('string');
+        if (published.policy?.version) expect(policy.version).toBe(published.policy.version);
+        expect(body.policy_version).toBe(policy.version);
+      }
+    } finally {
+      await ctx.dispose();
+    }
+  });
+});
+

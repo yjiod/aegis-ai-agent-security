@@ -31,6 +31,7 @@ export async function middleware(request: NextRequest) {
     pathname === '/login' ||
     pathname.startsWith('/api/auth') ||
     pathname === '/api/policy/artifact' ||
+    pathname === '/api/enroll' ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/aegis') ||
     pathname === '/favicon.svg' ||
