@@ -1,55 +1,40 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  Check, CircleDot, Cpu, Download, Lock,
-  RefreshCw, ShieldCheck, X, Zap,
-} from 'lucide-react';
+import { Check, CircleDot, Cpu, Inbox, RefreshCw, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
-/* ─── Engine Data (mirrors aegis_engine_framework.py) ───── */
+/* ─── Engine registry (static mirror of aegis_engine_framework.py) ─────
+ * 诚实原则：这是「框架支持哪些引擎」的静态注册表（设计事实），不是对终端/本机
+ * 的实时探测。因此：
+ *   - 版本只在框架硬编码声明时才写死（aegis-regex 1.0.0）；semgrep/gitleaks 由
+ *     框架在运行时 check_version() 探测，控制台无探测 API，故标「运行时探测」而非
+ *     编造精确版本号（此前写死 1.89.0 / 8.21.2 属虚构数字，已移除）。
+ *   - builtin=true 表示「框架已内置该引擎适配器」，非「已在本机安装并可用」。
+ *   - rule_update_url 取自框架声明的真实上游规则源（公开地址，非个人隐私基础设施）。
+ */
 
 interface Engine {
   name: string; version: string; vendor: string; license: string;
   mode: 'local' | 'cloud' | 'hybrid'; scopes: string[];
-  available: boolean; rule_format: string; requires_token?: boolean;
+  builtin: boolean; rule_format: string; requires_token?: boolean;
+  rule_update_url?: string;
 }
 
 const ENGINES: Engine[] = [
-  { name: 'aegis-regex', version: '1.0.0', vendor: 'Aegis', license: 'Proprietary', mode: 'local', scopes: ['skill', 'mcp', 'code', 'secrets'], available: true, rule_format: 'regex' },
-  { name: 'semgrep', version: '1.89.0', vendor: 'Semgrep Inc.', license: 'LGPL-2.1', mode: 'local', scopes: ['code', 'secrets'], available: true, rule_format: 'yaml' },
-  { name: 'gitleaks', version: '8.21.2', vendor: 'Gitleaks', license: 'MIT', mode: 'local', scopes: ['secrets'], available: true, rule_format: 'toml' },
-  { name: 'cisco-skill-scanner', version: 'pending', vendor: 'Cisco', license: 'Apache-2.0', mode: 'local', scopes: ['skill', 'mcp'], available: false, rule_format: 'json' },
-  { name: 'snyk-agent-scan', version: 'pending', vendor: 'Snyk', license: 'Commercial', mode: 'cloud', scopes: ['skill', 'mcp', 'deps'], available: false, rule_format: 'cloud-api', requires_token: true },
+  { name: 'aegis-regex', version: '1.0.0', vendor: 'Aegis', license: 'Proprietary', mode: 'local', scopes: ['skill', 'mcp', 'code', 'secrets'], builtin: true, rule_format: 'regex' },
+  { name: 'semgrep', version: '运行时探测', vendor: 'Semgrep Inc.', license: 'LGPL-2.1 / Commons Clause', mode: 'local', scopes: ['code', 'secrets'], builtin: true, rule_format: 'yaml', rule_update_url: 'semgrep.dev/c/p/default' },
+  { name: 'gitleaks', version: '运行时探测', vendor: 'Gitleaks', license: 'MIT', mode: 'local', scopes: ['secrets'], builtin: true, rule_format: 'toml', rule_update_url: 'github.com/gitleaks/gitleaks' },
+  { name: 'cisco-skill-scanner', version: '待集成', vendor: 'Cisco', license: 'Apache-2.0', mode: 'local', scopes: ['skill', 'mcp'], builtin: false, rule_format: 'json' },
+  { name: 'snyk-agent-scan', version: '待集成', vendor: 'Snyk', license: 'Commercial', mode: 'cloud', scopes: ['skill', 'mcp', 'deps'], builtin: false, rule_format: 'cloud-api', requires_token: true },
 ];
 
 const SCOPE_LABELS: Record<string, string> = {
   skill: 'Skill 扫描', mcp: 'MCP 扫描', code: '代码 SAST', secrets: '密钥检测', deps: '依赖 SCA',
 };
 
-interface PipelineStage {
-  id: string; engine: string; rule_version: string; status: 'quarantine' | 'license' | 'hash' | 'structure' | 'regression' | 'published' | 'rejected';
-  fetched_at: string; source: string;
-}
-
-const PIPELINE: PipelineStage[] = [
-  { id: 'semgrep-1789100000-a3f2', engine: 'semgrep', rule_version: 'p/default 2026-09-05', status: 'published', fetched_at: '2026-09-05 14:30', source: 'semgrep.dev/c/p/default' },
-  { id: 'gitleaks-1789090000-b7c1', engine: 'gitleaks', rule_version: 'v8.21.2 builtin', status: 'published', fetched_at: '2026-09-04 09:15', source: 'github.com/gitleaks/gitleaks' },
-  { id: 'semgrep-1789142000-c9d4', engine: 'semgrep', rule_version: 'p/ai-agent-security 2026-09-06', status: 'regression', fetched_at: '2026-09-06 11:42', source: 'semgrep.dev/c/p/ai-agent' },
-  { id: 'cisco-1789145000-e2f8', engine: 'cisco-skill-scanner', rule_version: 'skill-rules-3.2.1', status: 'quarantine', fetched_at: '2026-09-06 12:30', source: '内部规则仓库' },
-];
-
-const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof Check }> = {
-  published: { label: '已发布', color: '#49e8a5', icon: Check },
-  regression: { label: '回归测试中', color: '#64bae7', icon: RefreshCw },
-  quarantine: { label: '隔离区', color: '#e8b449', icon: Lock },
-  rejected: { label: '已拒绝', color: '#ff685f', icon: X },
-  license: { label: '许可证审查', color: '#e8b449', icon: Lock },
-  hash: { label: '哈希校验', color: '#e8b449', icon: ShieldCheck },
-  structure: { label: '结构验证', color: '#e8b449', icon: Cpu },
-};
-
+// 规则更新管道的门禁阶段——这是管道「设计流程」的说明图（概念），非实时管道活动数据。
 const GATES = ['许可证兼容', 'SHA-256 哈希', '结构验证', '回归测试'];
 
 export default function EnginesPage() {
@@ -57,20 +42,19 @@ export default function EnginesPage() {
 
   function notify(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3500); }
 
-  const availableCount = ENGINES.filter((e) => e.available).length;
+  const builtinCount = ENGINES.filter((e) => e.builtin).length;
+  const pendingCount = ENGINES.filter((e) => !e.builtin).length;
 
   return (
     <>
-      
-
       <div className="page-head animate-entrance animate-entrance-1">
         <div>
           <p className="eyebrow">安全能力 / 扫描引擎</p>
           <h1>多引擎扫描管理</h1>
-          <p>Cisco skill-scanner · Snyk agent-scan · Semgrep · Gitleaks — 各自独立规则源。</p>
+          <p>Cisco skill-scanner · Snyk agent-scan · Semgrep · Gitleaks — 各自独立规则源，不强行转换语法。</p>
         </div>
         <div className="head-actions">
-          <Button variant="outline" onClick={() => notify('提示：引擎同步 API 尚未连接。')}>
+          <Button variant="outline" onClick={() => notify('提示：引擎同步 API 尚未连接，未修改任何规则。')}>
             <RefreshCw size={16} /> 同步规则库
           </Button>
           <Button onClick={() => notify('提示：全量扫描需连接终端 Agent。')}>
@@ -81,22 +65,25 @@ export default function EnginesPage() {
 
       {toast && <div className="toast" role="status"><CircleDot size={16} />{toast}</div>}
 
-      {/* KPIs */}
+      {/* KPIs — 均由静态引擎注册表派生（设计事实），非实时探测遥测 */}
       <div className="detail-kpis animate-entrance animate-entrance-2">
-        <article><strong>{availableCount}/{ENGINES.length}</strong><span>引擎可用</span></article>
-        <article><strong>{PIPELINE.filter(p => p.status === 'published').length}</strong><span>已发布规则集</span></article>
-        <article><strong>{PIPELINE.filter(p => p.status === 'quarantine' || p.status === 'regression').length}</strong><span>管道中待审</span></article>
+        <article><strong>{ENGINES.length}</strong><span>框架支持引擎</span></article>
+        <article><strong>{builtinCount}</strong><span>已内置适配器</span></article>
+        <article><strong>{pendingCount}</strong><span>待集成</span></article>
       </div>
 
       {/* Engine Grid */}
       <div className="panel animate-entrance animate-entrance-3" style={{ marginBottom: 14 }}>
         <div className="panel-head">
-          <div><h2>已注册引擎</h2><p>每个引擎保持原生规则语法，不强行转换</p></div>
+          <div>
+            <h2>已注册引擎</h2>
+            <p>静态注册表（镜像引擎框架）· 每个引擎保持原生规则语法，不强行转换 · 非本机实时探测</p>
+          </div>
         </div>
         <div className="module-grid">
           {ENGINES.map((engine, i) => (
             <article className="module animate-entrance" key={engine.name} style={{ animationDelay: `${i * 60 + 200}ms`, gridTemplateColumns: '38px 1fr auto' }}>
-              <span className={`module-icon ${engine.available ? 'green' : 'blue'}`}>
+              <span className={`module-icon ${engine.builtin ? 'green' : 'blue'}`}>
                 <Cpu size={19} />
               </span>
               <div>
@@ -108,24 +95,37 @@ export default function EnginesPage() {
                       {SCOPE_LABELS[s] ?? s}
                     </span>
                   ))}
+                  {engine.rule_update_url ? (
+                    <span style={{ fontSize: 9, padding: '2px 5px', borderRadius: 4, background: '#12262a', color: '#7fb8c9' }}>
+                      规则源: {engine.rule_update_url}
+                    </span>
+                  ) : null}
                 </div>
               </div>
-              <span className={`status ${engine.available ? 'green' : 'blue'}`}>
-                {engine.available ? <><Check size={13} /> v{engine.version}</> : <>{engine.requires_token ? '需 Token' : '待集成'}</>}
+              <span className={`status ${engine.builtin ? 'green' : 'blue'}`}>
+                {engine.builtin
+                  ? <><Check size={13} /> {engine.version.startsWith('v') || /^\d/.test(engine.version) ? `v${engine.version}` : engine.version}</>
+                  : <>{engine.requires_token ? '需 Token' : '待集成'}</>}
               </span>
             </article>
           ))}
         </div>
       </div>
 
-      {/* Rule Update Pipeline */}
+      {/* Rule Update Pipeline — 概念流程说明 + 诚实的遥测未接入空态 */}
       <div className="panel animate-entrance animate-entrance-4">
         <div className="panel-head">
-          <div><h2>规则更新管道</h2><p>隔离区 → 许可证 → 哈希 → 结构 → 回归 → 发布</p></div>
-          <Badge variant="outline"><Download size={13} /> 自动同步</Badge>
+          <div>
+            <h2>规则更新管道</h2>
+            <p>RuleUpdatePipeline 的门禁流程（设计说明）：隔离区 → 许可证 → 哈希 → 结构 → 回归 → 发布</p>
+          </div>
+          <Badge variant="outline">
+            <span className="demo-dot" />
+            遥测未接入
+          </Badge>
         </div>
 
-        {/* Gate visualization */}
+        {/* Gate visualization — conceptual pipeline design, not live data */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
           {GATES.map((gate, i) => (
             <div key={gate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -141,25 +141,15 @@ export default function EnginesPage() {
           </span>
         </div>
 
-        {/* Pipeline entries */}
-        <div className="data-table">
-          <div className="data-head" style={{ gridTemplateColumns: '1.2fr 1fr 0.8fr 0.8fr' }}>
-            <span>规则集</span><span>来源</span><span>状态</span><span>时间</span>
-          </div>
-          {PIPELINE.map((entry, i) => {
-            const cfg = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.quarantine;
-            const Icon = cfg.icon;
-            return (
-              <div className="data-row animate-row-entrance" key={entry.id} style={{ gridTemplateColumns: '1.2fr 1fr 0.8fr 0.8fr', animationDelay: `${i * 30 + 300}ms` }}>
-                <strong>{entry.engine} / {entry.rule_version}</strong>
-                <span style={{ fontSize: 11 }}>{entry.source}</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: cfg.color }}>
-                  <Icon size={12} /> {cfg.label}
-                </span>
-                <span style={{ fontSize: 10, color: '#5e7c73' }}>{entry.fetched_at}</span>
-              </div>
-            );
-          })}
+        {/* Honest empty state — no fabricated pipeline activity (red line: 绝不伪造数据) */}
+        <div className="empty-detail" style={{ minHeight: 140 }}>
+          <Inbox size={32} />
+          <h2>管道遥测未接入</h2>
+          <p>
+            规则更新管道在引擎框架（RuleUpdatePipeline）内运行，但尚未接入后端遥测 API。
+            <br />
+            此处不展示任何虚构的管道活动样例；接入真实 /api/engines 遥测后，会呈现真实的隔离→发布流水与规则集版本。
+          </p>
         </div>
       </div>
     </>
