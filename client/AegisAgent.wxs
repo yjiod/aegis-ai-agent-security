@@ -7,7 +7,7 @@
   安装包不含任何凭据：令牌在装机时由 Install-Aegis-Windows.ps1 经 /api/enroll 零接触获取。
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="Aegis AI Agent Security" Language="2052" Version="0.32.0" Manufacturer="Aegis" UpgradeCode="3CD9719D-F9BC-4163-ABA5-1009CC4250F6">
+  <Product Id="*" Name="Aegis AI Agent Security" Language="2052" Version="0.33.0" Manufacturer="Aegis" UpgradeCode="3CD9719D-F9BC-4163-ABA5-1009CC4250F6">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 Aegis Agent。" />
     <Media Id="1" Cabinet="aegis.cab" EmbedCab="yes" />

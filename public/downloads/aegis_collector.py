@@ -163,6 +163,13 @@ def audit_max_events(value=None):
 def required_version(name,default,env=None):
     env=os.environ if env is None else env; value=env.get(name,default)
     return value if isinstance(value,str) and 1<=len(value)<=64 else default
+def semver_gte(a,b):
+    """semver 比较 a>=b：高于 required 属正常升级(非漂移)，仅低于才算 mismatch。"""
+    pa=[int(x) if x.isdigit() else 0 for x in str(a).split(".")[:3]]; pb=[int(x) if x.isdigit() else 0 for x in str(b).split(".")[:3]]
+    pa+=( [0]*(3-len(pa)) ); pb+=( [0]*(3-len(pb)) )
+    for x,y in zip(pa,pb):
+        if x!=y: return x>y
+    return True
 class RateLimiter:
     """Bounded per-source sliding-window limiter for defense in depth."""
     def __init__(self,limit=None,window=60,max_sources=10000,clock=None):
@@ -209,14 +216,14 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
     with db_open(db_path) as db:
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
-    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("AEGIS_REQUIRED_AGENT_VERSION","0.32.0"); required_policy=required_policy or required_version("AEGIS_REQUIRED_POLICY_VERSION","4.8.0")
+    versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("AEGIS_REQUIRED_AGENT_VERSION","0.33.0"); required_policy=required_policy or required_version("AEGIS_REQUIRED_POLICY_VERSION","4.8.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
     for _,severity,agent,policy,generation in rows:
         by_severity[severity if severity in by_severity else "normal"]+=1
         if not agent or not policy: versions["unknown"]+=1
-        elif agent!=required_agent and policy!=required_policy: versions["both_mismatch"]+=1
-        elif agent!=required_agent: versions["agent_mismatch"]+=1
-        elif policy!=required_policy: versions["policy_mismatch"]+=1
+        elif not semver_gte(agent,required_agent) and not semver_gte(policy,required_policy): versions["both_mismatch"]+=1
+        elif not semver_gte(agent,required_agent): versions["agent_mismatch"]+=1
+        elif not semver_gte(policy,required_policy): versions["policy_mismatch"]+=1
         else: versions["current"]+=1
         credential_posture["legacy" if generation is None else "current" if generation==0 else "previous"]+=1
     active=sum(received>=now-active_window for received,_,_,_,_ in rows)

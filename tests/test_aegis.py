@@ -636,8 +636,8 @@ class AegisTests(unittest.TestCase):
         for name in ('aegis_agent.py','aegis-windows.ps1','aegis-policy.json','aegis-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-aegis-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-aegis-macos.sh').exists())
-        self.assertIn("agent_version='0.32.0'",(DOWNLOADS/'aegis-windows.ps1').read_text())
-        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],'AegisAgent/0.32.0')
+        self.assertIn(f"agent_version='{self.agent.AGENT_VERSION}'",(DOWNLOADS/'aegis-windows.ps1').read_text())
+        self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],f'AegisAgent/{self.agent.AGENT_VERSION}')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); install=root/'install'; source=DOWNLOADS.resolve(); env={**os.environ,'AEGIS_INSTALL_DIR':str(install),'AEGIS_BASE_URL':source.as_uri()}
