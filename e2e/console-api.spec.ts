@@ -296,4 +296,43 @@ test.describe('auth 4A contract', () => {
     expect(actions.some((a) => a === `${USER}|auth:login`), 'auth:login must be audited').toBe(true);
     expect(actions.some((a) => a === `${USER}|auth:logout`), 'auth:logout must be audited').toBe(true);
   });
+
+  /**
+   * 凭据生命周期（4A）：改密必须真实生效或如实报"存储不可用"，绝不假成功。
+   * - 有 PG：改密 200 → 新密码可登录、旧密码 401 → 改回原密码恢复（避免污染后续用例）。
+   * - 无 PG：如实 503 credential_store_unavailable，且原密码仍可登录（env 回落不变）。
+   */
+  test('change-password persists (or honestly reports store unavailable) and never fakes success', async ({
+    request,
+  }) => {
+    const TEMP = 'Temp-E2e-Cred-9999';
+    await login(request);
+
+    const change = await request.post('/api/auth/change-password', {
+      data: { current_password: PASS, new_password: TEMP },
+    });
+
+    if (change.status() === 200) {
+      // persisted: new password works, old rejected
+      const withNew = await request.post('/api/auth/login', { data: { username: USER, password: TEMP } });
+      expect(withNew.status(), 'new password must log in after persisted change').toBe(200);
+      const withOld = await request.post('/api/auth/login', { data: { username: USER, password: PASS } });
+      expect(withOld.status(), 'old password must be rejected after persisted change').toBe(401);
+
+      // change back to the env password so later suites/runs are unaffected
+      const revert = await request.post('/api/auth/change-password', {
+        data: { current_password: TEMP, new_password: PASS },
+      });
+      expect(revert.status(), 'revert must persist').toBe(200);
+      const withOrig = await request.post('/api/auth/login', { data: { username: USER, password: PASS } });
+      expect(withOrig.status(), 'original password must work after revert').toBe(200);
+    } else {
+      // no PG: honest failure, credentials untouched
+      expect(change.status()).toBe(503);
+      const cb = (await change.json()) as { error?: string };
+      expect(cb.error).toBe('credential_store_unavailable');
+      const stillOk = await request.post('/api/auth/login', { data: { username: USER, password: PASS } });
+      expect(stillOk.status(), 'env password must still work when store unavailable').toBe(200);
+    }
+  });
 });

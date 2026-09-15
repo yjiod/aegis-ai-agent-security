@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { logAudit } from '@/lib/store';
+import { loadPasswordHash, verifyPassword } from '@/lib/credentials';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,16 +104,26 @@ export async function POST(request: Request) {
 
   const expectedUser = process.env.AEGIS_CONSOLE_USER ?? 'admin';
   const expectedPass = process.env.AEGIS_CONSOLE_PASSWORD ?? '';
+  // 4A 凭据生命周期：优先校验持久化哈希（改密后生效）；无哈希（未改过密或 PG
+  // 不可用）回落 env。fail-safe：PG 不可用不锁死既有登录。
+  const persistedHash = await loadPasswordHash(expectedUser);
 
-  if (!expectedPass) {
+  if (!persistedHash && !expectedPass) {
     return json({ error: 'auth_not_configured', hint: 'Set AEGIS_CONSOLE_PASSWORD on the server' }, 503);
   }
 
   // Constant-time comparison
   const userOk = username.length === expectedUser.length &&
     username.split('').reduce((acc, c, i) => acc | (c.charCodeAt(0) ^ expectedUser.charCodeAt(i)), 0) === 0;
-  const passOk = password.length === expectedPass.length &&
-    password.split('').reduce((acc, c, i) => acc | (c.charCodeAt(0) ^ expectedPass.charCodeAt(i)), 0) === 0;
+  let passOk = false;
+  if (userOk) {
+    if (persistedHash) {
+      passOk = await verifyPassword(password, persistedHash);
+    } else {
+      passOk = password.length === expectedPass.length &&
+        password.split('').reduce((acc, c, i) => acc | (c.charCodeAt(0) ^ expectedPass.charCodeAt(i)), 0) === 0;
+    }
+  }
 
   if (!userOk || !passOk) {
     recordFailure(lockKey);
