@@ -58,10 +58,12 @@ sudo installer -pkg aegis-agent-macos.pkg -target /
 # macOS —— 自包含 .run（用户级，无需 sudo；内嵌运行时，离线可装）
 AEGIS_SERVER_URL=https://你的控制台 sh aegis-agent-macos-standalone.run
 
-# Windows —— 入网脚本（管理员 PowerShell；DPAPI 受保护配置 + SYSTEM 计划任务）
-.\aegis-agent-windows-enroll.ps1 -Server https://你的控制台
+# Windows —— 原生 .msi（双击或 msiexec 安装 → 注册 SCM 服务 AegisAgent，安装时零接触入网）
+#   从控制台 /downloads/aegis-agent-windows.msi 获取（已烘焙你的服务器地址；wixl 交叉构建、自包含 .NET 服务壳）
+msiexec /i aegis-agent-windows.msi
 
-# Windows —— 原生 .exe（NSIS，构建脚本就绪：scripts/build-windows-exe.sh）
+# Windows —— 或免安装器的入网脚本（管理员 PowerShell；DPAPI 受保护配置 + SYSTEM 计划任务）
+.\aegis-agent-windows-enroll.ps1 -Server https://你的控制台
 ```
 
 企业规模化下发亦可走 MDM / EDR（`mdm-*` 脚本）或离线企业包 `aegis-enterprise-bundle.zip`。详见[企业部署指南](public/downloads/DEPLOYMENT-GUIDE.md)。
@@ -101,11 +103,12 @@ Collector（受认证报告汇聚，/v1/*，SQLite，速率限制 + 审计）
 
 ## 目录
 
-- `public/downloads/`：终端 Agent、策略与基线、安装器（macOS `.pkg`/`.run`、Windows `.ps1`/`.exe`）、MDM 脚本、配置/回滚/卸载、报告 Schema、Collector、厂商适配器、离线企业包。
+- `public/downloads/`：终端 Agent、策略与基线、安装器（macOS `.pkg`/`.run`、Windows `.ps1`；Windows `.msi` 因体积经 nginx 静态直供）、MDM 脚本、配置/回滚/卸载、报告 Schema、Collector、厂商适配器、离线企业包。
 - `app/`：私有治理控制台、只读 Collector 摘要代理、零接触入网端点（`/api/enroll`）、签名策略工件（`/api/policy/artifact`）。
 - `lib/`：策略编译与签名、存储与持久化、鉴权与 RBAC。
 - `components/`：控制台 UI 组件。
-- `scripts/`：部署、令牌轮转、原生包构建、e2e 运行器。
+- `client/`：原生安装器构建——.NET 服务壳 `host/`（Windows SCM）、`AegisAgent.wxs`（wixl MSI）、`Install-Aegis-Windows.ps1`、`build-windows-msi.sh`。
+- `scripts/`：部署、令牌轮转、macOS 原生包构建（`.run`/`.pkg`）、e2e 运行器。
 - `migrations/`：PostgreSQL 迁移。
 - `tests/`：Python 标准库测试；`e2e/`：Playwright 端到端。
 - `docs/`：架构、开发、发布、术语与专项分析文档。
