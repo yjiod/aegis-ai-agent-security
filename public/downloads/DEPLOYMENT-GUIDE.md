@@ -174,3 +174,13 @@ Agent 0.31.0 收口逐设备入网的终端侧：Agent 现在按优先级解析�
 0.62.0 / Collector 0.14 为 `/v1/devices` 增加 `generated_at`，逐设备 `last_seen` 在启用身份绑定后使用最近一次成功认证时间，因此相同报告重放也可证明新凭据已生效。裁剪工具只接受生成时间不超过 15 分钟、未来偏差不超过 60 秒的证据，并要求每台目标设备在证据生成前 24 小时内以 current 凭据成功认证。过期导出、长期离线终端或时间不一致均不能作为删除旧代的依据。
 
 0.63.0 / Collector 0.15 为 `/v1/devices` 增加 `limit` 查询参数（1–10000，默认 500）及 `complete` 标志，并用单次聚合查询替代逐设备计数。全 fleet 裁剪前应请求 `/v1/devices?limit=10000`；只有结果未被截断时 `complete` 才为 true。凭据工具要求证据包含精确的 `complete:true`，因此默认 500 条导出、超出 10000 台的 fleet 或任何截断结果都不能被误当成全量激活证明。
+
+## 4A 身份与会话运营手册（0.72.x）
+
+控制台侧身份/会话/审计能力（服务端强制；UI 在「团队与权限」「审计日志」）：
+
+- **角色（capability RBAC）**：服务端按 subject 推导，序 admin > operator > auditor > viewer，不信任 cookie。admin 全权（`AEGIS_ADMIN_USERS`+持久化）；operator（运维）仅 device:write+非审计只读（`AEGIS_OPERATOR_USERS` ∪ 持久化，团队页可加/移除，存 PG `settings.allowlist:operators`，未配置即无该档 fail-closed）；auditor 只读+审计查阅/导出；viewer 其余只读。
+- **MFA(TOTP)**：团队页「我的两步验证」自助启用（enroll→展示 base32+otpauth URI→输码确认→启用）；启用后该账号登录为密码+6 位码两步，默认关闭不影响存量账号；密钥存 PG `mfa:<subject>`。无人值守/脚本场景勿对生产运维账号启用，避免锁死。
+- **会话吊销**：团队页每行「吊销会话」或 `POST /api/auth/revoke {subject}`（仅 admin）；改密、移除白名单亦自动吊销该 subject 既有会话；经 `session_invalid_before:<subject>` 生效（≤30s 缓存窗口）。
+- **审计导出**：审计日志页「导出 CSV / 导出 JSON」=`GET /api/audit?format=csv|json`（全量、合并 Collector+控制台两源、附件下载）；导出自身留审计 `audit:export`；仅 admin/auditor。
+- **隐私门禁**：CI 跑 `scripts/privacy-scan.sh`，跟踪内容命中厂商名/真实主机/真实域名/工号/RFC1918/硬编码长密钥即失败；真实值一律经环境变量注入，仓库只留占位。
