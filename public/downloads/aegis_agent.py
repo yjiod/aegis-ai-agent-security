@@ -627,7 +627,8 @@ def sync_enterprise_baseline(base_url,token,device_id,department):
         ENTERPRISE_BASELINE_VERSION=""; return ""
     url=base_url.rstrip("/")+"/v1/enterprise-baseline?device_id="+urllib.parse.quote(device_id)+"&department="+urllib.parse.quote(department or "")
     try:
-        req=urllib.request.Request(url,headers={"Authorization":"Bearer "+token})
+        # Collector 的每设备令牌鉴权依赖 X-Aegis-Device-ID 头绑定 device_id。
+        req=urllib.request.Request(url,headers={"Authorization":"Bearer "+token,"X-Aegis-Device-ID":device_id})
         with urllib.request.urlopen(req,timeout=20) as r:
             d=json.loads(r.read().decode("utf-8"))
         content=d.get("content"); version=str(d.get("version") or "")
