@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import { getSession } from '@/lib/auth';
-import { ensurePolicyReleasesLoaded, currentPolicyRelease, buildPolicyArtifact } from '@/lib/policy';
+import {
+  ensurePolicyReleasesLoaded,
+  currentPolicyRelease,
+  buildPolicyArtifact,
+  ed25519PolicyFields,
+  canonicalJson,
+} from '@/lib/policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,7 +38,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'not_published' }, { status: 404, headers: { 'Cache-Control': 'no-store' } });
   }
 
-  const { canonical, sha256, version } = buildPolicyArtifact(rel.policy, rel.signature, rel.signing_key_id);
+  const built = buildPolicyArtifact(rel.policy, rel.signature, rel.signing_key_id);
+  // 批3 dual-sign：在 HMAC 工件之上附加 Ed25519 签名（覆盖不含 ed 字段的 canonical）。
+  // 终端验 HMAC 时剔除 signature/signing_key_id/ed25519_* 后规范化，两签名互不干扰。
+  const ed = await ed25519PolicyFields(built.canonical);
+  let canonical = built.canonical;
+  let sha256 = built.sha256;
+  if (ed) {
+    const finalArtifact = { ...built.artifact, ...ed };
+    canonical = canonicalJson(finalArtifact);
+    sha256 = createHash('sha256').update(canonical).digest('hex');
+  }
   // 直接把规范化字节作为响应体，使其与 sha256 逐字节一致；MDM 可原样落盘为 aegis-policy.json。
   return new NextResponse(canonical, {
     status: 200,
@@ -39,7 +56,7 @@ export async function GET(request: Request) {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
       'X-Aegis-Policy-Sha256': sha256,
-      'X-Aegis-Policy-Version': version,
+      'X-Aegis-Policy-Version': built.version,
       'X-Aegis-Policy-Key-Id': rel.signing_key_id,
     },
   });

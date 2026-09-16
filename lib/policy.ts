@@ -16,6 +16,13 @@
 import { createHmac, createHash, randomUUID } from 'node:crypto';
 import { listLabels, type AssetLabel } from './labels';
 import {
+  ed25519Supported,
+  ed25519PublicKey,
+  ed25519Sign,
+  bytesToB64,
+  b64ToBytes,
+} from './ed25519-runtime';
+import {
   pgEnabled,
   pgLoadPolicyReleases,
   pgInsertPolicyRelease,
@@ -318,6 +325,46 @@ export function buildPolicyArtifact(body: PolicyBody, signature: string, signing
     sha256: createHash('sha256').update(canonical).digest('hex'),
     version: body.version,
   };
+}
+
+/* ── 批3 dual-sign：Ed25519 附加签名（默认关闭，配置 seed 才启用）──────────
+ * AEGIS_POLICY_ED25519_SEED = base64(32B seed)。启用后发布件在 HMAC 签名之外附加
+ * ed25519_signature / ed25519_public / ed25519_key_id，签名覆盖「不含 ed25519 字段」
+ * 的 canonical 串（即 HMAC 工件的逐字节内容），终端/任何持有公钥者可独立验签。
+ * 运行时不支持 Ed25519 或 seed 未配置 → 返回 null（优雅回落 HMAC-only，可回滚）。
+ */
+export interface Ed25519PolicyFields {
+  ed25519_signature: string;
+  ed25519_public: string;
+  ed25519_key_id: string;
+}
+function ed25519Seed(): Uint8Array | null {
+  const b64 = process.env.AEGIS_POLICY_ED25519_SEED;
+  if (!b64) return null;
+  const seed = b64ToBytes(b64);
+  return seed && seed.length === 32 ? seed : null;
+}
+export async function ed25519PolicyFields(canonicalWithoutEd: string): Promise<Ed25519PolicyFields | null> {
+  const seed = ed25519Seed();
+  if (!seed) return null;
+  if (!(await ed25519Supported())) return null;
+  const pub = await ed25519PublicKey(seed);
+  const sig = await ed25519Sign(seed, new TextEncoder().encode(canonicalWithoutEd));
+  if (!pub || !sig) return null;
+  return {
+    ed25519_signature: bytesToB64(sig),
+    ed25519_public: bytesToB64(pub),
+    ed25519_key_id: createHash('sha256').update(pub).digest('hex').slice(0, 12),
+  };
+}
+/** 公开验签钥信息（公钥非秘密，可未认证分发）；未配置返回 null。 */
+export async function ed25519VerifyKeyInfo(): Promise<{ algorithm: 'ed25519'; public: string; key_id: string } | null> {
+  const seed = ed25519Seed();
+  if (!seed) return null;
+  if (!(await ed25519Supported())) return null;
+  const pub = await ed25519PublicKey(seed);
+  if (!pub) return null;
+  return { algorithm: 'ed25519', public: bytesToB64(pub), key_id: createHash('sha256').update(pub).digest('hex').slice(0, 12) };
 }
 
 /* ─── 发布件存储（内存 + PG 写穿透，遵循 workerd 请求期懒加载约束） ─────── */

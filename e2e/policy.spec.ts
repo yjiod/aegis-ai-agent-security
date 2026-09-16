@@ -205,6 +205,37 @@ test.describe('policy artifact (endpoint-loadable)', () => {
     const pj = (await posture.json()) as { current_version?: string };
     expect(pj.current_version).toBe(art.version);
   });
+
+  /**
+   * 批3 dual-sign：配置 AEGIS_POLICY_ED25519_SEED 后，发布件在 HMAC 之外附加
+   * Ed25519 签名/公钥/密钥id；/api/policy/verify-key 公开同一公钥（公钥非秘密）。
+   * Ed25519 签名覆盖"不含 ed 字段"的 canonical，与 HMAC 工件互不干扰。
+   */
+  test('dual-sign: artifact carries ed25519 fields matching the public verify-key', async ({
+    request,
+  }) => {
+    await login(request);
+    const pub = await request.post('/api/policy/publish', { data: {} });
+    expect(pub.status()).toBe(200);
+
+    const vk = await request.get('/api/policy/verify-key');
+    if (vk.status() === 404) return; // 运行时/环境未启用 Ed25519：dual-sign 优雅关闭
+    expect(vk.status()).toBe(200);
+    const vkj = (await vk.json()) as { algorithm?: string; public?: string; key_id?: string };
+    expect(vkj.algorithm).toBe('ed25519');
+    expect(typeof vkj.public).toBe('string');
+    expect(typeof vkj.key_id).toBe('string');
+
+    const res = await request.get('/api/policy/artifact');
+    expect(res.status()).toBe(200);
+    const art = (await res.json()) as Record<string, unknown>;
+    expect(art.ed25519_public).toBe(vkj.public);
+    expect(art.ed25519_key_id).toBe(vkj.key_id);
+    expect(typeof art.ed25519_signature).toBe('string');
+    expect((art.ed25519_signature as string).length).toBeGreaterThan(0);
+    // HMAC 签名仍在（双签而非替换）。
+    expect(art.signature).toMatch(/^[0-9a-f]{64}$/);
+  });
 });
 
 test.describe('version posture single source of truth', () => {

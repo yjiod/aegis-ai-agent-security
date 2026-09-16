@@ -50,7 +50,9 @@ def verify_policy_signature(data,key_or_ring=None):
     elif isinstance(key_or_ring,dict): ring={k:v for k,v in key_or_ring.items() if isinstance(v,str) and v}
     else: ring=policy_verify_keyring()
     if not ring: return False
-    body={k:v for k,v in data.items() if k not in ("signature","signing_key_id")}
+    # 批3 dual-sign：剔除 HMAC 签名/密钥id 以及 Ed25519 附加字段后再规范化，
+    # 使双签工件的 HMAC 验签与仅-HMAC 工件一致（Ed25519 独立验签为后续能力）。
+    body={k:v for k,v in data.items() if k not in ("signature","signing_key_id","ed25519_signature","ed25519_public","ed25519_key_id")}
     canon=canonical_json(body).encode("utf-8")
     kid=data.get("signing_key_id")
     order=[]

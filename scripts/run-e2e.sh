@@ -37,6 +37,8 @@ export AEGIS_SESSION_SECRET="${AEGIS_SESSION_SECRET:-e2e-secret-0123456789}"
 export AEGIS_ADMIN_USERS="${AEGIS_ADMIN_USERS:-e2eadmin}"
 export AEGIS_AUDITOR_USERS="${AEGIS_AUDITOR_USERS:-e2eauditor}"
 export AEGIS_OPERATOR_USERS="${AEGIS_OPERATOR_USERS:-e2eoperator}"
+# 批3 dual-sign：e2e 启用 Ed25519 附加签名（测试 seed，非生产密钥）。
+export AEGIS_POLICY_ED25519_SEED="${AEGIS_POLICY_ED25519_SEED:-nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A=}"
 export AEGIS_POLICY_SIGNING_KEYS="${AEGIS_POLICY_SIGNING_KEYS:-{\"k1\":\"e2e-signing-key-1-0123456789abcdef\",\"k2\":\"e2e-signing-key-2-0123456789abcdef\"}}"
 export AEGIS_POLICY_ACTIVE_KEY_ID="${AEGIS_POLICY_ACTIVE_KEY_ID:-k1}"
 # vinext/Vite 默认把 localhost 解析到 IPv6 ::1，探针走 IPv4 127.0.0.1 会连不上。
