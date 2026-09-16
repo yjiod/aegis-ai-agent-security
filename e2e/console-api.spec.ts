@@ -536,6 +536,29 @@ test.describe('devices connectivity vs attention', () => {
 });
 
 /**
+ * 默认自带白名单：seed-defaults 把 Agent 默认自带 skill/MCP 录入 allow；
+ * 已有人工处置的条目不覆盖；录入后 labels 含 default-bundled 标签。
+ */
+test.describe('default-bundled allowlist seed', () => {
+  test('seed-defaults inserts allow entries and preserves manual dispositions', async ({
+    request,
+  }) => {
+    await login(request);
+    const seed = await request.post('/api/labels/seed-defaults');
+    expect(seed.status()).toBe(200);
+    const sj = (await seed.json()) as { seeded?: number; skipped?: number };
+    expect(typeof sj.seeded).toBe('number');
+
+    const labels = await request.get('/api/labels');
+    expect(labels.status()).toBe(200);
+    const lj = (await labels.json()) as { labels?: Array<{ asset_key?: string; disposition?: string; tags?: string[] }> };
+    const seeded = (lj.labels ?? []).filter((l) => (l.tags ?? []).includes('default-bundled'));
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const l of seeded) expect(l.disposition).toBe('allow');
+  });
+});
+
+/**
  * capability RBAC 持久化：developer 档仅可读本人设备（owner/os_user == subject）。
  * 添加 developer → 其看到的设备仅限本人名下（伪造工号名下无设备 → 0 台）→ 移除后回落 viewer。
  */

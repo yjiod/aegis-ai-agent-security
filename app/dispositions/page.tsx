@@ -72,6 +72,7 @@ export default function DispositionsPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [error, setError] = useState('');
+  const [seedMsg, setSeedMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<PolicyPreview | null>(null);
   const [current, setCurrent] = useState<CurrentRelease | null>(null);
@@ -175,6 +176,20 @@ export default function DispositionsPage() {
     }
   }
 
+  async function seedDefaults() {
+    setBusy(true);
+    setError('');
+    try {
+      const r = await fetch('/api/labels/seed-defaults', { method: 'POST' });
+      const d = (await r.json().catch(() => ({}))) as { seeded?: number; skipped?: number; error?: string };
+      if (r.ok) setSeedMsg(`已录入默认自带白名单：新增 ${d.seeded ?? 0}，保留人工处置 ${d.skipped ?? 0}`);
+      else setError(d.error ?? `录入失败 ${r.status}`);
+      await load();
+    } catch {
+      setError('录入失败：网络错误');
+    }
+    setBusy(false);
+  }
   async function importFromPolicy() {
     setBusy(true);
     setError('');
@@ -234,6 +249,12 @@ export default function DispositionsPage() {
         </div>
         <div className="head-actions">
           {isAdmin && (
+            <Button variant="outline" onClick={() => void seedDefaults()} disabled={busy}>
+              <ShieldCheck size={15} />
+              录入默认自带白名单
+            </Button>
+          )}
+          {isAdmin && (
             <Button variant="outline" onClick={() => void importFromPolicy()} disabled={busy}>
               <Download size={15} />
               导入策略已知 Skill
@@ -241,6 +262,8 @@ export default function DispositionsPage() {
           )}
         </div>
       </div>
+
+      {seedMsg && <p style={{ fontSize: 12, color: 'var(--primary)', margin: '0 0 10px' }}>{seedMsg}</p>}
 
       <RiskSignalHelp />
 
