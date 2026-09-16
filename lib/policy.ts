@@ -92,14 +92,16 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
   },
 };
 
-/** 出厂默认已加白清单（叠加处置 allow 之前的基线）。 */
-export const BASE_ALLOWED_SKILLS = [
-  'claude-dev-suite-java-quality', 'dingtalk-aisearch', 'fwrite0920-project-bootstrapping',
-  'godot-headless-game-pipeline', 'handwritten-form-to-excel', 'l-mb-py-modernize',
-  'majesticlabs-dev-python-debugger', 'majiayu000-deeplearningcoder', 'majiayu000-fix-markdown-lint',
-  'majiayu000-frontend-code-quality', 'michaelboeding-feature-council', 'mini-program-dev',
-];
-export const BASE_ALLOWED_MCP_SERVERS = ['github', 'filesystem', 'postgres'];
+/** 出厂默认已加白清单（叠加处置 allow 之前的基线）。
+ *
+ * 用户口径（2026-09）：加白以**数据库**(asset_labels, disposition=allow)为唯一来源，
+ * 不在代码里硬编码白名单。原生核心由 lib/default-allowlist 经「录入默认自带白名单」
+ * 写入 DB；连接器/专家套件/技能库/社区商店/自建项一律待管理员手工决策。
+ * 故此处置空——历史上这里硬编码过一批社区/自建 skill 与用户自配 MCP，绕过了 DB
+ * 处置，导致"已按新口径清理 DB 但策略仍放行"的不一致。保留空数组以维持类型与合并逻辑。
+ */
+export const BASE_ALLOWED_SKILLS: string[] = [];
+export const BASE_ALLOWED_MCP_SERVERS: string[] = [];
 
 /** 当前扫描模式由 lib/baselines.getScanMode 提供；此处仅声明默认。 */
 export const DEFAULT_SCAN_MODE = 'standard';
