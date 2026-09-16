@@ -922,4 +922,33 @@ class AegisTests(unittest.TestCase):
         data['version']='4.99.0'; del data['ed25519_signature']
         self.assertIsNone(self.agent.verify_policy_ed25519(data))
 
+    def test_verify_policy_ed25519_nested_body_vector(self):
+        # 生产形态样本：嵌套对象/数组/中文，签名由 openssl ed25519 对 Python canonical_json
+        # 逐字节生成（openssl 与 TS WebCrypto/node:crypto 同为 RFC8032 原生实现）。
+        # 该向量把 canonical_json 在复杂策略体上的正确性纳入 Ed25519 独立验签门禁。
+        import json as _json
+        body={
+            "schema":"aegis.policy/v1","version":"4.12.0","scan_mode":"monitor",
+            "allowed_skills":["pdf","docx","xlsx","钉钉-共享","media-generation"],
+            "allowed_mcp_servers":["qw-builtin","钉钉-文档"],
+            "blocked_commands":["rm -rf /","mkfs","dd if=/dev/zero"],
+            "risk_thresholds":{"high":4,"medium":2,"low":0},
+            "skill_category_rules":[{"id":"exec","weight":2,"note":"命令执行类"},{"id":"cred","weight":2}],
+            "notes":"终端策略：默认自带放行，额外加载进审查。",
+            "signature":"b"*64,"signing_key_id":"testkey01",
+        }
+        data=_json.loads(_json.dumps(body))
+        data['ed25519_public']='AZpBB2rgNSIy8OcGPDbtHpXwUC+GxcZq1s0zr+4O6gc='
+        data['ed25519_signature']='HoJq6S+6P0bA/eYwlcv8U79ZtgBvZzbYDbwkbJBU8rfAczZIp6V1wtiNnOpNuq2BTieafuiAsJuhsLUaBAN+BQ=='
+        data['ed25519_key_id']='testkey01'
+        self.assertIs(self.agent.verify_policy_ed25519(data), True)
+        # 篡改任一 body 字段（scan_mode）→ 覆盖的 canonical 变化 → 验签必须失败。
+        data['scan_mode']='enforce'
+        self.assertIs(self.agent.verify_policy_ed25519(data), False)
+        # 篡改签名本身 → 失败；剔除签名字段 → None（回落 HMAC）。
+        data['scan_mode']='monitor'; data['ed25519_signature']='A'+data['ed25519_signature'][1:]
+        self.assertIs(self.agent.verify_policy_ed25519(data), False)
+        del data['ed25519_signature']
+        self.assertIsNone(self.agent.verify_policy_ed25519(data))
+
 if __name__=='__main__': unittest.main()
