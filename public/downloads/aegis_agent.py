@@ -574,6 +574,38 @@ def write_upload_status(path,url,now=None):
     if not host: raise ValueError("invalid_upload_status_host")
     value={"schema":"aegis.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
+def hardware_serial():
+    """稳定硬件标识（不随 hostname/升级变化）：mac=IOPlatformSerialNumber，
+    linux=/etc/machine-id，win=HKLM MachineGuid。失败返回空串（调用方回落）。"""
+    import platform
+    try:
+        sysname=platform.system()
+        if sysname=="Darwin":
+            out=subprocess.run(["ioreg","-c","IOPlatformExpert"],capture_output=True,text=True,timeout=10).stdout
+            m=re.search(r'IOPlatformSerialNumber"\s*=\s*"([^"]+)"',out)
+            if m: return m.group(1).strip()
+            # 较新 macOS 的 ioreg 出于隐私不暴露序列号 → 用 system_profiler 兜底。
+            sp=subprocess.run(["system_profiler","SPHardwareDataType"],capture_output=True,text=True,timeout=30).stdout
+            m=re.search(r'Serial Number \(system\):\s*([A-Za-z0-9]+)',sp)
+            if m: return m.group(1).strip()
+        elif sysname=="Linux":
+            for p in ("/etc/machine-id","/var/lib/dbus/machine-id"):
+                if os.path.exists(p):
+                    v=open(p).read().strip()
+                    if v: return v
+        elif sysname=="Windows":
+            out=subprocess.run(["powershell","-NoProfile","-Command","(Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Cryptography).MachineGuid"],capture_output=True,text=True,timeout=15).stdout
+            v=out.strip()
+            if v: return v
+    except Exception:
+        return ""
+    return ""
+def hardware_device_id():
+    """设备唯一 ID = sha256("aegis-hw:"+硬件序列)[:12]；无硬件标识时回落 hostname（旧行为）。
+    用户反馈:hostname 变更/升级不应产生"新终端"，故优先硬件序列（稳定）。"""
+    s=hardware_serial()
+    if s: return hashlib.sha256(("aegis-hw:"+s).encode()).hexdigest()[:12]
+    return hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
     baseline_inv,baseline_findings=verify_user_baselines()
@@ -582,12 +614,12 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12],"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.33.1"
+AGENT_VERSION = "0.34.0"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -635,7 +667,7 @@ def maybe_self_update(policy, report_url):
         import aegis_self_update as su
     except Exception:
         return
-    device_id = hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
+    device_id = hardware_device_id()
     try:
         res = su.check_and_apply(
             manifest_url,
@@ -667,7 +699,7 @@ def main():
             except subprocess.TimeoutExpired:
                 print(f"aegis scan cycle exceeded budget {budget}s; child killed (scan_timeout); will retry next interval",file=sys.stderr)
             time.sleep(max(args.interval,60))
-    host_device_id=hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
+    host_device_id=hardware_device_id()
     # 每设备入网凭据优先：显式 --enrollment-config > --enrollment-dir/<本机device_id>.json > 全网 reporting.json(向后兼容)。
     enroll_path=args.enrollment_config
     if not enroll_path and args.enrollment_dir:

@@ -739,6 +739,25 @@ export default function DevicesPage() {
 
                 {expandedId === device.device_id && (
                   <div className="animate-entrance" style={inlinePanelStyle}>
+                    {/* 本机已安装 AI Agent 与受控设备绑定（用户反馈：要知道哪台机器装了什么 Agent） */}
+                    <div style={{ marginBottom: 12 }}>
+                      <h4 style={{ fontSize: 12, margin: '0 0 6px', color: 'var(--muted-foreground)' }}>
+                        本机已安装 AI Agent（与该受控设备绑定）
+                      </h4>
+                      {(((device as { tools?: string[] }).tools ?? []) as string[]).length > 0 ? (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {(((device as { tools?: string[] }).tools ?? []) as string[]).map((t) => (
+                            <span key={t} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, background: 'var(--muted)', border: '1px solid var(--border)' }}>
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>
+                          该设备最新报告未包含 AI Agent 清单。
+                        </p>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <h3 style={{ fontSize: 14, margin: 0 }}>最新扫描发现项</h3>
                       <button onClick={() => void toggleFindings(device.device_id)} style={{ background: 'none', border: 0, color: 'var(--muted-foreground)', cursor: 'pointer', fontSize: 12 }}>收起</button>

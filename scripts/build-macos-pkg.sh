@@ -79,7 +79,10 @@ SERVER="__SERVER__"
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST="/Library/LaunchDaemons/com.aegis.agent.plist"
 PYBIN="$(command -v python3 || echo /usr/bin/python3)"
-DEVICE_ID="MAC-$(hostname | cut -c1-12 | tr '[:lower:]' '[:upper:]' | tr ' ' '-')"
+# 设备 ID 优先硬件序列（稳定，不随 hostname/升级变化），与 agent hardware_device_id() 一致。
+_hw_serial="$(ioreg -c IOPlatformExpert 2>/dev/null | awk -F'"' '/IOPlatformSerialNumber/{print $4; exit}')"
+[ -z "$_hw_serial" ] && _hw_serial="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Serial Number \(system\)/{gsub(/ /,"",$2); print $2; exit}')"
+if [ -n "$_hw_serial" ]; then DEVICE_ID="$(printf 'aegis-hw:%s' "$_hw_serial" | shasum -a 256 | cut -c1-12)"; else DEVICE_ID="$(hostname | tr -d '\n' | shasum -a 256 | cut -c1-12)"; fi
 "$PYBIN" - "$SERVER" "$INSTALL_DIR" "$DEVICE_ID" <<'PY'
 import json,os,sys,socket,secrets,urllib.request
 server,install_dir,device_id=sys.argv[1:4]

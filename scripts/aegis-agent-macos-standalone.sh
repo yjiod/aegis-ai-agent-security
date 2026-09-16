@@ -26,7 +26,16 @@ COLLECTOR_URL="${AEGIS_COLLECTOR_URL:-${SERVER%/}/aegis}"
 ENROLL_URL="${AEGIS_ENROLL_URL:-${SERVER%/}/api/enroll}"
 TOKEN="${AEGIS_COLLECTOR_TOKEN:-}"
 INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
-DEVICE_ID="${AEGIS_DEVICE_ID:-MAC-$(hostname | cut -c1-12 | tr '[:lower:]' '[:upper:]' | tr ' ' '-')}"
+# 设备 ID 优先硬件序列（稳定，不随 hostname/升级变化），与 agent hardware_device_id() 一致：
+# sha256("aegis-hw:"+serial)[:12]；无序列时回落 sha256(hostname)[:12]（旧行为）。
+_hw_serial="$(ioreg -c IOPlatformExpert 2>/dev/null | awk -F'"' '/IOPlatformSerialNumber/{print $4; exit}')"
+[ -z "$_hw_serial" ] && _hw_serial="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Serial Number \(system\)/{gsub(/ /,"",$2); print $2; exit}')"
+if [ -n "$_hw_serial" ]; then
+  _default_id="$(printf 'aegis-hw:%s' "$_hw_serial" | shasum -a 256 | cut -c1-12)"
+else
+  _default_id="$(hostname | tr -d '\n' | shasum -a 256 | cut -c1-12)"
+fi
+DEVICE_ID="${AEGIS_DEVICE_ID:-$_default_id}"
 INSTALL_DIR="${AEGIS_INSTALL_DIR:-$HOME/Library/Application Support/AegisAgent}"
 PLIST="${AEGIS_PLIST:-$HOME/Library/LaunchAgents/com.aegis.agent.plist}"
 LABEL="${AEGIS_LABEL:-com.aegis.agent}"
