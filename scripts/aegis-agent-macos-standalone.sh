@@ -36,6 +36,12 @@ else
   _default_id="$(hostname | tr -d '\n' | shasum -a 256 | cut -c1-12)"
 fi
 DEVICE_ID="${AEGIS_DEVICE_ID:-$_default_id}"
+OWNER="${AEGIS_DEVICE_OWNER:-}"
+if [ -n "$OWNER" ]; then
+  OWNER_ENV_BLOCK="<key>EnvironmentVariables</key><dict><key>AEGIS_DEVICE_OWNER</key><string>${OWNER}</string></dict>"
+else
+  OWNER_ENV_BLOCK=""
+fi
 INSTALL_DIR="${AEGIS_INSTALL_DIR:-$HOME/Library/Application Support/AegisAgent}"
 PLIST="${AEGIS_PLIST:-$HOME/Library/LaunchAgents/com.aegis.agent.plist}"
 LABEL="${AEGIS_LABEL:-com.aegis.agent}"
@@ -50,6 +56,8 @@ while [ $# -gt 0 ]; do
     --token) TOKEN="$2"; shift 2 ;;
     --device-id) DEVICE_ID="$2"; shift 2 ;;
     --interval) INTERVAL="$2"; shift 2 ;;
+    # 绑定使用人（SSO 工号/姓名）：上报 owner 字段，便于"哪台机器是谁在用"。仅存私有控制台，不入库。
+    --owner) OWNER="$2"; shift 2 ;;
     --uninstall) DO_UNINSTALL=1; shift ;;
     # pkg/安装器肌肉记忆参数：.run 不需要 -target，忽略并提示（避免"未知参数"困惑）。
     -target|--target) echo "提示: .run 无需 -target（该参数用于 .pkg/installer）；忽略。" >&2; shift ;;
@@ -169,6 +177,7 @@ cat > "$PLIST" <<PLISTEOF
     <key>KeepAlive</key><true/>
     <key>StandardOutPath</key><string>${INSTALL_DIR}/agent.log</string>
     <key>StandardErrorPath</key><string>${INSTALL_DIR}/agent-error.log</string>
+    ${OWNER_ENV_BLOCK}
 </dict>
 </plist>
 PLISTEOF

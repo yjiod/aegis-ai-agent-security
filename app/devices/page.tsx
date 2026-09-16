@@ -835,16 +835,18 @@ export default function DevicesPage() {
           <span className="status green">{devices.length} 台受控</span>
         </div>
         <div className="data-table">
-          <div className="data-head" style={{ gridTemplateColumns: '1.1fr 1.1fr 2.2fr 90px' }}>
-            <span>设备 ID</span><span>主机名</span><span>已安装 AI Agent</span><span>状态</span>
+          <div className="data-head" style={{ gridTemplateColumns: '1.1fr 1.1fr 0.8fr 2.2fr 90px' }}>
+            <span>设备 ID</span><span>主机名</span><span>用户</span><span>已安装 AI Agent</span><span>状态</span>
           </div>
           {devices.map((d) => {
             const tools = ((d as { tools?: string[] }).tools ?? []) as string[];
             const meta = STATUS_META[d.status] ?? STATUS_META.offline;
+            const who = d.owner || (d as { os_user?: string }).os_user || '';
             return (
-              <div className="data-row" key={d.device_id} style={{ gridTemplateColumns: '1.1fr 1.1fr 2.2fr 90px' }}>
+              <div className="data-row" key={d.device_id} style={{ gridTemplateColumns: '1.1fr 1.1fr 0.8fr 2.2fr 90px' }}>
                 <strong>{d.device_id}</strong>
                 <span style={{ fontSize: 11 }}>{d.hostname}</span>
+                <span style={{ fontSize: 11 }}>{who || '未知'}</span>
                 <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {tools.length > 0 ? (
                     tools.map((t) => (

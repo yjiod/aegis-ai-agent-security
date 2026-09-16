@@ -81,6 +81,7 @@ export async function GET(request: Request) {
       device_id: d.device_id,
       hostname: (d as any).hostname as string ?? d.device_id,
       owner: ((d as any).owner as string) || ((d as any).os_user as string) || '待分配',
+      os_user: ((d as any).os_user as string) || '',
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',

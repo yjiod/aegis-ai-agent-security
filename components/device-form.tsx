@@ -64,6 +64,10 @@ export type Device = {
   registered_at: number;
   notes?: string;
   findings_summary?: FindingsSummary;
+  /** 该设备最新报告检出的已安装 AI Agent 清单（Collector 从 inventory 提取）。 */
+  tools?: string[];
+  /** 上报的操作系统用户（用于"谁在用这台机器"）。 */
+  os_user?: string;
 };
 
 /** 表单提交给 `/api/devices` 的载荷。 */
@@ -188,6 +192,9 @@ export function parseDevice(raw: unknown): Device | null {
   const hostname = text(data.hostname ?? data.host ?? data.name, 253);
   const notes = text(data.notes ?? data.note ?? data.comment, 2000);
   const findings = parseFindings(data.findings_summary ?? data.findings);
+  const rawTools = Array.isArray(data.tools) ? data.tools : [];
+  const tools = rawTools.filter((t): t is string => typeof t === 'string' && t.length > 0).slice(0, 50);
+  const osUser = text(data.os_user ?? data.osuser, 64);
   return {
     device_id: deviceId,
     hostname: hostname || deviceId,
@@ -200,6 +207,8 @@ export function parseDevice(raw: unknown): Device | null {
     registered_at: timestamp(data.registered_at ?? data.registeredAt),
     ...(notes ? { notes } : {}),
     ...(findings ? { findings_summary: findings } : {}),
+    ...(tools.length > 0 ? { tools } : {}),
+    ...(osUser ? { os_user: osUser } : {}),
   };
 }
 
