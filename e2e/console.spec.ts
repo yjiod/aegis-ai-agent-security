@@ -188,7 +188,8 @@ test.describe('devices page', () => {
   test('shows the endpoint table shell and either real rows or an honest empty state', async ({
     page,
   }) => {
-    const table = page.locator('.data-table');
+    // 设备页现有两个 .data-table（主表 + 覆盖矩阵），取主表（第一个）做壳断言。
+    const table = page.locator('.data-table').first();
     await expect(table).toBeVisible();
     await expect(table.locator('.data-head')).toContainText('设备 ID');
 

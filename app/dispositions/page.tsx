@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
+import { Pagination, paginate } from '@/components/pagination';
 import { RiskSignalHelp } from '@/components/risk-signal-help';
 
 interface Label {
@@ -67,6 +68,9 @@ export default function DispositionsPage() {
   const { role } = useRole();
   const isAdmin = role === 'admin';
   const [labels, setLabels] = useState<Label[] | null>(null);
+  // 规模化分页（几千处置项）：列表分页渲染。
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<PolicyPreview | null>(null);
@@ -266,7 +270,7 @@ export default function DispositionsPage() {
         ) : labels.length === 0 ? (
           <p className="empty-hint">暂无打标资产。可手动添加，或点"导入策略已知 Skill"预置加白。</p>
         ) : (
-          labels.map((l) => {
+          paginate(labels, page, PAGE_SIZE).rows.map((l) => {
             const meta = DISP_META[l.disposition];
             const Icon = meta.icon;
             return (
@@ -319,6 +323,15 @@ export default function DispositionsPage() {
               </div>
             );
           })
+        )}
+        {labels && labels.length > 0 && (
+          <Pagination
+            page={page}
+            pageCount={Math.max(1, Math.ceil(labels.length / PAGE_SIZE))}
+            onPage={setPage}
+            total={labels.length}
+            pageSize={PAGE_SIZE}
+          />
         )}
       </div>
 

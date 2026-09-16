@@ -11,6 +11,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRole } from '@/components/role-context';
+import { Pagination, paginate } from '@/components/pagination';
 import type { CSSProperties } from 'react';
 import {
   AlertTriangle,
@@ -185,6 +186,10 @@ export default function DevicesPage() {
   const [pendingDelete, setPendingDelete] = useState<Device | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 规模化分页（几千台设备）：列表与覆盖矩阵各自分页，避免一次性渲染全部行。
+  const [page, setPage] = useState(1);
+  const [matrixPage, setMatrixPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [findings, setFindings] = useState<Array<Record<string, unknown>> | null>(null);
   const [findingsLoading, setFindingsLoading] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
@@ -392,6 +397,10 @@ export default function DevicesPage() {
         .includes(keyword),
     );
   }, [devices, query]);
+
+  // 列表分页（规模化）；筛选/搜索变化时页码由 paginate 内部收敛。
+  const paged = useMemo(() => paginate(visibleDevices, page, PAGE_SIZE), [visibleDevices, page]);
+  const matrixPaged = useMemo(() => paginate(devices, matrixPage, PAGE_SIZE), [devices, matrixPage]);
 
   const onlineCount = devices.filter((device) => device.status === 'online').length;
   const staleCount = devices.filter((device) => device.status === 'stale').length;
@@ -626,7 +635,7 @@ export default function DevicesPage() {
               <div className="skeleton-row" key={index} />
             ))}
 
-          {visibleDevices.map((device, index) => {
+          {paged.rows.map((device, index) => {
             const meta = STATUS_META[device.status] ?? STATUS_META.offline;
             const editing = editingId === device.device_id;
             const openFindings = findings
@@ -788,6 +797,8 @@ export default function DevicesPage() {
           })}
         </div>
 
+        <Pagination page={page} pageCount={paged.pageCount} onPage={setPage} total={visibleDevices.length} pageSize={PAGE_SIZE} />
+
         {source === 'error' && visibleDevices.length === 0 && (
           <div className="empty-detail" style={{ minHeight: 180 }}>
             <AlertTriangle size={36} />
@@ -838,7 +849,7 @@ export default function DevicesPage() {
           <div className="data-head" style={{ gridTemplateColumns: '1.1fr 1.1fr 0.8fr 2.2fr 90px' }}>
             <span>设备 ID</span><span>主机名</span><span>用户</span><span>已安装 AI Agent</span><span>状态</span>
           </div>
-          {devices.map((d) => {
+          {matrixPaged.rows.map((d) => {
             const tools = ((d as { tools?: string[] }).tools ?? []) as string[];
             const meta = STATUS_META[d.status] ?? STATUS_META.offline;
             const who = d.owner || (d as { os_user?: string }).os_user || '';
@@ -862,12 +873,11 @@ export default function DevicesPage() {
               </div>
             );
           })}
-          {devices.length === 0 && (
-            <div className="data-row">
-              <span style={{ gridColumn: '1 / -1', color: 'var(--muted-foreground)' }}>暂无受控设备</span>
-            </div>
+          {matrixPaged.rows.length === 0 && (
+            <div style={{ padding: '12px 10px', color: 'var(--muted-foreground)', fontSize: 12 }}>暂无受控设备</div>
           )}
         </div>
+        <Pagination page={matrixPage} pageCount={matrixPaged.pageCount} onPage={setMatrixPage} total={devices.length} pageSize={PAGE_SIZE} />
       </div>
 
       <div className="panel coverage">

@@ -38,6 +38,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { useCollector } from '@/components/collector-context';
 import { useRole } from '@/components/role-context';
+import { Pagination, paginate } from '@/components/pagination';
 import TicketDetail, {
   formatRelativeTime,
   parseTicket,
@@ -161,6 +162,9 @@ export default function RisksPage() {
   const router = useRouter();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  // 规模化分页（几千工单）：列表分页渲染。
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [source, setSource] = useState<TicketSource>('loading');
   const [notice, setNotice] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -537,7 +541,7 @@ export default function RisksPage() {
               <div className="skeleton-row" key={index} />
             ))}
 
-          {visibleTickets.map((ticket, index) => {
+          {paginate(visibleTickets, page, PAGE_SIZE).rows.map((ticket, index) => {
             const severity = severityMeta(ticket.severity);
             const transitions = ticketTransitions(ticket.status);
             const expanded = expandedId === ticket.ticket_id;
@@ -642,6 +646,14 @@ export default function RisksPage() {
             );
           })}
         </div>
+
+        <Pagination
+          page={page}
+          pageCount={Math.max(1, Math.ceil(visibleTickets.length / PAGE_SIZE))}
+          onPage={setPage}
+          total={visibleTickets.length}
+          pageSize={PAGE_SIZE}
+        />
 
         {source === 'error' && visibleTickets.length === 0 && (
           <div className="empty-detail" style={{ minHeight: 180 }}>
