@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { requireDeviceWriter, getSession } from '@/lib/auth';
+import { requireDeviceWriter, getSession, roleReadsAllDevices } from '@/lib/auth';
 import { getDeviceStore, logAudit } from '@/lib/store';
 
 export const dynamic = 'force-dynamic';
@@ -73,6 +73,14 @@ export async function GET(request: Request) {
   const search = url.searchParams.get('q')?.toLowerCase() ?? '';
   const statusFilter = url.searchParams.get('status');
 
+  // capability RBAC：developer 档仅可读"本人"设备（owner/os_user == subject）。
+  const session = getSession(request);
+  const scopeToSelf = session ? !roleReadsAllDevices(session.role) : false;
+  const applyScope = <T extends { owner: string; os_user?: string }>(list: T[]): T[] =>
+    scopeToSelf && session
+      ? list.filter((d) => d.owner === session.subject || (d.os_user ?? '') === session.subject)
+      : list;
+
   // Try real Collector data first
   const collectorDevices = await fetchCollectorDevices();
 
@@ -102,6 +110,7 @@ export async function GET(request: Request) {
     if (statusFilter) {
       devices = devices.filter((d) => d.status === statusFilter);
     }
+    devices = applyScope(devices);
 
     return json({ devices, total: devices.length, connected: true, source: 'collector' });
   }
@@ -115,6 +124,7 @@ export async function GET(request: Request) {
     );
   }
   if (statusFilter) devices = devices.filter((d) => d.status === statusFilter);
+  devices = applyScope(devices);
 
   return json({ devices, total: devices.length, connected: false, source: 'registry' });
 }

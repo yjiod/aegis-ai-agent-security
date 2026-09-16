@@ -20,7 +20,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getAdminStore, getAuditorStore } from '@/lib/store';
 import { pgGetSessionRevocations } from '@/lib/pg-store';
 
-export type Role = 'admin' | 'operator' | 'auditor' | 'viewer';
+export type Role = 'admin' | 'operator' | 'auditor' | 'developer' | 'viewer';
 
 export interface Session {
   subject: string; // username (local) or employeeNo (UAC)
@@ -228,11 +228,43 @@ export function operatorAllowlist(): Set<string> {
   return set;
 }
 
-/** Resolve a subject to its highest-privilege role (admin > operator > auditor > viewer). */
+/* ── Developer 白名单（capability RBAC：仅可读本人设备）────────────── */
+const DEVELOPER_CACHE_TTL_MS = 60_000;
+let developerCache: { at: number; list: string[] } | null = null;
+
+export async function refreshDevelopers(): Promise<void> {
+  if (developerCache && Date.now() - developerCache.at < DEVELOPER_CACHE_TTL_MS) return;
+  const { pgGetDevelopers } = await import('@/lib/pg-store');
+  const list = await pgGetDevelopers();
+  if (list === null) return;
+  developerCache = { at: Date.now(), list };
+}
+
+export function invalidateDeveloperCache(): void {
+  developerCache = null;
+}
+
+export function developerAllowlist(): Set<string> {
+  const set = new Set<string>();
+  for (const part of (process.env.AEGIS_DEVELOPER_USERS ?? '').split(',')) {
+    const v = part.trim();
+    if (v) set.add(v);
+  }
+  for (const v of developerCache?.list ?? []) set.add(v);
+  return set;
+}
+
+/** developer 档仅可读"本人"设备（owner/os_user == subject）；其余角色读全部。 */
+export function roleReadsAllDevices(role: Role): boolean {
+  return role !== 'developer';
+}
+
+/** Resolve a subject to its highest-privilege role (admin > operator > auditor > developer > viewer). */
 export function roleForSubject(subject: string): Role {
   if (adminAllowlist().has(subject)) return 'admin';
   if (operatorAllowlist().has(subject)) return 'operator';
   if (auditorAllowlist().has(subject)) return 'auditor';
+  if (developerAllowlist().has(subject)) return 'developer';
   return 'viewer';
 }
 

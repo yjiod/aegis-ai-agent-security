@@ -90,6 +90,7 @@ type ConsoleShellProps = {
 const ROLE_LABEL: Record<Role, string> = {
   admin: '安全管理员',
   operator: '运维工程师（终端管理）',
+  developer: '开发者（仅本人设备）',
   auditor: '审计员（只读）',
   viewer: '只读访客',
 };
@@ -97,6 +98,7 @@ const ROLE_LABEL: Record<Role, string> = {
 const ROLE_BADGE: Record<Role, string> = {
   admin: '管理员',
   operator: '运维',
+  developer: '开发者',
   auditor: '审计员',
   viewer: '只读',
 };

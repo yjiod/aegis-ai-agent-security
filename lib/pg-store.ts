@@ -444,6 +444,33 @@ export async function pgSetOperators(list: string[]): Promise<boolean> {
   return r.ok;
 }
 
+/* ─── Developer 白名单持久化（capability RBAC：仅可读本人设备）────────── */
+const DEVELOPERS_KEY = 'allowlist:developers';
+
+export async function pgGetDevelopers(): Promise<string[] | null> {
+  const r = await withClient('getDevelopers', (c) =>
+    c.query('SELECT value FROM settings WHERE key=$1', [DEVELOPERS_KEY]),
+  );
+  if (!r.ok) return null;
+  if (!r.value?.rows?.length) return [];
+  try {
+    const arr = JSON.parse(String((r.value.rows[0] as { value: unknown }).value));
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function pgSetDevelopers(list: string[]): Promise<boolean> {
+  const r = await withClient('setDevelopers', (c) =>
+    c.query(
+      'INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=$2',
+      [DEVELOPERS_KEY, JSON.stringify(list)],
+    ),
+  );
+  return r.ok;
+}
+
 /* ─── 签名策略发布件（policy_releases） ─────────────────────────────── */
 export interface PolicyReleaseRow {
   release_id: string;

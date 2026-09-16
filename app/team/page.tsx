@@ -20,6 +20,9 @@ export default function TeamPage() {
   const [newAuditor, setNewAuditor] = useState('');
   const [operators, setOperators] = useState<string[]>([]);
   const [envOperators, setEnvOperators] = useState<string[]>([]);
+  const [developers, setDevelopers] = useState<string[]>([]);
+  const [envDevelopers, setEnvDevelopers] = useState<string[]>([]);
+  const [newDeveloper, setNewDeveloper] = useState('');
   const [newOperator, setNewOperator] = useState('');
 
   async function loadAdmins() {
@@ -53,7 +56,26 @@ export default function TeamPage() {
     setToast(r.ok ? `已移除运维工程师 ${emp}` : '移除失败（可能无权限）');
     void loadOperators();
   }
-  useEffect(() => { void loadAdmins(); void loadAuditors(); void loadOperators(); }, []);
+  async function loadDevelopers() {
+    try {
+      const r = await fetch('/api/developers', { cache: 'no-store' });
+      if (r.ok) { const d = (await r.json()) as any; setDevelopers(d.developers ?? []); setEnvDevelopers(d.env_developers ?? []); }
+    } catch { /* ignore */ }
+  }
+  async function addDeveloper() {
+    const v = newDeveloper.trim();
+    if (!v) return;
+    const r = await fetch('/api/developers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ employeeNo: v }) });
+    setToast(r.ok ? `已添加开发者 ${v}` : '添加失败（可能无权限或工号格式错）');
+    setNewDeveloper('');
+    void loadDevelopers();
+  }
+  async function delDeveloper(emp: string) {
+    const r = await fetch(`/api/developers?employeeNo=${encodeURIComponent(emp)}`, { method: 'DELETE' });
+    setToast(r.ok ? `已移除开发者 ${emp}` : '移除失败（可能无权限）');
+    void loadDevelopers();
+  }
+  useEffect(() => { void loadAdmins(); void loadAuditors(); void loadOperators(); void loadDevelopers(); }, []);
 
   async function addAdmin() {
     const v = newAdmin.trim();
@@ -152,6 +174,31 @@ export default function TeamPage() {
               <span><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <button className="handle" onClick={() => void delAuditor(a)}>移除</button></span>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="panel-head">
+          <div><h2>开发者（仅本人设备）</h2><p>仅可读本人名下设备；无写权限、不能发布策略/处置/管用户/读审计。</p></div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input className="form-input" style={{ flex: 1 }} placeholder="工号" value={newDeveloper} onChange={(e) => setNewDeveloper(e.target.value)} />
+          <Button onClick={() => void addDeveloper()}>添加开发者</Button>
+        </div>
+        <div className="data-table">
+          <div className="data-head"><span>工号</span><span>来源</span><span>操作</span></div>
+          {developers.length === 0 && envDevelopers.length === 0 ? (
+            <div className="data-row"><span style={{ gridColumn: '1 / -1', color: 'var(--muted-foreground)' }}>尚未配置开发者</span></div>
+          ) : (
+            <>
+              {developers.map((a) => (
+                <div className="data-row" key={a}><strong>{a}</strong><span>持久化</span><span><button className="handle" onClick={() => void delDeveloper(a)}>移除</button></span></div>
+              ))}
+              {envDevelopers.map((a) => (
+                <div className="data-row" key={`env-${a}`}><strong>{a}</strong><span>环境变量</span><span><span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>env 配置不可在此移除</span></span></div>
+              ))}
+            </>
+          )}
         </div>
       </div>
 

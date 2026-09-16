@@ -536,6 +536,35 @@ test.describe('devices connectivity vs attention', () => {
 });
 
 /**
+ * capability RBAC 持久化：developer 档仅可读本人设备（owner/os_user == subject）。
+ * 添加 developer → 其看到的设备仅限本人名下（伪造工号名下无设备 → 0 台）→ 移除后回落 viewer。
+ */
+test.describe('developer own-device scope', () => {
+  const DEVUSER = 'e2e-dev-prod';
+
+  test('developer sees only own devices; removal revokes the role', async ({ request }) => {
+    await login(request);
+    const add = await request.post('/api/developers', { data: { employeeNo: DEVUSER } });
+    if (add.status() === 503) return; // no PG: honest unavailable
+    expect(add.status()).toBe(201);
+
+    // developer cookie: devices scoped to self (fake subject owns none -> 0 devices)
+    const expiry = Date.now() + 3_600_000;
+    const payload = `${DEVUSER}.${expiry}`;
+    const sig = createHmac('sha256', process.env.AEGIS_SESSION_SECRET ?? 'e2e-secret-0123456789').update(payload).digest('hex');
+    const scoped = await request.get('/api/devices', { headers: { Cookie: `aegis_session=${payload}.${sig}` } });
+    expect(scoped.status()).toBe(200);
+    const sj = (await scoped.json()) as { devices?: Array<{ owner?: string; os_user?: string }> };
+    for (const d of sj.devices ?? []) {
+      expect(d.owner === DEVUSER || d.os_user === DEVUSER, 'developer must only see own devices').toBe(true);
+    }
+
+    const del = await request.delete(`/api/developers?employeeNo=${DEVUSER}`);
+    expect(del.status()).toBe(200);
+  });
+});
+
+/**
  * 企业级 MD 上传+灰度推送：发布后 GET 可见版本/灰度；Collector 不可达时如实 502（不假装推送）。
  * 终端按灰度拉取（/v1/enterprise-baseline）由 collector 侧每设备令牌鉴权，prod 另行验证。
  */

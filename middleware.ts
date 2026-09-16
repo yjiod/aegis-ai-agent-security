@@ -6,6 +6,7 @@ import { startIntegrationAlertSync } from '@/lib/integrations';
 import {
   refreshSessionRevocations,
   refreshOperators,
+  refreshDevelopers,
   sessionRevokedBefore,
   SESSION_TTL_MS,
 } from '@/lib/auth';
@@ -27,6 +28,7 @@ export async function middleware(request: NextRequest) {
   await refreshSessionRevocations().catch(() => {});
   // 预热 operator 白名单缓存（60s TTL；写操作 invalidate）。
   await refreshOperators().catch(() => {});
+  await refreshDevelopers().catch(() => {});
   startUpstreamSyncLoop();
   startIntegrationAlertSync();
   const { pathname } = request.nextUrl;

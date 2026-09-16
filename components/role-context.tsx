@@ -1,7 +1,7 @@
 'use client';
 import { createContext, useContext, useEffect, useState } from 'react';
 
-export type Role = 'admin' | 'operator' | 'auditor' | 'viewer';
+export type Role = 'admin' | 'operator' | 'auditor' | 'developer' | 'viewer';
 const RoleCtx = createContext<{ role: Role; subject: string }>({ role: 'viewer', subject: '' });
 export const useRole = () => useContext(RoleCtx);
 export const RoleProvider = RoleCtx.Provider;
