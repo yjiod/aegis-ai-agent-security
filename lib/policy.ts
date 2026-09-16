@@ -80,7 +80,10 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
   agent_self_update: {
     enabled: true,
     channel: 'pilot',
-    rollout_percent: 25,
+    // 100%：现网终端规模小且用户要求"手动装新客户端后可未来自更新"。25% 灰度桶经实测
+    // 不覆盖任何在网设备(哈希分桶 46/27/73/29 均≥25)，等于自更新永不触发。下载仍强制
+    // SHA-256 校验+同源钉子+原子替换+可回滚，风险可控；如需再灰度可回调此值并发布。
+    rollout_percent: 100,
     note: '自更新仅为无桌管环境兜底; 主通道为桌管/MDM 推送。下载强制 SHA-256 校验+原子替换+可回滚。',
   },
   custom_baseline_rules: [],

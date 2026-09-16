@@ -52,6 +52,20 @@ function asSeverity(value: string): TicketSeverity {
   return (SEVERITIES as readonly string[]).includes(value) ? (value as TicketSeverity) : 'low';
 }
 
+/**
+ * 渲染前净化不可见/控制/双向格式字符（Cc 除 \n\t、Cf 如 U+200B-200F/U+202A-202E/
+ * U+2060-2069/U+FEFF）。发现文本来自终端扫描的不可信文件内容；若原样渲染，双向控制符
+ * 会重排/隐藏相邻 UI 文本（视觉欺骗 + 布局错乱）。替换为可见的 \uXXXX 转义，既消除
+ * 渲染副作用又保留"这里有个控制字符"的信息。
+ */
+// 故意匹配控制/双向格式字符：渲染前净化不可信发现文本，防 bidi/零宽字符重排或隐藏相邻
+// UI（视觉欺骗）。此处"匹配控制字符"即目的本身，故就近关闭 no-control-regex。
+// eslint-disable-next-line no-control-regex
+const INVISIBLE_CTRL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u08e2\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/g;
+function safeText(value: string): string {
+  return value.replace(INVISIBLE_CTRL, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 export function ScanExplorer({
   category,
   eyebrow,
@@ -209,7 +223,7 @@ export function ScanExplorer({
             <p>已连接接收器，但当前没有{title}相关的真实发现。新的上报会自动进入此列表。</p>
           </div>
         ) : (
-          <div className="data-table">
+          <div className="data-table cols-5">
             <div className="data-head">
               <span>等级</span>
               <span>类型</span>
@@ -224,14 +238,14 @@ export function ScanExplorer({
                   <i className={severityMeta(sev).tone === 'red' ? 'fail' : severityMeta(sev).tone === 'orange' ? 'warn' : ''}>
                     {severityMeta(sev).label}
                   </i>
-                  <span style={{ fontSize: 12 }}>{f.kind}</span>
+                  <span style={{ fontSize: 12 }}>{safeText(f.kind)}</span>
                   <span style={{ fontSize: 11, wordBreak: 'break-all' }}>
-                    {f.path || '—'}
+                    {safeText(f.path) || '—'}
                     <br />
                     <span style={{ color: 'var(--muted-foreground)' }}>{f.device_id}</span>
                   </span>
                   <span style={{ fontSize: 11 }}>
-                    {f.message}
+                    {safeText(f.message)}
                     {f.category === 'skill' && <SignalDetails matches={f.signal_matches} />}
                     {f.asset_key || f.path ? (
                       <>

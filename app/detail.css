@@ -162,6 +162,30 @@
   align-items: center;
 }
 
+/* 5 列数据表变体（Skill / MCP / 代码质量扫描器：等级/类型/对象·终端/说明/时间）。
+   默认 .data-row 为 4 列；扫描器每行渲染 5 个单元格，若沿用 4 列模板，第 5 格(时间)
+   会折到下一行、且「说明」被挤进最窄的 0.5fr 列，导致说明与"去处置"错位（用户反馈
+   "扫描器这里歪了"）。cols-5 选择器特异性高于基础与移动端 .data-row 规则，桌面/移动
+   端均可正确覆盖。说明列给最大宽度，多行内容与"去处置"链接才有足够空间。 */
+.data-table.cols-5 .data-head,
+.data-table.cols-5 .data-row {
+  grid-template-columns: 64px minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 2.1fr) 92px;
+}
+.data-table.cols-5 .data-row > *:nth-child(4) {
+  align-self: start; /* 说明列多行，顶对齐更整齐 */
+}
+@media (max-width: 760px) {
+  .data-table.cols-5 .data-head,
+  .data-table.cols-5 .data-row {
+    grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1.7fr);
+  }
+  /* 移动端隐藏 对象/终端(3，基础规则已隐藏) 与 时间(5)，保留 等级/类型/说明 三列 */
+  .data-table.cols-5 .data-head span:nth-child(5),
+  .data-table.cols-5 .data-row > *:nth-child(5) {
+    display: none;
+  }
+}
+
 .data-head {
   padding: 10px 12px;
   color: #617f75;

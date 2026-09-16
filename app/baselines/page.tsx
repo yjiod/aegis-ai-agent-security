@@ -232,8 +232,22 @@ function EnterpriseMdPanel() {
   const load = useCallback(async () => {
     try {
       const r = await fetch('/api/baselines/enterprise', { cache: 'no-store' });
-      if (r.ok) setCurrent(await r.json());
-      else setCurrent({ published: false });
+      if (r.ok) {
+        const d = (await r.json()) as {
+          published?: boolean;
+          version?: number;
+          content?: string;
+          rollout?: { mode?: string; percent?: number; departments?: string[] };
+        };
+        setCurrent({ published: d.published === true, version: d.version, rollout: d.rollout });
+        // 新浏览器/新会话打开时回填「已发布」的内容与灰度配置——否则编辑器为空，
+        // 用户看不到自己以前写过什么（用户反馈）。仅在确有已发布内容时回填。
+        if (d.published && typeof d.content === 'string') setContent(d.content);
+        const ro = d.rollout;
+        if (ro && (ro.mode === 'all' || ro.mode === 'percent' || ro.mode === 'department')) setMode(ro.mode);
+        if (ro && typeof ro.percent === 'number') setPercent(ro.percent);
+        if (ro && Array.isArray(ro.departments)) setDepartments(ro.departments.join(','));
+      } else setCurrent({ published: false });
     } catch { setCurrent({ published: false }); }
   }, []);
   useEffect(() => { void load(); }, [load]);

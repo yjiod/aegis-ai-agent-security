@@ -787,8 +787,19 @@ def maybe_self_update(policy, report_url):
     if not isinstance(cfg, dict) or cfg.get("enabled") is not True:
         return
     manifest_url = cfg.get("manifest_url") or ""
-    if not manifest_url and report_url and "/api/" in report_url:
-        manifest_url = report_url.split("/api/")[0] + "/downloads/update-manifest.json"
+    if not manifest_url and report_url:
+        # 更新清单由控制台静态提供于 <源>/downloads/update-manifest.json。上报地址可能是
+        # <源>/aegis/v1/reports(nginx 反代 collector)、<源>/v1/reports 或 <源>/api/v1/reports，
+        # 前缀不固定；旧逻辑只认 "/api/" 切分，在 /aegis/ 拓扑下 manifest_url 恒为空 →
+        # 自更新静默不执行。改为取上报地址的 scheme://netloc 源，与路径前缀解耦。
+        try:
+            _u = urllib.parse.urlsplit(report_url)
+            if _u.scheme in ("https", "http") and _u.netloc:
+                manifest_url = f"{_u.scheme}://{_u.netloc}/downloads/update-manifest.json"
+        except (ValueError, TypeError):
+            manifest_url = ""
+        if not manifest_url and "/api/" in report_url:
+            manifest_url = report_url.split("/api/")[0] + "/downloads/update-manifest.json"
     if not manifest_url:
         return
     try:
