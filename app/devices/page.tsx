@@ -757,6 +757,21 @@ export default function DevicesPage() {
 
                 {editing && (
                   <div className="animate-entrance" style={inlinePanelStyle}>
+                    {/* 只读硬件/身份信息：序列号便于定位设备（用户要求可见）；不可编辑 */}
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12, fontSize: 12, color: 'var(--muted-foreground)' }}>
+                      <span>
+                        序列号：
+                        <b style={{ color: 'var(--text)' }}>
+                          {(device as { serial?: string }).serial || '（终端 Agent ≤0.34.2 未上报，更新到 0.34.3+ 后显示）'}
+                        </b>
+                      </span>
+                      <span>
+                        操作系统：<b style={{ color: 'var(--text)' }}>{osLabel(device.os)}</b>
+                      </span>
+                      <span>
+                        上报用户：<b style={{ color: 'var(--text)' }}>{(device as { os_user?: string }).os_user || '—'}</b>
+                      </span>
+                    </div>
                     <DeviceForm
                       mode="edit"
                       initialData={device}
