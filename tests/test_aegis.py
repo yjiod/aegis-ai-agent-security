@@ -1087,6 +1087,8 @@ class AegisTests(unittest.TestCase):
                 self.assertEqual(self.agent.read_server_override(),'')           # 缺失
                 ov.write_text('{"server_url":"http://insecure.example"}'); self.assertEqual(self.agent.read_server_override(),'')  # 非 https 拒绝
                 ov.write_text('{"server_url":"https://new.example/"}'); self.assertEqual(self.agent.read_server_override(),'https://new.example')  # 去尾斜杠
+                ov.write_text('{"server_url":"https://new.example/api/enroll"}'); self.assertEqual(self.agent.read_server_override(),'https://new.example')  # 全路径归一
+                ov.write_text('{"server_url":"https://new.example/aegis/v1/reports"}'); self.assertEqual(self.agent.read_server_override(),'https://new.example')  # 上报路径归一
                 self.assertEqual(self.agent.report_url_origin('https://old.example/aegis/v1/reports'),'https://old.example')
                 # origin 相同 → 无需切换
                 args=types.SimpleNamespace(report_url='https://new.example/aegis/v1/reports', report_config=str(Path(d)/'reporting.json'), policy=str(Path(d)/'p.json'))

@@ -752,7 +752,9 @@ def server_override_path():
     """预留的服务器地址覆盖文件（用户编辑即全自动切换控制台，无需重装）。"""
     return Path(__file__).with_name("server-override.json")
 def read_server_override():
-    """读 server-override.json 的 server_url；仅接受 https，非法/缺失返回空串。"""
+    """读 server-override.json 的 server_url；仅接受 https，非法/缺失返回空串。
+    容忍用户写全路径（…/api/enroll、…/aegis/v1/reports 等）：归一化为 origin，
+    避免"写裸域不生效/写全路径才生效"的困惑（用户反馈）。"""
     try:
         d = json.loads(server_override_path().read_text())
     except (OSError, ValueError, UnicodeError):
@@ -760,6 +762,10 @@ def read_server_override():
     if not isinstance(d, dict):
         return ""
     u = str(d.get("server_url") or d.get("server") or "").strip().rstrip("/")
+    for suffix in ("/api/enroll", "/aegis/v1/reports", "/v1/reports", "/api/policy/artifact", "/downloads/update-manifest.json"):
+        if u.endswith(suffix):
+            u = u[: -len(suffix)]
+            break
     return u if u.startswith("https://") and len(u) <= 256 else ""
 def report_url_origin(url):
     try:
@@ -862,7 +868,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.34.4"
+AGENT_VERSION = "0.34.5"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -997,6 +1003,9 @@ def main():
         elif isinstance(_ov, dict):
             _OVERRIDE_NOTED["emitted"] = False
             reporting = {"report_token": _ov["report_token"], "signing_secret": _ov["signing_secret"]}
+            # 重新入网成功即视为上报配置已修复：必须同时清 reporting_error，否则本周期
+            # can_report 仍为 False、要等下一个周期才上报（用户实测"写全路径才生效"的真因）。
+            reporting_error = False
             enrollment = None; enrollment_error = False; enrollment_mismatch = False
         policy,reload_failed=reload_policy(args.policy,policy,require_signature=require_signature)
         # 先拉取企业级 MD（按灰度范围）再注入基线：保证本轮注入即用最新企业 MD，
