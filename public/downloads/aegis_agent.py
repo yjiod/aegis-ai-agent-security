@@ -661,31 +661,63 @@ def write_upload_status(path,url,now=None):
     value={"schema":"aegis.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
 def hardware_serial():
-    """稳定硬件标识（不随 hostname/升级变化）：mac=IOPlatformSerialNumber，
-    linux=/etc/machine-id，win=HKLM MachineGuid。失败返回空串（调用方回落）。"""
+    """稳定硬件标识（不随 hostname/升级/系统语言变化）：
+    mac = IOPlatformSerialNumber（ioreg IOPlatformExpertDevice，输出与系统语言无关）；
+    win = 机器序列号（Win32_ComputerSystemProduct.IdentifyingNumber → Win32_BIOS.SerialNumber）；
+    linux = /etc/machine-id。失败返回空串（调用方回落）。
+    历史缺陷：mac 曾用 ioreg -c IOPlatformExpert(类名错) + system_profiler 英文正则，
+    中文系统输出"序列号 (系统):"匹配不到 → 序列号空 → 回落 hostname → 同一台机器换名/升级
+    后产生"新终端"(重复设备)。现统一按序列号识别（用户要求）。"""
     import platform
+    _BAD = {"", "to be filled by o.e.m.", "none", "default string", "unknown", "o.e.m.", "not specified"}
     try:
-        sysname=platform.system()
-        if sysname=="Darwin":
-            out=subprocess.run(["ioreg","-c","IOPlatformExpert"],capture_output=True,text=True,timeout=10).stdout
-            m=re.search(r'IOPlatformSerialNumber"\s*=\s*"([^"]+)"',out)
-            if m: return m.group(1).strip()
-            # 较新 macOS 的 ioreg 出于隐私不暴露序列号 → 用 system_profiler 兜底。
-            sp=subprocess.run(["system_profiler","SPHardwareDataType"],capture_output=True,text=True,timeout=30).stdout
-            m=re.search(r'Serial Number \(system\):\s*([A-Za-z0-9]+)',sp)
-            if m: return m.group(1).strip()
-        elif sysname=="Linux":
-            for p in ("/etc/machine-id","/var/lib/dbus/machine-id"):
+        sysname = platform.system()
+        if sysname == "Darwin":
+            # IOPlatformExpertDevice 类的 IOPlatformSerialNumber 不受 locale 影响，作为首选。
+            out = subprocess.run(["ioreg", "-c", "IOPlatformExpertDevice"], capture_output=True, text=True, timeout=10).stdout
+            m = re.search(r'IOPlatformSerialNumber"\s*=\s*"([^"]+)"', out)
+            if m and m.group(1).strip().lower() not in _BAD:
+                return m.group(1).strip()
+            # 兜底：system_profiler，兼容中/英文标签（"Serial Number (system):" / "序列号 (系统):"）。
+            sp = subprocess.run(["system_profiler", "SPHardwareDataType"], capture_output=True, text=True, timeout=30).stdout
+            m = re.search(r'(?:Serial Number|序列号)\s*(?:\(system\)|（系统）)?\s*[:：]\s*([A-Za-z0-9]+)', sp)
+            if m and m.group(1).strip().lower() not in _BAD:
+                return m.group(1).strip()
+        elif sysname == "Linux":
+            for p in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
                 if os.path.exists(p):
-                    v=open(p).read().strip()
-                    if v: return v
-        elif sysname=="Windows":
-            out=subprocess.run(["powershell","-NoProfile","-Command","(Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Cryptography).MachineGuid"],capture_output=True,text=True,timeout=15).stdout
-            v=out.strip()
-            if v: return v
+                    v = open(p).read().strip()
+                    if v:
+                        return v
+        elif sysname == "Windows":
+            ps = ("try{$s=(Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber}catch{$s=$null};"
+                  "if(-not $s){try{$s=(Get-CimInstance Win32_BIOS).SerialNumber}catch{$s=$null}};"
+                  "if($s){$s.Trim()}else{''}")
+            v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=20).stdout.strip()
+            if v.lower() not in _BAD:
+                return v
     except Exception:
         return ""
     return ""
+def interactive_os_user():
+    """上报"实际使用者"：优先环境变量；以 root/守护进程运行时 env 无真实用户，
+    回落到交互控制台登录用户（mac/linux: /dev/console 属主），避免 owner 显示 unknown/待分配。"""
+    u = (os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "").strip()
+    if u and u.lower() not in ("root", "system", "localsystem", "$"):
+        return u
+    try:
+        import platform
+        if platform.system() == "Darwin":
+            out = subprocess.run(["stat", "-f", "%Su", "/dev/console"], capture_output=True, text=True, timeout=5).stdout.strip()
+            if out and out.lower() not in ("", "root"):
+                return out
+        elif platform.system() == "Linux":
+            out = subprocess.run(["stat", "-c", "%U", "/dev/console"], capture_output=True, text=True, timeout=5).stdout.strip()
+            if out and out.lower() not in ("", "root"):
+                return out
+    except Exception:
+        pass
+    return u or "unknown"
 def hardware_device_id():
     """设备唯一 ID = sha256("aegis-hw:"+硬件序列)[:12]；无硬件标识时回落 hostname（旧行为）。
     用户反馈:hostname 变更/升级不应产生"新终端"，故优先硬件序列（稳定）。"""
@@ -745,12 +777,12 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.34.1"
+AGENT_VERSION = "0.34.2"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用

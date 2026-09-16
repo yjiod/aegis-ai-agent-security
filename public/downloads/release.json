@@ -1,8 +1,13 @@
 {
-  "release": "0.73.0",
+  "release": "0.73.1",
   "channel": "pilot",
-  "published_at": "2026-09-17T00:26:03+08:00",
+  "published_at": "2026-09-17T01:10:00+08:00",
   "features": [
+    "endpoint_agent_0_34_2_serial_identity",
+    "mac_serial_locale_robust",
+    "windows_serial_identity",
+    "console_user_attribution_mac",
+    "device_os_prefix_version_column",
     "endpoint_agent_0_34_1_release",
     "native_vs_optional_allowlist_taxonomy",
     "default_allowlist_db_single_source",

@@ -270,9 +270,12 @@ try {
   Write-Log "SecurityProtocol=$([Net.ServicePointManager]::SecurityProtocol)"
 } catch { Write-Log "设置 TLS1.2 失败（沿用系统默认）：$($_.Exception.Message)" 'WARN' }
 
-# 设备 ID 优先硬件 MachineGuid（稳定，不随计算机名/升级变化）；无则回落计算机名|域（旧行为）。
-$mg = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid -ErrorAction SilentlyContinue).MachineGuid
-if ($mg) { $deviceMaterial = "aegis-hw:$mg" } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
+# 设备 ID 优先硬件序列号（mac/win 统一；稳定，不随计算机名/升级/语言变化）；无则回落计算机名|域。
+$sn = $null
+try { $sn = (Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber } catch { $sn = $null }
+if (-not $sn) { try { $sn = (Get-CimInstance Win32_BIOS).SerialNumber } catch { $sn = $null } }
+$badSn = @('', 'To be filled by O.E.M.', 'None', 'Default string', 'Unknown', 'O.E.M.', 'Not Specified')
+if ($sn -and ($badSn -notcontains $sn.Trim())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-', '').Substring(0, 12).ToLower()
 $sha.Dispose()
@@ -283,7 +286,7 @@ Write-Log "device_id=$deviceId（12位小写hex，服务端据此签发 per-devi
 if (-not ('Security.Cryptography.ProtectedData' -as [type])) {
   try { Add-Type -AssemblyName System.Security } catch { Write-Log "Add-Type System.Security 失败：$($_.Exception.Message)" 'WARN' }
 }
-$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.34.1' } | ConvertTo-Json -Compress
+$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.34.2' } | ConvertTo-Json -Compress
 $enroll = $null
 $enrollError = $null
 for ($attempt = 1; $attempt -le 3; $attempt++) {

@@ -671,7 +671,13 @@ export default function DevicesPage() {
                         (((device as { tools?: string[] }).tools as string[]).length > 3 ? ' …' : '')
                       : agentTypeLabel(device.agent_type))}
                   </span>
-                  <span>{agentVersionLabel(device.agent_version)}</span>
+                  <span>
+                    {/* 版本前缀操作系统（用户要求：Agent 版本前标明是 mac 还是 windows） */}
+                    {device.os ? (
+                      <b style={{ marginRight: 4, color: 'var(--muted-foreground)', fontWeight: 600 }}>{osLabel(device.os)}</b>
+                    ) : null}
+                    {agentVersionLabel(device.agent_version)}
+                  </span>
                   <div
                     style={{
                       display: 'flex',
