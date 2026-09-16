@@ -893,7 +893,6 @@ def main():
         require_signature=os.getenv("AEGIS_REQUIRE_SIGNED_POLICY","").strip().lower() in {"1","true","yes"}
     policy,policy_error=reload_policy(args.policy,require_signature=require_signature); root=Path(args.scan_path).resolve()
     if policy_error or policy is None: raise SystemExit("valid Aegis policy is required")
-    maybe_self_update(policy, args.report_url)
     # 仅在未启用每设备入网时回退全网 reporting；入网凭据无效/不符时拒报，绝不静默回退全网共享密钥。
     reporting=None; reporting_error=False
     if enrollment is None and not enrollment_error and not enrollment_mismatch:
@@ -903,6 +902,10 @@ def main():
         if args.report_config:
             try: reporting=load_reporting_config(args.report_config); args.report_url=reporting["report_url"]
             except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): reporting_error=True; args.report_url=""
+    # 自更新必须在 report_url 定稿之后调用：LaunchDaemon/Agent 以 --report-config 传入上报配置，
+    # args.report_url 要到上面 load_reporting_config 才被赋值；此前在赋值前调用 → manifest_url
+    # 恒空 → 自更新静默不执行（用户手动装新客户端后"未来自更新"不生效的根因）。
+    maybe_self_update(policy, args.report_url)
     if args.install_baseline: install_baseline(root)
     while True:
         policy,reload_failed=reload_policy(args.policy,policy,require_signature=require_signature)
