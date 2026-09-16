@@ -26,17 +26,29 @@ while IFS="$(printf '\t')" read -r NAME DIGEST URL; do
   if [ -n "$DIGEST" ] && [ "$DIGEST" != "sha256:" ] && [ "$ACTUAL" != "$DIGEST" ]; then
     echo "  ✗ $NAME 与 GitHub digest 不符: 下载=$ACTUAL 声称=$DIGEST" >&2; fail=1; continue
   fi
-  # 与本地侧车/CHECKSUMS 比对（若仓库内有同名 .sha256 或 CHECKSUMS 条目）
-  for SIDE in "native-dist/$NAME.sha256" "public/downloads/$NAME.sha256" "native-dist/CHECKSUMS.sha256" "public/downloads/CHECKSUMS.sha256"; do
+  # 与本地侧车比对仅作 WARN：双通道下本地 native-dist 侧车对应"私有真实 origin 构建"，
+  # 与公开占位域资产必然不同，不能据此判失败。权威比对是下方"release 内部自洽"检查。
+  for SIDE in "native-dist/$NAME.sha256" "public/downloads/$NAME.sha256"; do
     if [ -f "$SIDE" ]; then
       WANT=$(grep -F "$NAME" "$SIDE" 2>/dev/null | awk '{print $1}' | head -1 || true)
       if [ -n "$WANT" ] && [ "sha256:$WANT" != "$ACTUAL" ]; then
-        echo "  ✗ $NAME 与 $SIDE 不符: 下载=$ACTUAL 侧车=sha256:$WANT" >&2; fail=1
+        echo "  ⚠ $NAME 与本地侧车 $SIDE 不同（双通道下属正常：本地为私有真实 origin 构建）"
       fi
     fi
   done
   echo "  ✓ $NAME $ACTUAL"
 done < "$WORK/assets.tsv"
+
+# release 内部自洽（BUG B 的权威防线）：侧车资产内容里的哈希 == 同 release 的 msi 资产字节哈希。
+if [ -f "$WORK/aegis-agent-windows.msi" ] && [ -f "$WORK/aegis-agent-windows.msi.sha256" ]; then
+  MSI_ACTUAL=$(shasum -a 256 "$WORK/aegis-agent-windows.msi" | cut -d' ' -f1)
+  SIDE_WANT=$(awk '{print $1}' "$WORK/aegis-agent-windows.msi.sha256" | head -1)
+  if [ "$MSI_ACTUAL" != "$SIDE_WANT" ]; then
+    echo "  ✗ 侧车与 msi 资产不自洽: msi=$MSI_ACTUAL 侧车=$SIDE_WANT" >&2; fail=1
+  else
+    echo "  ✓ release 内部自洽: msi == 侧车 ($MSI_ACTUAL)"
+  fi
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "发布后复验失败：资产与声称哈希不一致（撤回 release 或整组重传）。" >&2
