@@ -146,6 +146,30 @@ async function syncTicketsFromCollector(): Promise<void> {
         }
         continue;
       }
+      // 存活自动工单的计数随加白/修复实时收敛：标题与严重度按"当前(扣除加白后)"计数刷新，
+      // 避免工单永远停留在创建那一刻的原始计数（用户反馈"加白了风险中心还是这些"）。
+      // 仅刷新 Collector 自动工单；人工工单绝不自动改动。adj 为 null 时不动(保守)。
+      if (adj && openAuto.length > 0 && critical + high > 0) {
+        const nowU = Date.now();
+        const severityU: TicketSeverity = critical > 0 ? 'critical' : 'high';
+        const titleU = `设备 ${deviceId} 存在 ${critical} 个 critical / ${high} 个 high 发现`;
+        for (const t of openAuto) {
+          if (t.title === titleU && t.severity === severityU) continue;
+          const refreshed: Ticket = {
+            ...t,
+            title: titleU,
+            severity: severityU,
+            description: `Collector 实时重算(已扣除加白资产): critical=${critical}, high=${high}。待研判。`,
+            updated_at: nowU,
+            history: [
+              ...t.history,
+              { action: 'update', actor: 'aegis-collector', timestamp: nowU, note: `计数收敛: critical=${critical}, high=${high}` },
+            ],
+          };
+          store.set(t.ticket_id, refreshed);
+        }
+        continue; // 已有 open 自动工单且已刷新计数，无需新建
+      }
       if (critical + high <= 0) continue;
       // Skip if an open ticket already exists for this device
       const hasOpen = [...store.values()].some(

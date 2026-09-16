@@ -250,12 +250,16 @@ export function ScanExplorer({
                     {f.asset_key || f.path ? (
                       <>
                         <br />
+                        {/* inline-flex：全局 reset 令 svg 为 display:block，行内布局时箭头会
+                            独自成行、在"去处置"药丸下方拖出一条错位钩线（用户反馈"歪"，
+                            skill/mcp/代码质量三页同源）。flex 让文字与箭头同行居中。 */}
                         <Link
                           className="handle"
                           href={`/dispositions?type=${f.asset_type === 'mcp' || f.category === 'mcp' ? 'mcp' : 'skill'}&asset=${encodeURIComponent(f.asset_key || f.path)}`}
-                          style={{ fontSize: 11 }}
+                          style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                         >
-                          去处置 <ArrowRight size={10} style={{ verticalAlign: '-1px' }} />
+                          去处置
+                          <ArrowRight size={10} />
                         </Link>
                       </>
                     ) : null}

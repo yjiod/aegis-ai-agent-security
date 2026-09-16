@@ -1,9 +1,9 @@
 {
   "schema": "aegis.update/v1",
-  "release": "0.72.0",
+  "release": "0.73.0",
   "agent_version": "0.34.1",
   "channel": "pilot",
-  "published_at": "2026-09-16T22:10:00+08:00",
+  "published_at": "2026-09-17T00:26:03+08:00",
   "min_agent_version": "0.33.0",
   "artifacts": {
     "aegis_agent.py": {

@@ -1,8 +1,16 @@
 {
-  "release": "0.72.0",
+  "release": "0.73.0",
   "channel": "pilot",
-  "published_at": "2026-09-16T22:10:00+08:00",
+  "published_at": "2026-09-17T00:26:03+08:00",
   "features": [
+    "endpoint_agent_0_34_1_release",
+    "native_vs_optional_allowlist_taxonomy",
+    "default_allowlist_db_single_source",
+    "disposition_center_default_allow_collapsed",
+    "risk_ticket_live_count_convergence",
+    "scanner_dispose_link_inline_flex_fix",
+    "enterprise_md_editor_backfill",
+    "self_update_origin_derivation_and_full_rollout",
     "enterprise_md_per_device_token_delivery",
     "enterprise_md_grayscale_bucket_authenticated_device",
     "user_baseline_enterprise_md_injection",
