@@ -41,6 +41,7 @@ export async function middleware(request: NextRequest) {
     pathname === '/login' ||
     pathname.startsWith('/api/auth') ||
     pathname === '/api/policy/artifact' ||
+    pathname === '/api/policy/verify-key' || // 公开验签公钥（公钥非秘密，批3）
     pathname === '/api/enroll' ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/aegis') ||
