@@ -10,6 +10,9 @@ Aegis 客户端自更新（无桌管环境兜底通道）。
     <target>.prev，并提供 rollback() 回退。
   - 灰度：按 device_id 的稳定哈希 % 100 < rollout_percent 才更新。
   - 仅允许 https:// 与 file:// （file 仅用于本地测试）源。
+  - 同源钉子：manifest 里相对的工件 url 按 manifest 源解析为绝对地址，且解析后
+    scheme+netloc 必须与 manifest 一致——未签名 manifest 即便被中间人替换，也无法
+    把下载改指向恶意主机（见 resolve_artifact_url）。
 """
 from __future__ import annotations
 
@@ -18,6 +21,7 @@ import json
 import os
 import tempfile
 import urllib.request
+from urllib.parse import urljoin, urlsplit
 
 UPDATE_SCHEMA = "aegis.update/v1"
 ALLOWED_SCHEMES = ("https://", "file://")
@@ -65,6 +69,28 @@ def manifest_artifact(manifest: dict, name: str) -> dict:
     if not isinstance(art, dict) or not isinstance(art.get("sha256"), str) or not art.get("url"):
         raise ValueError("invalid_update_artifact:" + name)
     return art
+
+
+def resolve_artifact_url(manifest_url: str, art_url: str) -> str:
+    """把 manifest 里的工件 URL 解析为绝对地址，并**强制同源**。
+
+    发行 manifest 的工件 url 是相对路径（如 /downloads/aegis_agent.py）；此前直接喂给
+    download_and_verify 会因不匹配 https:// 前缀被拒，令自更新兜底通道静默失效。此处按
+    manifest_url 用 urljoin 还原绝对地址修复之。
+
+    同时做同源钉子（scheme + netloc 必须与 manifest 一致）：manifest 目前**未签名**，
+    若被中间人替换，攻击者可将工件 url 指向自有主机并配上匹配的 sha256 绕过完整性校验。
+    同源约束把下载面锁死在 manifest 来源，未签名 manifest 也无法被改指向恶意主机。
+    file:// 仅当 manifest 本身即 file://（本地测试）时允许。
+    """
+    base = urlsplit(str(manifest_url))
+    joined = urljoin(str(manifest_url), str(art_url))
+    j = urlsplit(joined)
+    if j.scheme not in ("https", "file"):
+        raise ValueError("update_artifact_scheme_not_allowed")
+    if j.scheme != base.scheme or j.netloc != base.netloc:
+        raise ValueError("update_artifact_origin_mismatch")
+    return joined
 
 
 def download_and_verify(url: str, sha256: str, dest_staging: str, timeout: int = 60) -> str:
@@ -143,7 +169,9 @@ def check_and_apply(
             if local_sha == art.get("sha256"):
                 return {"updated": False, "reason": "already_current", "current": current_version, "latest": offered}
         staging = target_path + ".staging"
-        download_and_verify(art["url"], art["sha256"], staging)
+        # 相对工件 url 按 manifest 源解析为绝对地址并强制同源（见 resolve_artifact_url）。
+        artifact_url = resolve_artifact_url(manifest_url, art["url"])
+        download_and_verify(artifact_url, art["sha256"], staging)
         apply_update(staging, target_path)
     except Exception as e:  # noqa: BLE001
         return {"updated": False, "reason": "apply_failed:" + type(e).__name__, "latest": offered}

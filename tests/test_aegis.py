@@ -888,6 +888,34 @@ class AegisTests(unittest.TestCase):
             res3=su.check_and_apply('file://'+str(man2),'0.31.0','dev1','aegis_agent.py',str(target))
             self.assertTrue(res3['updated']); self.assertEqual(res3['to'],'0.32.0'); self.assertEqual(target.read_text(),'print("v32")')
 
+    def test_self_update_relative_artifact_url_resolves_same_origin(self):
+        # 回归：发行 manifest 的工件 url 是相对路径(/downloads/x)。此前直接喂给
+        # download_and_verify 因非 https:// 前缀被拒 → 自更新兜底通道静默失效。
+        su=load('selfupdate5','aegis_self_update.py')
+        # (a) resolve_artifact_url 把相对 url 按 manifest 源还原为绝对同源地址
+        base='https://console.example/downloads/update-manifest.json'
+        self.assertEqual(su.resolve_artifact_url(base,'/downloads/aegis_agent.py'),'https://console.example/downloads/aegis_agent.py')
+        self.assertEqual(su.resolve_artifact_url('https://console.example:8443/a/m.json','/x.py'),'https://console.example:8443/x.py')
+        # (b) 同源钉子：跨主机/协议相对/降级 http 一律拒绝（未签名 manifest 被 MITM 也无法改指向）
+        for bad in ('https://evil.example/x.py','//evil.example/x.py','http://console.example/x.py'):
+            with self.assertRaises(ValueError): su.resolve_artifact_url(base,bad)
+        # (c) 端到端：file:// manifest + 相对工件 url → 真正完成更新（证明死通道已修复）
+        with tempfile.TemporaryDirectory() as dd:
+            d=Path(dd)
+            (d/'new.py').write_text('print("v33")'); sha=hashlib.sha256((d/'new.py').read_bytes()).hexdigest()
+            man=d/'m.json'; man.write_text(json.dumps({"schema":"aegis.update/v1","release":"0.70.0","agent_version":"0.33.0","artifacts":{"aegis_agent.py":{"url":"new.py","sha256":sha}}}))
+            target=d/'agent.py'; target.write_text('print("old")')
+            res=su.check_and_apply('file://'+str(man),'0.31.0','dev1','aegis_agent.py',str(target))
+            self.assertTrue(res['updated']); self.assertEqual(res['to'],'0.33.0'); self.assertEqual(target.read_text(),'print("v33")')
+        # (d) 端到端同源钉子：file:// manifest 指向 https 工件(跨源) → 拒绝更新，保留旧版本
+        with tempfile.TemporaryDirectory() as dd:
+            d=Path(dd)
+            man=d/'m.json'; man.write_text(json.dumps({"schema":"aegis.update/v1","release":"0.70.0","agent_version":"0.33.0","artifacts":{"aegis_agent.py":{"url":"https://evil.example/x.py","sha256":"0"*64}}}))
+            target=d/'agent.py'; target.write_text('print("old")')
+            res=su.check_and_apply('file://'+str(man),'0.31.0','dev1','aegis_agent.py',str(target))
+            self.assertFalse(res['updated']); self.assertTrue(res['reason'].startswith('apply_failed'))
+            self.assertEqual(target.read_text(),'print("old")')
+
     def test_reference_adapters_implement_foura_interface(self):
         ad=load('refadapters','aegis_4a_reference_adapters.py'); import aegis_4a_interface as iface
         for name,cls in ad.ADAPTERS.items():
