@@ -748,6 +748,56 @@ def device_serial():
     if _SERIAL_CACHE["v"] is None:
         _SERIAL_CACHE["v"] = hardware_serial()
     return _SERIAL_CACHE["v"]
+def server_override_path():
+    """预留的服务器地址覆盖文件（用户编辑即全自动切换控制台，无需重装）。"""
+    return Path(__file__).with_name("server-override.json")
+def read_server_override():
+    """读 server-override.json 的 server_url；仅接受 https，非法/缺失返回空串。"""
+    try:
+        d = json.loads(server_override_path().read_text())
+    except (OSError, ValueError, UnicodeError):
+        return ""
+    if not isinstance(d, dict):
+        return ""
+    u = str(d.get("server_url") or d.get("server") or "").strip().rstrip("/")
+    return u if u.startswith("https://") and len(u) <= 256 else ""
+def report_url_origin(url):
+    try:
+        u = urlsplit(url or "")
+        return f"{u.scheme}://{u.netloc}" if u.scheme and u.netloc else ""
+    except ValueError:
+        return ""
+def enroll_to_server(server, device_id):
+    """向指定控制台零接触入网（改 server-override.json 后全自动切换）。
+    返回 (reporting_config, policy_or_None)；契约不满足抛 ValueError。"""
+    body = json.dumps({"hostname": os.uname().nodename, "device_id": device_id, "agent_version": AGENT_VERSION}).encode()
+    req = urllib.request.Request(server + "/api/enroll", data=body, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=20) as r:
+        d = json.loads(r.read().decode())
+    tok = str(d.get("report_token") or ""); sec = str(d.get("signing_secret") or "")
+    ru = str(d.get("report_url") or (server + "/aegis/v1/reports"))
+    if len(tok) < 32 or len(tok) > 4096: raise ValueError("enroll_token_invalid")
+    if len(sec) < 32 or len(sec) > 4096: raise ValueError("enroll_secret_invalid")
+    if not ru.startswith("https://"): raise ValueError("enroll_report_url_not_https")
+    return {"schema": "aegis.reporting/v1", "report_url": ru, "report_token": tok, "signing_secret": sec}, (d.get("policy") if isinstance(d.get("policy"), dict) else None)
+_OVERRIDE_NOTED = {"fail": False}
+def apply_server_override(args, host_device_id):
+    """每周期检查 server-override.json：服务器变更则重新入网并改写上报配置/策略。
+    失败保持现配置（SOFT FAIL），仅记一次 finding，绝不中断扫描/上报。
+    返回 rep(dict)=已切换 / False=切换失败 / None=无需切换。"""
+    ov = read_server_override()
+    if not ov or ov == report_url_origin(args.report_url):
+        return None
+    rpath = Path(args.report_config) if args.report_config else Path(__file__).with_name("reporting.json")
+    try:
+        rep, pol = enroll_to_server(ov, host_device_id)
+        write_private_atomic(str(rpath), json.dumps(rep, separators=(",", ":")))
+        if isinstance(pol, dict):
+            write_private_atomic(args.policy, json.dumps(pol, ensure_ascii=False))
+        args.report_url = rep["report_url"]
+        return rep
+    except Exception:
+        return False
 def hardware_device_id():
     """设备唯一 ID = sha256("aegis-hw:"+硬件序列)[:12]；无硬件标识时回落 hostname（旧行为）。
     用户反馈:hostname 变更/升级不应产生"新终端"，故优先硬件序列（稳定）。"""
@@ -812,7 +862,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.34.3"
+AGENT_VERSION = "0.34.4"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -938,6 +988,16 @@ def main():
     maybe_self_update(policy, args.report_url)
     if args.install_baseline: install_baseline(root)
     while True:
+        # 服务器地址覆盖（预留文件 server-override.json）：用户编辑该文件即全自动重新
+        # 入网、切换控制台并拉取新策略，无需重装客户端。失败 SOFT FAIL 保持原配置。
+        _ov = apply_server_override(args, host_device_id)
+        _EMIT_OV = False
+        if _ov is False and not _OVERRIDE_NOTED.get("emitted"):
+            _OVERRIDE_NOTED["emitted"] = True; _EMIT_OV = True
+        elif isinstance(_ov, dict):
+            _OVERRIDE_NOTED["emitted"] = False
+            reporting = {"report_token": _ov["report_token"], "signing_secret": _ov["signing_secret"]}
+            enrollment = None; enrollment_error = False; enrollment_mismatch = False
         policy,reload_failed=reload_policy(args.policy,policy,require_signature=require_signature)
         # 先拉取企业级 MD（按灰度范围）再注入基线：保证本轮注入即用最新企业 MD，
         # 否则新发布的企业 MD 要延迟一个扫描周期才生效（注入早于拉取的历史缺陷）。
@@ -957,6 +1017,8 @@ def main():
             add_report_finding(report,finding("enrollment_config_invalid","high",enroll_path,"每设备入网凭据权限、所有者或契约无效；本轮拒绝上报，绝不回退全网共享凭据")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if enrollment_mismatch:
             add_report_finding(report,finding("enrollment_device_mismatch","high",enroll_path,f"入网凭据 device_id 与本机派生 ID({host_device_id}) 不符；本轮拒绝上报")); data=json.dumps(report,ensure_ascii=False,indent=2)
+        if _EMIT_OV:
+            add_report_finding(report,finding("server_override_failed","medium",str(server_override_path()),"server-override.json 指向的控制台入网失败，保持原上报配置；请检查该控制台可达性与 /api/enroll")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if args.output: write_private_atomic(args.output,data)
         can_report=bool(args.report_url) and not reporting_error and not enrollment_error and not enrollment_mismatch
         if can_report:

@@ -645,7 +645,9 @@ class AegisTests(unittest.TestCase):
         for name in ('aegis_agent.py','aegis-windows.ps1','aegis-policy.json','aegis-security-baseline.md'):
             digest=hashlib.sha256((DOWNLOADS/name).read_bytes()).hexdigest(); self.assertEqual(entries.get(name),digest)
         self.assertTrue((DOWNLOADS/'rollback-aegis-windows.ps1').exists()); self.assertTrue((DOWNLOADS/'rollback-aegis-macos.sh').exists())
-        self.assertIn(f"agent_version='{self.agent.AGENT_VERSION}'",(DOWNLOADS/'aegis-windows.ps1').read_text())
+        _ps1=(DOWNLOADS/'aegis-windows.ps1').read_text()
+        self.assertIn(f"$agentVersion = '{self.agent.AGENT_VERSION}'",_ps1)   # 单一真源变量
+        self.assertIn("agent_version=$agentVersion",_ps1)                    # 报告引用该变量
         self.assertEqual(self.agent.report_headers(b'{}')['User-Agent'],f'AegisAgent/{self.agent.AGENT_VERSION}')
     def test_posix_installer_creates_only_complete_previous_snapshots(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1073,5 +1075,37 @@ class AegisTests(unittest.TestCase):
                 self.assertIn(bs+'d{4}', target.read_text())
             finally:
                 self.agent.enterprise_baseline_path=orig
+
+    def test_server_override_file_and_auto_reenroll(self):
+        # 预留覆盖文件：https 才采纳；非法/缺失返回空；origin 比较；切换时重新入网并改写上报配置。
+        import tempfile, types
+        with tempfile.TemporaryDirectory() as d:
+            ov=Path(d)/'server-override.json'
+            orig_path=self.agent.server_override_path; orig_enroll=self.agent.enroll_to_server
+            self.agent.server_override_path=lambda: ov
+            try:
+                self.assertEqual(self.agent.read_server_override(),'')           # 缺失
+                ov.write_text('{"server_url":"http://insecure.example"}'); self.assertEqual(self.agent.read_server_override(),'')  # 非 https 拒绝
+                ov.write_text('{"server_url":"https://new.example/"}'); self.assertEqual(self.agent.read_server_override(),'https://new.example')  # 去尾斜杠
+                self.assertEqual(self.agent.report_url_origin('https://old.example/aegis/v1/reports'),'https://old.example')
+                # origin 相同 → 无需切换
+                args=types.SimpleNamespace(report_url='https://new.example/aegis/v1/reports', report_config=str(Path(d)/'reporting.json'), policy=str(Path(d)/'p.json'))
+                self.assertIsNone(self.agent.apply_server_override(args,'dev12345678'))
+                # origin 不同 + 入网失败 → False（SOFT FAIL，不改配置）
+                ov.write_text('{"server_url":"https://other.example"}')
+                def boom(*a,**k): raise ValueError('enroll_denied')
+                self.agent.enroll_to_server=boom
+                self.assertIs(self.agent.apply_server_override(args,'dev12345678'), False)
+                self.assertEqual(args.report_url,'https://new.example/aegis/v1/reports')
+                # origin 不同 + 入网成功 → 改写上报配置/策略并切换 report_url
+                def ok(server, device_id):
+                    return {"schema":"aegis.reporting/v1","report_url":server+"/aegis/v1/reports","report_token":"t"*40,"signing_secret":"s"*40}, {"schema":"aegis.policy/v1","version":"9.9.9"}
+                self.agent.enroll_to_server=ok
+                rep=self.agent.apply_server_override(args,'dev12345678')
+                self.assertEqual(args.report_url,'https://other.example/aegis/v1/reports')
+                self.assertTrue(Path(d).joinpath('reporting.json').is_file())
+                self.assertIn('9.9.9', Path(d).joinpath('p.json').read_text())
+            finally:
+                self.agent.server_override_path=orig_path; self.agent.enroll_to_server=orig_enroll
 
 if __name__=='__main__': unittest.main()

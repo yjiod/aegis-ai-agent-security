@@ -205,6 +205,8 @@ function Test-PlaceholderOrigin {
 # 解析优先级：公开包烘的是占位域，必须允许装机时注入真实 origin，否则
 # 「装得上但永远入不了网」——这正是 D1 想拦住的失败模式，只是拦在了错误的时机。
 #   1) -ServerUrl            ← MSI 公共属性 AEGIS_SERVER_URL（类型 18 动作格式化注入）
+#   1.5) 预留覆盖文件         ← 用户编辑即全自动，无需记 msiexec 参数：
+#        C:\ProgramData\aegis-server.json 或 <安装基目录>\server-override.json
 #   2) server.json           ← 构建期烘焙，且烘的不是占位域时才采纳
 #   3) $env:AEGIS_SERVER_URL ← 机器级环境变量（deferred 动作以 SYSTEM 运行，读不到用户级）
 $serverFile = Join-Path $Base 'server.json'
@@ -217,11 +219,26 @@ if (Test-Path -LiteralPath $serverFile) {
     Fail-Hard "server.json 解析失败：$($_.Exception.Message)"
   }
 }
+# 预留覆盖文件（D4 同款 ProgramData 三级回落）：{"server_url":"https://<控制台>"}
+$pdRoot = $env:ProgramData
+if (-not $pdRoot) { $pdRoot = [Environment]::GetFolderPath('CommonApplicationData') }
+if (-not $pdRoot) { $sd = $env:SystemDrive; if (-not $sd) { $sd = 'C:' }; $pdRoot = Join-Path $sd 'ProgramData' }
+$ovServerUrl = $null
+foreach ($ovf in @((Join-Path $pdRoot 'aegis-server.json'), (Join-Path $Base 'server-override.json'))) {
+  if (Test-Path -LiteralPath $ovf) {
+    try {
+      $ovu = [string](Get-Content -LiteralPath $ovf -Raw | ConvertFrom-Json).server_url
+      if ($ovu -and $ovu.StartsWith('https://')) { $ovServerUrl = $ovu.TrimEnd('/'); Write-Log "预留覆盖文件生效：$ovf"; break }
+    } catch { }
+  }
+}
 
 $server = $null
 $serverSource = $null
 if ($ServerUrl) {
   $server = $ServerUrl; $serverSource = 'MSI 属性 AEGIS_SERVER_URL'
+} elseif ($ovServerUrl) {
+  $server = $ovServerUrl; $serverSource = '预留覆盖文件（aegis-server.json / server-override.json）'
 } elseif ($baked -and -not (Test-PlaceholderOrigin ([string]$baked))) {
   $server = $baked; $serverSource = 'server.json（构建期烘焙）'
 } elseif ($env:AEGIS_SERVER_URL) {
@@ -289,7 +306,7 @@ Write-Log "device_id=$deviceId（12位小写hex，服务端据此签发 per-devi
 if (-not ('Security.Cryptography.ProtectedData' -as [type])) {
   try { Add-Type -AssemblyName System.Security } catch { Write-Log "Add-Type System.Security 失败：$($_.Exception.Message)" 'WARN' }
 }
-$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.34.3' } | ConvertTo-Json -Compress
+$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.34.4' } | ConvertTo-Json -Compress
 $enroll = $null
 $enrollError = $null
 for ($attempt = 1; $attempt -le 3; $attempt++) {

@@ -76,6 +76,12 @@ chmod 644 "$ROOTDIR/Library/LaunchDaemons/$IDENT.plist"
 cat > "$SCRIPTS/postinstall" <<'POST'
 #!/bin/sh
 SERVER="__SERVER__"
+# 预留覆盖文件（用户编辑即全自动切换控制台，无需重装/记参数）：
+#   /Library/Preferences/aegis-server.json  内容 {"server_url":"https://<控制台>"}
+if [ -f /Library/Preferences/aegis-server.json ]; then
+  OV=$(sed -n 's/.*"server_url"[[:space:]]*:[[:space:]]*"\(https://[^"]*\)".*/\1/p' /Library/Preferences/aegis-server.json | head -1 | sed 's#/*$##')
+  if [ -n "$OV" ]; then SERVER="$OV"; echo "  · 预留覆盖文件生效：/Library/Preferences/aegis-server.json"; fi
+fi
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST="/Library/LaunchDaemons/com.aegis.agent.plist"
 PYBIN="$(command -v python3 || echo /usr/bin/python3)"

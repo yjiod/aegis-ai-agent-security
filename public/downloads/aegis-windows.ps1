@@ -282,6 +282,34 @@ $badSn = @('', 'To be filled by O.E.M.', 'None', 'Default string', 'Unknown', 'O
 if ($sn -and ($badSn -notcontains $sn.Trim())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
+$agentVersion = '0.34.4'
+# ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
+#    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
+$ovServer = $null
+$ovPath = Join-Path $installDir 'server-override.json'
+if (Test-Path -LiteralPath $ovPath) {
+  try {
+    $ovObj = Get-Content -LiteralPath $ovPath -Raw | ConvertFrom-Json
+    $ovu = [string]$ovObj.server_url
+    if ($ovu -and $ovu.StartsWith('https://')) { $ovServer = $ovu.TrimEnd('/') }
+  } catch { $ovServer = $null }
+}
+if ($ovServer) {
+  $curUri = $null; [Uri]::TryCreate([string]$ReportUrl, [UriKind]::Absolute, [ref]$curUri) | Out-Null
+  $curOrigin = if ($curUri) { "$($curUri.Scheme)://$($curUri.Host)" } else { '' }
+  if ($ovServer -ne $curOrigin) {
+    try {
+      $enr = Invoke-RestMethod -Uri "$ovServer/api/enroll" -Method Post -ContentType 'application/json' -Body (@{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = $agentVersion } | ConvertTo-Json -Compress) -TimeoutSec 20
+      $ovTok = [string]$enr.report_token; $ovSec = [string]$enr.signing_secret; $ovRu = [string]$enr.report_url
+      if ($ovTok.Length -ge 32 -and $ovTok.Length -le 4096 -and $ovSec.Length -ge 32 -and $ovSec.Length -le 4096 -and $ovRu.StartsWith('https://')) {
+        $ovCfg = @{ schema = 'aegis.reporting/v1'; report_url = $ovRu; report_token = $ovTok; signing_secret = $ovSec } | ConvertTo-Json -Compress
+        $ovEnc = [Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($ovCfg), $entropy, [Security.Cryptography.DataProtectionScope]::LocalMachine)
+        [IO.File]::WriteAllBytes($ProtectedConfig, $ovEnc)
+        $ReportUrl = $ovRu; $env:AEGIS_REPORT_TOKEN = $ovTok; $env:AEGIS_REPORT_SIGNING_SECRET = $ovSec; $reportConfigInvalid = $false
+      }
+    } catch { }
+  }
+}
 # Agent 以 LocalSystem 服务/计划任务运行时 $env:USERNAME 为空或 SYSTEM，无法定位真实使用者，
 # 导致控制台 owner 显示"待分配"。回退到交互控制台登录用户(Win32_ComputerSystem.UserName)，仍无则 unknown。
 $osUser = $env:USERNAME
@@ -294,7 +322,7 @@ if (-not $osUser -or $osUser -ieq 'SYSTEM' -or $osUser.EndsWith('$')) {
 if (-not $osUser -or $osUser -ieq 'SYSTEM' -or $osUser.EndsWith('$')) { $osUser = 'unknown' }
 # 归属人：优先安装期显式绑定的 AEGIS_DEVICE_OWNER，其次由控制台按 os_user 归一(override||os_user||待分配)。
 $owner = if ($env:AEGIS_DEVICE_OWNER) { [string]$env:AEGIS_DEVICE_OWNER } else { '' }
-$report = @{ schema='aegis.report/v1'; agent_version='0.34.3'; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
