@@ -701,27 +701,57 @@ def hardware_serial():
     return ""
 def interactive_os_user():
     """上报"实际使用者"：优先环境变量；以 root/守护进程运行时 env 无真实用户，
-    回落到交互控制台登录用户（mac/linux: /dev/console 属主），避免 owner 显示 unknown/待分配。"""
+    多级回落交互控制台登录用户，避免 owner/os_user 显示 unknown/待分配（用户要求解决）：
+    mac: stat /dev/console 属主 → who 的 console 行 → scutil State:/Users/ConsoleUser；
+    linux: stat /dev/console 属主 → who 的 console/:0 行。"""
     u = (os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "").strip()
     if u and u.lower() not in ("root", "system", "localsystem", "$"):
         return u
+    import platform
+    sysname = platform.system()
+    def _ok(v):
+        v = (v or "").strip()
+        return v if v and v.lower() not in ("", "root", "system", "localsystem", "$") else ""
     try:
-        import platform
-        if platform.system() == "Darwin":
-            out = subprocess.run(["stat", "-f", "%Su", "/dev/console"], capture_output=True, text=True, timeout=5).stdout.strip()
-            if out and out.lower() not in ("", "root"):
-                return out
-        elif platform.system() == "Linux":
-            out = subprocess.run(["stat", "-c", "%U", "/dev/console"], capture_output=True, text=True, timeout=5).stdout.strip()
-            if out and out.lower() not in ("", "root"):
-                return out
+        if sysname == "Darwin":
+            got = _ok(subprocess.run(["stat", "-f", "%Su", "/dev/console"], capture_output=True, text=True, timeout=5).stdout)
+            if got:
+                return got
+            # who 的 console 行（如 "shine   console  ..."）
+            for line in subprocess.run(["who"], capture_output=True, text=True, timeout=5).stdout.splitlines():
+                if "console" in line:
+                    got = _ok(line.split()[0]) if line.split() else ""
+                    if got:
+                        return got
+            # scutil State:/Users/ConsoleUser 的 Name 字段
+            sc = subprocess.run(["scutil"], input="show State:/Users/ConsoleUser\n", capture_output=True, text=True, timeout=5).stdout
+            m = re.search(r'Name\s*:\s*(\S+)', sc)
+            got = _ok(m.group(1) if m else "")
+            if got:
+                return got
+        elif sysname == "Linux":
+            got = _ok(subprocess.run(["stat", "-c", "%U", "/dev/console"], capture_output=True, text=True, timeout=5).stdout)
+            if got:
+                return got
+            for line in subprocess.run(["who"], capture_output=True, text=True, timeout=5).stdout.splitlines():
+                if "console" in line or ":0" in line:
+                    got = _ok(line.split()[0]) if line.split() else ""
+                    if got:
+                        return got
     except Exception:
         pass
     return u or "unknown"
+_SERIAL_CACHE = {"v": None}
+def device_serial():
+    """真实硬件序列号（进程内缓存）：mac=IOPlatformSerialNumber、win=机器序列号、
+    linux=machine-id。供上报与展示以便定位设备（用户要求显示真实序列号）；无则空串。"""
+    if _SERIAL_CACHE["v"] is None:
+        _SERIAL_CACHE["v"] = hardware_serial()
+    return _SERIAL_CACHE["v"]
 def hardware_device_id():
     """设备唯一 ID = sha256("aegis-hw:"+硬件序列)[:12]；无硬件标识时回落 hostname（旧行为）。
     用户反馈:hostname 变更/升级不应产生"新终端"，故优先硬件序列（稳定）。"""
-    s=hardware_serial()
+    s=device_serial()
     if s: return hashlib.sha256(("aegis-hw:"+s).encode()).hexdigest()[:12]
     return hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
 ENTERPRISE_BASELINE_VERSION=""
@@ -777,12 +807,12 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.34.2"
+AGENT_VERSION = "0.34.3"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用

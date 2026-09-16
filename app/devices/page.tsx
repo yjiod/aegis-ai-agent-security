@@ -664,6 +664,12 @@ export default function DevicesPage() {
                   <div style={cellStackStyle}>
                     <strong>{device.device_id}</strong>
                     <span style={{ fontSize: 10 }}>{device.hostname} · {osLabel(device.os)}</span>
+                    {/* 真实硬件序列号（用户要求显示以便定位设备；mac/win 均上报） */}
+                    {(device as { serial?: string }).serial ? (
+                      <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+                        序列号 {(device as { serial?: string }).serial}
+                      </span>
+                    ) : null}
                   </div>
                   <span>
                     {device.owner || '未指派'} · {(((device as { tools?: string[] }).tools ?? []).length > 0
