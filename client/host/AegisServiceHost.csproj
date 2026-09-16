@@ -9,6 +9,66 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <AssemblyName>AegisServiceHost</AssemblyName>
     <RootNamespace>AegisServiceHost</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
+
+    <!--
+      ── 修复记录（AEGIS-WIN-0001 v2 / F3，2026-09-16）─────────────────────
+      build-windows-msi.sh 原注释自述「.msi 约 32MB（自包含 .NET 运行时）」。
+      但本 host 是**纯控制台 Exe**：只用到 System.Diagnostics、System.Text.Json、
+      System.Runtime.InteropServices，以及 advapi32 的 4 个 P/Invoke
+      （StartServiceCtrlDispatcher / RegisterServiceCtrlHandlerEx / SetServiceStatus）。
+      无 XAML、无 System.Windows.*、无 System.Drawing.*。
+      32MB 里绝大部分是从未被加载的负载。
+
+      UseWPF / UseWindowsForms = false
+        即使 TargetFramework 是 net10.0（非 -windows），也显式关闭，
+        避免任何隐式引用把桌面栈（PresentationFramework / WindowsBase /
+        System.Windows.Forms，约 8-10MB）拉进单文件包。
+
+      SatelliteResourceLanguages = en
+        本进程输出串全为英文，无需 ja/ko/zh-Hans/zh-Hant/... 资源程序集（约 3-5MB）。
+
+      DebugType=None / DebugSymbols=false
+        公开安装包不留调试符号与源码映射（约 2-3MB）。
+        需要排障时用内部构建单独产符号，不随 MSI 分发。
+
+      PublishTrimmed = true + TrimMode = partial
+        ⚠️ 实测踩坑记录（2026-09-16，本机 win-x64 实跑发现）：
+        开启 PublishTrimmed 后 SDK 会置 JsonSerializerIsReflectionEnabledByDefault=false，
+        而 WriteHealth 原先对**匿名类型**调用无上下文的
+        JsonSerializer.SerializeToUtf8Bytes(value)，运行时直接抛
+          InvalidOperationException: Reflection-based serialization has been disabled
+        该调用发生在 RunAsync 的扫描循环**之前**，且 WriteHealth 的 catch 过滤器只覆盖
+        IOException / UnauthorizedAccessException，异常逃逸 → 进程崩溃。
+        后果：once 动词立刻退出（0xE0434352），service 动词被 SCM 拉起后立刻死，
+        表现为服务启动失败 1053 + 恢复策略下的无限重启。
+
+        已修复：WriteHealth 改为源生成上下文
+        （ServiceHealthJsonContext.Default.ServiceHealth），并把 catch 收敛为全量兜底。
+        源生成同时消除了 IL2026 裁剪告警，且不再需要靠 TrimMode 来"保反射元数据"。
+
+        仍保留 partial 而非 full：本进程以 LocalSystem 常驻，full 的额外收益约 1MB，
+        不值得为它承担其余反射路径（P/Invoke 封送、SCM 回调委托）被误裁的风险。
+        验证要求：发布后必须以「双连字符 once」参数实跑 AegisServiceHost.exe，
+        确认进程退出码为 0、%ProgramData%\AegisAgent\service-health.json 正常写出且
+        last_scan_exit_code 为 0 或 2（扫描器的正常完成码）。
+
+      PublishReadyToRun = false
+        关闭 R2R 预编译映像（约 6-8MB）。代价是首次 JIT 稍慢，
+        对一个每小时跑一次的服务无关紧要。
+
+      EnableCompressionInSingleFile = true
+        单文件内压缩（约 2-4MB）。代价是启动时需解压，同上可接受。
+    -->
+    <UseWPF>false</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 </Project>

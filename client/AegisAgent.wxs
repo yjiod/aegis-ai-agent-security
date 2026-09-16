@@ -1,27 +1,100 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  AegisAgent.wxs — Windows 原生安装器（用 wixl/msitools 构建，可在 macOS/Linux 交叉产出 .msi）。
+  AegisAgent.wxs — Windows 原生安装器 aegis-agent-windows.msi（单一通用包，x64 + ARM64）。
+
   关键点：自定义动作用 FileKey 型（运行已安装的 AegisServiceHost.exe），wixl 支持；
   不要用属性型 ExeCommand='[INSTALLDIR]...'（wixl 会断言失败 Source!=NULL）。
-  server.json 由 build-windows-msi.sh 在构建时生成（烘焙真实 origin），公开仓库不含真实主机。
   安装包不含任何凭据：令牌在装机时由 Install-Aegis-Windows.ps1 经 /api/enroll 零接触获取。
+
+  ── 通用双架构设计（AEGIS-WIN-0001 v3，2026-09-16）───────────────────────
+  发布产物只有一个 aegis-agent-windows.msi（与既有 release 资产名一致），内部同时携带
+  win-x64 与 win-arm64 两份自包含 host，按目标机架构**只安装匹配的那一份**：
+
+    AEGIS_PROCARCH ← RegistrySearch 读 HKLM\...\Session Manager\Environment\PROCESSOR_ARCHITECTURE
+                     得到 "AMD64" / "ARM64"（MSI 没有内置的架构属性，这是标准取法）
+    HostX64   Component Condition="AEGIS_PROCARCH=&quot;AMD64&quot;"
+    HostArm64 Component Condition="AEGIS_PROCARCH=&quot;ARM64&quot;"
+
+  为什么用条件而不是两个 MSI：条件组件不参与安装，所以装机占用仍是单架构的
+  ~11 MB（不是两份之和 ~23 MB）；代价只是下载体积从 ~5.7 MB 升到 ~12 MB。
+
+  自定义动作必须按架构分成两个：FileKey 指向的是具体 File 行，而两个架构的 host
+  是不同的 File。条件互斥，同一次安装只会调度其中一个。
+
+  ── 控制台地址注入（AEGIS_SERVER_URL）────────────────────────────────────
+  公开包里烘的是 RFC2606 占位域 https://aegis.example.com（仓库 scripts/privacy-scan.sh
+  明确禁止真实主机域名入库）。装机时用公共属性指向真实控制台：
+
+    msiexec /i aegis-agent-windows.msi AEGIS_SERVER_URL=https://<你的控制台>
+
+  类型 18 自定义动作的 ExeCommand 在**被调度时**（立即序列）完成属性格式化并写入
+  deferred 脚本，所以 [AEGIS_SERVER_URL] 在 Impersonate="no" 的延迟动作里依然可取。
+  未注入时格式化成空值 "AEGIS_SERVER_URL="，host 据此不向脚本传 -ServerUrl，
+  由脚本回落到 server.json（非占位域时）或机器级环境变量。
+  Secure="yes" 让该属性不出现在 MSI 日志里。
+
+  ── 复核记录（AEGIS-WIN-0001 v2，2026-09-16）──────────────────────────────
+  <CustomAction FileKey="..." ExeCommand="..." /> 是 WiX v3 的**合法**组合：
+  FileKey + ExeCommand → MSI 自定义动作类型 18（运行已安装的可执行文件）。
+  实测佐证：Windows 安装失败时报的是 **1722**（程序已运行但返回非零）而非
+  **1721**（CreateProcess 失败），说明动作形态一直是对的，故障在脚本内部。
+  真正的根因见 AEGIS-WIN-0001-v2.md 与 Install-Aegis-Windows.ps1 头部的 D1–D9。
+
+  同时保留卸载动作：条件 REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE 在全新安装的
+  回滚路径中为假（REMOVE 未置 ALL），不会二次执行；正常卸载时为真，正确地在删文件前
+  停止并注销服务。
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="Aegis AI Agent Security" Language="2052" Version="0.33.1" Manufacturer="Aegis" UpgradeCode="3CD9719D-F9BC-4163-ABA5-1009CC4250F6">
+  <!--
+    Codepage="936"（zh-CN/GBK）必须与 Language="2052" 配套显式声明。
+    缺失时原生 WiX 的 light.exe 以默认代码页 1252 建库，遇到下面 MajorUpgrade 的中文
+    DowngradeErrorMessage 直接报 LGHT0311 而构建失败；wixl/msitools 不校验该项，
+    故此缺陷只在「原生 WiX」这条验证轨道上暴露。Codepage 是 WiX v3 schema 的合法
+    Product 属性，两条轨道均可解析，不影响既有 wixl 构建。
+  -->
+  <Product Id="*" Name="Aegis AI Agent Security" Language="2052" Codepage="936" Version="0.34.0" Manufacturer="Aegis" UpgradeCode="3CD9719D-F9BC-4163-ABA5-1009CC4250F6">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 Aegis Agent。" />
     <Media Id="1" Cabinet="aegis.cab" EmbedCab="yes" />
 
+    <!-- 目标机 CPU 架构。RegistrySearch 是立即序列，AEGIS_PROCARCH 在成本计算前即可用，
+         因此可以安全地作为 Component 条件与自定义动作条件。 -->
+    <Property Id="AEGIS_PROCARCH">
+      <RegistrySearch Id="AegisProcArchSearch" Root="HKLM"
+                      Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+                      Name="PROCESSOR_ARCHITECTURE" Type="raw" Win64="yes" />
+    </Property>
+    <!-- 装机时注入的真实控制台 origin（公开包不含真实主机域名）。Secure 使其不入日志。 -->
+    <Property Id="AEGIS_SERVER_URL" Secure="yes" />
+
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="AegisAgent">
+          <!-- 架构无关的随包资产 -->
           <Component Id="AgentFiles" Guid="3BB058FC-2676-470B-8BE9-DF8E09CF0B7E" Win64="yes">
-            <File Id="ServiceHost" Source="AegisServiceHost.exe" KeyPath="yes" />
-            <File Id="Scanner" Source="aegis-windows.ps1" />
+            <File Id="Scanner" Source="aegis-windows.ps1" KeyPath="yes" />
             <File Id="Policy" Source="aegis-policy.json" />
             <File Id="Baseline" Source="aegis-security-baseline.md" />
             <File Id="Installer" Source="Install-Aegis-Windows.ps1" />
             <File Id="ServerCfg" Source="server.json" />
+          </Component>
+          <!-- 两份自包含 host，按架构二选一。Name 相同 → 装机后路径恒为
+               %ProgramFiles%\AegisAgent\AegisServiceHost.exe，脚本与 SCM 无需感知架构。
+
+               light 会就这两行报 warning LGHT1076 / ICE30：同一目标文件由两个条件组件提供，
+               「若条件不互斥会破坏组件引用计数」。这里条件是**互斥且穷尽**的，故为可接受警告：
+               ARM64 走 HostArm64，其余一切（AMD64、x86、以及 RegistrySearch 万一取空）
+               都落到 HostX64 这个默认分支。用 ="AMD64" 精确匹配会留下「两个都不装」的
+               静默空洞——MSI 报成功却装出一个没有 host 的空壳，那比警告糟得多。
+               附带好处：ARM64 Windows 上若 msiexec 以 x64 模拟运行、读到 AMD64，
+               装的 x64 host 照样能在模拟层跑起来，而不是无包可装。 -->
+          <Component Id="HostX64" Guid="9C1A5F3E-7D24-4B6A-8E51-2F0B7C4D9A63" Win64="yes">
+            <Condition>AEGIS_PROCARCH&lt;&gt;"ARM64"</Condition>
+            <File Id="ServiceHostX64" Source="AegisServiceHost.x64.exe" Name="AegisServiceHost.exe" KeyPath="yes" />
+          </Component>
+          <Component Id="HostArm64" Guid="4E7B2C91-5A68-4D3F-B0C7-8A1E5D24F6B9" Win64="yes">
+            <Condition>AEGIS_PROCARCH="ARM64"</Condition>
+            <File Id="ServiceHostArm64" Source="AegisServiceHost.arm64.exe" Name="AegisServiceHost.exe" KeyPath="yes" />
           </Component>
         </Directory>
       </Directory>
@@ -29,16 +102,32 @@
 
     <Feature Id="MainFeature" Title="Aegis Agent" Level="1">
       <ComponentRef Id="AgentFiles" />
+      <ComponentRef Id="HostX64" />
+      <ComponentRef Id="HostArm64" />
     </Feature>
 
-    <!-- 安装后（SYSTEM，延迟）跑 host 的 install 动词：零接触入网 + DPAPI 配置 + sc.exe 注册服务并启动 -->
-    <CustomAction Id="InstallAegis" FileKey="ServiceHost" ExeCommand="--install" Execute="deferred" Impersonate="no" Return="check" />
+    <!-- 安装后（SYSTEM，延迟）跑 host 的 install 动词：零接触入网 + DPAPI 配置 + 注册服务并启动。
+         按架构分成两个动作，因为 FileKey 必须指向具体的 File 行；条件互斥，只会调度其一。 -->
+    <CustomAction Id="InstallAegisX64" FileKey="ServiceHostX64"
+                  ExeCommand="--install AEGIS_SERVER_URL=[AEGIS_SERVER_URL]"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="InstallAegisArm64" FileKey="ServiceHostArm64"
+                  ExeCommand="--install AEGIS_SERVER_URL=[AEGIS_SERVER_URL]"
+                  Execute="deferred" Impersonate="no" Return="check" />
     <!-- 卸载前（host 仍在）跑 host 的 uninstall 动词：停止并删除服务 -->
-    <CustomAction Id="UninstallAegis" FileKey="ServiceHost" ExeCommand="--uninstall" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UninstallAegisX64" FileKey="ServiceHostX64" ExeCommand="--uninstall"
+                  Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="UninstallAegisArm64" FileKey="ServiceHostArm64" ExeCommand="--uninstall"
+                  Execute="deferred" Impersonate="no" Return="check" />
 
+    <!-- 条件必须与上面 HostX64/HostArm64 的组件条件**逐字一致**：组件决定装哪个 host，
+         动作决定跑哪个 host。两边判定不同步就会「装了文件却没跑安装动作」——MSI 报成功，
+         但服务没注册、没入网，比直接失败更难查。 -->
     <InstallExecuteSequence>
-      <Custom Action="InstallAegis" After="InstallFiles">NOT Installed</Custom>
-      <Custom Action="UninstallAegis" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+      <Custom Action="InstallAegisX64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH&lt;&gt;"ARM64"</Custom>
+      <Custom Action="InstallAegisArm64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH="ARM64"</Custom>
+      <Custom Action="UninstallAegisX64" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND AEGIS_PROCARCH&lt;&gt;"ARM64"</Custom>
+      <Custom Action="UninstallAegisArm64" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND AEGIS_PROCARCH="ARM64"</Custom>
     </InstallExecuteSequence>
   </Product>
 </Wix>

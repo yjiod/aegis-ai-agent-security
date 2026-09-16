@@ -10,7 +10,10 @@
 //
 // 动词：
 //   --service    作为 Windows 服务运行（SCM 调度；周期执行 aegis-windows.ps1）
-//   --install    委派 Install-Aegis-Windows.ps1：零接触入网 + DPAPI 配置 + sc.exe 注册服务并启动
+//   --install [AEGIS_SERVER_URL=<https origin>]
+//              委派 Install-Aegis-Windows.ps1：零接触入网 + DPAPI 配置 + 注册服务并启动。
+//              可选第二个参数由 MSI 类型 18 自定义动作格式化注入（见 AegisAgent.wxs），
+//              使公开包能在装机时指向真实控制台而不把域名烘进包里。
 //   --uninstall  委派 Install-Aegis-Windows.ps1 -Uninstall：停止并删除服务
 //   --once       前台跑一次扫描（排障用）
 //
@@ -19,6 +22,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 internal static class Program
 {
@@ -43,18 +47,43 @@ internal static class Program
             Console.Error.WriteLine("AegisServiceHost 仅用于 Windows 服务；macOS 请用 .pkg（LaunchDaemon 驱动 Python Agent）。");
             return 64;
         }
-        if (args.Length != 1) { Console.Error.WriteLine("usage: AegisServiceHost --service|--install|--uninstall|--once"); return 64; }
+        // --install 额外接受一个 AEGIS_SERVER_URL=<origin> 参数：MSI 类型 18 自定义动作把
+        // 安装期公共属性格式化进 ExeCommand（见 AegisAgent.wxs），用于公开包在装机时
+        // 指向真实控制台——真实主机域名不入库，包里烘的是 RFC2606 占位域。
+        if (args.Length >= 1 && args[0] == "--install")
+        {
+            if (args.Length > 2) return BadUsage();
+            var forwarded = ParseInstallArgs(args);
+            if (forwarded is null) return BadUsage();
+            return await DelegateAsync("Install-Aegis-Windows.ps1", forwarded);
+        }
+        if (args.Length != 1) return BadUsage();
         return args[0] switch
         {
             "--service" => RunWindowsService(),
-            "--install" => await DelegateAsync("Install-Aegis-Windows.ps1", Array.Empty<string>()),
             "--uninstall" => await DelegateAsync("Install-Aegis-Windows.ps1", new[] { "-Uninstall" }),
             "--once" => await RunAsync(once: true, CancellationToken.None),
             _ => BadUsage(),
         };
     }
 
-    private static int BadUsage() { Console.Error.WriteLine("usage: AegisServiceHost --service|--install|--uninstall|--once"); return 64; }
+    private static int BadUsage() { Console.Error.WriteLine("usage: AegisServiceHost --service|--install [AEGIS_SERVER_URL=<https origin>]|--uninstall|--once"); return 64; }
+
+    /// <summary>
+    /// 把 <c>--install AEGIS_SERVER_URL=&lt;origin&gt;</c> 翻译成脚本的 <c>-ServerUrl</c>。
+    /// 属性未注入时 MSI 格式化成空值（<c>AEGIS_SERVER_URL=</c>），此时不传 -ServerUrl，
+    /// 由脚本按「server.json 非占位域 → 机器级环境变量」的顺序自行解析。
+    /// 返回 null 表示第二个参数无法识别——按用法错误退出，避免把 URL 静默丢掉后
+    /// 装出一个永远无法入网的 agent。
+    /// </summary>
+    private static string[]? ParseInstallArgs(string[] args)
+    {
+        if (args.Length != 2) return Array.Empty<string>();
+        const string prefix = "AEGIS_SERVER_URL=";
+        if (!args[1].StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+        var url = args[1].Substring(prefix.Length).Trim();
+        return url.Length == 0 ? Array.Empty<string>() : new[] { "-ServerUrl", url };
+    }
 
     // ── 委派 PowerShell（安装/卸载逻辑随包，避免在 C# 里重复 DPAPI/入网）────────────
     private static async Task<int> DelegateAsync(string script, string[] extraArgs)
@@ -181,28 +210,35 @@ internal static class Program
 
     private static async Task WriteHealth(string path, string state, long? lastScanStartedAt, int exitCode, long serviceStartedAt, string? error)
     {
-        var value = new
+        var value = new ServiceHealth
         {
-            schema = HealthSchema,
-            host_version = HostVersion,
-            state,
-            service_started_at = serviceStartedAt,
-            updated_at = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-            last_scan_started_at = lastScanStartedAt,
-            last_scan_exit_code = exitCode,
-            scanner = "windows-powershell",
-            error,
-            contains_secrets = false,
-            arbitrary_command_enabled = false,
+            Schema = HealthSchema,
+            HostVersion = HostVersion,
+            State = state,
+            ServiceStartedAt = serviceStartedAt,
+            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+            LastScanStartedAt = lastScanStartedAt,
+            LastScanExitCode = exitCode,
+            Scanner = "windows-powershell",
+            Error = error,
+            ContainsSecrets = false,
+            ArbitraryCommandEnabled = false,
         };
         try
         {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(value);
+            // 必须传源生成的 JsonTypeInfo：发布启用 PublishTrimmed 后 SDK 会关闭反射式序列化
+            // （JsonSerializerIsReflectionEnabledByDefault=false），无上下文的 SerializeToUtf8Bytes<T>
+            // 会抛 InvalidOperationException；而 WriteHealth 在扫描循环之前就被调用，
+            // 该异常会直接终结进程 —— 装成服务即表现为 SCM 1053 + 恢复策略下的无限重启。
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(value, ServiceHealthJsonContext.Default.ServiceHealth);
             var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             await File.WriteAllBytesAsync(temp, bytes);
             File.Move(temp, path, true);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* 健康文件尽力而为，不影响服务 */ }
+        // 健康文件是尽力而为：任何失败（序列化 / 权限 / IO）都不得让服务进程退出。
+        // 原先的 catch 过滤器只覆盖 IOException / UnauthorizedAccessException，
+        // 漏掉序列化类异常正是崩溃逃逸的原因，故此处收敛为全量兜底。
+        catch (Exception) { }
     }
 
     // ── Win32 SCM P/Invoke（通用骨架，移植自成熟实现，无产品耦合）──────────────
@@ -251,4 +287,28 @@ internal static class Program
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool SetServiceStatus(IntPtr serviceStatusHandle, ref ServiceStatus serviceStatus);
     }
+}
+
+// ── service-health.json 载荷（源生成序列化，trim / NativeAOT 安全）─────────────
+// 字段名经 JsonPropertyName 钉死为既有 snake_case，保证改用源生成后
+// %ProgramData%\AegisAgent\service-health.json 的对外 schema 与之前逐字节一致
+// （含 error / last_scan_started_at 为 null 时仍显式输出 null）。
+internal sealed class ServiceHealth
+{
+    [JsonPropertyName("schema")] public string Schema { get; set; } = string.Empty;
+    [JsonPropertyName("host_version")] public string HostVersion { get; set; } = string.Empty;
+    [JsonPropertyName("state")] public string State { get; set; } = string.Empty;
+    [JsonPropertyName("service_started_at")] public long ServiceStartedAt { get; set; }
+    [JsonPropertyName("updated_at")] public long UpdatedAt { get; set; }
+    [JsonPropertyName("last_scan_started_at")] public long? LastScanStartedAt { get; set; }
+    [JsonPropertyName("last_scan_exit_code")] public int LastScanExitCode { get; set; }
+    [JsonPropertyName("scanner")] public string Scanner { get; set; } = string.Empty;
+    [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("contains_secrets")] public bool ContainsSecrets { get; set; }
+    [JsonPropertyName("arbitrary_command_enabled")] public bool ArbitraryCommandEnabled { get; set; }
+}
+
+[JsonSerializable(typeof(ServiceHealth))]
+internal sealed partial class ServiceHealthJsonContext : JsonSerializerContext
+{
 }

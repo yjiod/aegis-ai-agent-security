@@ -11,15 +11,15 @@
   "artifacts": {
     "windows_detection": {
       "file": "mdm-windows-detect.ps1",
-      "sha256": "4e83bfb58d6da24ba923f1a6b64ae56c5e4ee8ff5d56ff6558b5736678883421"
+      "sha256": "e2bb0e2082f6094364a59d606822c9d76e0a75b16fffc3051e1e17c8193f1e3f"
     },
     "windows_remediation": {
       "file": "mdm-windows-remediate.ps1",
-      "sha256": "23f6aa6d81bf3f56cac0075446a8f7c42cd88c8ecfd50c4be44351b0d426b9e1"
+      "sha256": "3d48164068cba5a2746c0cd5735b5f581723674d8b8627aab1f68ab1829ef017"
     },
     "windows_compliance_discovery": {
       "file": "mdm-compliance-discovery.ps1",
-      "sha256": "fc3e72febcce81e0653570faab2e0e0cc4cdc0f4317ae5a6828cf26c6524c6dd"
+      "sha256": "a2ca7e2b3f78e87dca1d5ea8de20aa8b3b12072267c7feabc54725a0d3685276"
     },
     "windows_compliance_rules": {
       "file": "mdm-compliance-policy.json",

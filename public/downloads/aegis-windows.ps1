@@ -1,6 +1,7 @@
-param([string]$Output = "$env:ProgramData\AegisAgent\reports\latest.json",[string]$ReportUrl = $env:AEGIS_REPORT_URL,[string]$ProtectedConfig = "$env:ProgramData\AegisAgent\reporting.dpapi")
+﻿param([string]$Output = "$env:ProgramData\AegisAgent\reports\latest.json",[string]$ReportUrl = $env:AEGIS_REPORT_URL,[string]$ProtectedConfig = "$env:ProgramData\AegisAgent\reporting.dpapi")
 $ErrorActionPreference = 'SilentlyContinue'
 $reportConfigInvalid=$false
+if(-not ('Security.Cryptography.ProtectedData' -as [type])){try{Add-Type -AssemblyName System.Security}catch{}}
 if(Test-Path $ProtectedConfig){
   try{
     $encrypted=[IO.File]::ReadAllBytes($ProtectedConfig);$entropy=[Text.Encoding]::UTF8.GetBytes('AegisAgent.Reporting.v1');$plain=[Security.Cryptography.ProtectedData]::Unprotect($encrypted,$entropy,[Security.Cryptography.DataProtectionScope]::LocalMachine)

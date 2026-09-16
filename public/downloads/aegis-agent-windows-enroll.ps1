@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Aegis 终端 Windows 入网安装器（零接触自动纳管）。以管理员身份运行。
 
@@ -92,6 +92,9 @@ Write-Host "=== 3. 写 DPAPI 受保护上报配置 ==="
 $cfg = [pscustomobject]@{ schema='aegis.reporting/v1'; report_url=$ReportUrl; report_token=$Token; signing_secret=$Secret }
 $json = $cfg | ConvertTo-Json -Compress
 $entropy = [Text.Encoding]::UTF8.GetBytes('AegisAgent.Reporting.v1')
+# PS 5.1 默认不加载 System.Security.dll，ProtectedData 类型解析为 NULL 会直接终止脚本；
+# PS 7 类型内置、无此程序集，故用 -as [type] 探测兼容两者（同 Install-Aegis-Windows.ps1 D5）。
+if (-not ('Security.Cryptography.ProtectedData' -as [type])) { Add-Type -AssemblyName System.Security }
 $enc = [Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($json), $entropy, [Security.Cryptography.DataProtectionScope]::LocalMachine)
 $rp = Join-Path $Dir 'reporting.dpapi'
 [IO.File]::WriteAllBytes($rp, $enc)
