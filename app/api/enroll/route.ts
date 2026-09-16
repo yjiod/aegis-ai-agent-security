@@ -7,6 +7,29 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
 
 /**
+ * 向 Collector 注册每设备上报令牌（批4；以 Collector 管理令牌鉴权）。
+ * Collector 存 sha256(token) 并在 report_authentication 双接受（全局∪每设备）。
+ * 失败（Collector 不可达等）返回 false → enroll 回落全局令牌保可用性。
+ */
+async function registerDeviceToken(deviceId: string, token: string, signingSecret: string): Promise<boolean> {
+  const url = process.env.AEGIS_COLLECTOR_URL;
+  const admin = process.env.AEGIS_COLLECTOR_TOKEN;
+  if (!url || !admin) return false;
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/v1/device-tokens`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${admin}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device_id: deviceId, report_token: token, signing_secret: signingSecret }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * POST /api/enroll — 终端零接触自动入网。
  *
  * 目标：拿到客户端的人，只要连到正确的服务器地址，就自动获得"被纳管"所需的一切——
@@ -68,8 +91,8 @@ export async function POST(request: Request) {
   if (rateLimited(ip))
     return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { ...NO_STORE, 'Retry-After': '60' } });
 
-  const reportToken = process.env.AEGIS_COLLECTOR_TOKEN;
-  if (!reportToken)
+  const globalToken = process.env.AEGIS_COLLECTOR_TOKEN;
+  if (!globalToken)
     return NextResponse.json({ error: 'enrollment_not_configured' }, { status: 503, headers: NO_STORE });
 
   let body: Record<string, unknown> = {};
@@ -96,11 +119,26 @@ export async function POST(request: Request) {
   const proto = fwdProto || reqUrl.protocol.replace(':', '');
   const host = fwdHost || reqUrl.host;
   const origin = `${proto}://${host}`;
+
+  // 批4 每设备可吊销上报令牌：为每台设备签发独立 report_token 并向 Collector 注册
+  // （Collector 双接受 全局∪每设备 过渡）。Collector 不可达时回落全局令牌保可用。
+  const signingSecret = randomHex(32);
+  let reportToken = globalToken;
+  let tokenMode: 'per-device' | 'global' = 'global';
+  if (deviceId && /^[0-9a-f]{12}$/.test(deviceId)) {
+    const perDevice = randomHex(32);
+    const registered = await registerDeviceToken(deviceId, perDevice, signingSecret);
+    if (registered) {
+      reportToken = perDevice;
+      tokenMode = 'per-device';
+    }
+  }
+
   const payload: Record<string, unknown> = {
     schema: 'aegis.enrollment/v1',
     report_url: `${origin}/aegis/v1/reports`,
     report_token: reportToken,
-    signing_secret: randomHex(32),
+    signing_secret: signingSecret,
     ...(deviceId ? { device_id: deviceId } : {}),
   };
   if (rel) {
@@ -114,7 +152,7 @@ export async function POST(request: Request) {
     action: 'device:enroll',
     resource_type: 'device',
     resource_id: deviceId || hostname || ip,
-    detail: `自动入网下发上报凭据${rel ? ` + 策略 v${rel.policy.version}` : '（无已发布策略，终端回退出厂策略）'} hostname=${hostname || '?'} agent=${agentVersion || '?'} ip=${ip}`,
+    detail: `自动入网下发上报凭据(token=${tokenMode})${rel ? ` + 策略 v${rel.policy.version}` : '（无已发布策略，终端回退出厂策略）'} hostname=${hostname || '?'} agent=${agentVersion || '?'} ip=${ip}`,
   });
 
   return NextResponse.json(payload, { headers: NO_STORE });

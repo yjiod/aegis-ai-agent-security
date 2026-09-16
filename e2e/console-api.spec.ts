@@ -482,6 +482,35 @@ test.describe('mfa totp lifecycle', () => {
 });
 
 /**
+ * 批4 每设备可吊销上报令牌：enroll 为每台设备签发独立 token 并向 Collector 注册；
+ * 控制台 revoke-token 删除后，再次 enroll 应拿到**不同**的新 token（旧令牌已失效，
+ * 终端 401 后凭 0.33.1 自愈重入网）。仅 live（有 Collector）适用。
+ */
+test.describe('per-device revocable report tokens', () => {
+  const DEV = 'abcdef012345';
+
+  test('enroll issues per-device token; revoke invalidates; re-enroll rotates', async ({
+    request,
+  }) => {
+    const e1 = await request.post('/api/enroll', { data: { device_id: DEV, hostname: 'e2e-throwaway', agent_version: '0.33.1' } });
+    if (e1.status() === 503) return; // no collector/config: honest unavailable
+    expect(e1.status()).toBe(200);
+    const t1 = ((await e1.json()) as { report_token?: string }).report_token;
+    expect(typeof t1).toBe('string');
+
+    await login(request);
+    const revoke = await request.post(`/api/devices/${DEV}/revoke-token`);
+    expect(revoke.status(), 'admin must be able to revoke per-device token').toBe(200);
+
+    const e2 = await request.post('/api/enroll', { data: { device_id: DEV, hostname: 'e2e-throwaway', agent_version: '0.33.1' } });
+    expect(e2.status()).toBe(200);
+    const t2 = ((await e2.json()) as { report_token?: string }).report_token;
+    expect(typeof t2).toBe('string');
+    expect(t2, 're-enroll after revoke must rotate the per-device token').not.toBe(t1);
+  });
+});
+
+/**
  * 设备连接态与关注态分离（用户反馈 bug 回归锁）：collector 源下 status 只反映连接
  * (online/stale/offline)，不被发现严重度覆盖；关注态用独立 attention 布尔；
  * 每台设备上报全部 ai_agent 工具于 tools[]（覆盖面板据此聚合，不再只取 tools[0]）。

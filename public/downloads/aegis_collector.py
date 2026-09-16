@@ -22,6 +22,9 @@ def db_open(path):
         db.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY,event TEXT NOT NULL,occurred_at INTEGER NOT NULL,device_id TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
         db.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(occurred_at DESC)"); db.commit()
         db.execute("CREATE TABLE IF NOT EXISTS device_auth_state(device_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,generation INTEGER NOT NULL)"); db.commit()
+        # 每设备上报令牌（批4）：token 以 sha256 哈希存储（不落明文），signing_secret 与
+        # 凭据文件同待遇（服务端受控存储）。report_authentication 双接受：全局令牌 ∪ 每设备令牌。
+        db.execute("CREATE TABLE IF NOT EXISTS device_tokens(device_id TEXT NOT NULL,token_hash TEXT NOT NULL,signing_secret TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(device_id,token_hash))"); db.commit()
         yield db
     finally: db.close()
 def valid_signal_matches(sm):
@@ -245,13 +248,24 @@ class Handler(BaseHTTPRequestHandler):
         for candidate in expected: matched |= hmac.compare_digest(candidate,supplied)
         return bool(expected) and matched
     def report_authentication(self):
+        device_id=self.headers.get("X-Aegis-Device-ID","")
+        supplied=self.headers.get("Authorization","").removeprefix("Bearer ")
+        # 1) 每设备上报令牌（批4，DB 存储 sha256 哈希）：命中即通过（双接受过渡期）。
+        if device_id and supplied:
+            th=hashlib.sha256(supplied.encode()).hexdigest()
+            try:
+                with db_open(self.server.db_path) as db:
+                    row=db.execute("SELECT signing_secret FROM device_tokens WHERE device_id=? AND token_hash=?",(device_id,th)).fetchone()
+                if row: return (True,(device_id,[row[0]],0))
+            except sqlite3.Error: pass
+        # 2) 每设备凭据文件（既有机制）
         path=os.getenv("AEGIS_DEVICE_CREDENTIALS_FILE","")
         if not path: return (self.authorized(),None)
         try: credentials=device_credentials(path)
         except (OSError,ValueError,TypeError,UnicodeError,json.JSONDecodeError): return (False,None)
-        device_id=self.headers.get("X-Aegis-Device-ID",""); credential=credentials.get(device_id)
+        credential=credentials.get(device_id)
         if not credential: return (False,None)
-        supplied=self.headers.get("Authorization","").removeprefix("Bearer "); matched=False
+        matched=False
         matches=[]
         for candidate in credential["tokens"]: matches.append(hmac.compare_digest(candidate,supplied))
         token_index=next((index for index,value in enumerate(matches) if value),None)
@@ -321,6 +335,24 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
+        # 注册每设备上报令牌（批4，仅管理令牌）：存 sha256 哈希，不落明文。
+        if self.path=="/v1/device-tokens":
+            if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
+            try: length=int(self.headers.get("Content-Length","0"))
+            except ValueError: return self.reply(400,{"error":"invalid_size"})
+            if length<2 or length>65536: return self.reply(413,{"error":"invalid_size"})
+            try: payload=json.loads(self.rfile.read(length))
+            except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError): return self.reply(400,{"error":"invalid_json"})
+            did=payload.get("device_id"); tok=payload.get("report_token"); sec=payload.get("signing_secret")
+            if not isinstance(did,str) or not re.fullmatch(r"[0-9a-f]{12}",did): return self.reply(400,{"error":"invalid_device_id"})
+            if not isinstance(tok,str) or not 32<=len(tok)<=4096: return self.reply(400,{"error":"invalid_token"})
+            if not isinstance(sec,str) or not 32<=len(sec)<=4096: return self.reply(400,{"error":"invalid_signing_secret"})
+            th=hashlib.sha256(tok.encode()).hexdigest()
+            try:
+                with db_open(self.server.db_path) as db:
+                    db.execute("INSERT OR REPLACE INTO device_tokens(device_id,token_hash,signing_secret,created_at) VALUES(?,?,?,?)",(did,th,sec,int(time.time()))); db.commit()
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            return self.reply(201,{"ok":True,"device_id":did})
         if self.path!="/v1/reports": return self.reply(404,{"error":"not_found"})
         if self.rate_limited(): return
         authenticated,binding=self.report_authentication()
@@ -340,6 +372,18 @@ class Handler(BaseHTTPRequestHandler):
         try: result=store_report(self.server.db_path,body,report,credential_generation=binding[2] if binding else None)
         except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(200 if result["duplicate"] else 202,result)
+    def do_DELETE(self):
+        # 吊销某设备全部每设备令牌（批4）：该设备下次上报 401 → Agent 0.33.1 自愈重入网取新令牌。
+        parsed=urlsplit(self.path); query=parse_qs(parsed.query,keep_blank_values=True)
+        if parsed.path!="/v1/device-tokens": return self.reply(404,{"error":"not_found"})
+        if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
+        did=(query.get("device_id",[""])[0] or "").strip()
+        if not re.fullmatch(r"[0-9a-f]{12}",did): return self.reply(400,{"error":"invalid_device_id"})
+        try:
+            with db_open(self.server.db_path) as db:
+                cur=db.execute("DELETE FROM device_tokens WHERE device_id=?",(did,)); db.commit(); n=cur.rowcount
+        except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+        return self.reply(200,{"ok":True,"revoked":n})
     def log_message(self,fmt,*args): pass
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--listen",default="127.0.0.1"); ap.add_argument("--port",type=int,default=8788); ap.add_argument("--db",default="aegis.db"); args=ap.parse_args()
