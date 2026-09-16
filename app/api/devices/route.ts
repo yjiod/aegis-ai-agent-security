@@ -194,8 +194,27 @@ export async function DELETE(request: Request) {
   if (!device_id) return json({ error: 'missing_device_id' }, 400);
 
   const store = getDeviceStore();
-  if (!store.has(device_id)) return json({ error: 'device_not_found' }, 404);
-  store.delete(device_id);
-  logAudit({ actor: getSession(request)?.subject ?? 'console', action: 'device:delete', resource_type: 'device', resource_id: device_id, detail: `从注册表移除终端 ${device_id}` });
-  return json({ deleted: true, device_id });
+  const inRegistry = store.has(device_id);
+  if (inRegistry) store.delete(device_id);
+  // 同时清除 Collector 侧该设备的报告/每设备令牌/认证代次（硬件ID化后用于清理旧
+  // hostname 派生的重复设备；设备若仍在线会继续上报并重新出现）。
+  let purged = false;
+  const collectorUrl = process.env.AEGIS_COLLECTOR_URL;
+  const collectorToken = process.env.AEGIS_COLLECTOR_TOKEN;
+  if (collectorUrl && collectorToken) {
+    try {
+      const r = await fetch(`${collectorUrl.replace(/\/$/, '')}/v1/devices?device_id=${encodeURIComponent(device_id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${collectorToken}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000),
+      });
+      purged = r.ok;
+    } catch {
+      purged = false;
+    }
+  }
+  if (!inRegistry && !purged) return json({ error: 'device_not_found' }, 404);
+  logAudit({ actor: getSession(request)?.subject ?? 'console', action: 'device:delete', resource_type: 'device', resource_id: device_id, detail: `移除终端 ${device_id}（注册表=${inRegistry} collector清除=${purged}）` });
+  return json({ deleted: true, device_id, purged });
 }

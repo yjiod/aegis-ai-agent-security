@@ -373,8 +373,22 @@ class Handler(BaseHTTPRequestHandler):
         except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(200 if result["duplicate"] else 202,result)
     def do_DELETE(self):
-        # 吊销某设备全部每设备令牌（批4）：该设备下次上报 401 → Agent 0.33.1 自愈重入网取新令牌。
         parsed=urlsplit(self.path); query=parse_qs(parsed.query,keep_blank_values=True)
+        # 退役/清除某设备（硬件ID化后清理旧 hostname 派生的重复设备）：删除其报告、
+        # 每设备令牌与认证代次。仅管理令牌。设备若仍在线会继续上报并重新出现。
+        if parsed.path=="/v1/devices":
+            if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
+            did=(query.get("device_id",[""])[0] or "").strip()
+            if not re.fullmatch(r"[0-9a-f]{12}",did): return self.reply(400,{"error":"invalid_device_id"})
+            try:
+                with db_open(self.server.db_path) as db:
+                    db.execute("DELETE FROM reports WHERE device_id=?",(did,))
+                    db.execute("DELETE FROM device_tokens WHERE device_id=?",(did,))
+                    db.execute("DELETE FROM device_auth_state WHERE device_id=?",(did,))
+                    db.commit()
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            return self.reply(200,{"ok":True,"purged":did})
+        # 吊销某设备全部每设备令牌（批4）：该设备下次上报 401 → Agent 自愈重入网取新令牌。
         if parsed.path!="/v1/device-tokens": return self.reply(404,{"error":"not_found"})
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         did=(query.get("device_id",[""])[0] or "").strip()

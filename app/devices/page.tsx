@@ -824,6 +824,50 @@ export default function DevicesPage() {
         </p>
       </div>
 
+      {/* Agent 覆盖 · 受控设备绑定（独立窗口）：每台受控设备 ↔ 其已安装 AI Agent。
+          用户反馈：要能直接看出"哪台机器装了什么 Agent"，而非仅 fleet 级汇总。 */}
+      <div className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-head">
+          <div>
+            <h2>Agent 覆盖 · 受控设备绑定</h2>
+            <p>每台受控设备最新报告检出的已安装 AI Agent；设备 ID 现基于硬件序列/机器 ID（稳定）。</p>
+          </div>
+          <span className="status green">{devices.length} 台受控</span>
+        </div>
+        <div className="data-table">
+          <div className="data-head" style={{ gridTemplateColumns: '1.1fr 1.1fr 2.2fr 90px' }}>
+            <span>设备 ID</span><span>主机名</span><span>已安装 AI Agent</span><span>状态</span>
+          </div>
+          {devices.map((d) => {
+            const tools = ((d as { tools?: string[] }).tools ?? []) as string[];
+            const meta = STATUS_META[d.status] ?? STATUS_META.offline;
+            return (
+              <div className="data-row" key={d.device_id} style={{ gridTemplateColumns: '1.1fr 1.1fr 2.2fr 90px' }}>
+                <strong>{d.device_id}</strong>
+                <span style={{ fontSize: 11 }}>{d.hostname}</span>
+                <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {tools.length > 0 ? (
+                    tools.map((t) => (
+                      <span key={t} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 5, background: 'var(--muted)', border: '1px solid var(--border)' }}>
+                        {t}
+                      </span>
+                    ))
+                  ) : (
+                    <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>未检出 AI Agent</span>
+                  )}
+                </span>
+                <i className={meta.className} style={meta.style}>{meta.label}</i>
+              </div>
+            );
+          })}
+          {devices.length === 0 && (
+            <div className="data-row">
+              <span style={{ gridColumn: '1 / -1', color: 'var(--muted-foreground)' }}>暂无受控设备</span>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="panel coverage">
         <div className="panel-head">
           <div>
