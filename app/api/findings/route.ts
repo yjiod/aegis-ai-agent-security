@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { fetchCollectorDevices } from '@/lib/collector-devices';
 import { BASE_POLICY } from '@/lib/policy';
+import { ensureLabelsLoaded, allowedAssetKeys, findingAsset, isFindingAllowed } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,8 @@ interface RawFinding {
   message?: unknown;
   evidence?: unknown;
   signal_matches?: unknown;
+  asset_type?: unknown;
+  asset_key?: unknown;
 }
 
 /** 拉取单台设备最新报告的发现（沿用 /api/devices/[id]/findings 的 Collector 代理方式）。 */
@@ -81,8 +84,15 @@ export async function GET(request: Request) {
   const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 200) || 200, 1), 1000);
 
   const devices = await fetchCollectorDevices();
-  const empty = { connected: false as const, category, devices: 0, devices_with_findings: 0, counts: { total: 0, critical: 0, high: 0, medium: 0, low: 0 }, findings: [] as unknown[] };
+  const empty = { connected: false as const, category, devices: 0, devices_with_findings: 0, suppressed: 0, counts: { total: 0, critical: 0, high: 0, medium: 0, low: 0 }, findings: [] as unknown[] };
   if (devices === null) return NextResponse.json(empty, { headers: NO_STORE });
+
+  // 加白抑制：已处置为 allow 的资产，其发现不再作为告警出现（"已加白不再告警"），
+  // 且既有告警随本次查询即时消失（"加白后同源告警自动消除"）。抑制是查询期过滤，
+  // 不销毁 Collector 侧原始发现（审计留痕仍在）。归一化优先用终端显式 asset_key，
+  // 兼容旧终端从 path/message 派生；无法判定则不抑制（绝不误藏真实告警）。
+  await ensureLabelsLoaded().catch(() => {});
+  const allowed = allowedAssetKeys();
 
   // 并发拉取各设备发现（机队规模有界；Collector 侧另有速率限制兜底）。
   const perDevice = await Promise.all(
@@ -91,6 +101,7 @@ export async function GET(request: Request) {
 
   const all: Array<Record<string, unknown>> = [];
   let devicesWithFindings = 0;
+  let suppressed = 0;
   for (const { device, res } of perDevice) {
     if (!res) continue;
     let matched = 0;
@@ -98,6 +109,9 @@ export async function GET(request: Request) {
       const kind = typeof f.kind === 'string' ? f.kind : '';
       const c = categorize(kind);
       if (category !== 'all' && c !== category) continue;
+      // 命中加白资产 → 抑制（不计入告警/计数），仅累计 suppressed 供透明展示。
+      if (isFindingAllowed(f, allowed)) { suppressed += 1; continue; }
+      const asset = findingAsset(f);
       matched += 1;
       all.push({
         device_id: device.device_id,
@@ -106,6 +120,7 @@ export async function GET(request: Request) {
         severity: typeof f.severity === 'string' ? f.severity : 'low',
         path: typeof f.path === 'string' ? f.path : '',
         message: typeof f.message === 'string' ? f.message : '',
+        ...(asset ? { asset_type: asset.asset_type, asset_key: asset.asset_key } : {}),
         ...(f.signal_matches !== undefined ? { signal_matches: f.signal_matches } : {}),
         scanned_at: res.scanned_at || device.last_seen || 0,
       });
@@ -131,6 +146,7 @@ export async function GET(request: Request) {
       category,
       devices: devices.length,
       devices_with_findings: devicesWithFindings,
+      suppressed,
       counts,
       findings: all.slice(0, limit),
     },

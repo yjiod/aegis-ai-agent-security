@@ -30,6 +30,8 @@ type Finding = {
   severity: string;
   path: string;
   message: string;
+  asset_type?: string;
+  asset_key?: string;
   signal_matches?: unknown;
   scanned_at: number;
 };
@@ -39,6 +41,7 @@ type FindingsResponse = {
   category: string;
   devices: number;
   devices_with_findings: number;
+  suppressed: number;
   counts: { total: number; critical: number; high: number; medium: number; low: number };
   findings: Finding[];
 };
@@ -128,6 +131,10 @@ export function ScanExplorer({
         <article className="animate-entrance animate-entrance-3">
           <strong>{loading ? '—' : (data?.devices_with_findings ?? 0)}</strong>
           <span>涉及终端</span>
+        </article>
+        <article className="animate-entrance animate-entrance-4" title="已在处置中心加白（disposition=allow）的同源资产发现，已自动从告警中消除，不再计入">
+          <strong>{loading ? '—' : (data?.suppressed ?? 0)}</strong>
+          <span>加白已消除</span>
         </article>
       </div>
 
@@ -226,12 +233,12 @@ export function ScanExplorer({
                   <span style={{ fontSize: 11 }}>
                     {f.message}
                     {f.category === 'skill' && <SignalDetails matches={f.signal_matches} />}
-                    {f.path ? (
+                    {f.asset_key || f.path ? (
                       <>
                         <br />
                         <Link
                           className="handle"
-                          href={`/dispositions?type=${f.category === 'mcp' ? 'mcp' : 'skill'}&asset=${encodeURIComponent(f.path)}`}
+                          href={`/dispositions?type=${f.asset_type === 'mcp' || f.category === 'mcp' ? 'mcp' : 'skill'}&asset=${encodeURIComponent(f.asset_key || f.path)}`}
                           style={{ fontSize: 11 }}
                         >
                           去处置 <ArrowRight size={10} style={{ verticalAlign: '-1px' }} />

@@ -42,6 +42,13 @@ export async function POST(request: Request) {
   const assetKey = String(body.asset_key ?? '').trim();
   if (!isAssetType(assetType)) return NextResponse.json({ error: 'invalid_asset_type' }, { status: 400, headers: NO_STORE });
   if (!assetKey || assetKey.length > 128) return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
+  // asset_key 是资产「名字」(skill 名 / MCP server 名)，不是文件路径。拒绝路径型 key
+  // （含 / \ 或以 ~ 开头）——历史上处置中心曾按 finding 的文件 path 建标签，污染出
+  // "mcp:~/.codex/config.toml" 这类永不命中的垃圾白名单项。skill 名允许含 ':'(如
+  // product-design:frame)，故只拦路径分隔符与 '~' 前缀。
+  if (/[/\\]/.test(assetKey) || assetKey.startsWith('~')) {
+    return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
+  }
 
   const rawDisp = body.disposition;
   if (rawDisp !== undefined && !(DISPOSITIONS as string[]).includes(String(rawDisp))) {

@@ -178,7 +178,14 @@ def safe_path(path):
         try: value=value.replace(str(home),"~")
         except OSError: pass
     return value
-def finding(kind,severity,path,message,evidence=""): return {"kind":kind,"severity":severity,"path":safe_path(path),"message":message,"evidence":evidence[:180]}
+def finding(kind,severity,path,message,evidence="",asset_type="",asset_key=""):
+    f={"kind":kind,"severity":severity,"path":safe_path(path),"message":message,"evidence":evidence[:180]}
+    # 显式同源键：asset_type/asset_key 让控制台把 finding 与处置标签(asset_labels)按
+    # (类型,名字)精确关联——此前 finding 只有文件 path，与 label 的 asset_key(名字)口径不一致，
+    # 导致"加白后抑制告警/自动消除同源工单"无法可靠匹配。
+    if asset_type: f["asset_type"]=asset_type
+    if asset_key: f["asset_key"]=str(asset_key)[:128]
+    return f
 def managed_homes():
     homes=[Path.home()]
     if hasattr(os,"geteuid") and os.geteuid()==0:
@@ -268,6 +275,7 @@ def scan_mcp_server(path,name,cfg,policy):
         sensitive={"token","key","api_key","apikey","secret","password","access_token"}
         if parsed.username or parsed.password or any(k.lower() in sensitive for k,_ in parse_qsl(parsed.query,keep_blank_values=True)): out.append(finding("mcp_url_credentials","critical",path,f"MCP {name} URL 包含凭据或敏感查询参数","[REDACTED]"))
     if not command and not url: out.append(finding("incomplete_mcp_server","medium",path,f"MCP {name} 未配置命令或 URL"))
+    for f in out: f["asset_type"]="mcp"; f["asset_key"]=str(name)[:128]
     return out
 def scan_mcp_config(path,text,policy):
     out=[]
@@ -413,6 +421,7 @@ def scan_skill(skill_file,policy,max_files=500):
                 else: out.append(finding("oversized_file_skipped","medium",path,f"Skill 文件超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
             except OSError: out.append(finding("unreadable","low",path,"Skill 文件存在但无法读取"))
         if scanned>=max_files: out.append(finding("skill_scan_truncated","medium",root,f"Skill 文件数超过扫描上限 {max_files}")); break
+    for f in out: f["asset_type"]="skill"; f["asset_key"]=str(name)[:128]
     return out,scanned
 def scan(root,policy):
     findings=[]; homes=managed_homes(); inventory=discover_agent_tools(homes)
@@ -493,8 +502,10 @@ def install_baseline(root):
     if safe_managed_target(root,shared): shared.parent.mkdir(parents=True,exist_ok=True); shared.write_text(MANAGED_MARKER+"\n"+content)
     return changed
 def install_user_baselines(homes=None):
-    """Load the baseline into already-present user Agent instruction files."""
-    homes=managed_homes() if homes is None else homes; content=BASELINE.read_text().rstrip()
+    """Load the baseline into already-present user Agent instruction files.
+    内容=内置/上游基线 + 企业级 MD（effective_baseline，附加合并）——必须与
+    verify_user_baselines 的期望一致，否则企业 MD 落盘后用户级基线会被判 malformed。"""
+    homes=managed_homes() if homes is None else homes; content=effective_baseline()
     block=f"{USER_BASELINE_START}\n{content}\n{USER_BASELINE_END}"
     changed=[]
     for home in homes:
@@ -511,7 +522,11 @@ def install_user_baselines(homes=None):
             if not safe_managed_target(home,path): continue
             path.parent.mkdir(parents=True,exist_ok=True); current=path.read_text(errors="ignore") if path.exists() else ""
             pattern=re.compile(re.escape(USER_BASELINE_START)+r".*?"+re.escape(USER_BASELINE_END),re.S)
-            updated=pattern.sub(block,current) if pattern.search(current) else current.rstrip()+("\n\n" if current.strip() else "")+block+"\n"
+            # 用「函数式 repl」而非字符串 repl：block 含企业级 MD 正文，其中常有正则/代码示例
+            # 的反斜杠序列（\d \w \. \b）。字符串 repl 会被 re.sub 当替换模板解析 →
+            # `\d`/`\w` 抛 PatternError: bad escape（注入整体失败，企业 MD 永远进不了工具指令文件），
+            # `\b` 静默变成退格符（内容损坏）。lambda repl 原样返回 block，彻底规避转义解析。
+            updated=pattern.sub(lambda _m: block,current) if pattern.search(current) else current.rstrip()+("\n\n" if current.strip() else "")+block+"\n"
             if updated!=current:
                 path.write_text(updated)
                 if hasattr(os,"geteuid") and os.geteuid()==0:
@@ -578,8 +593,9 @@ def load_enrollment_config(path):
     if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077: raise ValueError("enrollment_config_permissions")
     if hasattr(os,"geteuid") and info.st_uid not in {0,os.geteuid()}: raise ValueError("enrollment_config_owner")
     value=json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value,dict) or (set(value)-{"require_signed_policy"})!={"schema","device_id","report_token","signing_secret"} or value.get("schema")!="aegis.device-enrollment/v1": raise ValueError("enrollment_config_contract")
+    if not isinstance(value,dict) or (set(value)-{"require_signed_policy","department"})!={"schema","device_id","report_token","signing_secret"} or value.get("schema")!="aegis.device-enrollment/v1": raise ValueError("enrollment_config_contract")
     if "require_signed_policy" in value and not isinstance(value["require_signed_policy"],bool): raise ValueError("enrollment_config_contract")
+    if "department" in value and not isinstance(value["department"],str): raise ValueError("enrollment_config_contract")
     if not isinstance(value.get("device_id"),str) or not re.fullmatch(r"[0-9a-f]{12}",value["device_id"]): raise ValueError("enrollment_config_device_id")
     token=value.get("report_token"); secret=value.get("signing_secret")
     if not isinstance(token,str) or not isinstance(secret,str) or not 32<=len(token)<=4096 or not 32<=len(secret)<=4096 or hmac.compare_digest(token,secret): raise ValueError("enrollment_config_secrets")
@@ -677,6 +693,7 @@ def hardware_device_id():
     if s: return hashlib.sha256(("aegis-hw:"+s).encode()).hexdigest()[:12]
     return hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
 ENTERPRISE_BASELINE_VERSION=""
+ENTERPRISE_BASELINE_AUTH_FAILED=False
 def enterprise_baseline_path():
     return Path(__file__).with_name("enterprise-baseline.md")
 def effective_baseline():
@@ -689,9 +706,15 @@ def effective_baseline():
     return base
 def sync_enterprise_baseline(base_url,token,device_id,department):
     """从 Collector 拉取企业级 MD（按灰度范围）；在范围则落盘 enterprise-baseline.md 并记版本，
-    不在范围/未发布则删除旧文件（避免过期企业基线残留）。返回版本号字符串。"""
-    global ENTERPRISE_BASELINE_VERSION
+    不在范围/未发布(404)则删除旧文件（避免过期企业基线残留）。返回版本号字符串。
+
+    可观测性：401/403 是"鉴权链路坏了"(每设备令牌未被 Collector 接受)——与 404(合法地不在
+    范围)语义完全不同，此前被压成同一分支静默删文件，令管理员无从发现企业 MD 推不到终端。
+    现区分：401/403 置 ENTERPRISE_BASELINE_AUTH_FAILED 并保留上一份文件(基础设施问题不改范围)，
+    由主循环产出 HIGH finding；404 正常清除。"""
+    global ENTERPRISE_BASELINE_VERSION, ENTERPRISE_BASELINE_AUTH_FAILED
     ep=enterprise_baseline_path()
+    ENTERPRISE_BASELINE_AUTH_FAILED=False
     if not base_url or not token:
         ENTERPRISE_BASELINE_VERSION=""; return ""
     url=base_url.rstrip("/")+"/v1/enterprise-baseline?device_id="+urllib.parse.quote(device_id)+"&department="+urllib.parse.quote(department or "")
@@ -704,7 +727,10 @@ def sync_enterprise_baseline(base_url,token,device_id,department):
         if isinstance(content,str) and content and 0<len(content)<=2_000_000:
             write_private_atomic(ep,content); ENTERPRISE_BASELINE_VERSION=version; return version
     except urllib.error.HTTPError as e:
-        if e.code in (404,401,403):
+        if e.code in (401,403):
+            # 鉴权链路故障：保留上一份企业基线(若有)，标记以便上报，绝不静默当作"不在范围"。
+            ENTERPRISE_BASELINE_AUTH_FAILED=True
+        elif e.code==404:
             try: ep.unlink(missing_ok=True)
             except OSError: pass
             ENTERPRISE_BASELINE_VERSION=""; return ""
@@ -724,7 +750,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.34.0"
+AGENT_VERSION = "0.34.1"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -837,14 +863,18 @@ def main():
     if args.install_baseline: install_baseline(root)
     while True:
         policy,reload_failed=reload_policy(args.policy,policy,require_signature=require_signature)
-        if args.auto_enroll: auto_enroll(root)
-        # 拉取企业级 MD（按灰度范围）；在范围落盘并附加进受管基线，不在范围清除旧文件。
+        # 先拉取企业级 MD（按灰度范围）再注入基线：保证本轮注入即用最新企业 MD，
+        # 否则新发布的企业 MD 要延迟一个扫描周期才生效（注入早于拉取的历史缺陷）。
         eb_token=(enrollment or {}).get("report_token") or (reporting or {}).get("report_token") or os.getenv("AEGIS_REPORT_TOKEN","")
         eb_base=(args.report_url or "").replace("/v1/reports","")
-        sync_enterprise_baseline(eb_base, eb_token, host_device_id, os.environ.get("AEGIS_DEVICE_DEPARTMENT",""))
+        eb_dept=(enrollment or {}).get("department") or os.environ.get("AEGIS_DEVICE_DEPARTMENT","")
+        sync_enterprise_baseline(eb_base, eb_token, host_device_id, eb_dept)
+        if args.auto_enroll: auto_enroll(root)
         report=build_report(root,policy); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reload_failed:
             add_report_finding(report,finding("policy_reload_failed","high",args.policy,("策略热加载失败（已启用强制验签：缺签名/验签失败/解析错误），继续使用上一份有效签名策略" if require_signature else "策略热加载失败，继续使用上一份有效策略"))); data=json.dumps(report,ensure_ascii=False,indent=2)
+        if ENTERPRISE_BASELINE_AUTH_FAILED:
+            add_report_finding(report,finding("enterprise_baseline_auth_failed","high",eb_base+"/v1/enterprise-baseline","企业级 MD 拉取被拒(401/403)：每设备上报令牌未被 Collector 接受，终端未纳入企业基线管理（排查 Collector 令牌/设备令牌注册）")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reporting_error:
             add_report_finding(report,finding("reporting_config_invalid","high",args.report_config,"受保护上报配置权限、所有者或契约无效；本轮拒绝上报")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if enrollment_error:

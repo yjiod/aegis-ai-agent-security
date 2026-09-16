@@ -298,14 +298,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,{"status":"ok","database":"ok"})
             except sqlite3.Error: return self.reply(503,{"status":"degraded","database":"unavailable"})
         if self.rate_limited(): return
-        if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         parsed=urlsplit(self.path)
         if parsed.path=="/v1/enterprise-baseline":
-            # 终端拉取企业级 MD（每设备令牌鉴权）；按灰度范围(all/percent/department)下发。
+            # 终端拉取企业级 MD：用每设备令牌鉴权（report_authentication 亦回落接受管理令牌）。
+            # 此分支必须置于下方全局管理令牌门 authorized() **之前**——终端持每设备上报令牌而非
+            # 管理令牌，若先过 authorized() 会恒 401，令企业 MD 永远推不到终端（历史缺陷）。
             authenticated,binding=self.report_authentication()
             if not authenticated: return self.reply(401,{"error":"unauthorized"})
             q2=parse_qs(parsed.query,keep_blank_values=True)
-            did=(q2.get("device_id",[""])[0] or "").strip()
+            # 灰度分桶绑定"已认证"的 device_id（binding[0]），不信任可伪造的 query 值，
+            # 防终端自报任意 device_id 挑选有利的 percent 分桶绕过灰度。
+            did=(binding[0] if binding else (q2.get("device_id",[""])[0] or "").strip())
             dept=(q2.get("department",[""])[0] or "").strip()
             try:
                 with db_open(self.server.db_path) as db:
@@ -316,6 +319,7 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError,TypeError): rollout={}
             if not enterprise_in_scope(did,dept,rollout): return self.reply(404,{"error":"not_in_scope"})
             return self.reply(200,{"version":row[1],"content":row[0],"sha256":hashlib.sha256(row[0].encode()).hexdigest()})
+        if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         if parsed.path=="/v1/devices":
             query=parse_qs(parsed.query,keep_blank_values=True)
             if set(query)-{"limit"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})

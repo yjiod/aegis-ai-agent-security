@@ -14,6 +14,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
+import { ensureLabelsLoaded, allowedAssetKeys, isFindingAllowed } from '@/lib/labels';
 import {
   apiError,
   boundedString,
@@ -49,6 +50,38 @@ export const dynamic = 'force-dynamic';
 let lastAutoSync = 0;
 const AUTO_SYNC_INTERVAL_MS = 60_000;
 
+/**
+ * 加白感知重算某设备的 critical/high 计数：扣除命中"加白资产"的发现。
+ * findings 拉取失败/未配置 → 返回 null，调用方保守沿用 Collector 的 latest_severity
+ * （宁可多开一张待研判工单，也绝不因抑制逻辑漏掉真实风险）。
+ */
+async function adjustedSeverity(deviceId: string, allowed: Set<string>): Promise<{ critical: number; high: number } | null> {
+  const url = process.env.AEGIS_COLLECTOR_URL;
+  const token = process.env.AEGIS_COLLECTOR_TOKEN;
+  if (!url || !token) return null;
+  try {
+    const res = await fetch(`${url.replace(/\/$/, '')}/v1/findings?device_id=${encodeURIComponent(deviceId)}&limit=1000`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { findings?: unknown };
+    const findings = Array.isArray(data.findings) ? (data.findings as Array<Record<string, unknown>>) : [];
+    let critical = 0;
+    let high = 0;
+    for (const f of findings) {
+      if (isFindingAllowed(f, allowed)) continue;
+      const s = String(f.severity ?? '');
+      if (s === 'critical') critical += 1;
+      else if (s === 'high') high += 1;
+    }
+    return { critical, high };
+  } catch {
+    return null;
+  }
+}
+
 async function syncTicketsFromCollector(): Promise<void> {
   const url = process.env.AEGIS_COLLECTOR_URL;
   const token = process.env.AEGIS_COLLECTOR_TOKEN;
@@ -58,6 +91,9 @@ async function syncTicketsFromCollector(): Promise<void> {
   const now0 = Date.now();
   if (now0 - lastAutoSync < AUTO_SYNC_INTERVAL_MS) return;
   lastAutoSync = now0;
+  // 加白集合：已处置为 allow 的资产不再触发自动工单（"已加白不再告警"延伸到风险流水线）。
+  await ensureLabelsLoaded().catch(() => {});
+  const allowed = allowedAssetKeys();
   try {
     const res = await fetch(`${url.replace(/\/$/, '')}/v1/devices?limit=500`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
@@ -71,8 +107,45 @@ async function syncTicketsFromCollector(): Promise<void> {
       const deviceId = String(d.device_id ?? '');
       if (!deviceId) continue;
       const sev = (d.latest_severity ?? {}) as Record<string, number>;
-      const critical = Number(sev.critical ?? 0);
-      const high = Number(sev.high ?? 0);
+      const rawCritHigh = Number(sev.critical ?? 0) + Number(sev.high ?? 0);
+      // 由 Collector 自动生成、仍未关闭的工单（人工工单不在此列，绝不自动改动）。
+      const openAuto = [...store.values()].filter(
+        (t) =>
+          t.device_id === deviceId &&
+          t.source === 'aegis-collector.auto' &&
+          t.status !== 'resolved' &&
+          t.status !== 'dismissed',
+      );
+      // 原始计数为 0 且无待消除的自动工单 → 本机无事可做，省去一次 findings 拉取。
+      if (rawCritHigh <= 0 && openAuto.length === 0) continue;
+      let critical = Number(sev.critical ?? 0);
+      let high = Number(sev.high ?? 0);
+      // 扣除加白资产的发现后重算；拉取失败(null)保守沿用 Collector 原计数。
+      const adj = await adjustedSeverity(deviceId, allowed);
+      if (adj) { critical = adj.critical; high = adj.high; }
+      // 加白后同源告警自动消除：仅当"确认"(adj 非 null)重算后已无 critical/high 时，
+      // 自动 resolve 该设备由 Collector 自动生成的 open 工单并留审计痕迹。
+      // adj 为 null（findings 拉取失败）时绝不误关——宁可留一张待研判工单。
+      if (adj && critical + high <= 0) {
+        if (openAuto.length > 0) {
+          const now = Date.now();
+          for (const t of openAuto) {
+            const resolved: Ticket = {
+              ...t,
+              status: 'resolved',
+              resolved_at: now,
+              updated_at: now,
+              history: [
+                ...t.history,
+                { action: 'resolve', actor: 'aegis-collector', timestamp: now, note: '同源 critical/high 发现已全部加白，自动消除告警' },
+              ],
+            };
+            store.set(t.ticket_id, resolved);
+            logAudit({ actor: 'aegis-collector', action: 'ticket:resolve', resource_type: 'ticket', resource_id: t.ticket_id, detail: `加白后同源告警自动消除（设备 ${deviceId}）` });
+          }
+        }
+        continue;
+      }
       if (critical + high <= 0) continue;
       // Skip if an open ticket already exists for this device
       const hasOpen = [...store.values()].some(

@@ -84,6 +84,55 @@ export function listLabels(): AssetLabel[] {
   );
 }
 
+/** 当前加白(disposition='allow')资产键集合，形如 "skill:xlsx" / "mcp:qw-builtin"。 */
+export function allowedAssetKeys(): Set<string> {
+  const s = new Set<string>();
+  for (const l of store().values()) if (l.disposition === 'allow') s.add(mapKey(l.asset_type, l.asset_key));
+  return s;
+}
+
+/** 一条 finding/工单里可能用于同源匹配的字段（兼容新旧终端）。 */
+export interface FindingLike {
+  kind?: unknown;
+  path?: unknown;
+  message?: unknown;
+  asset_type?: unknown;
+  asset_key?: unknown;
+}
+
+/**
+ * 归一化 finding → 资产身份 (asset_type, asset_key)。
+ * 优先用终端 0.34.1+ 显式上报的 asset_type/asset_key；否则从 kind/path/message 派生以兼容旧终端。
+ * 无法可靠判定返回 null（此时**不抑制**，fail-toward-showing，绝不误藏真实告警）。
+ */
+export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key: string } | null {
+  const at = typeof f.asset_type === 'string' ? f.asset_type.trim().toLowerCase() : '';
+  const ak = typeof f.asset_key === 'string' ? f.asset_key.trim() : '';
+  if ((at === 'skill' || at === 'mcp') && ak) return { asset_type: at as AssetType, asset_key: ak };
+  const kind = typeof f.kind === 'string' ? f.kind.toLowerCase() : '';
+  const path = typeof f.path === 'string' ? f.path.replace(/\\/g, '/') : '';
+  const msg = typeof f.message === 'string' ? f.message : '';
+  // skill：SKILL.md 的父目录名即 skill 名（与终端 scan_skill 的 name=root.name 同源）。
+  if (kind.includes('skill') || /\/SKILL\.md$/i.test(path)) {
+    const m = path.match(/\/([^/]+)\/SKILL\.md$/i);
+    if (m && m[1]) return { asset_type: 'skill', asset_key: m[1] };
+    const nm = msg.match(/Skill[:：]\s*([^\s[]+)/);
+    if (nm && nm[1]) return { asset_type: 'skill', asset_key: nm[1].trim() };
+  }
+  // mcp：message 里的 server 名（"…MCP Server: {name}" 或 "MCP {name} …"）。
+  if (kind.includes('mcp')) {
+    const nm = msg.match(/MCP\s+Server[:：]\s*([^\s]+)/) || msg.match(/MCP\s+([^\s]+)\s/);
+    if (nm && nm[1]) return { asset_type: 'mcp', asset_key: nm[1].trim() };
+  }
+  return null;
+}
+
+/** 该 finding 是否命中加白资产（应被抑制/自动消除）。 */
+export function isFindingAllowed(f: FindingLike, allowed: Set<string>): boolean {
+  const a = findingAsset(f);
+  return a !== null && allowed.has(mapKey(a.asset_type, a.asset_key));
+}
+
 export interface SetLabelInput {
   asset_type: AssetType;
   asset_key: string;

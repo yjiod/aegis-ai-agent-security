@@ -186,6 +186,7 @@ type FindingsBody = {
   category?: unknown;
   devices?: unknown;
   devices_with_findings?: unknown;
+  suppressed?: unknown;
   counts?: { total?: unknown; critical?: unknown; high?: unknown; medium?: unknown; low?: unknown };
   findings?: Array<Record<string, unknown>>;
 };
@@ -204,6 +205,7 @@ test.describe('findings honesty contract', () => {
       expect(typeof body.connected).toBe('boolean');
       expect(body.category).toBe(category);
       expect(Array.isArray(body.findings)).toBe(true);
+      expect(typeof body.suppressed, 'suppressed (加白已消除计数) must be a number').toBe('number');
       const c = body.counts ?? {};
       for (const k of ['total', 'critical', 'high', 'medium', 'low'] as const) {
         expect(typeof c[k], `counts.${k} must be a number`).toBe('number');

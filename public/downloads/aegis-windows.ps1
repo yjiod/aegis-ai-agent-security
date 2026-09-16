@@ -73,7 +73,7 @@ function Write-AegisUploadStatus([string]$url){
   try{$status|Set-Content -Encoding UTF8 $temp;Move-Item $temp $path -Force}finally{Remove-Item $temp -Force -ErrorAction SilentlyContinue}
 }
 function Protect-AegisPath([string]$path) {
-  foreach ($home in $userHomes) { if ($path.StartsWith($home.FullName,[StringComparison]::OrdinalIgnoreCase)) { return '~' + $path.Substring($home.FullName.Length) } }
+  foreach ($userHome in $userHomes) { if ($path.StartsWith($userHome.FullName,[StringComparison]::OrdinalIgnoreCase)) { return '~' + $path.Substring($userHome.FullName.Length) } }
   return $path
 }
 function Test-AegisMcpInvocation([string]$command,[object[]]$args) {
@@ -228,10 +228,10 @@ $agentMarkers = @{
   github_copilot_cli=@('.copilot\copilot-instructions.md')
   tongyi_lingma=@('.lingma\rules.md')
 }
-foreach ($home in $userHomes) {
-  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf')) { $candidate=Join-Path $home.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
+foreach ($userHome in $userHomes) {
+  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf')) { $candidate=Join-Path $userHome.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
   foreach ($agent in $agentMarkers.Keys) {
-    foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $home.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-AegisPath $marker);scope='user';detected_by='filesystem_marker'};break} }
+    foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $userHome.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-AegisPath $marker);scope='user';detected_by='filesystem_marker'};break} }
   }
 }
 $systemMarkers = @{
@@ -278,7 +278,19 @@ $mg = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name Mach
 if ($mg) { $deviceMaterial = "aegis-hw:$mg" } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='aegis.report/v1'; agent_version='0.34.0'; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$env:USERNAME; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+# Agent 以 LocalSystem 服务/计划任务运行时 $env:USERNAME 为空或 SYSTEM，无法定位真实使用者，
+# 导致控制台 owner 显示"待分配"。回退到交互控制台登录用户(Win32_ComputerSystem.UserName)，仍无则 unknown。
+$osUser = $env:USERNAME
+if (-not $osUser -or $osUser -ieq 'SYSTEM' -or $osUser.EndsWith('$')) {
+  $cs = $null
+  try { $cs = (Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).UserName } catch { $cs = $null }
+  if (-not $cs) { try { $cs = (Get-WmiObject -Class Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName } catch { $cs = $null } }
+  if ($cs) { $osUser = ($cs -split '\\')[-1] }
+}
+if (-not $osUser -or $osUser -ieq 'SYSTEM' -or $osUser.EndsWith('$')) { $osUser = 'unknown' }
+# 归属人：优先安装期显式绑定的 AEGIS_DEVICE_OWNER，其次由控制台按 os_user 归一(override||os_user||待分配)。
+$owner = if ($env:AEGIS_DEVICE_OWNER) { [string]$env:AEGIS_DEVICE_OWNER } else { '' }
+$report = @{ schema='aegis.report/v1'; agent_version='0.34.1'; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
