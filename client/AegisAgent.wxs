@@ -52,9 +52,9 @@
     故此缺陷只在「原生 WiX」这条验证轨道上暴露。Codepage 是 WiX v3 schema 的合法
     Product 属性，两条轨道均可解析，不影响既有 wixl 构建。
   -->
-  <Product Id="*" Name="Aegis AI Agent Security" Language="2052" Codepage="936" Version="0.34.0" Manufacturer="Aegis" UpgradeCode="3CD9719D-F9BC-4163-ABA5-1009CC4250F6">
+  <Product Id="*" Name="Aegis AI Agent Security" Language="2052" Codepage="936" Version="0.0.0" Manufacturer="Aegis" UpgradeCode="3CD9719D-F9BC-4163-ABA5-1009CC4250F6">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
-    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 Aegis Agent。" />
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="已安装更新版本的 Aegis Agent。" />
     <Media Id="1" Cabinet="aegis.cab" EmbedCab="yes" />
 
     <!-- 目标机 CPU 架构。RegistrySearch 是立即序列，AEGIS_PROCARCH 在成本计算前即可用，
@@ -90,11 +90,11 @@
                装的 x64 host 照样能在模拟层跑起来，而不是无包可装。 -->
           <Component Id="HostX64" Guid="9C1A5F3E-7D24-4B6A-8E51-2F0B7C4D9A63" Win64="yes">
             <Condition>AEGIS_PROCARCH&lt;&gt;"ARM64"</Condition>
-            <File Id="ServiceHostX64" Source="AegisServiceHost.x64.exe" Name="AegisServiceHost.exe" KeyPath="yes" />
+            <File Id="ServiceHostX64" Source="AegisServiceHost.x64.exe" Name="AegisServiceHost.exe" KeyPath="yes" Version="0.0.0" />
           </Component>
           <Component Id="HostArm64" Guid="4E7B2C91-5A68-4D3F-B0C7-8A1E5D24F6B9" Win64="yes">
             <Condition>AEGIS_PROCARCH="ARM64"</Condition>
-            <File Id="ServiceHostArm64" Source="AegisServiceHost.arm64.exe" Name="AegisServiceHost.exe" KeyPath="yes" />
+            <File Id="ServiceHostArm64" Source="AegisServiceHost.arm64.exe" Name="AegisServiceHost.exe" KeyPath="yes" Version="0.0.0" />
           </Component>
         </Directory>
       </Directory>
@@ -124,8 +124,8 @@
          动作决定跑哪个 host。两边判定不同步就会「装了文件却没跑安装动作」——MSI 报成功，
          但服务没注册、没入网，比直接失败更难查。 -->
     <InstallExecuteSequence>
-      <Custom Action="InstallAegisX64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH&lt;&gt;"ARM64"</Custom>
-      <Custom Action="InstallAegisArm64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH="ARM64"</Custom>
+      <Custom Action="InstallAegisX64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH&lt;&gt;"ARM64" AND $HostX64=3</Custom>
+      <Custom Action="InstallAegisArm64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH="ARM64" AND $HostArm64=3</Custom>
       <Custom Action="UninstallAegisX64" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND AEGIS_PROCARCH&lt;&gt;"ARM64"</Custom>
       <Custom Action="UninstallAegisArm64" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND AEGIS_PROCARCH="ARM64"</Custom>
     </InstallExecuteSequence>

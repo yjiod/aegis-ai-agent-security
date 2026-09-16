@@ -70,7 +70,7 @@ PLACEHOLDER="https://aegis.example.com"
 # 所以现在只在「显式注入了真实 origin」时校验其合法性；缺省走占位域并提示。
 if [ -z "$SERVER" ]; then
   SERVER="$PLACEHOLDER"
-  echo "  · 未设 AEGIS_PUBLIC_ORIGIN：烘入占位域 $PLACEHOLDER（公开发布形态）。" >&2
+  echo "  · 未设 AEGIS_PUBLIC_ORIGIN：烘入占位域 ${PLACEHOLDER}（公开发布形态）。" >&2
   echo "    装机时用 AEGIS_SERVER_URL 指向真实控制台，详见 AegisAgent.wxs 头部注释。" >&2
 fi
 # 归一化：去掉尾部斜杠，拒绝非 https
@@ -82,7 +82,7 @@ esac
 case "$SERVER" in
   *example.com|*example.net|*example.org|*invalid|*localhost)
     if [ "$SERVER" != "$PLACEHOLDER" ] && [ "$ALLOW_PLACEHOLDER" != "1" ]; then
-      echo "  ✗ AEGIS_PUBLIC_ORIGIN 是保留占位域但又不等于公开发布用的 $PLACEHOLDER：$SERVER" >&2
+      echo "  ✗ AEGIS_PUBLIC_ORIGIN 是保留占位域但又不等于公开发布用的 ${PLACEHOLDER}：${SERVER}" >&2
       echo "    要么留空走公开发布形态，要么给真实 https origin。" >&2
       exit 1
     fi ;;
@@ -114,9 +114,17 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 #   PublishReadyToRun=false         关闭 R2R（显著放大体积）
 #
 # 通用包同时携带两份 host（wxs 按 PROCESSOR_ARCHITECTURE 条件只装匹配的那份）。
+# BUG A 防线：agent 版本单一真源 = public/downloads/aegis_agent.py 的 AGENT_VERSION
+# （可用 AEGIS_AGENT_VERSION 覆盖）。注入 wxs 占位 Version="0.0.0" 与 exe 的 -p:Version，
+# 使 MSI ProductVersion / File 版本 / exe FileVersion 三者随 agent 版本递增——
+# 否则 MajorUpgrade 匹配不到同版本旧产品 → 升级 2753→1603 回滚（BUG A）。
+AGENT_VERSION="${AEGIS_AGENT_VERSION:-$(grep -m1 'AGENT_VERSION =' "$DL/aegis_agent.py" 2>/dev/null | sed 's/[^"]*"\([^"]*\)".*/\1/')}"
+[ -n "$AGENT_VERSION" ] || { echo "无法确定 agent 版本（AEGIS_AGENT_VERSION 或 aegis_agent.py）" >&2; exit 1; }
+echo "  · agent 版本（单一真源）: $AGENT_VERSION"
 for RID in win-x64 win-arm64; do
   echo "  · dotnet 交叉发布 AegisServiceHost ($RID, self-contained, single-file, trimmed)…"
   dotnet publish "$CLIENT/host/AegisServiceHost.csproj" -c Release -r "$RID" --self-contained true \
+    -p:Version="$AGENT_VERSION" \
     -p:PublishSingleFile=true \
     -p:DebugType=None -p:DebugSymbols=false \
     -p:EnableCompressionInSingleFile=true \
@@ -155,7 +163,12 @@ done
 
 cp "$DL/aegis-windows.ps1" "$DL/aegis-policy.json" "$DL/aegis-security-baseline.md" "$WORK/"
 cp "$CLIENT/Install-Aegis-Windows.ps1" "$WORK/"
-cp "$CLIENT/AegisAgent.wxs" "$WORK/"
+# BUG A：把单一真源版本注入 wxs 副本的占位 Version="0.0.0"（Product + 两个 File 行）。
+# 工具链无关（wixl / 原生 WiX 都吃替换后的字面量）；注入失败立即构建失败，
+# 绝不静默发一个版本不变的包（那会让升级 2753 复发）。
+sed -e "s/Version=\"0\.0\.0\"/Version=\"$AGENT_VERSION\"/g" "$CLIENT/AegisAgent.wxs" > "$WORK/AegisAgent.wxs"
+grep -q "Version=\"$AGENT_VERSION\"" "$WORK/AegisAgent.wxs" || { echo "wxs 版本注入失败" >&2; exit 1; }
+[ "$(grep -c 'Version="0.0.0"' "$WORK/AegisAgent.wxs")" -eq 0 ] || { echo "wxs 仍有未注入的版本占位" >&2; exit 1; }
 # server.json 构建时生成（真实 origin 只在部署环境注入，绝不入库）
 printf '{"schema":"aegis.server/v1","server_url":"%s","scan_interval_seconds":%s}\n' "$SERVER" "$INTERVAL" > "$WORK/server.json"
 

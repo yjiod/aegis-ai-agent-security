@@ -27,7 +27,21 @@ using System.Text.Json.Serialization;
 internal static class Program
 {
     private const string ServiceName = "AegisAgent";
-    private const string HostVersion = "0.1.0";
+    // BUG C：host_version 不再硬编码。读程序集版本（-p:Version 注入的单一真源）：
+    // 优先 InformationalVersion（含 commit sha），回落 AssemblyVersion（裁剪安全）。
+    // 用实例方法 GetCustomAttributes（非扩展方法），避免额外 using 与裁剪影响。
+    private static readonly string HostVersion = ResolveHostVersion();
+    private static string ResolveHostVersion()
+    {
+        var asm = System.Reflection.Assembly.GetExecutingAssembly();
+        foreach (var attr in asm.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false))
+        {
+            if (attr is System.Reflection.AssemblyInformationalVersionAttribute iv
+                && !string.IsNullOrEmpty(iv.InformationalVersion))
+                return iv.InformationalVersion;
+        }
+        return asm.GetName().Version?.ToString() ?? "0.0.0";
+    }
     private const string HealthSchema = "aegis.service-health/v1";
     private const int DefaultIntervalSeconds = 3600;
 

@@ -134,6 +134,9 @@ function Write-EnrollmentStatus {
     $tmp = "$StatusPath.$([Guid]::NewGuid().ToString('N')).tmp"
     [IO.File]::WriteAllText($tmp, ($obj | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $tmp -Destination $StatusPath -Force
+    # BUG D：写-改名成功后清理同前缀的残留 .tmp（此前失败/过期临时文件无限累积）。
+    Get-ChildItem -LiteralPath $Data -Filter 'enrollment-status.json.*.tmp' -Force -ErrorAction SilentlyContinue |
+      Remove-Item -Force -ErrorAction SilentlyContinue
   } catch { }
 }
 
@@ -375,6 +378,13 @@ try {
   & icacls.exe $Data /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
   Write-Log "icacls 收紧退出码=$LASTEXITCODE"
   & icacls.exe $Data /grant:r '*S-1-5-32-545:RX' /C | Out-Null
+  # BUG D：诊断文件（install.log / enrollment-status.json）显式给 Administrators 只读，
+  # 否则提权管理员也读不到、现场排障取不到关键入网日志。SYSTEM 保持完全控制。
+  foreach ($diag in @((Join-Path $Data 'install.log'), $StatusPath)) {
+    if (Test-Path -LiteralPath $diag) {
+      & icacls.exe $diag /grant:r '*S-1-5-32-544:RX' '*S-1-5-18:F' /C | Out-Null
+    }
+  }
 } catch {
   Write-Log "icacls 权限收紧失败（不影响服务注册与运行，目录保持默认 ACL）：$($_.Exception.Message)" 'WARN'
 }
