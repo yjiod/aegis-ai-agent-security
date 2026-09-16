@@ -227,6 +227,15 @@ class AegisTests(unittest.TestCase):
         oversized_inventory={**report,'inventory':[{}]*5001}; self.assertFalse(self.collector.valid_report(oversized_inventory,now))
         oversized_version={**report,'agent_version':'x'*65}; self.assertFalse(self.collector.valid_report(oversized_version,now))
         oversized_finding={**report,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'x','severity':'high','path':'p','message':'x'*2049}]}; self.assertFalse(self.collector.valid_report(oversized_finding,now))
+        # 同源键(终端 0.34.1+)：finding 带 asset_type/asset_key 必须被接受——否则新终端上报
+        # 恒被判 invalid_report → 400 拒收（真机验证捕获的级联漏改）；非法类型/超长 key 仍拒绝。
+        _hi={'critical':0,'high':1,'medium':0,'low':0}
+        ak_ok={**report,'summary':_hi,'findings':[{'kind':'unknown_skill','severity':'high','path':'p','message':'m','asset_type':'skill','asset_key':'xlsx'}]}
+        self.assertTrue(self.collector.valid_report(ak_ok,now))
+        ak_badtype={**report,'summary':_hi,'findings':[{'kind':'unknown_skill','severity':'high','path':'p','message':'m','asset_type':'bogus','asset_key':'xlsx'}]}
+        self.assertFalse(self.collector.valid_report(ak_badtype,now))
+        ak_longkey={**report,'summary':_hi,'findings':[{'kind':'unknown_skill','severity':'high','path':'p','message':'m','asset_type':'skill','asset_key':'x'*129}]}
+        self.assertFalse(self.collector.valid_report(ak_longkey,now))
         # signal_matches（能力命中证据）契约：合法接受、缺省向后兼容、畸形一律拒绝。
         sm_ok={'counts':{'exec':3,'cred':0,'network':1,'filewrite':0},'score':5,'samples':[{'cap':'exec','file':'SKILL.md','line':2,'text':'run subprocess to launch'}]}
         hi={'critical':0,'high':1,'medium':0,'low':0}

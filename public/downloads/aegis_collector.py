@@ -94,11 +94,15 @@ def valid_report(d,now=None):
     counts={x:0 for x in levels}
     for finding in findings:
         if not isinstance(finding,dict) or not {"kind","severity","path","message"}.issubset(finding): return False
-        if not set(finding).issubset({"kind","severity","path","message","evidence","signal_matches"}): return False
+        if not set(finding).issubset({"kind","severity","path","message","evidence","signal_matches","asset_type","asset_key"}): return False
         if finding.get("severity") not in counts: return False
         if any(not isinstance(finding.get(k),str) for k in ("kind","path","message")): return False
         if not 1<=len(finding["kind"])<=128 or len(finding["path"])>2048 or not 1<=len(finding["message"])<=2048: return False
         if "evidence" in finding and (not isinstance(finding["evidence"],str) or len(finding["evidence"])>512): return False
+        # 同源键(终端 0.34.1+)：显式上报资产身份，供控制台按"名字"精确匹配加白标签→抑制告警/自动消除。
+        # 必须纳入 finding 字段白名单，否则新终端上报恒被判 invalid_report → 400 拒收（级联漏改）。
+        if "asset_type" in finding and not (isinstance(finding["asset_type"],str) and finding["asset_type"] in {"skill","mcp"}): return False
+        if "asset_key" in finding and not (isinstance(finding["asset_key"],str) and 1<=len(finding["asset_key"])<=128): return False
         if "signal_matches" in finding and not valid_signal_matches(finding["signal_matches"]): return False
         counts[finding["severity"]]+=1
     return counts==summary
