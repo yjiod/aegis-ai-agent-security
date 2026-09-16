@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Aegis endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
-import argparse, hashlib, hmac, json, os, platform, re, stat, subprocess, sys, tempfile, time, urllib.request
+import argparse, base64, hashlib, hmac, json, os, platform, re, stat, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 DEFAULT_POLICY=Path(__file__).with_name("aegis-policy.json")
@@ -61,6 +61,72 @@ def verify_policy_signature(data,key_or_ring=None):
     for k in order:
         if hmac.compare_digest(hmac.new(ring[k].encode(),canon,hashlib.sha256).hexdigest(),sig): return True
     return False
+
+# ── Ed25519 (RFC8032) 纯 Python 验签（批3：终端独立验签）────────────────
+# 仅验签（不签名），默认只在发布件携带 ed25519_* 字段时启用；用 unittest 的
+# OpenSSL 生成向量验证本实现的正确性。公钥来自发布件 ed25519_public（base64）。
+_ED_P = (1 << 255) - 19
+_ED_L = 7237005577332262213973186563042994240857116359379907606001950938285454250989
+_ED_D = (-121665 * pow(121666, _ED_P - 2, _ED_P)) % _ED_P
+_ED_I = pow(2, (_ED_P - 1) // 4, _ED_P)
+def _ed_recover_x(y, sign):
+    xx = (y * y - 1) * pow(_ED_D * y * y + 1, _ED_P - 2, _ED_P) % _ED_P
+    x = pow(xx, (_ED_P + 3) // 8, _ED_P)
+    if (x * x - xx) % _ED_P != 0:
+        x = (x * _ED_I) % _ED_P
+    if x % 2 != sign:
+        x = _ED_P - x
+    return x
+def _ed_decode_point(b):
+    if len(b) != 32: return None
+    y = int.from_bytes(b, "little")
+    sign = (y >> 255) & 1
+    y &= (1 << 255) - 1
+    if y >= _ED_P: return None
+    x = _ed_recover_x(y, sign)
+    if (-x * x + y * y - 1 - _ED_D * x * x * y * y) % _ED_P != 0: return None
+    return (x, y, 1, (x * y) % _ED_P)
+_ED_BY = 4 * pow(5, _ED_P - 2, _ED_P) % _ED_P
+_ED_BX = _ed_recover_x(_ED_BY, 0)
+_ED_B = (_ED_BX, _ED_BY, 1, (_ED_BX * _ED_BY) % _ED_P)
+def _ed_add(P, Q):
+    x1, y1, z1, t1 = P; x2, y2, z2, t2 = Q
+    a = ((y1 - x1) * (y2 - x2)) % _ED_P
+    b = ((y1 + x1) * (y2 + x2)) % _ED_P
+    c = (2 * t1 * t2 * _ED_D) % _ED_P
+    dd = (2 * z1 * z2) % _ED_P
+    e = (b - a) % _ED_P; f = (dd - c) % _ED_P; g = (dd + c) % _ED_P; h = (b + a) % _ED_P
+    return (e * f % _ED_P, g * h % _ED_P, f * g % _ED_P, e * h % _ED_P)
+def _ed_mult(P, e):
+    R = (0, 1, 1, 0)
+    while e > 0:
+        if e & 1: R = _ed_add(R, P)
+        P = _ed_add(P, P)
+        e >>= 1
+    return R
+def _ed_equal(P, Q):
+    x1, y1, z1, _t1 = P; x2, y2, z2, _t2 = Q
+    return (x1 * z2 - x2 * z1) % _ED_P == 0 and (y1 * z2 - y2 * z1) % _ED_P == 0
+def ed25519_verify(pub, msg, sig):
+    """RFC8032 Ed25519 验签（纯 Python，仅验签）。pub/msg/sig 为 bytes。"""
+    if len(sig) != 64 or len(pub) != 32: return False
+    R = _ed_decode_point(sig[:32]); A = _ed_decode_point(pub)
+    if R is None or A is None: return False
+    S = int.from_bytes(sig[32:], "little")
+    if S >= _ED_L: return False
+    k = int.from_bytes(hashlib.sha512(sig[:32] + pub + msg).digest(), "little") % _ED_L
+    return _ed_equal(_ed_mult(_ED_B, S), _ed_add(R, _ed_mult(A, k)))
+def verify_policy_ed25519(data):
+    """发布件携带 ed25519_* 时独立验签：Ed 签名覆盖"不含 ed 字段"的 canonical。
+    返回 True/False；无 ed 字段返回 None（调用方回落 HMAC 验签）。"""
+    pub = data.get("ed25519_public"); sig = data.get("ed25519_signature")
+    if not (isinstance(pub, str) and pub and isinstance(sig, str) and sig): return None
+    try:
+        pub_b = base64.b64decode(pub); sig_b = base64.b64decode(sig)
+    except Exception:
+        return False
+    body = {k: v for k, v in data.items() if k not in ("ed25519_signature", "ed25519_public", "ed25519_key_id")}
+    return ed25519_verify(pub_b, canonical_json(body).encode("utf-8"), sig_b)
 def load_policy(path,verify_key=None,require_signature=False):
     data=json.loads(Path(path).read_text())
     data=validate_policy(data)
@@ -73,6 +139,9 @@ def load_policy(path,verify_key=None,require_signature=False):
         # 丢掉签名、放宽 blocked_commands/allowed_* 来静默降级强制力。require 标志只来自
         # 带外可信源（入网配置/env），绝不来自（可能未签名的）策略体本身。
         raise ValueError("policy_signature_required")
+    # 批3：发布件携带 ed25519_* 时独立验签（在 HMAC 校验之后附加）；无 ed 字段返回 None 回落。
+    ed = verify_policy_ed25519(data)
+    if ed is False: raise ValueError("policy_ed25519_invalid")
     return data
 def reload_policy(path,current=None,verify_key=None,require_signature=False):
     try: return load_policy(path,verify_key,require_signature),False

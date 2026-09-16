@@ -900,4 +900,26 @@ class AegisTests(unittest.TestCase):
         out=fleet.deploy_agent(task)
         self.assertEqual(out.status,'failed'); self.assertIsNot(out, task)
 
+    def test_ed25519_verify_openssl_vector(self):
+        pub=bytes.fromhex('d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a')
+        msg=b'aegis.policy/v1 test message'
+        sig=bytes.fromhex('fceaa9d3ea4582a327385e3c62e96b0686d27d941705c11af86d2aa068db024a02f8fff61597db34f70e9de856c975d6b0c30a789013c5a5ae51889266efc301')
+        self.assertTrue(self.agent.ed25519_verify(pub,msg,sig))
+        bad=bytearray(sig); bad[0]^=0xff
+        self.assertFalse(self.agent.ed25519_verify(pub,msg,bytes(bad)))
+        self.assertFalse(self.agent.ed25519_verify(pub,msg+b'x',sig))
+        self.assertFalse(self.agent.ed25519_verify(pub[:31],msg,sig))
+    def test_verify_policy_ed25519_artifact_vector(self):
+        import json as _json
+        canonical='{"allowed_skills":["pdf"],"blocked_commands":["rm -rf /"],"schema":"aegis.policy/v1","signature":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","signing_key_id":"k1","version":"4.99.0"}'
+        data=_json.loads(canonical)
+        data['ed25519_public']='11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo='
+        data['ed25519_signature']='HYxgF3HspBpf3Xt24OKljnXz9lpmYOqMsZddeug4qzM3eiZgnziAl8Mz+lFYeJbCSGXIfRsEd9Qxyi8rvzx5DA=='
+        data['ed25519_key_id']='c4316e4610c2'
+        self.assertIs(self.agent.verify_policy_ed25519(data), True)
+        data['version']='4.98.0'
+        self.assertIs(self.agent.verify_policy_ed25519(data), False)
+        data['version']='4.99.0'; del data['ed25519_signature']
+        self.assertIsNone(self.agent.verify_policy_ed25519(data))
+
 if __name__=='__main__': unittest.main()
