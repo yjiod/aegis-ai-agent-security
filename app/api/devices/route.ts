@@ -106,7 +106,7 @@ export async function GET(request: Request) {
 
     if (search) {
       devices = devices.filter(
-        (d) => d.device_id.toLowerCase().includes(search) || d.hostname.toLowerCase().includes(search),
+        (d) => d.device_id.toLowerCase().includes(search) || d.hostname.toLowerCase().includes(search) || ((d as any).serial as string || '').toLowerCase().includes(search),
       );
     }
     if (statusFilter) {
@@ -122,7 +122,7 @@ export async function GET(request: Request) {
   let devices = [...store.values()];
   if (search) {
     devices = devices.filter(
-      (d) => d.device_id.toLowerCase().includes(search) || d.hostname.toLowerCase().includes(search) || d.owner.toLowerCase().includes(search),
+      (d) => d.device_id.toLowerCase().includes(search) || d.hostname.toLowerCase().includes(search) || d.owner.toLowerCase().includes(search) || ((d as any).serial as string || '').toLowerCase().includes(search),
     );
   }
   if (statusFilter) devices = devices.filter((d) => d.status === statusFilter);

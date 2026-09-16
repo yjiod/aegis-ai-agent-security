@@ -604,7 +604,7 @@ export default function DevicesPage() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索设备 ID、主机名或负责人"
+              placeholder="搜索序列号、设备 ID、主机名或负责人"
               aria-label="搜索受管终端"
               autoComplete="off"
               style={{ paddingLeft: 30 }}
@@ -632,7 +632,7 @@ export default function DevicesPage() {
 
         <div className="data-table">
           <div className="data-head">
-            <span>设备 ID</span>
+            <span>序列号 / 设备 ID</span>
             <span>用户 · 工具</span>
             <span>Agent 版本</span>
             <span>状态</span>
@@ -662,14 +662,13 @@ export default function DevicesPage() {
                   }}
                 >
                   <div style={cellStackStyle}>
-                    <strong>{device.device_id}</strong>
-                    <span style={{ fontSize: 10 }}>{device.hostname} · {osLabel(device.os)}</span>
-                    {/* 真实硬件序列号（用户要求显示以便定位设备；mac/win 均上报） */}
-                    {(device as { serial?: string }).serial ? (
-                      <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
-                        序列号 {(device as { serial?: string }).serial}
-                      </span>
-                    ) : null}
+                    {/* 主标识=真实硬件序列号（用户要求"把设备ID直接换成序列号"）；
+                        无序列号（极老终端）时回落 device_id。device_id 降为次行小字。 */}
+                    <strong>{(device as { serial?: string }).serial || device.device_id}</strong>
+                    <span style={{ fontSize: 10 }}>
+                      {(device as { serial?: string }).serial ? `${device.device_id} · ` : ''}
+                      {device.hostname} · {osLabel(device.os)}
+                    </span>
                   </div>
                   <span>
                     {device.owner || '未指派'} · {(((device as { tools?: string[] }).tools ?? []).length > 0
@@ -882,7 +881,7 @@ export default function DevicesPage() {
         </div>
         <div className="data-table">
           <div className="data-head" style={{ gridTemplateColumns: '1.1fr 1.1fr 0.8fr 2.2fr 90px' }}>
-            <span>设备 ID</span><span>主机名</span><span>用户</span><span>已安装 AI Agent</span><span>状态</span>
+            <span>序列号 / 设备 ID</span><span>主机名</span><span>用户</span><span>已安装 AI Agent</span><span>状态</span>
           </div>
           {matrixPaged.rows.map((d) => {
             const tools = ((d as { tools?: string[] }).tools ?? []) as string[];
@@ -890,8 +889,8 @@ export default function DevicesPage() {
             const who = d.owner || (d as { os_user?: string }).os_user || '';
             return (
               <div className="data-row" key={d.device_id} style={{ gridTemplateColumns: '1.1fr 1.1fr 0.8fr 2.2fr 90px' }}>
-                <strong>{d.device_id}</strong>
-                <span style={{ fontSize: 11 }}>{d.hostname} · {osLabel(d.os)}</span>
+                <strong>{(d as { serial?: string }).serial || d.device_id}</strong>
+                <span style={{ fontSize: 11 }}>{(d as { serial?: string }).serial ? `${d.device_id} · ` : ''}{d.hostname} · {osLabel(d.os)}</span>
                 <span style={{ fontSize: 11 }}>{who || '未知'}</span>
                 <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {tools.length > 0 ? (
