@@ -78,6 +78,8 @@ export default function DispositionsPage() {
   const [current, setCurrent] = useState<CurrentRelease | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState('');
+  // 系统默认放行（原生自带）默认折叠，避免"加白"列表被非用户决策项刷屏（用户反馈）。
+  const [showDefaults, setShowDefaults] = useState(false);
 
   // add form
   const [newType, setNewType] = useState<'skill' | 'mcp'>('skill');
@@ -201,6 +203,10 @@ export default function DispositionsPage() {
       let ok = 0;
       let failed = 0;
       for (const s of skills) {
+        // 系统默认放行项已是 allow 且带 default-bundled 标签；重复导入会把它改写成
+        // 用户"加白"(tags=策略已知)，重新刷屏处置中心。跳过，保持系统默认身份。
+        const existing = (labels ?? []).find((l) => l.asset_type === 'skill' && l.asset_key === s);
+        if (existing && existing.tags.includes('default-bundled')) continue;
         try {
           const res = await fetch('/api/labels', {
             method: 'POST',
@@ -238,6 +244,14 @@ export default function DispositionsPage() {
       setPublishing(false);
     }
   }
+
+  // 「系统默认放行」= 默认自带白名单(seed-defaults)写入、且用户未改动过(disposition 仍为
+  // allow)的条目。它们仍参与抑制与策略编译，但**不在加白列表里作为用户决策展示**，
+  // 单独折叠为一组，避免处置中心被非用户决策项刷屏（用户反馈"带来非常大困扰"）。
+  const isSystemDefault = (l: Label) => l.tags.includes('default-bundled') && l.disposition === 'allow';
+  const allLabels = labels ?? [];
+  const defaultLabels = allLabels.filter(isSystemDefault);
+  const userLabels = allLabels.filter((l) => !isSystemDefault(l));
 
   return (
     <>
@@ -286,14 +300,56 @@ export default function DispositionsPage() {
         </div>
       )}
 
-      {/* labels list */}
+      {/* 系统默认放行（默认折叠）：原生自带、自动加白，不作为用户"加白"决策展示 */}
+      {defaultLabels.length > 0 && (
+        <div className="panel animate-entrance animate-entrance-2" style={{ padding: 12, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <Badge variant="outline">
+              <ShieldCheck size={12} />
+              系统默认放行 {defaultLabels.length} 项
+            </Badge>
+            <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
+              AI Agent 原生自带的 skill / MCP，自动加白并参与告警抑制与策略编译；不计入你的处置决策、不在下方加白列表显示。
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setShowDefaults((v) => !v)} style={{ marginLeft: 'auto' }}>
+              {showDefaults ? '收起' : '展开查看 / 单独覆盖'}
+            </Button>
+          </div>
+          {showDefaults && (
+            <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
+              {defaultLabels.map((l) => (
+                <div key={`${l.asset_type}:${l.asset_key}`} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+                  <Badge variant="outline">{l.asset_type}</Badge>
+                  <strong>{l.asset_key}</strong>
+                  <Badge variant="outline">系统默认</Badge>
+                  {isAdmin && (
+                    <select
+                      value={l.disposition}
+                      disabled={busy}
+                      onChange={(e) => void save(l, { disposition: e.target.value as Label['disposition'] })}
+                      style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12, marginLeft: 'auto' }}
+                    >
+                      <option value="allow">保持系统默认（加白）</option>
+                      <option value="monitor">改为观察</option>
+                      <option value="deny">改为拉黑</option>
+                      <option value="">改为未处置</option>
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* labels list（仅用户决策项；系统默认放行见上方折叠组） */}
       <div className="panel animate-entrance animate-entrance-3" style={{ padding: 8 }}>
         {labels === null ? (
           <p className="empty-hint">加载处置注册表…</p>
-        ) : labels.length === 0 ? (
-          <p className="empty-hint">暂无打标资产。可手动添加，或点"导入策略已知 Skill"预置加白。</p>
+        ) : userLabels.length === 0 ? (
+          <p className="empty-hint">暂无你的处置决策。可手动添加资产并加白 / 观察 / 拉黑；系统默认放行项见上方折叠组。</p>
         ) : (
-          paginate(labels, page, PAGE_SIZE).rows.map((l) => {
+          paginate(userLabels, page, PAGE_SIZE).rows.map((l) => {
             const meta = DISP_META[l.disposition];
             const Icon = meta.icon;
             return (
@@ -347,12 +403,12 @@ export default function DispositionsPage() {
             );
           })
         )}
-        {labels && labels.length > 0 && (
+        {userLabels.length > 0 && (
           <Pagination
             page={page}
-            pageCount={Math.max(1, Math.ceil(labels.length / PAGE_SIZE))}
+            pageCount={Math.max(1, Math.ceil(userLabels.length / PAGE_SIZE))}
             onPage={setPage}
-            total={labels.length}
+            total={userLabels.length}
             pageSize={PAGE_SIZE}
           />
         )}
@@ -401,6 +457,7 @@ export default function DispositionsPage() {
           <>
             <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 8 }}>
               服务端权威预览（与发布输出一致）：将编译 {preview.counts.allow} 加白 / {preview.counts.monitor} 观察 / {preview.counts.deny} 拉黑，扫描模式 {preview.scan_mode}。
+              {defaultLabels.length > 0 && `（加白中含系统默认放行 ${defaultLabels.length} 项，它们不在上方处置列表显示）`}
             </p>
             <p style={{ fontSize: 13 }}>
               <b>加白 Skill</b>：{preview.policy.allowed_skills.join(', ') || '（空）'}
