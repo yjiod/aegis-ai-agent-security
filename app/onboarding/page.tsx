@@ -133,6 +133,7 @@ export default function OnboardingPage() {
                 borderRadius: '50%',
                 display: 'grid',
                 placeItems: 'center',
+                flexShrink: 0,
                 border: '1px solid var(--border)',
                 color: s.done ? 'var(--primary)' : 'var(--muted-foreground)',
                 background: s.done ? 'color-mix(in srgb, var(--primary) 14%, transparent)' : 'transparent',
@@ -146,8 +147,12 @@ export default function OnboardingPage() {
                 {s.done && <i className="pass" style={{ marginLeft: 8, fontStyle: 'normal', fontSize: 11 }}>已完成</i>}
               </strong>
               <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 8px' }}>{s.desc}</p>
-              <Link className="handle" href={s.href} style={{ fontSize: 12 }}>
-                {s.cta} <ArrowRight size={12} style={{ verticalAlign: '-2px' }} />
+              <Link
+                className="handle"
+                href={s.href}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, width: 'fit-content' }}
+              >
+                {s.cta} <ArrowRight size={12} />
               </Link>
             </div>
           </div>

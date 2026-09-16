@@ -171,6 +171,14 @@ function formatLastSeen(value: number): string {
 
 /* ─── 页面 ───────────────────────────────────────────────── */
 
+function osLabel(os?: string): string {
+  const o = (os ?? '').toLowerCase();
+  if (o.includes('darwin') || o.includes('mac')) return 'Mac';
+  if (o.includes('win')) return 'Windows';
+  if (o.includes('linux')) return 'Linux';
+  return o || '未知';
+}
+
 export default function DevicesPage() {
   const { fleet } = useCollector();
 
@@ -655,7 +663,7 @@ export default function DevicesPage() {
                 >
                   <div style={cellStackStyle}>
                     <strong>{device.device_id}</strong>
-                    <span style={{ fontSize: 10 }}>{device.hostname}</span>
+                    <span style={{ fontSize: 10 }}>{device.hostname} · {osLabel(device.os)}</span>
                   </div>
                   <span>
                     {device.owner || '未指派'} · {(((device as { tools?: string[] }).tools ?? []).length > 0
@@ -856,7 +864,7 @@ export default function DevicesPage() {
             return (
               <div className="data-row" key={d.device_id} style={{ gridTemplateColumns: '1.1fr 1.1fr 0.8fr 2.2fr 90px' }}>
                 <strong>{d.device_id}</strong>
-                <span style={{ fontSize: 11 }}>{d.hostname}</span>
+                <span style={{ fontSize: 11 }}>{d.hostname} · {osLabel(d.os)}</span>
                 <span style={{ fontSize: 11 }}>{who || '未知'}</span>
                 <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {tools.length > 0 ? (

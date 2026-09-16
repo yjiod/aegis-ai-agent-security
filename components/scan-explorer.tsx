@@ -64,6 +64,7 @@ export function ScanExplorer({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [status, setStatus] = useState(0);
 
   const load = useCallback(
     async (isRefresh: boolean) => {
@@ -71,6 +72,7 @@ export function ScanExplorer({
       else setLoading(true);
       try {
         const res = await fetch(`/api/findings?category=${category}&limit=200`, { cache: 'no-store' });
+        setStatus(res.status);
         if (!res.ok) throw new Error(`接口返回 ${res.status}`);
         const json = (await res.json()) as FindingsResponse;
         setData(json);
@@ -169,11 +171,19 @@ export function ScanExplorer({
         ) : error ? (
           <div className="empty-detail" style={{ minHeight: 160 }}>
             <WifiOff size={32} />
-            <h2>读取失败</h2>
-            <p>无法从 /api/findings 读取真实发现：{error}。未展示数据不代表没有风险。</p>
-            <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={refreshing}>
-              重试
-            </Button>
+            <h2>{status === 401 ? '会话已过期或未登录' : '读取失败'}</h2>
+            <p>
+              {status === 401
+                ? '读取 /api/findings 返回 401：当前会话无效或已过期。请重新登录后再查看真实扫描发现。'
+                : `无法从 /api/findings 读取真实发现：${error}。未展示数据不代表没有风险。`}
+            </p>
+            {status === 401 ? (
+              <a href="/login" className="handle" style={{ fontSize: 12 }}>去登录</a>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => void load(true)} disabled={refreshing}>
+                重试
+              </Button>
+            )}
           </div>
         ) : !connected ? (
           <div className="empty-detail" style={{ minHeight: 160 }}>

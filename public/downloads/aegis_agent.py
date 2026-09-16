@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Aegis endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
-import argparse, hashlib, hmac, json, os, re, stat, subprocess, sys, tempfile, time, urllib.request
+import argparse, hashlib, hmac, json, os, platform, re, stat, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 DEFAULT_POLICY=Path(__file__).with_name("aegis-policy.json")
@@ -650,7 +650,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item

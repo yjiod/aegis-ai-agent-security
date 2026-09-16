@@ -221,6 +221,12 @@ $agentMarkers = @{
   codex=@('.codex\config.toml','AppData\Roaming\npm\codex.cmd')
   claude_code=@('.claude.json','.claude\settings.json','AppData\Roaming\npm\claude.cmd')
   windsurf=@('.codeium\windsurf\mcp_config.json','AppData\Roaming\Windsurf\User\settings.json','AppData\Local\Programs\Windsurf\Windsurf.exe')
+  codebuddy=@('.codebuddy\rules.md','AppData\Roaming\CodeBuddy\settings.json','AppData\Local\Programs\CodeBuddy\CodeBuddy.exe')
+  qwen_enterprise=@('.qwenworkcn\AGENTS.md','.qwenworkcn\mcp.json')
+  workbuddy=@('.workbuddy\AGENTS.md','.workbuddy\mcp.json')
+  gemini_cli=@('.gemini\GEMINI.md','.gemini\settings.json')
+  github_copilot_cli=@('.copilot\copilot-instructions.md')
+  tongyi_lingma=@('.lingma\rules.md')
 }
 foreach ($home in $userHomes) {
   foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf')) { $candidate=Join-Path $home.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
@@ -272,7 +278,7 @@ $mg = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name Mach
 if ($mg) { $deviceMaterial = "aegis-hw:$mg" } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$report = @{ schema='aegis.report/v1'; agent_version='0.34.0'; policy_version=$policyVersion; device_id=$deviceId; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='aegis.report/v1'; agent_version='0.34.0'; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$env:USERNAME; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

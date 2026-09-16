@@ -68,6 +68,8 @@ export type Device = {
   tools?: string[];
   /** 上报的操作系统用户（用于"谁在用这台机器"）。 */
   os_user?: string;
+  /** 操作系统类型（macos/windows/linux），用于设备类型列。 */
+  os?: string;
 };
 
 /** 表单提交给 `/api/devices` 的载荷。 */
@@ -209,6 +211,7 @@ export function parseDevice(raw: unknown): Device | null {
     ...(findings ? { findings_summary: findings } : {}),
     ...(tools.length > 0 ? { tools } : {}),
     ...(osUser ? { os_user: osUser } : {}),
+    ...(() => { const o = text(data.os ?? data.platform, 16); return o ? { os: o } : {}; })(),
   };
 }
 
