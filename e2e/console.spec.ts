@@ -142,7 +142,7 @@ test.describe('overview dashboard', () => {
     // 顶栏接收器状态如实反映模式：demo=未连接，live=已连接。
     const status = page.locator('.topbar .system-ok').first();
     await expect(status).toContainText(
-      LIVE ? /只读摘要已连接/ : /接收器未连接|正在检查接收器/,
+      LIVE ? /接收器已连接/ : /接收器未连接|正在检查接收器/,
     );
 
     // 已移除的演示伪造横幅不得回归。（.panel.score 类名现被「版本姿态」真实面板
@@ -193,7 +193,8 @@ test.describe('devices page', () => {
     await expect(table).toBeVisible();
     await expect(table.locator('.data-head')).toContainText('设备 ID');
 
-    const rows = page.locator('.data-table .data-row');
+    // 行只取主表（第一个 .data-table）；覆盖矩阵是第二个表、设备 ID 会重复。
+    const rows = page.locator('.data-table').first().locator('.data-row');
     const empty = page.locator('.empty-detail');
     await Promise.race([
       rows.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),

@@ -169,7 +169,7 @@ Agent 0.31.0 收口逐设备入网的终端侧：Agent 现在按优先级解析�
 
 0.60.0 修复在线轮换的文件元数据边界。新清单仍以 0600 创建；如果目标清单已存在且是合规的 0600 或 `root:aegis` 0640 普通文件，原子替换会保留其 owner、group 和 mode。替换前无法保留任一元数据时操作失败且旧清单不变，避免轮换后 Collector 因属组或读取位丢失而停服。Collector 与生成器均只接受精确 0600/0640，不再接受其他“看似私有”但不符合部署契约的模式。
 
-0.61.0 / Collector 0.13 强制 Token 与 HMAC 必须来自同一凭据代次；“新 Token + 旧 HMAC”等交叉组合返回 401。每次成功接收（包括语义重复报告）都会更新设备认证代次，`/v1/summary` 返回 `credential_posture.current/previous/legacy`，`/v1/devices` 返回每台设备的 `credential_generation`，均不暴露凭据。裁剪旧代前，将认证后的 `/v1/devices` 响应保存为本地 JSON，并以 `--activation-evidence` 传给 `aegis_device_credentials.py --prune-old`；只有本次目标设备全部明确为 `current` 时才允许裁剪，缺失、重复、过大、结构异常或仍使用 previous/legacy 的证据均失败关闭。私有控制台的只读摘要代理会验证并展示该代次姿态。
+0.61.0 / Collector 0.13 强制 Token 与 HMAC 必须来自同一凭据代次；“新 Token + 旧 HMAC”等交叉组合返回 401。每次成功接收（包括语义重复报告）都会更新设备认证代次，`/v1/summary` 返回 `credential_posture.current/previous/legacy`，`/v1/devices` 返回每台设备的 `credential_generation`，均不暴露凭据。裁剪旧代前，将认证后的 `/v1/devices` 响应保存为本地 JSON，并以 `--activation-evidence` 传给 `aegis_device_credentials.py --prune-old`；只有本次目标设备全部明确为 `current` 时才允许裁剪，缺失、重复、过大、结构异常或仍使用 previous/legacy 的证据均失败关闭。私有控制台的接收器代理会验证并展示该代次姿态。
 
 0.62.0 / Collector 0.14 为 `/v1/devices` 增加 `generated_at`，逐设备 `last_seen` 在启用身份绑定后使用最近一次成功认证时间，因此相同报告重放也可证明新凭据已生效。裁剪工具只接受生成时间不超过 15 分钟、未来偏差不超过 60 秒的证据，并要求每台目标设备在证据生成前 24 小时内以 current 凭据成功认证。过期导出、长期离线终端或时间不一致均不能作为删除旧代的依据。
 

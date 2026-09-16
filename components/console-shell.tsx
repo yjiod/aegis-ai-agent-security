@@ -185,7 +185,7 @@ export default function ConsoleShell({
             <span className="system-ok">
               <span className={collectorState === 'live' ? 'live-dot' : 'demo-dot'} />
               {collectorState === 'live'
-                ? '只读摘要已连接'
+                ? '接收器已连接'
                 : collectorState === 'checking'
                   ? '正在检查接收器'
                   : '接收器未连接'}
@@ -269,7 +269,7 @@ export default function ConsoleShell({
               <div>
                 <strong>企业安全策略</strong>
                 <small>
-                  {collectorState === 'live' ? '只读摘要已连接' : '尚未连接接收器'}
+                  {collectorState === 'live' ? '接收器已连接' : '尚未连接接收器'}
                 </small>
               </div>
               <Check size={16} />

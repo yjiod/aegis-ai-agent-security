@@ -91,7 +91,7 @@ msiexec /i aegis-agent-windows.msi
         │  HMAC 签名报告 / 每设备或全局令牌
         ▼
 Collector（受认证报告汇聚，/v1/*，SQLite，速率限制 + 审计）
-        │  只读摘要 / 设备 / 发现
+        │  接收器 / 设备 / 发现
         ▼
 控制台（vinext + PostgreSQL；摘要代理、签名策略发布、工单/处置、RBAC、审计）
         │  单向适配边界（凭据隔离）

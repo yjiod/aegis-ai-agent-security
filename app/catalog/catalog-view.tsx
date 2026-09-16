@@ -393,7 +393,7 @@ export function CatalogView() {
                 </Badge>
                 <Badge variant="outline">
                   <span className="live-dot" />
-                  只读摘要已连接
+                  接收器已连接
                 </Badge>
               </Variant>
               <Variant label="带图标">
@@ -647,7 +647,7 @@ export function CatalogView() {
               </Variant>
               <Variant label="垂直分隔">
                 <div className="flex h-6 items-center gap-3 text-xs text-[#78968c]">
-                  <span>只读摘要</span>
+                  <span>接收器</span>
                   <Separator orientation="vertical" />
                   <span>实时数据</span>
                 </div>
@@ -671,7 +671,7 @@ export function CatalogView() {
               <Variant label="信息 info" vertical>
                 <Alert className="border-[#295443] bg-[#0f2620] text-[#c9f5e4]">
                   <Info />
-                  <AlertTitle>只读摘要已连接</AlertTitle>
+                  <AlertTitle>接收器已连接</AlertTitle>
                   <AlertDescription className="text-[#8fc7b3]">
                     数据来自 /api/summary，每 60 秒刷新一次，不会写入任何终端。
                   </AlertDescription>
@@ -1236,7 +1236,7 @@ export function CatalogView() {
                 <p className="eyebrow">安全能力 / 组件目录</p>
                 <span className="system-ok">
                   <span className="live-dot" />
-                  只读摘要已连接
+                  接收器已连接
                 </span>
                 <span className="system-ok">
                   <span className="demo-dot" />

@@ -24,7 +24,7 @@ interface Step {
 }
 
 const GLOSSARY: Array<[string, string]> = [
-  ['接收器 / Collector', '部署在服务端的报告汇聚点。各终端 Agent 把扫描结果上报到这里，控制台再从它读取只读摘要。顶栏的"接收器已连接/未连接"就是它的实时状态。'],
+  ['接收器 / Collector', '部署在服务端的报告汇聚点。各终端 Agent 把扫描结果上报到这里，控制台再从接收器读取数据。顶栏的"接收器已连接/未连接"就是它的实时状态。'],
   ['终端 Agent', '装在员工电脑上、随 AI 编码工具一起运行的轻量探针。它发现本机的 Skill / MCP / 依赖风险并上报，是数据的源头。'],
   ['Skill', 'AI 编码工具（如 Claude/Codex 等）可加载的技能插件。未签名或来源不明的 Skill 可能携带恶意指令，需要研判与处置。'],
   ['MCP', 'Model Context Protocol 服务，给 AI 工具提供文件/网络/命令等能力。越权的 MCP（如任意文件读写、未声明外联）是高危面。'],
@@ -60,7 +60,7 @@ export default function OnboardingPage() {
     {
       key: 'collector',
       title: '连接接收器（Collector）',
-      desc: '在服务端部署接收器并配置控制台指向它。顶栏显示"只读摘要已连接"即为成功。',
+      desc: '在服务端部署接收器并配置控制台指向它。顶栏显示"接收器已连接"即为成功。',
       href: '/integrations',
       cta: '去接入中心',
       done: connected,
