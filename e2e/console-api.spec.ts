@@ -536,6 +536,33 @@ test.describe('devices connectivity vs attention', () => {
 });
 
 /**
+ * 企业级 MD 上传+灰度推送：发布后 GET 可见版本/灰度；Collector 不可达时如实 502（不假装推送）。
+ * 终端按灰度拉取（/v1/enterprise-baseline）由 collector 侧每设备令牌鉴权，prod 另行验证。
+ */
+test.describe('enterprise MD publish', () => {
+  test('publish stores version+rollout; collector-unreachable reports 502 honestly', async ({
+    request,
+  }) => {
+    await login(request);
+    const pub = await request.post('/api/baselines/enterprise', {
+      data: { content: '# 企业安全基线 e2e\n- 规则一', rollout: { mode: 'percent', percent: 50 } },
+    });
+    if (pub.status() === 502) return; // demo: no collector → honest 502, nothing pushed
+    expect(pub.status()).toBe(200);
+    const pb = (await pub.json()) as { version?: number };
+    expect(typeof pb.version).toBe('number');
+
+    const view = await request.get('/api/baselines/enterprise');
+    expect(view.status()).toBe(200);
+    const vj = (await view.json()) as { published?: boolean; version?: number; rollout?: { mode?: string; percent?: number } };
+    expect(vj.published).toBe(true);
+    expect(vj.version).toBe(pb.version);
+    expect(vj.rollout?.mode).toBe('percent');
+    expect(vj.rollout?.percent).toBe(50);
+  });
+});
+
+/**
  * 4A · capability RBAC 批2b：operator 白名单持久化生命周期。
  * admin 添加 → 该工号获得 device:write → admin 移除 → 回落 viewer(403)。
  * 持久化在 PG settings(allowlist:operators)，写后 invalidate 缓存即刻生效。

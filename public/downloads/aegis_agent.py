@@ -403,9 +403,10 @@ def safe_managed_target(root,path):
         return not path.is_symlink()
     except (OSError,ValueError): return False
 def install_baseline(root):
-    """Install additive, clearly-marked rules without replacing repository guidance."""
+    """Install additive, clearly-marked rules without replacing repository guidance.
+    内容=内置/上游基线 + 企业级 MD（附加合并，互不覆盖）。"""
     root=Path(root).resolve()
-    content=BASELINE.read_text()
+    content=effective_baseline()+"\n"
     targets=[(root/".cursor/rules/aegis-security.mdc","---\ndescription: 企业安全编码基线\nalwaysApply: true\n---\n"+content),(root/".windsurf/rules/aegis-security.md",content)]
     changed=[]
     for path,data in targets:
@@ -465,7 +466,7 @@ def auto_enroll(root):
 def verify_user_baselines(homes=None):
     """Return privacy-minimized evidence that detected user Agents loaded the managed block."""
     homes=managed_homes() if homes is None else homes
-    try: expected=BASELINE.read_text().rstrip()
+    try: expected=effective_baseline()
     except OSError: return [],[]
     inventory=[];findings=[]
     targets={"codex":(".codex",".codex/AGENTS.md"),"claude_code":((".claude",".claude.json"),".claude/CLAUDE.md"),"workbuddy":(".workbuddy",".workbuddy/AGENTS.md"),"gemini_cli":(".gemini",".gemini/GEMINI.md"),"github_copilot_cli":(".copilot",".copilot/copilot-instructions.md"),"qwen_enterprise":(".qwenworkcn",".qwenworkcn/AGENTS.md"),"tongyi_lingma":(".lingma",".lingma/rules.md"),"codebuddy":(".codebuddy",".codebuddy/rules.md")}
@@ -606,6 +607,40 @@ def hardware_device_id():
     s=hardware_serial()
     if s: return hashlib.sha256(("aegis-hw:"+s).encode()).hexdigest()[:12]
     return hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:12]
+ENTERPRISE_BASELINE_VERSION=""
+def enterprise_baseline_path():
+    return Path(__file__).with_name("enterprise-baseline.md")
+def effective_baseline():
+    """上游/内置基线 + 企业级 MD（附加合并，互不覆盖）。企业 MD 不在范围/未发布时仅内置基线。"""
+    base=BASELINE.read_text().rstrip()
+    try:
+        extra=enterprise_baseline_path().read_text(errors="ignore").rstrip()
+        if extra: base=base+"\n\n"+extra
+    except OSError: pass
+    return base
+def sync_enterprise_baseline(base_url,token,device_id,department):
+    """从 Collector 拉取企业级 MD（按灰度范围）；在范围则落盘 enterprise-baseline.md 并记版本，
+    不在范围/未发布则删除旧文件（避免过期企业基线残留）。返回版本号字符串。"""
+    global ENTERPRISE_BASELINE_VERSION
+    ep=enterprise_baseline_path()
+    if not base_url or not token:
+        ENTERPRISE_BASELINE_VERSION=""; return ""
+    url=base_url.rstrip("/")+"/v1/enterprise-baseline?device_id="+urllib.parse.quote(device_id)+"&department="+urllib.parse.quote(department or "")
+    try:
+        req=urllib.request.Request(url,headers={"Authorization":"Bearer "+token})
+        with urllib.request.urlopen(req,timeout=20) as r:
+            d=json.loads(r.read().decode("utf-8"))
+        content=d.get("content"); version=str(d.get("version") or "")
+        if isinstance(content,str) and content and 0<len(content)<=2_000_000:
+            write_private_atomic(ep,content); ENTERPRISE_BASELINE_VERSION=version; return version
+    except urllib.error.HTTPError as e:
+        if e.code in (404,401,403):
+            try: ep.unlink(missing_ok=True)
+            except OSError: pass
+            ENTERPRISE_BASELINE_VERSION=""; return ""
+    except Exception:
+        pass
+    return ENTERPRISE_BASELINE_VERSION
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
     baseline_inv,baseline_findings=verify_user_baselines()
@@ -614,7 +649,7 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":(os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -733,6 +768,10 @@ def main():
     while True:
         policy,reload_failed=reload_policy(args.policy,policy,require_signature=require_signature)
         if args.auto_enroll: auto_enroll(root)
+        # 拉取企业级 MD（按灰度范围）；在范围落盘并附加进受管基线，不在范围清除旧文件。
+        eb_token=(enrollment or {}).get("report_token") or (reporting or {}).get("report_token") or os.getenv("AEGIS_REPORT_TOKEN","")
+        eb_base=(args.report_url or "").replace("/v1/reports","")
+        sync_enterprise_baseline(eb_base, eb_token, host_device_id, os.environ.get("AEGIS_DEVICE_DEPARTMENT",""))
         report=build_report(root,policy); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reload_failed:
             add_report_finding(report,finding("policy_reload_failed","high",args.policy,("策略热加载失败（已启用强制验签：缺签名/验签失败/解析错误），继续使用上一份有效签名策略" if require_signature else "策略热加载失败，继续使用上一份有效策略"))); data=json.dumps(report,ensure_ascii=False,indent=2)

@@ -25,8 +25,26 @@ def db_open(path):
         # 每设备上报令牌（批4）：token 以 sha256 哈希存储（不落明文），signing_secret 与
         # 凭据文件同待遇（服务端受控存储）。report_authentication 双接受：全局令牌 ∪ 每设备令牌。
         db.execute("CREATE TABLE IF NOT EXISTS device_tokens(device_id TEXT NOT NULL,token_hash TEXT NOT NULL,signing_secret TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(device_id,token_hash))"); db.commit()
+        # 企业级 MD（用户自有基线）：控制台发布时推送至此；按灰度范围下发给终端。
+        # 与上游同步基线完全分离（独立表/独立文件），互不影响。
+        db.execute("CREATE TABLE IF NOT EXISTS enterprise_baseline(id INTEGER PRIMARY KEY CHECK(id=1),content TEXT NOT NULL,version INTEGER NOT NULL,rollout_json TEXT NOT NULL,updated_at INTEGER NOT NULL)"); db.commit()
         yield db
     finally: db.close()
+def enterprise_in_scope(device_id, department, rollout):
+    """企业级 MD 灰度范围判定：all=全量；percent=按 device_id 哈希百分比；department=部门白名单。"""
+    if not isinstance(rollout,dict): return False
+    mode=rollout.get("mode","all")
+    if mode=="all": return True
+    if mode=="percent":
+        try: p=int(rollout.get("percent",0))
+        except (TypeError,ValueError): return False
+        p=max(0,min(100,p))
+        return (int(hashlib.sha256((device_id or "").encode()).hexdigest(),16)%100) < p
+    if mode=="department":
+        deps=rollout.get("departments")
+        if not isinstance(deps,list): return False
+        return (department or "") in [x for x in deps if isinstance(x,str)]
+    return False
 def valid_signal_matches(sm):
     """有界校验 Agent 回收的能力命中证据（可选字段，向后兼容旧 Agent）。
     形状：{counts:{exec,cred,network,filewrite}, score:0..6, samples:[{cap,file,line,text}]}。
@@ -54,10 +72,11 @@ def valid_report(d,now=None):
     """Validate the published v1 contract without a third-party JSON Schema runtime."""
     if not isinstance(d,dict): return False
     required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}
-    allowed=required|{"scan_root","inventory","hostname","os_user","owner"}
+    allowed=required|{"scan_root","inventory","hostname","os_user","owner","enterprise_baseline_version"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
     if d.get("schema")!="aegis.report/v1": return False
     if "owner" in d and not (isinstance(d["owner"],str) and len(d["owner"])<=64): return False
+    if "enterprise_baseline_version" in d and not (isinstance(d["enterprise_baseline_version"],str) and len(d["enterprise_baseline_version"])<=32): return False
     if not all(isinstance(d.get(k),str) and 1<=len(d[k])<=64 for k in ("agent_version","policy_version")): return False
     if not isinstance(d.get("device_id"),str) or not 8<=len(d["device_id"])<=128: return False
     if "scan_root" in d and (not isinstance(d["scan_root"],str) or len(d["scan_root"])>1024): return False
@@ -280,6 +299,22 @@ class Handler(BaseHTTPRequestHandler):
         if self.rate_limited(): return
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         parsed=urlsplit(self.path)
+        if parsed.path=="/v1/enterprise-baseline":
+            # 终端拉取企业级 MD（每设备令牌鉴权）；按灰度范围(all/percent/department)下发。
+            authenticated,binding=self.report_authentication()
+            if not authenticated: return self.reply(401,{"error":"unauthorized"})
+            q2=parse_qs(parsed.query,keep_blank_values=True)
+            did=(q2.get("device_id",[""])[0] or "").strip()
+            dept=(q2.get("department",[""])[0] or "").strip()
+            try:
+                with db_open(self.server.db_path) as db:
+                    row=db.execute("SELECT content,version,rollout_json FROM enterprise_baseline WHERE id=1").fetchone()
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            if not row: return self.reply(404,{"error":"not_published"})
+            try: rollout=json.loads(row[2])
+            except (ValueError,TypeError): rollout={}
+            if not enterprise_in_scope(did,dept,rollout): return self.reply(404,{"error":"not_in_scope"})
+            return self.reply(200,{"version":row[1],"content":row[0],"sha256":hashlib.sha256(row[0].encode()).hexdigest()})
         if parsed.path=="/v1/devices":
             query=parse_qs(parsed.query,keep_blank_values=True)
             if set(query)-{"limit"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})
@@ -300,6 +335,7 @@ class Handler(BaseHTTPRequestHandler):
                         if isinstance(body.get("hostname"),str): dev["hostname"]=body["hostname"][:128]
                         if isinstance(body.get("os_user"),str): dev["os_user"]=body["os_user"][:64]
                         if isinstance(body.get("owner"),str): dev["owner"]=body["owner"][:64]
+                        if isinstance(body.get("enterprise_baseline_version"),str): dev["enterprise_baseline_version"]=body["enterprise_baseline_version"][:32]
                         if isinstance(body.get("agent_version"),str): dev["agent_version"]=body["agent_version"][:32]
                         if isinstance(body.get("policy_version"),str): dev["policy_version"]=body["policy_version"][:32]
                         inv=body.get("inventory")
@@ -337,6 +373,24 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
+        # 控制台发布企业级 MD → 推送至此（仅管理令牌）；终端经 GET /v1/enterprise-baseline 按灰度拉取。
+        if self.path=="/v1/enterprise-baseline":
+            if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
+            try: length=int(self.headers.get("Content-Length","0"))
+            except ValueError: return self.reply(400,{"error":"invalid_size"})
+            if length<2 or length>4_000_000: return self.reply(413,{"error":"invalid_size"})
+            try: payload=json.loads(self.rfile.read(length))
+            except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError): return self.reply(400,{"error":"invalid_json"})
+            content=payload.get("content"); version=payload.get("version"); rollout=payload.get("rollout")
+            if not isinstance(content,str) or not (1<=len(content)<=2_000_000): return self.reply(400,{"error":"invalid_content"})
+            if not isinstance(version,int) or isinstance(version,bool) or not (1<=version<=1_000_000): return self.reply(400,{"error":"invalid_version"})
+            if not isinstance(rollout,dict): return self.reply(400,{"error":"invalid_rollout"})
+            try:
+                with db_open(self.server.db_path) as db:
+                    db.execute("INSERT INTO enterprise_baseline(id,content,version,rollout_json,updated_at) VALUES(1,?,?,?,?) ON CONFLICT(id) DO UPDATE SET content=excluded.content,version=excluded.version,rollout_json=excluded.rollout_json,updated_at=excluded.updated_at",(content,version,json.dumps(rollout,ensure_ascii=False),int(time.time())))
+                    db.commit()
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            return self.reply(200,{"ok":True,"version":version})
         # 注册每设备上报令牌（批4，仅管理令牌）：存 sha256 哈希，不落明文。
         if self.path=="/v1/device-tokens":
             if not self.authorized(): return self.reply(401,{"error":"unauthorized"})

@@ -211,6 +211,78 @@ export default function BaselinesPage() {
           ))
         )}
       </div>
+      <EnterpriseMdPanel />
     </>
+  );
+}
+
+/**
+ * 企业级 MD 上传 + 灰度推送（用户自有基线）。发布后推送到 Collector，终端按灰度
+ * 范围（全量/百分比/部门）拉取并附加进受管基线；与上游同步基线完全分离、互不影响。
+ */
+function EnterpriseMdPanel() {
+  const [content, setContent] = useState('');
+  const [mode, setMode] = useState<'all' | 'percent' | 'department'>('all');
+  const [percent, setPercent] = useState(10);
+  const [departments, setDepartments] = useState('');
+  const [current, setCurrent] = useState<{ published: boolean; version?: number; rollout?: { mode?: string; percent?: number; departments?: string[] } } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/baselines/enterprise', { cache: 'no-store' });
+      if (r.ok) setCurrent(await r.json());
+      else setCurrent({ published: false });
+    } catch { setCurrent({ published: false }); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  async function publish() {
+    if (!content.trim()) { setMsg('内容不能为空'); return; }
+    setBusy(true); setMsg('');
+    try {
+      const rollout = mode === 'percent' ? { mode, percent } : mode === 'department' ? { mode, departments: departments.split(/[,，\s]+/).filter(Boolean) } : { mode };
+      const r = await fetch('/api/baselines/enterprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, rollout }) });
+      const d = (await r.json().catch(() => ({}))) as { version?: number; error?: string };
+      setMsg(r.ok ? `已发布 v${d.version} 并推送到 Collector（终端按灰度拉取）` : `发布失败：${d.error ?? r.status}`);
+      if (r.ok) void load();
+    } catch { setMsg('发布失败：网络错误'); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <div className="panel-head">
+        <div>
+          <h2>企业级 MD（自有基线）上传与灰度推送</h2>
+          <p>
+            {current?.published
+              ? `当前 v${current.version} · 灰度=${current.rollout?.mode}${current.rollout?.mode === 'percent' ? ` ${current.rollout.percent}%` : ''}${current.rollout?.mode === 'department' ? ` ${(current.rollout.departments ?? []).join(',')}` : ''}`
+              : '尚未发布企业级 MD'}
+            ；与上游同步基线分离，作为附加基线下发到终端，互不覆盖。
+          </p>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gap: 10 }}>
+        <textarea className="form-input" rows={8} placeholder="粘贴企业级安全基线 Markdown 内容…" value={content} onChange={(e) => setContent(e.target.value)} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label style={{ fontSize: 12 }}>灰度范围</label>
+          <select className="form-input" style={{ width: 140 }} value={mode} onChange={(e) => setMode(e.target.value as typeof mode)}>
+            <option value="all">全量</option>
+            <option value="percent">百分比</option>
+            <option value="department">部门</option>
+          </select>
+          {mode === 'percent' && (
+            <input className="form-input" style={{ width: 90 }} type="number" min={0} max={100} value={percent} onChange={(e) => setPercent(Number(e.target.value) || 0)} />
+          )}
+          {mode === 'department' && (
+            <input className="form-input" style={{ flex: 1 }} placeholder="部门列表，逗号分隔（如 研发,安全）" value={departments} onChange={(e) => setDepartments(e.target.value)} />
+          )}
+          <Button onClick={() => void publish()} disabled={busy}>{busy ? '发布中…' : '发布并推送'}</Button>
+        </div>
+        {msg && <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{msg}</p>}
+      </div>
+    </div>
   );
 }
