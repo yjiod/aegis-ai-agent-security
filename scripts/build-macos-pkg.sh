@@ -84,7 +84,11 @@ if [ -f /Library/Preferences/aegis-server.json ]; then
 fi
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST="/Library/LaunchDaemons/com.aegis.agent.plist"
-PYBIN="$(command -v python3 || echo /usr/bin/python3)"
+PYBIN=""
+for cand in /usr/bin/python3 "$(command -v python3 || true)"; do
+  if [ -n "$cand" ] && [ -x "$cand" ] && "$cand" -c 'pass' >/dev/null 2>&1; then PYBIN="$cand"; break; fi
+done
+[ -n "$PYBIN" ] || PYBIN=/usr/bin/python3
 # 设备 ID 优先硬件序列（稳定，不随 hostname/升级变化），与 agent hardware_device_id() 一致。
 _hw_serial="$(ioreg -c IOPlatformExpert 2>/dev/null | awk -F'"' '/IOPlatformSerialNumber/{print $4; exit}')"
 [ -z "$_hw_serial" ] && _hw_serial="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Serial Number \(system\)/{gsub(/ /,"",$2); print $2; exit}')"

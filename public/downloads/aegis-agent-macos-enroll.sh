@@ -40,7 +40,12 @@ INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
 DEVICE_ID="${AEGIS_DEVICE_ID:-MAC-$(hostname | cut -c1-12 | tr '[:lower:]' '[:upper:]' | tr ' ' '-')}"
 INSTALL_DIR="${AEGIS_INSTALL_DIR:-$HOME/Library/Application Support/AegisAgent}"
 PLIST="$HOME/Library/LaunchAgents/com.aegis.agent.plist"
-PYTHON_BIN="$(command -v python3 || true)"
+# 选一个"真能执行"的 python3: 优先系统通用二进制; command -v 可能返回坏 CPU 类型的
+# 第三方二进制(实测 /usr/local/bin/python3 在 ARM 机 bad CPU type 致 LaunchAgent 崩溃循环)。
+PYTHON_BIN=""
+for cand in /usr/bin/python3 "$(command -v python3 || true)"; do
+  if [ -n "$cand" ] && [ -x "$cand" ] && "$cand" -c 'pass' >/dev/null 2>&1; then PYTHON_BIN="$cand"; break; fi
+done
 RUNTIME_FILES="aegis_agent.py aegis-policy.json aegis-security-baseline.md"
 
 # ─── 卸载分支（用户级，无需 sudo）─────────────────────────────────────
