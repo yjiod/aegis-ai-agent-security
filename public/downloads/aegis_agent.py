@@ -904,6 +904,15 @@ def maybe_reenroll_on_auth_failure(exc, args, root, enroll_path, host_device_id)
     return None
 
 
+def self_update_binary_artifact_name() -> str:
+    """冻结二进制自更新的工件名：aegis-agent-<os>-<arch>，与 release manifest 的 binary 工件键一致。
+    os=platform.system().lower()(darwin/linux/windows)；arch 归一 x86_64/amd64→x64、aarch64→arm64。"""
+    os_name = platform.system().lower()[:16]
+    m = (platform.machine() or "").lower()
+    arch = {"x86_64": "x64", "amd64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(m, m)
+    return f"aegis-agent-{os_name}-{arch}"
+
+
 def maybe_self_update(policy, report_url):
     """无桌管环境的自更新兜底通道；主通道永远是桌管/MDM 推送。
 
@@ -929,11 +938,7 @@ def maybe_self_update(policy, report_url):
             manifest_url = report_url.split("/api/")[0] + "/downloads/update-manifest.json"
     if not manifest_url:
         return
-    if getattr(sys, "frozen", False):
-        # 冻结二进制的自更新需要 manifest 提供按 os/arch 的二进制工件、且运行中的可执行文件不可
-        # 原地覆盖(需 staging + 下次生效)——属去-python 化 B-Phase4。此前二进制形态先不自更新，
-        # 主通道仍是桌管/MDM 推送(见 /push 轻量包)；python3 形态的自更新不受影响。
-        return
+    frozen = getattr(sys, "frozen", False)
     try:
         script_dir = str(BASE_DIR)
         if script_dir not in sys.path:
@@ -942,13 +947,22 @@ def maybe_self_update(policy, report_url):
     except Exception:
         return
     device_id = hardware_device_id()
+    # 冻结二进制(去-python 化 B)：热替换 sys.executable 自身。mac/linux 上 os.replace 覆盖运行中的
+    # 可执行文件是安全的(运行进程留旧 inode，下次 exec 用新文件；已实测)，无需重装 pkg——即
+    # "手动装用 pkg、后台热更直接换二进制文件"的分工。工件按 os/arch 取；python3 形态仍换 aegis_agent.py。
+    if frozen:
+        artifact_name = self_update_binary_artifact_name()
+        target = sys.executable
+    else:
+        artifact_name = "aegis_agent.py"
+        target = str(BASE_DIR / "aegis_agent.py")
     try:
         res = su.check_and_apply(
             manifest_url,
             AGENT_VERSION,
             device_id,
-            "aegis_agent.py",
-            str(Path(__file__).resolve()),
+            artifact_name,
+            target,
             rollout_percent=int(cfg.get("rollout_percent", 100)),
         )
         if res.get("updated"):

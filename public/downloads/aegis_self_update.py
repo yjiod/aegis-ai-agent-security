@@ -117,13 +117,28 @@ def download_and_verify(url: str, sha256: str, dest_staging: str, timeout: int =
 
 
 def apply_update(staging: str, target: str) -> str:
-    """原子替换 target；旧版本备份为 target.prev。返回备份路径。"""
+    """原子替换 target；旧版本备份为 target.prev。返回备份路径。
+
+    关键：保留 target 原有权限位。staging 来自 mkstemp(0600)，os.replace 后 target 会丢掉
+    可执行位——对 python 脚本形态(经 python3 解释执行)无碍，但对**冻结二进制**形态是致命的：
+    LaunchAgent/systemd 直接 exec 该文件，丢了 +x 就 "permission denied"、下一周期起不来、
+    agent 变砖。故替换前记录原 mode、替换后 chmod 回去（无原文件则给 0755）。
+    """
     backup = target + ".prev"
+    orig_mode = None
     if os.path.exists(target):
+        try:
+            orig_mode = os.stat(target).st_mode & 0o777
+        except OSError:
+            orig_mode = None
         # 复制当前版本到 backup（不用 rename，保留 target 直到 replace）
         with open(target, "rb") as src, open(backup, "wb") as dst:
             dst.write(src.read())
     os.replace(staging, target)
+    try:
+        os.chmod(target, orig_mode if orig_mode is not None else 0o755)
+    except OSError:
+        pass
     return backup
 
 

@@ -872,6 +872,18 @@ class AegisTests(unittest.TestCase):
             self.assertEqual(target.read_text(),'print("new")'); self.assertTrue(os.path.exists(backup))
             self.assertTrue(su.rollback(str(target))); self.assertEqual(target.read_text(),'print("old")')
 
+    def test_self_update_apply_preserves_executable_mode(self):
+        # 冻结二进制热更：staging 来自 mkstemp(0600)，apply_update 必须保留 target 原 +x，否则
+        # os.replace 后二进制丢可执行位 → LaunchAgent/systemd exec "permission denied" → agent 变砖。
+        su=load('selfupdate_mode','aegis_self_update.py')
+        with tempfile.TemporaryDirectory() as d:
+            target=Path(d)/'aegis-agent'; target.write_bytes(b'OLD-binary'); target.chmod(0o755)
+            staging=Path(d)/'staging'; staging.write_bytes(b'NEW-binary'); staging.chmod(0o600)
+            backup=su.apply_update(str(staging), str(target))
+            self.assertEqual(target.read_bytes(), b'NEW-binary')
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o755)  # +x 必须保留
+            self.assertTrue(os.path.exists(backup))
+
     def test_self_update_check_and_apply_up_to_date(self):
         su=load('selfupdate3','aegis_self_update.py')
         with tempfile.TemporaryDirectory() as d:

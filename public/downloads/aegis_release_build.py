@@ -68,6 +68,20 @@ def build(downloads):
     _agent_src = (downloads/"aegis_agent.py").read_text(encoding="utf-8")
     _av = _re.search(r'AGENT_VERSION\s*=\s*"([^"]+)"', _agent_src)
     agent_version = _av.group(1) if _av else release.get("min_agent_version", "0.33.0")
+    _artifacts = {
+        "aegis_agent.py":{"url":"/downloads/aegis_agent.py","sha256":current["aegis_agent.py"]},
+        "aegis-windows.ps1":{"url":"/downloads/aegis-windows.ps1","sha256":current["aegis-windows.ps1"]},
+        "aegis_self_update.py":{"url":"/downloads/aegis_self_update.py","sha256":digest(downloads/"aegis_self_update.py")},
+    }
+    # 去-python 化 B：冻结二进制工件(CI 矩阵按 os/arch 产出后放入 downloads/)，存在即纳入清单，
+    # 供冻结形态的 agent 热替换自身(sys.executable)。命名严格 aegis-agent-<os>-<arch>[.exe]，
+    # 与 aegis_agent.self_update_binary_artifact_name() 一致；不匹配 .run/.pkg 等安装器名。
+    for _os in ("darwin", "linux", "windows"):
+        for _arch in ("arm64", "x64"):
+            for _name in (f"aegis-agent-{_os}-{_arch}", f"aegis-agent-{_os}-{_arch}.exe"):
+                _bp = downloads/_name
+                if _bp.is_file() and not _bp.is_symlink():
+                    _artifacts[_name] = {"url": f"/downloads/{_name}", "sha256": digest(_bp)}
     atomic_write(downloads/"update-manifest.json",(json.dumps({
         "schema":"aegis.update/v1",
         "release":release["release"],
@@ -75,11 +89,7 @@ def build(downloads):
         "channel":release.get("channel","pilot"),
         "published_at":release.get("published_at",""),
         "min_agent_version":release.get("min_agent_version","0.33.0"),
-        "artifacts":{
-            "aegis_agent.py":{"url":"/downloads/aegis_agent.py","sha256":current["aegis_agent.py"]},
-            "aegis-windows.ps1":{"url":"/downloads/aegis-windows.ps1","sha256":current["aegis-windows.ps1"]},
-            "aegis_self_update.py":{"url":"/downloads/aegis_self_update.py","sha256":digest(downloads/"aegis_self_update.py")},
-        },
+        "artifacts":_artifacts,
     },ensure_ascii=False,indent=2)+"\n").encode())
 
     for artifact in deployment["artifacts"].values(): artifact["sha256"]=digest(downloads/artifact["file"])
