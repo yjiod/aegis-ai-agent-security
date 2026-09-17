@@ -42,8 +42,10 @@ scan() {
 scan private-ip '(^|[^0-9.])(10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})([^0-9.]|$)'
 # 硬编码长密钥/令牌（值是全大写环境变量名的常量定义属误报，排除）
 scan hardcoded-secret '([A-Z_]*(TOKEN|SECRET|SIGNING_KEY)|password|passwd)[A-Z_]*["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-\.]{16,}["'"'"']' '[:=][[:space:]]*["'"'"'][A-Z0-9_]{16,}["'"'"']'
-# .local mDNS 主机名形状（真实机器名常以此结尾）
-scan mdns-host '\.local\b'
+# 注：不再用通用 `\.local\b` 抓 mDNS 机器名——它误报大量合法内容（.env.local、XDG 的
+# .local/bin、demo 种子数据的 *.corp.aegis.local、文档占位 example.local），且 BSD/macOS
+# 的 git grep 不支持 \b 词边界（本地不报、GNU/CI 才报，行为不一致）。真实机器名（如
+# 曾泄漏的 <host>.local）改由层3 HMAC 指纹 + 层2 本地 blocklist 精确覆盖。
 
 # ── 层2：本地 blocklist（gitignored，存在才跑；明文 substring，最强）────────────
 BL="scripts/privacy-blocklist.local"

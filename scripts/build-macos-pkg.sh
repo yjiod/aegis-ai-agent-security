@@ -29,7 +29,10 @@ RUNTIME="aegis_agent.py aegis-policy.json aegis-security-baseline.md"
 # 抑制 macOS 扩展属性产生的 ._ AppleDouble 文件，保持 payload 干净（否则包里混入 ._* 冗余项）。
 export COPYFILE_DISABLE=1
 
-command -v pkgbuild >/dev/null 2>&1 || { echo "需要 pkgbuild（macOS 自带）" >&2; exit 1; }
+# 缺 pkgbuild（非 macOS，如 Linux CI）时优雅跳过（exit 0），与 build-windows-msi.sh 缺
+# dotnet/wixl 的处理一致——native 安装包由维护者 macOS 机在 deploy 时产出，CI 只校验
+# 可移植的 standalone.run + vinext 构建 + release-verify，故 npm run build 需在各平台可跑通。
+command -v pkgbuild >/dev/null 2>&1 || { echo "  · 跳过 macOS .pkg（非 macOS 或缺 pkgbuild）"; exit 0; }
 for f in $RUNTIME; do [ -f "$DL/$f" ] || { echo "缺少运行时: $DL/$f" >&2; exit 1; }; done
 VERSION=$(grep -m1 'AGENT_VERSION =' "$DL/aegis_agent.py" | sed 's/[^"]*"\([^"]*\)".*/\1/')
 [ -n "$VERSION" ] || VERSION="0.0.0"
