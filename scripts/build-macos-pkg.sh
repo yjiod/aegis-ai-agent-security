@@ -26,6 +26,9 @@ SERVER="${AEGIS_PUBLIC_ORIGIN:-https://aegis.example.com}"
 INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
 IDENT="com.aegis.agent"
 RUNTIME="aegis_agent.py aegis-policy.json aegis-security-baseline.md"
+# 去-python 化 B：CI 冻结的双架构二进制在 downloads/ 就打进 payload；postinstall 按 uname -m 选。
+BINS=""; HAS_BINS=0
+for b in aegis-agent-darwin-arm64 aegis-agent-darwin-x64; do [ -f "$DL/$b" ] && { BINS="$BINS $b"; HAS_BINS=1; }; done
 # 抑制 macOS 扩展属性产生的 ._ AppleDouble 文件，保持 payload 干净（否则包里混入 ._* 冗余项）。
 export COPYFILE_DISABLE=1
 
@@ -45,9 +48,18 @@ mkdir -p "$APPDIR" "$ROOTDIR/Library/LaunchDaemons" "$SCRIPTS"
 
 # ── payload：运行时（root:wheel，目录 755 / agent 755 / 配置类 644，reporting 由 postinstall 写 600）
 # 用 ditto --noextattr --norsrc 复制，避免把源文件的扩展属性带进 payload（否则 pkgbuild 生成 ._ AppleDouble 冗余项）。
-for f in $RUNTIME; do ditto --noextattr --norsrc --noacl "$DL/$f" "$APPDIR/$f"; done
+for f in $RUNTIME $BINS; do ditto --noextattr --norsrc --noacl "$DL/$f" "$APPDIR/$f"; done
 chmod 755 "$APPDIR/aegis_agent.py"; chmod 644 "$APPDIR/aegis-policy.json" "$APPDIR/aegis-security-baseline.md"
+for b in $BINS; do chmod 755 "$APPDIR/$b"; done
 
+# plist 在构建期烘焙，故 exec 一个**架构无关的 canonical 名** aegis-agent；postinstall 按 uname -m
+# 把对应架构二进制装成该名（无二进制则回退 python3+脚本）。
+if [ "$HAS_BINS" = 1 ]; then
+  PROG_ARGS='        <string>/Library/Application Support/AegisAgent/aegis-agent</string>'
+else
+  PROG_ARGS='        <string>/usr/bin/python3</string>
+        <string>/Library/Application Support/AegisAgent/aegis_agent.py</string>'
+fi
 # ── 系统级 LaunchDaemon（root，开机自启 + 周期上报；令牌在 reporting.json，由 postinstall 写）
 cat > "$ROOTDIR/Library/LaunchDaemons/$IDENT.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -57,8 +69,7 @@ cat > "$ROOTDIR/Library/LaunchDaemons/$IDENT.plist" <<PLIST
     <key>Label</key><string>$IDENT</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
-        <string>/Library/Application Support/AegisAgent/aegis_agent.py</string>
+${PROG_ARGS}
         <string>/Users</string>
         <string>--policy</string><string>/Library/Application Support/AegisAgent/aegis-policy.json</string>
         <string>--report-config</string><string>/Library/Application Support/AegisAgent/reporting.json</string>
@@ -87,48 +98,41 @@ if [ -f /Library/Preferences/aegis-server.json ]; then
 fi
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST="/Library/LaunchDaemons/com.aegis.agent.plist"
-PYBIN=""
-for cand in /usr/bin/python3 "$(command -v python3 || true)"; do
-  if [ -n "$cand" ] && [ -x "$cand" ] && "$cand" -c 'pass' >/dev/null 2>&1; then PYBIN="$cand"; break; fi
-done
-[ -n "$PYBIN" ] || PYBIN=/usr/bin/python3
-# 设备 ID 优先硬件序列（稳定，不随 hostname/升级变化），与 agent hardware_device_id() 一致。
+# 去-python 化 B：按架构选冻结二进制装为 canonical aegis-agent（plist 即 exec 它）；缺则回退 python3。
+ARCH=$(uname -m)
+case "$ARCH" in
+  arm64)  BIN_SRC="$INSTALL_DIR/aegis-agent-darwin-arm64" ;;
+  x86_64) BIN_SRC="$INSTALL_DIR/aegis-agent-darwin-x64" ;;
+  *)      BIN_SRC="" ;;
+esac
+AGENT=""
+if [ -n "$BIN_SRC" ] && [ -f "$BIN_SRC" ]; then
+  cp -f "$BIN_SRC" "$INSTALL_DIR/aegis-agent"
+  xattr -d com.apple.quarantine "$INSTALL_DIR/aegis-agent" 2>/dev/null || true
+  chmod 755 "$INSTALL_DIR/aegis-agent"; AGENT="$INSTALL_DIR/aegis-agent"
+fi
+# 设备 ID 优先硬件序列（稳定，与 agent hardware_device_id() 同算法同值——install 入网令牌的
+# device_id 必须与 runtime 上报的 device_id 一致，否则 401）。
 _hw_serial="$(ioreg -c IOPlatformExpert 2>/dev/null | awk -F'"' '/IOPlatformSerialNumber/{print $4; exit}')"
 [ -z "$_hw_serial" ] && _hw_serial="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Serial Number \(system\)/{gsub(/ /,"",$2); print $2; exit}')"
 if [ -n "$_hw_serial" ]; then DEVICE_ID="$(printf 'aegis-hw:%s' "$_hw_serial" | shasum -a 256 | cut -c1-12)"; else DEVICE_ID="$(hostname | tr -d '\n' | shasum -a 256 | cut -c1-12)"; fi
-"$PYBIN" - "$SERVER" "$INSTALL_DIR" "$DEVICE_ID" <<'PY'
-import json,os,sys,socket,secrets,urllib.request
-server,install_dir,device_id=sys.argv[1:4]
-base=server.rstrip('/')
-os.makedirs(install_dir,exist_ok=True)
-enroll_ok=True
-try:
-    d=json.load(urllib.request.urlopen(urllib.request.Request(base+'/api/enroll',
-        data=json.dumps({"hostname":socket.gethostname(),"device_id":device_id,"agent_version":"0.33.1"}).encode(),
-        headers={"Content-Type":"application/json"}),timeout=30))
-    tok=d.get('report_token') or ''; sec=d.get('signing_secret') or secrets.token_hex(32)
-    rurl=d.get('report_url') or (base+'/aegis/v1/reports'); pol=d.get('policy')
-except Exception as e:
-    enroll_ok=False
-    tok=''; sec=secrets.token_hex(32); rurl=base+'/aegis/v1/reports'; pol=None
-    sys.stderr.write("auto-enroll deferred (%s); 请确认能访问 %s 后重装或手动入网\n"%(type(e).__name__,base+'/api/enroll'))
-    # 写标记供 postinstall 弹 GUI 提示（双击安装看不到 stderr，避免"没反应"）。
-    try:
-        open(install_dir+'/enroll-pending','w').write("%s %s\n"%(type(e).__name__,base+'/api/enroll'))
-        os.chmod(install_dir+'/enroll-pending',0o644)
-    except Exception: pass
-if enroll_ok:
-    try: os.remove(install_dir+'/enroll-pending')
-    except Exception: pass
-os.makedirs(install_dir,exist_ok=True)
-if tok:
-    open(install_dir+'/reporting.json','w').write(json.dumps({"schema":"aegis.reporting/v1","report_url":rurl,"report_token":tok,"signing_secret":sec},ensure_ascii=False))
-    os.chmod(install_dir+'/reporting.json',0o600)
-    open(install_dir+'/config.json','w').write(json.dumps({"collectorURL":base+'/aegis',"reportURL":rurl,"deviceId":device_id,"token":tok,"hmacSecret":sec,"scanIntervalSeconds":3600,"scanRoot":None},ensure_ascii=False))
-    os.chmod(install_dir+'/config.json',0o600)
-    if isinstance(pol,dict) and pol.get('schema')=='aegis.policy/v1':
-        open(install_dir+'/aegis-policy.json','w').write(json.dumps(pol,ensure_ascii=False)); os.chmod(install_dir+'/aegis-policy.json',0o600)
-PY
+# 入网+写配置：二进制(免 python) 优先，否则 python3 脚本；两者统一走 agent 的 --install-config
+# （逻辑与原 python heredoc 等价：自动 /api/enroll、写 reporting.json/config.json 0600、服务端策略覆盖出厂）。
+INTERVAL="__INTERVAL__"; VERSION="__VERSION__"
+CFG_OK=0
+if [ -n "$AGENT" ]; then
+  "$AGENT" --install-config "$INSTALL_DIR" "$SERVER/aegis" "$SERVER/api/enroll" "$DEVICE_ID" "$INTERVAL" "" "$VERSION" && CFG_OK=1
+else
+  PYBIN=""
+  for cand in /usr/bin/python3 "$(command -v python3 || true)"; do
+    if [ -n "$cand" ] && [ -x "$cand" ] && "$cand" -c 'pass' >/dev/null 2>&1; then PYBIN="$cand"; break; fi
+  done
+  if [ -n "$PYBIN" ]; then "$PYBIN" "$INSTALL_DIR/aegis_agent.py" --install-config "$INSTALL_DIR" "$SERVER/aegis" "$SERVER/api/enroll" "$DEVICE_ID" "$INTERVAL" "" "$VERSION" && CFG_OK=1; fi
+fi
+if [ "$CFG_OK" != 1 ]; then
+  printf '%s %s\n' "enroll-deferred" "$SERVER/api/enroll" > "$INSTALL_DIR/enroll-pending" 2>/dev/null || true
+  chmod 644 "$INSTALL_DIR/enroll-pending" 2>/dev/null || true
+fi
 # 入网失败时对双击安装的用户弹 GUI 提示（stderr 不可见，避免"装完没反应"）。
 # 守护进程带 --auto-enroll，网络/地址恢复后会自动重试入网。
 if [ -f "$INSTALL_DIR/enroll-pending" ]; then
@@ -141,7 +145,7 @@ launchctl bootstrap system "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/de
 exit 0
 POST
 # 用 | 作分隔符替换占位（SERVER 含 / 不能用 /）
-sed "s|__SERVER__|$SERVER|g" "$SCRIPTS/postinstall" > "$SCRIPTS/postinstall.tmp" && mv -f "$SCRIPTS/postinstall.tmp" "$SCRIPTS/postinstall"
+sed -e "s|__SERVER__|$SERVER|g" -e "s|__INTERVAL__|$INTERVAL|g" -e "s|__VERSION__|$VERSION|g" "$SCRIPTS/postinstall" > "$SCRIPTS/postinstall.tmp" && mv -f "$SCRIPTS/postinstall.tmp" "$SCRIPTS/postinstall"
 chmod 755 "$SCRIPTS/postinstall"
 
 # ── 打包（未签名；企业分发应再 productsign + 公证）
