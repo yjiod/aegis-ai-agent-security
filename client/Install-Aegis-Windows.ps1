@@ -319,7 +319,7 @@ Write-Log "device_id=$deviceId（12位小写hex，服务端据此签发 per-devi
 if (-not ('Security.Cryptography.ProtectedData' -as [type])) {
   try { Add-Type -AssemblyName System.Security } catch { Write-Log "Add-Type System.Security 失败：$($_.Exception.Message)" 'WARN' }
 }
-$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.35.0' } | ConvertTo-Json -Compress
+$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.35.1' } | ConvertTo-Json -Compress
 $enroll = $null
 $enrollError = $null
 for ($attempt = 1; $attempt -le 3; $attempt++) {

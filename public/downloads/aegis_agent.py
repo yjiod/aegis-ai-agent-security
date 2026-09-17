@@ -13,6 +13,23 @@ def _aegis_base_dir() -> "Path":
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 BASE_DIR = _aegis_base_dir()
+# 冻结二进制(PyInstaller)不携带系统 CA 信任库 → https 因找不到 CA 而 URLError（python3 形态用系统
+# CA 无此问题；本机实测：冻结二进制不设 CA 时 enroll 报 URLError，设 SSL_CERT_FILE=/etc/ssl/cert.pem
+# 后即通）。冻结时给 ssl 指定 CA：优先 certifi（若 --collect-all certifi 打进包），否则回落各平台系统
+# CA 路径。必须在任何 https 之前设 SSL_CERT_FILE —— ssl 默认上下文在创建时从该环境变量加载 CA。
+if getattr(sys, "frozen", False) and not os.environ.get("SSL_CERT_FILE"):
+    _aegis_ca = None
+    try:
+        import certifi  # 可选；未打包则回落系统 CA
+        _aegis_ca = certifi.where()
+    except Exception:
+        for _c in ("/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem",
+                   "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt"):
+            if os.path.exists(_c):
+                _aegis_ca = _c
+                break
+    if _aegis_ca:
+        os.environ["SSL_CERT_FILE"] = _aegis_ca
 DEFAULT_POLICY=BASE_DIR / "aegis-policy.json"
 AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json",".gemini/settings.json",".copilot/mcp-config.json",".workbuddy/mcp.json",".qwenworkcn/mcp.json",".lingma/mcp.json",".codebuddy/mcp.json"]
 SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills",".gemini/skills",".copilot/skills",".workbuddy/skills",".qwenworkcn/skills",".lingma/skills",".codebuddy/skills"]
@@ -877,7 +894,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.35.0"
+AGENT_VERSION = "0.35.1"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
