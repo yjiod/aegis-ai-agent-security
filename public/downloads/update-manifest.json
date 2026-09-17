@@ -17,6 +17,14 @@
     "aegis_self_update.py": {
       "url": "/downloads/aegis_self_update.py",
       "sha256": "4c6ec650e0bbf51d382a17d5c91784b955ee5ce983a7f0c1f1f20e3dfc056368"
+    },
+    "aegis-agent-darwin-arm64": {
+      "url": "/downloads/aegis-agent-darwin-arm64",
+      "sha256": "996f550b864a28f7d79ac0ee6b7cd5135b44cf089a66446b9ddf1edf43a0c55f"
+    },
+    "aegis-agent-darwin-x64": {
+      "url": "/downloads/aegis-agent-darwin-x64",
+      "sha256": "ce048539be2738aaed03b7eca3df5d855a76e36840169e9f442841ccc706c847"
     }
   }
 }
