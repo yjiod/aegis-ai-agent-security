@@ -102,6 +102,11 @@ if [ -f native-dist/aegis-agent-windows.msi ]; then
   echo "  ✓ native .msi uploaded -> /opt/aegis/native-dist/ (nginx 静态直供)"
 fi
 
+# mac .pkg：worker 已直供 /downloads/aegis-agent-macos.pkg（dist/client 内含当前构建，带二进制）；
+# nginx 的 /downloads/aegis-agent-macos-private.pkg（native-dist）同步成同一份当前 pkg，
+# 避免 MDM/旧链接走到陈旧的 python-only 副本（去-python 化 B 后两者必须一致）。
+ssh $SSH_OPTS "$SERVER" 'mkdir -p /opt/aegis/native-dist; if [ -f /opt/aegis/client/downloads/aegis-agent-macos.pkg ]; then cp -f /opt/aegis/client/downloads/aegis-agent-macos.pkg /opt/aegis/native-dist/aegis-agent-macos-private.pkg && echo "  ✓ private.pkg 同步为当前 .pkg（含冻结二进制）"; fi' || echo "  ! private.pkg 同步跳过"
+
 echo "═══ 合并 vars (备份 + /etc/aegis/console.env 全量) 并重启 ═══"
 ssh $SSH_OPTS "$SERVER" '
 set -e
