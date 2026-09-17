@@ -142,6 +142,10 @@ for RID in win-x64 win-arm64; do
     win-x64)   cp "$WORK/publish-$RID/AegisServiceHost.exe" "$WORK/AegisServiceHost.x64.exe" ;;
     win-arm64) cp "$WORK/publish-$RID/AegisServiceHost.exe" "$WORK/AegisServiceHost.arm64.exe" ;;
   esac
+  # 留存单架构单文件 host 供桌管轻量推送包(build-lite-push.sh include-host)使用,
+  # 避免只为换 host exe 而推完整双架构 .msi(12.3MB)。
+  mkdir -p "$NATIVE/host/$RID"
+  cp "$WORK/publish-$RID/AegisServiceHost.exe" "$NATIVE/host/$RID/AegisServiceHost.exe"
 done
 
 # ── F5 BOM 强制（D0 根因的构建期防线）───────────────────────────────────────
