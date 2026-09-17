@@ -10,13 +10,19 @@
 #       msiexec /qn 装文件(BUG G: 服务不建) → SYSTEM 补跑安装脚本(建服务+入网+ACL) → 验收
 # 注意: 本脚本须以 UTF-8 BOM 保存(PS 5.1 zh-CN 无 BOM 会把中文嚼碎致语法错误, D0)。
 param(
-  [string]$Server = 'https://REDACTED_DOMAIN',
+  [string]$Server = 'https://aegis.example.com',
   [string]$MsiUrl = '',
   [string]$MsiPath = '',
   [int]$WaitSeconds = 120
 )
 $ErrorActionPreference = 'Stop'
 $Server = $Server.TrimEnd('/')
+# 隐私红线: 仓库/GitHub 副本恒为 RFC2606 占位域且拒绝运行; 真实 origin 由
+# -Server 传入, 或使用你控制台 /downloads/ 下的定制副本(部署时注入真实 origin)。
+if ($Server -eq 'https://aegis.example.com') {
+  Write-Host '请用 -Server https://<你的控制台> 运行; 或直接下载你控制台 /downloads/ 下的定制副本(已注入真实 origin)。' -ForegroundColor Red
+  exit 2
+}
 if (-not $MsiUrl) { $MsiUrl = $Server + '/downloads/aegis-agent-windows.msi' }
 $work = Join-Path $env:TEMP 'aegis-oneclick'
 New-Item -ItemType Directory -Force -Path $work | Out-Null

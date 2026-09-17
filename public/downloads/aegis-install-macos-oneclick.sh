@@ -6,7 +6,7 @@
 #       写 /Library/Preferences/aegis-server.json(占位包也能入网) → installer →
 #       kickstart 立即跑一个周期 → 验收(服务状态/upload-status/版本)
 set -eu
-SERVER="https://REDACTED_DOMAIN"
+SERVER="https://aegis.example.com"
 PKG_URL=""
 PKG_PATH=""
 while [ $# -gt 0 ]; do
@@ -18,6 +18,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 SERVER="${SERVER%/}"
+# 隐私红线: 仓库/GitHub 副本恒为 RFC2606 占位域且拒绝运行; 真实 origin 由 -Server 传入,
+# 或使用你控制台 /downloads/ 下的定制副本(部署时注入真实 origin)。
+if [ "$SERVER" = "https://aegis.example.com" ]; then
+  echo "[aegis] 请用 -Server https://<你的控制台> 运行; 或直接下载你控制台 /downloads/ 下的定制副本(已注入真实 origin)。" >&2
+  exit 2
+fi
 [ -n "$PKG_URL" ] || PKG_URL="$SERVER/downloads/aegis-agent-macos.pkg"
 
 # 0) 提权(非 root 自动 sudo 重跑)

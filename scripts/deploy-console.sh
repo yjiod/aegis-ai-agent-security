@@ -44,6 +44,17 @@ ssh $SSH_OPTS "$SERVER" "rm -rf /opt/aegis/client && mkdir -p /opt/aegis/client"
 scp $SCP_OPTS -r dist/client/* "$SERVER:/opt/aegis/client/" >/dev/null
 echo "  ✓ uploaded"
 
+# 一键脚本隐私双通道: 仓库/GitHub 副本恒为 RFC2606 占位域(且脚本拒绝以占位域运行);
+# 服务器 served 副本在此注入真实 origin(私有通道), 用户从自己控制台下载即"一条命令可用",
+# 真实域名不入库/不进 GitHub。
+for f in aegis-install-windows-oneclick.ps1 aegis-install-macos-oneclick.sh; do
+  if [ -f "public/downloads/$f" ]; then
+    sed "s|https://aegis.example.com|$AEGIS_PUBLIC_ORIGIN|g" "public/downloads/$f" > "/tmp/$f"
+    scp $SCP_OPTS "/tmp/$f" "$SERVER:/opt/aegis/client/downloads/$f" >/dev/null
+  fi
+done
+echo "  ✓ oneclick 脚本服务器副本已注入真实 origin"
+
 # 大体积原生安装包（Windows .msi ~32MB，自包含 .NET 运行时）超过 Cloudflare Workers
 # 单资产 25MiB 上限，不能进 dist/client（否则 wrangler 启动失败、控制台 502）。单独上传到
 # /opt/aegis/native-dist/，由 nginx 以精确匹配 location 静态直供（见该目录的 README/部署说明）。
