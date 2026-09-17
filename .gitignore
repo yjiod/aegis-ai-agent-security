@@ -52,3 +52,8 @@ obj/
 scripts/aegis-adapters.production.json
 /public/downloads/aegis-agent-macos.pkg
 /native-dist/
+# 隐私门禁本地机密（绝不入库/绝不推送）：
+#   .privacy-hmac-key       = HMAC 指纹密钥（CI 用同名 GH Actions secret AEGIS_PRIVACY_HMAC_KEY）
+#   privacy-blocklist.local = 具体敏感字面量正则（本地强 substring 扫描；CI 无此文件时走 HMAC 指纹兜底）
+scripts/.privacy-hmac-key
+scripts/privacy-blocklist.local

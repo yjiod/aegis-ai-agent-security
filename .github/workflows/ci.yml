@@ -33,6 +33,10 @@ jobs:
       - run: |
           for file in public/downloads/*.sh scripts/*.sh; do sh -n "$file"; done
       - name: Privacy regression gate (no personal/infra identifiers in tracked content)
+        env:
+          # HMAC 指纹层密钥（仓内只存指纹不存字面量）；缺失时指纹层告警跳过，
+          # 通用结构模式 + 维护者本地 blocklist 仍生效。
+          AEGIS_PRIVACY_HMAC_KEY: ${{ secrets.AEGIS_PRIVACY_HMAC_KEY }}
         run: sh scripts/privacy-scan.sh
       - run: npm run build
       - run: python3 public/downloads/aegis_release_verify.py public/downloads
