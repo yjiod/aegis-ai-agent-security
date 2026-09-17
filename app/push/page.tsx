@@ -2,7 +2,8 @@
 
 /**
  * /push — 桌管(MDM)轻量推送包下载区。
- * 数据源: nginx 直供 /native-dist/push/PUSH-INDEX.json（build-lite-push.sh 生成）。
+ * 数据源: nginx 直供 /downloads/push/PUSH-INDEX.json（build-lite-push.sh 生成，
+ * 磁盘 /opt/aegis/native-dist/push/，与 .msi/.pkg 同走 /downloads/ 前缀 alias）。
  * 只推"变化组件"+apply 脚本+清单，不推完整安装包；apply 先校验 sha256 再换文件并重启。
  * 体积量级: mac ~34KB / win 脚本包 ~90KB / win 含单架构 host ~5.9MB（完整 .msi 12.3MB 双架构）。
  */
@@ -32,7 +33,7 @@ export default function PushPage() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch('/native-dist/push/PUSH-INDEX.json', { cache: 'no-store' });
+      const r = await fetch('/downloads/push/PUSH-INDEX.json', { cache: 'no-store' });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       setIndex((await r.json()) as PushIndex);
       setError('');
@@ -93,7 +94,7 @@ export default function PushPage() {
               </span>
               <span style={{ fontSize: 10, fontFamily: 'monospace', wordBreak: 'break-all' }}>{p.sha256.slice(0, 16)}…</span>
               <span>
-                <a href={'/native-dist/push/' + p.name} download style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                <a href={'/downloads/push/' + p.name} download style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
                   <Download size={13} /> 下载
                 </a>
               </span>

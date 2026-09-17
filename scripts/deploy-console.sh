@@ -62,28 +62,30 @@ if [ -d native-dist/push ]; then
   scp $SCP_OPTS native-dist/push/*.zip native-dist/push/PUSH-INDEX.json "$SERVER:/opt/aegis/native-dist/push/" >/dev/null
   # nginx location 注入是"尽力而为"：探测真实配置文件与锚点，失败只告警不中断部署
   # (set -e 下用 || 兜底，避免锚点措辞与现网不符时整条部署链被拖垮)。
+  # 现网约定: 大体积原生文件走 URL 前缀 /downloads/ alias 到磁盘 /opt/aegis/native-dist/,
+  # 故推送包 URL = /downloads/push/ (与 .msi/.pkg 同前缀), 磁盘 = /opt/aegis/native-dist/push/。
   ssh $SSH_OPTS "$SERVER" 'python3 - <<PY
 import glob
-blk = """    location /native-dist/push/ {
+blk = """    location /downloads/push/ {
         alias /opt/aegis/native-dist/push/;
-        default_type application/octet-stream;
         add_header Cache-Control \"no-store\" always;
     }
 """
 cands = glob.glob("/etc/nginx/sites-available/*") + glob.glob("/etc/nginx/conf.d/*") + ["/etc/nginx/nginx.conf"]
 path = next((p for p in cands if "native-dist" in open(p, errors="ignore").read()), None)
 if not path:
-    print("  ! 未找到含 native-dist 的 nginx 配置, 需手工加 /native-dist/push/ location"); raise SystemExit(0)
+    print("  ! 未找到含 native-dist 的 nginx 配置, 需手工加 /downloads/push/ location"); raise SystemExit(0)
 s = open(path).read()
-if "/native-dist/push/" in s:
-    print("  ✓ nginx location /native-dist/push/ 已存在 (" + path + ")"); raise SystemExit(0)
+if "/downloads/push/" in s:
+    print("  ✓ nginx location /downloads/push/ 已存在 (" + path + ")"); raise SystemExit(0)
 lines = s.splitlines(keepends=True)
-idx = next((i for i, l in enumerate(lines) if "location" in l and "/native-dist" in l), None)
+# 锚点: 任一 /downloads/ 的 location 行(如 location = /downloads/aegis-agent-windows.msi), 插到它前面
+idx = next((i for i, l in enumerate(lines) if "location" in l and "/downloads/" in l), None)
 if idx is None:
-    print("  ! " + path + " 内未找到 /native-dist location 锚点, 需手工插入 push location"); raise SystemExit(0)
-lines.insert(idx, blk + "\n")
+    print("  ! " + path + " 内未找到 /downloads/ location 锚点, 需手工插入 push location"); raise SystemExit(0)
+lines.insert(idx, blk)
 open(path, "w").write("".join(lines))
-print("  ✓ nginx location /native-dist/push/ 已插入 " + path)
+print("  ✓ nginx location /downloads/push/ 已插入 " + path)
 PY
 nginx -t >/dev/null 2>&1 && nginx -s reload >/dev/null 2>&1 && echo "  ✓ nginx reloaded" || echo "  ! nginx -t/reload 未通过, 已保留配置待人工检查"' || echo "  ! push 包 nginx 配置步骤异常(文件已上传), 需人工确认 location"
   echo "  ✓ lite push packages uploaded -> /opt/aegis/native-dist/push/"
