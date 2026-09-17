@@ -64,6 +64,25 @@ EOF
   ( cd "$W" && zip -q -r "$OUT/aegis-push-win-$ARCH.zip" . )
 done
 
+# PUSH-INDEX.json: 供控制台"桌管推送包"页渲染(名称/平台/大小/sha256/适用场景/apply)
+{
+  printf '{\n  "schema": "aegis.push-index/v1",\n  "agent_version": "%s",\n  "generated_at": "%s",\n  "packages": [\n' "$AGENT_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  first=1
+  for z in "$OUT"/aegis-push-*.zip; do
+    [ -f "$z" ] || continue
+    name=$(basename "$z")
+    case "$name" in
+      *mac*) plat="macos"; scene="仅脚本+基线; apply 后 kickstart 生效; 无独立 host 二进制" ;;
+      *arm64*) plat="windows-arm64"; scene="扫描器/安装脚本(+单架构 host exe); apply 后 Restart-Service" ;;
+      *x64*) plat="windows-x64"; scene="扫描器/安装脚本(+单架构 host exe); apply 后 Restart-Service" ;;
+      *) plat="unknown"; scene="" ;;
+    esac
+    [ $first -eq 0 ] && printf ',\n'
+    first=0
+    printf '    {"name": "%s", "platform": "%s", "bytes": %d, "sha256": "%s", "scenario": "%s"}' "$name" "$plat" "$(stat -f%z "$z" 2>/dev/null || stat -c%s "$z")" "$(sha "$z")" "$scene"
+  done
+  printf '\n  ]\n}\n'
+} > "$OUT/PUSH-INDEX.json"
 echo "=== lite push packages ==="
 ls -l "$OUT"/*.zip | awk '{printf "%s %d B\n",$NF,$5}'
 for z in "$OUT"/*.zip; do printf "%s gz=%d B\n" "$(basename "$z")" $(gzip -c "$z" | wc -c | tr -d ' '); done

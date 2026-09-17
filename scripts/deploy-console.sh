@@ -55,6 +55,41 @@ for f in aegis-install-windows-oneclick.ps1 aegis-install-macos-oneclick.sh; do
 done
 echo "  ✓ oneclick 脚本服务器副本已注入真实 origin"
 
+# 桌管轻量推送包(native-dist/push/): 上传 + 确保 nginx location 存在(幂等) + reload
+if [ -d native-dist/push ]; then
+  ssh $SSH_OPTS "$SERVER" "mkdir -p /opt/aegis/native-dist/push"
+  # 只上传交付物(*.zip + PUSH-INDEX.json); 构建暂存子目录 mac/ win-*/ 不上传(scp 非 -r 会因目录报错中断)
+  scp $SCP_OPTS native-dist/push/*.zip native-dist/push/PUSH-INDEX.json "$SERVER:/opt/aegis/native-dist/push/" >/dev/null
+  # nginx location 注入是"尽力而为"：探测真实配置文件与锚点，失败只告警不中断部署
+  # (set -e 下用 || 兜底，避免锚点措辞与现网不符时整条部署链被拖垮)。
+  ssh $SSH_OPTS "$SERVER" 'python3 - <<PY
+import glob
+blk = """    location /native-dist/push/ {
+        alias /opt/aegis/native-dist/push/;
+        default_type application/octet-stream;
+        add_header Cache-Control \"no-store\" always;
+    }
+"""
+cands = glob.glob("/etc/nginx/sites-available/*") + glob.glob("/etc/nginx/conf.d/*") + ["/etc/nginx/nginx.conf"]
+path = next((p for p in cands if "native-dist" in open(p, errors="ignore").read()), None)
+if not path:
+    print("  ! 未找到含 native-dist 的 nginx 配置, 需手工加 /native-dist/push/ location"); raise SystemExit(0)
+s = open(path).read()
+if "/native-dist/push/" in s:
+    print("  ✓ nginx location /native-dist/push/ 已存在 (" + path + ")"); raise SystemExit(0)
+lines = s.splitlines(keepends=True)
+idx = next((i for i, l in enumerate(lines) if "location" in l and "/native-dist" in l), None)
+if idx is None:
+    print("  ! " + path + " 内未找到 /native-dist location 锚点, 需手工插入 push location"); raise SystemExit(0)
+lines.insert(idx, blk + "\n")
+open(path, "w").write("".join(lines))
+print("  ✓ nginx location /native-dist/push/ 已插入 " + path)
+PY
+nginx -t >/dev/null 2>&1 && nginx -s reload >/dev/null 2>&1 && echo "  ✓ nginx reloaded" || echo "  ! nginx -t/reload 未通过, 已保留配置待人工检查"' || echo "  ! push 包 nginx 配置步骤异常(文件已上传), 需人工确认 location"
+  echo "  ✓ lite push packages uploaded -> /opt/aegis/native-dist/push/"
+fi
+
+
 # 大体积原生安装包（Windows .msi ~32MB，自包含 .NET 运行时）超过 Cloudflare Workers
 # 单资产 25MiB 上限，不能进 dist/client（否则 wrangler 启动失败、控制台 502）。单独上传到
 # /opt/aegis/native-dist/，由 nginx 以精确匹配 location 静态直供（见该目录的 README/部署说明）。
