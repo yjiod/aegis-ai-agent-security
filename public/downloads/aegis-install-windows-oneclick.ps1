@@ -70,11 +70,10 @@ if ($p.ExitCode -ne 0) { Log ('安装失败, 日志: ' + $log); exit 4 }
 # 4) SYSTEM 补跑安装脚本(建服务 + 零接触入网 + ACL)
 $installPs1 = Join-Path $env:ProgramFiles 'AegisAgent\Install-Aegis-Windows.ps1'
 if (-not (Test-Path $installPs1)) { Log ('缺少安装脚本: ' + $installPs1); exit 5 }
-# 把安装脚本复制到无空格路径, /TR 只需一层外引号(内嵌引号在 PS5.1 调原生 exe 时会被剥掉,
-# 路径在 'Program Files' 空格处断开 —— 上一版正是这么坏的)
-$tmpPs1 = 'C:\Windows\Temp\AegisOneClickInstall.ps1'
-Copy-Item -LiteralPath $installPs1 -Destination $tmpPs1 -Force
-$tr = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File ' + $tmpPs1 + ' -ServerUrl ' + $Server
+# /TR 只包一层外引号; 内层用 PowerShell 单引号包带空格路径(-Command & 'path' 形态),
+# 避免 PS5.1 剥内嵌双引号致路径在空格处断开; 且安装脚本必须从其真实目录运行
+# ($PSScriptRoot 需含 exe), 故不再复制到 Temp。
+$tr = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -Command & ''C:\Program Files\AegisAgent\Install-Aegis-Windows.ps1'' -ServerUrl ' + $Server
 & schtasks.exe /Delete /TN AegisOneClick /F 2>$null | Out-Null
 & schtasks.exe /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR $tr 2>$null | Out-Null
 & schtasks.exe /Run /TN AegisOneClick 2>$null | Out-Null

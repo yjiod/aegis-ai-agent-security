@@ -85,6 +85,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $ServiceName = 'AegisAgent'
 $Base = $PSScriptRoot                                   # 安装目录（Program Files\AegisAgent）
+# 从别处(如 C:\Windows\Temp)调用时 $PSScriptRoot 没有 exe → 回退到规范安装目录,
+# 避免"缺少 AegisServiceHost.exe"误报(2026-09-17 现场实测踩到)。
+if (-not (Test-Path (Join-Path $Base 'AegisServiceHost.exe'))) { $Base = Join-Path $env:ProgramFiles 'AegisAgent' }
 # D4 修复：$env:ProgramData 可能为 NULL（裁剪环境/沙箱继承），Join-Path $null 会在
 # 第一条日志之前抛 ArgumentNullException。三级兜底，与 host 的 DataDir 解析方式对齐。
 $ProgramDataRoot = $env:ProgramData
