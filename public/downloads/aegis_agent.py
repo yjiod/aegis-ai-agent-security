@@ -4,7 +4,16 @@ from __future__ import annotations
 import argparse, base64, hashlib, hmac, json, os, platform, re, stat, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
-DEFAULT_POLICY=Path(__file__).with_name("aegis-policy.json")
+# 冻结(PyInstaller/Nuitka --onefile)后 __file__ 指向临时解压目录(_MEIPASS)，agent 的 sibling
+# 配置/基线(aegis-policy.json / aegis-security-baseline.md / reporting.json / server-override.json /
+# enterprise-baseline.md)并不在那里，而是与**可执行文件**同目录。故统一用 BASE_DIR 定位这些 sibling：
+# 冻结时=可执行文件所在目录(sys.executable 的父目录)，非冻结时=脚本所在目录。python3 直跑行为不变。
+def _aegis_base_dir() -> "Path":
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+BASE_DIR = _aegis_base_dir()
+DEFAULT_POLICY=BASE_DIR / "aegis-policy.json"
 AGENT_CONFIGS=[".cursor/mcp.json",".claude.json",".codex/config.toml",".codeium/windsurf/mcp_config.json",".gemini/settings.json",".copilot/mcp-config.json",".workbuddy/mcp.json",".qwenworkcn/mcp.json",".lingma/mcp.json",".codebuddy/mcp.json"]
 SKILL_ROOTS=[".codex/skills",".claude/skills",".cursor/skills",".gemini/skills",".copilot/skills",".workbuddy/skills",".qwenworkcn/skills",".lingma/skills",".codebuddy/skills"]
 DEPENDENCY_MANIFESTS={"package.json","requirements.txt","requirements-dev.txt"}
@@ -168,7 +177,7 @@ AGENT_SYSTEM_MARKERS={
     "tongyi_lingma":["/Applications/Lingma.app"],
     "codebuddy":["/Applications/CodeBuddy.app"],
 }
-BASELINE=Path(__file__).with_name("aegis-security-baseline.md")
+BASELINE=BASE_DIR / "aegis-security-baseline.md"
 MANAGED_MARKER="<!-- aegis-managed-baseline -->"
 USER_BASELINE_START="<!-- aegis-managed-user-baseline:start -->"
 USER_BASELINE_END="<!-- aegis-managed-user-baseline:end -->"
@@ -750,7 +759,7 @@ def device_serial():
     return _SERIAL_CACHE["v"]
 def server_override_path():
     """预留的服务器地址覆盖文件（用户编辑即全自动切换控制台，无需重装）。"""
-    return Path(__file__).with_name("server-override.json")
+    return BASE_DIR / "server-override.json"
 def read_server_override():
     """读 server-override.json 的 server_url；仅接受 https，非法/缺失返回空串。
     容忍用户写全路径（…/api/enroll、…/aegis/v1/reports 等）：归一化为 origin，
@@ -794,7 +803,7 @@ def apply_server_override(args, host_device_id):
     ov = read_server_override()
     if not ov or ov == report_url_origin(args.report_url):
         return None
-    rpath = Path(args.report_config) if args.report_config else Path(__file__).with_name("reporting.json")
+    rpath = Path(args.report_config) if args.report_config else BASE_DIR / "reporting.json"
     try:
         rep, pol = enroll_to_server(ov, host_device_id)
         write_private_atomic(str(rpath), json.dumps(rep, separators=(",", ":")))
@@ -813,7 +822,7 @@ def hardware_device_id():
 ENTERPRISE_BASELINE_VERSION=""
 ENTERPRISE_BASELINE_AUTH_FAILED=False
 def enterprise_baseline_path():
-    return Path(__file__).with_name("enterprise-baseline.md")
+    return BASE_DIR / "enterprise-baseline.md"
 def effective_baseline():
     """上游/内置基线 + 企业级 MD（附加合并，互不覆盖）。企业 MD 不在范围/未发布时仅内置基线。"""
     base=BASELINE.read_text().rstrip()
@@ -920,8 +929,13 @@ def maybe_self_update(policy, report_url):
             manifest_url = report_url.split("/api/")[0] + "/downloads/update-manifest.json"
     if not manifest_url:
         return
+    if getattr(sys, "frozen", False):
+        # 冻结二进制的自更新需要 manifest 提供按 os/arch 的二进制工件、且运行中的可执行文件不可
+        # 原地覆盖(需 staging + 下次生效)——属去-python 化 B-Phase4。此前二进制形态先不自更新，
+        # 主通道仍是桌管/MDM 推送(见 /push 轻量包)；python3 形态的自更新不受影响。
+        return
     try:
-        script_dir = str(Path(__file__).resolve().parent)
+        script_dir = str(BASE_DIR)
         if script_dir not in sys.path:
             sys.path.insert(0, script_dir)
         import aegis_self_update as su
@@ -952,7 +966,7 @@ def main():
     if args.watch:
         try: budget=min(max(int(os.getenv("AEGIS_SCAN_BUDGET_SECONDS","1800")),60),86400)
         except (TypeError,ValueError): budget=1800
-        child_argv=[sys.executable,str(Path(__file__).resolve())]+[a for a in sys.argv[1:] if a!="--watch"]
+        child_argv=([sys.executable] if getattr(sys,"frozen",False) else [sys.executable,str(Path(__file__).resolve())])+[a for a in sys.argv[1:] if a!="--watch"]
         while True:
             try:
                 subprocess.run(child_argv,timeout=budget,check=False)
@@ -983,7 +997,7 @@ def main():
     reporting=None; reporting_error=False
     if enrollment is None and not enrollment_error and not enrollment_mismatch:
         if not args.report_config:
-            candidate=Path(__file__).with_name("reporting.json")
+            candidate=BASE_DIR / "reporting.json"
             if candidate.is_file(): args.report_config=str(candidate)
         if args.report_config:
             try: reporting=load_reporting_config(args.report_config); args.report_url=reporting["report_url"]
