@@ -16,9 +16,14 @@ mkdir -p "$OUT"
 sha() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1; else sha256sum "$1" | cut -d' ' -f1; fi; }
 AGENT_VERSION=$(grep -m1 'AGENT_VERSION = ' "$DL/aegis_agent.py" | sed 's/[^"]*"\([^"]*\)".*/\1/')
 
-# ── mac 轻量包: 仅脚本+基线(无 pkg 包装), apply 直接换文件+重启 launchd ──
+# ── mac 轻量包: 脚本+基线 + (去-python 化 B)双架构冻结二进制; apply 按安装形态/架构选用 ──
 W="$OUT/mac"; rm -rf "$W"; mkdir -p "$W"
 cp "$DL/aegis_agent.py" "$DL/aegis_self_update.py" "$DL/aegis-security-baseline.md" "$W/"
+# 纳入 CI 冻结的双架构二进制（在 downloads/ 就带上）；apply-mac.sh 二进制形态按 uname -m 换、python 形态换 .py
+MAC_COMPS="\"aegis_agent.py\": \"$(sha "$W/aegis_agent.py")\", \"aegis_self_update.py\": \"$(sha "$W/aegis_self_update.py")\", \"aegis-security-baseline.md\": \"$(sha "$W/aegis-security-baseline.md")\""
+for b in aegis-agent-darwin-arm64 aegis-agent-darwin-x64; do
+  if [ -f "$DL/$b" ]; then cp "$DL/$b" "$W/$b"; chmod +x "$W/$b"; MAC_COMPS="$MAC_COMPS, \"$b\": \"$(sha "$W/$b")\""; fi
+done
 cp "$ROOT/windows-verify/apply-mac.sh" "$W/apply-mac.sh" 2>/dev/null || cp "$ROOT/scripts/apply-mac-lite.sh" "$W/apply-mac.sh"
 chmod +x "$W/apply-mac.sh"
 cat > "$W/PUSH-MANIFEST.json" <<EOF
@@ -27,13 +32,9 @@ cat > "$W/PUSH-MANIFEST.json" <<EOF
   "platform": "macos",
   "agent_version": "$AGENT_VERSION",
   "kind": "lite",
-  "components": {
-    "aegis_agent.py": "$(sha "$W/aegis_agent.py")",
-    "aegis_self_update.py": "$(sha "$W/aegis_self_update.py")",
-    "aegis-security-baseline.md": "$(sha "$W/aegis-security-baseline.md")"
-  },
+  "components": { $MAC_COMPS },
   "apply": "apply-mac.sh",
-  "notes": "Replaces scripts+baseline then kickstarts launchd; does not touch reporting/policy/enrollment creds. No separate host binary on mac (pure python)."
+  "notes": "Binary-form install: swaps the arch-matched frozen aegis-agent (no python3 needed). Python-form (legacy): swaps aegis_agent.py. Baseline always updated; kickstarts launchd. Does not touch reporting/policy/enrollment creds."
 }
 EOF
 ( cd "$W" && zip -q -r "$OUT/aegis-push-mac.zip" . )
