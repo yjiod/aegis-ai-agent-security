@@ -19,8 +19,11 @@ if ($bad.Count -gt 0) { Write-Host ('组件校验失败: ' + ($bad -join ', ')) 
 Write-Host ('组件校验通过: ' + (($m.components.PSObject.Properties.Name) -join ', '))
 $dst = Join-Path $env:ProgramFiles 'AegisAgent'
 if (-not (Test-Path $dst)) { Write-Host '未找到安装目录(先装一次完整 .msi)' -ForegroundColor Red; exit 5 }
+# 先停服务再拷：host exe(AegisServiceHost.exe)在服务运行时被锁定，直接 Copy-Item -Force 覆盖会
+# 报"文件被占用"并（ErrorActionPreference=Stop）中断。停服务→拷贝→启服务，exe/脚本都能安全替换。
+Stop-Service AegisAgent -Force -ErrorAction SilentlyContinue
 foreach ($p in $m.components.PSObject.Properties) { Copy-Item -LiteralPath (Join-Path $here $p.Name) -Destination (Join-Path $dst $p.Name) -Force }
 $svc = Get-Service AegisAgent -ErrorAction SilentlyContinue
-if ($svc) { Restart-Service AegisAgent -Force; Write-Host ('服务已重启: ' + (Get-Service AegisAgent).Status) }
+if ($svc) { Start-Service AegisAgent; Write-Host ('服务已启动: ' + (Get-Service AegisAgent).Status) }
 else { Write-Host '服务不存在: 用一键脚本/完整 .msi 先注册服务' }
 Write-Host '已应用轻量包; 版本见 PUSH-MANIFEST.json'
