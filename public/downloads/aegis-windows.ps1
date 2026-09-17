@@ -358,7 +358,7 @@ $badSn = @('', 'To be filled by O.E.M.', 'None', 'Default string', 'Unknown', 'O
 if ($sn -and ($badSn -notcontains $sn.Trim())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$agentVersion = '0.34.6'
+$agentVersion = '0.34.7'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null

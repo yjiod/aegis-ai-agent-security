@@ -868,7 +868,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.34.6"
+AGENT_VERSION = "0.34.7"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用

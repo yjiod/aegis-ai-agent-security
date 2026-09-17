@@ -202,7 +202,11 @@ internal static class Program
             catch (OperationCanceledException) { error = stop.IsCancellationRequested ? "scanner_shutdown" : "scanner_timeout"; }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or Win32Exception) { error = ex.GetType().Name; }
             // PowerShell 扫描器：0=无高危，2=有 critical/high（均属正常完成），其余为异常。
-            await WriteHealth(healthPath, exitCode is 0 or 2 ? "healthy" : "degraded", scanStarted, exitCode, startedAt, error);
+            // BUG I 掩盖面修复：exit=2 但若发现项含"配置不可读/策略加载失败"类（空 DACL 等导致
+            // 扫描器拒报），健康状态记 degraded 而非 healthy，避免健康度把故障掩盖。
+            var state = exitCode is 0 or 2 ? "healthy" : "degraded";
+            if (exitCode == 2 && HasConfigFailureFinding(healthPath)) { state = "degraded"; error = (error ?? "") + "+config_unreadable"; }
+            await WriteHealth(healthPath, state, scanStarted, exitCode, startedAt, error);
             if (once || stop.IsCancellationRequested) break;
             try { await Task.Delay(TimeSpan.FromSeconds(interval), stop); } catch (OperationCanceledException) { break; }
         } while (!stop.IsCancellationRequested);
@@ -220,6 +224,31 @@ internal static class Program
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { }
         return DefaultIntervalSeconds;
+    }
+
+    /// <summary>读最近一次扫描报告，判断是否含"配置不可读/策略加载失败"类发现（空 DACL 等）。
+    /// 读不到报告/解析失败一律返回 false（不据此降级，避免误报）。</summary>
+    private static bool HasConfigFailureFinding(string healthPath)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(healthPath);
+            if (string.IsNullOrEmpty(dir)) return false;
+            var latest = Path.Combine(dir, "reports", "latest.json");
+            if (!File.Exists(latest)) return false;
+            using var doc = JsonDocument.Parse(File.ReadAllText(latest));
+            if (!doc.RootElement.TryGetProperty("findings", out var findings) || findings.ValueKind != JsonValueKind.Array) return false;
+            foreach (var f in findings.EnumerateArray())
+            {
+                if (f.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String)
+                {
+                    var s = k.GetString();
+                    if (s is "reporting_config_invalid" or "policy_load_failed" or "reporting_config_unreadable") return true;
+                }
+            }
+            return false;
+        }
+        catch { return false; }
     }
 
     private static async Task WriteHealth(string path, string state, long? lastScanStartedAt, int exitCode, long serviceStartedAt, string? error)
