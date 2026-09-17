@@ -19,7 +19,7 @@ $policyPath = Join-Path $installDir 'aegis-policy.json'
 $policy=$null;$policyInvalid=$false
 try {
   if(-not (Test-Path $policyPath)){throw 'missing policy'}
-  $candidate=Get-Content $policyPath -Raw | ConvertFrom-Json
+  $candidate=Get-Content -Encoding UTF8 $policyPath -Raw | ConvertFrom-Json
   if($candidate.schema -ne 'aegis.policy/v1' -or -not ([string]$candidate.version)){throw 'invalid policy contract'}
   if($candidate.limits -isnot [PSCustomObject] -and $candidate.limits -isnot [hashtable]){throw 'invalid policy limits'}
   foreach($key in @('allowed_skills','allowed_mcp_transports','allowed_mcp_servers','allowed_mcp_commands','allowed_mcp_command_paths','allowed_mcp_invocations','allowed_mcp_domains','blocked_commands','secret_patterns','skill_rules','mcp_rules','code_rules')){
@@ -158,26 +158,26 @@ function Test-AegisSafeTarget([string]$root,[string]$target) {
 }
 function Install-AegisBaseline([string]$repo) {
   if (-not (Test-Path $baselinePath)) { return }
-  $baseline = Get-Content $baselinePath -Raw
+  $baseline = Get-Content -Encoding UTF8 $baselinePath -Raw
   $managed = "$managedMarker`n$baseline"
   $ruleTargets = @((Join-Path $repo '.cursor\rules\aegis-security.mdc'),(Join-Path $repo '.windsurf\rules\aegis-security.md'))
   foreach ($target in $ruleTargets) { if(-not (Test-AegisSafeTarget $repo $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null;Set-Content -Encoding UTF8 $target $managed }
   foreach ($name in @('AGENTS.md','CLAUDE.md')) {
-    $target=Join-Path $repo $name;if(-not (Test-AegisSafeTarget $repo $target)){continue};$existing=if(Test-Path $target){Get-Content $target -Raw}else{''}
+    $target=Join-Path $repo $name;if(-not (Test-AegisSafeTarget $repo $target)){continue};$existing=if(Test-Path $target){Get-Content -Encoding UTF8 $target -Raw}else{''}
     if ($existing -notlike "*$managedMarker*") { Add-Content -Encoding UTF8 $target "`n$managedMarker`n## 企业安全基线`n执行任何代码变更前必须遵循 .aegis/SECURITY_BASELINE.md。" }
   }
   $shared=Join-Path $repo '.aegis\SECURITY_BASELINE.md';if(Test-AegisSafeTarget $repo $shared){New-Item -ItemType Directory -Force -Path (Split-Path $shared) | Out-Null;Set-Content -Encoding UTF8 $shared $managed}
 }
 function Sync-AegisUserBaselines([object[]]$homes) {
   if(-not (Test-Path $baselinePath)){return}
-  $content=(Get-Content $baselinePath -Raw).TrimEnd();$start='<!-- aegis-managed-user-baseline:start -->';$end='<!-- aegis-managed-user-baseline:end -->';$block=$start+"`n"+$content+"`n"+$end
+  $content=(Get-Content -Encoding UTF8 $baselinePath -Raw).TrimEnd();$start='<!-- aegis-managed-user-baseline:start -->';$end='<!-- aegis-managed-user-baseline:end -->';$block=$start+"`n"+$content+"`n"+$end
   foreach($home in $homes){
     $targets=@();$codex=Join-Path $home.FullName '.codex';$claude=Join-Path $home.FullName '.claude'
     if((Test-Path $codex) -and -not ((Get-Item $codex -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $codex 'AGENTS.md'}
     if(((Test-Path $claude) -and -not ((Get-Item $claude -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) -or (Test-Path (Join-Path $home.FullName '.claude.json'))){$targets+=Join-Path $claude 'CLAUDE.md'}
     foreach($target in $targets){
       if(-not (Test-AegisSafeTarget $home.FullName $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target)|Out-Null;if(-not (Test-AegisSafeTarget $home.FullName $target)){continue}
-      $existing=if(Test-Path $target){Get-Content $target -Raw}else{''};$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
+      $existing=if(Test-Path $target){Get-Content -Encoding UTF8 $target -Raw}else{''};$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
       if($existing.Contains($start) -xor $existing.Contains($end)){$script:findings+=@{kind='malformed_user_baseline_block';severity='high';path=(Protect-AegisPath $target);message='用户级安全基线托管标记不完整，已停止自动修改'};continue}
       if($existing.Contains($start)){$updated=[regex]::Replace($existing,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match)$block},[System.Text.RegularExpressions.RegexOptions]::Singleline)}else{$updated=$existing.TrimEnd()+$(if($existing.Trim()){"`n`n"}else{''})+$block+"`n"}
       if($updated -ne $existing){Set-Content -Encoding UTF8 $target $updated}
@@ -394,7 +394,7 @@ foreach ($root in $roots) {
     $candidates=@(Get-ChildItem $root -File -Recurse -Force | Where-Object { $_.Length -le $maxFileBytes -and $_.FullName -notmatch '\\.git\\|\\node_modules\\|\\dist\\|\\build\\' } | Select-Object -First ($projectFileLimit+1))
     if($candidates.Count -gt $projectFileLimit){$findings+=@{kind='project_scan_truncated';severity='medium';path=(Protect-AegisPath $root);message="项目候选文件超过扫描上限 $projectFileLimit"}}
     $candidates|Select-Object -First $projectFileLimit | ForEach-Object {
-      $text = Get-Content $_.FullName -Raw
+      $text = Get-Content -Encoding UTF8 $_.FullName -Raw
       foreach ($rule in $patterns) {
         if ($text -match $rule.Regex) { $findings += @{ kind=$rule.Kind; severity=$rule.Severity; path=(Protect-AegisPath $_.FullName); message='Policy match' } }
       }
@@ -415,14 +415,14 @@ $badSn = @('', 'To be filled by O.E.M.', 'None', 'Default string', 'Unknown', 'O
 if ($sn -and ($badSn -notcontains $sn.Trim())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$agentVersion = '0.34.8'
+$agentVersion = '0.34.9'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
 $ovPath = Join-Path $installDir 'server-override.json'
 if (Test-Path -LiteralPath $ovPath) {
   try {
-    $ovObj = Get-Content -LiteralPath $ovPath -Raw | ConvertFrom-Json
+    $ovObj = Get-Content -Encoding UTF8 -LiteralPath $ovPath -Raw | ConvertFrom-Json
     $ovu = [string]$ovObj.server_url
     if ($ovu -and $ovu.StartsWith('https://')) { $ovServer = $ovu.TrimEnd('/') }
   } catch { $ovServer = $null }
@@ -487,7 +487,7 @@ if($ReportUrl){
   $spool=Join-Path $installDir 'spool';New-Item -ItemType Directory -Force -Path $spool|Out-Null
   try{
     foreach($queued in @(Get-ChildItem $spool -Filter '*.json' -File|Sort-Object Name|Select-Object -First 50)){
-      try{$queuedJson=Get-Content $queued.FullName -Raw;$null=$queuedJson|ConvertFrom-Json}catch{Move-Item $queued.FullName ($queued.FullName+'.'+[Guid]::NewGuid().ToString('N')+'.invalid') -Force;continue}
+      try{$queuedJson=Get-Content -Encoding UTF8 $queued.FullName -Raw;$null=$queuedJson|ConvertFrom-Json}catch{Move-Item $queued.FullName ($queued.FullName+'.'+[Guid]::NewGuid().ToString('N')+'.invalid') -Force;continue}
       try{$null=Send-AegisReport $queuedJson $ReportUrl;Remove-Item $queued.FullName -Force}catch{break}
     }
     $null=Send-AegisReport $reportJson $ReportUrl;Write-AegisUploadStatus $ReportUrl

@@ -87,11 +87,11 @@ if ($MsiNew) {
   Note '服务 Running' ((Service-State) -eq 'Running') (Service-State)
   Start-Sleep -Seconds 30
   $us = Join-Path $env:ProgramData 'AegisAgent\upload-status.json'
-  Note 'upload-status accepted' ((Test-Path $us) -and ((Get-Content $us -Raw) -match '"accepted"')) ''
+  Note 'upload-status accepted' ((Test-Path $us) -and ((Get-Content -Encoding UTF8 $us -Raw) -match '"accepted"')) ''
   $hp = Join-Path $env:ProgramData 'AegisAgent\service-health.json'
   if (Test-Path $hp) {
-    $h = Get-Content $hp -Raw | ConvertFrom-Json
-    $cfgbad = ((Get-Content (Join-Path $env:ProgramData 'AegisAgent\reports\latest.json') -Raw -ErrorAction SilentlyContinue) -match 'reporting_config_invalid|policy_load_failed')
+    $h = Get-Content -Encoding UTF8 $hp -Raw | ConvertFrom-Json
+    $cfgbad = ((Get-Content -Encoding UTF8 (Join-Path $env:ProgramData 'AegisAgent\reports\latest.json') -Raw -ErrorAction SilentlyContinue) -match 'reporting_config_invalid|policy_load_failed')
     Note 'health 状态合理(配置坏时非 healthy)' (-not ($cfgbad -and $h.state -eq 'healthy')) ('state=' + $h.state)
   }
   # ── 矩阵 3: 同版本重装(2753 探测) ──

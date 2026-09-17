@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ReportUrl = $env:AEGIS_REPORT_URL,
   [string]$ReportToken = $env:AEGIS_REPORT_TOKEN,
   [string]$SigningSecret = $env:AEGIS_REPORT_SIGNING_SECRET,

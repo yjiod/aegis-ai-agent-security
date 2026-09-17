@@ -99,6 +99,6 @@ $svc = Get-CimInstance Win32_Service -Filter "Name='AegisAgent'" -ErrorAction Si
 if ($svc) { Log ('服务: ' + $svc.State + ' / ' + $svc.StartMode + ' / ' + $svc.StartName) }
 else { Log '服务未建(BUG G?): 重跑本脚本或手动执行第4步 schtasks 命令' }
 $us = Join-Path $env:ProgramData 'AegisAgent\upload-status.json'
-if (Test-Path $us) { Log ('upload-status: ' + (Get-Content $us -Raw).Trim()) }
+if (Test-Path $us) { Log ('upload-status: ' + (Get-Content -Encoding UTF8 $us -Raw).Trim()) }
 else { Log 'upload-status 尚未生成: 首报需一个扫描周期(默认1小时), 或配置不可读(见 BUG I)' }
 Log '完成。刷新控制台应出现新设备(序列号 + 版本 + 工具列)。'

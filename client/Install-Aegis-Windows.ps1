@@ -226,7 +226,7 @@ $serverFile = Join-Path $Base 'server.json'
 $baked = $null
 if (Test-Path -LiteralPath $serverFile) {
   try {
-    $baked = (Get-Content -LiteralPath $serverFile -Raw | ConvertFrom-Json).server_url
+    $baked = (Get-Content -Encoding UTF8 -LiteralPath $serverFile -Raw | ConvertFrom-Json).server_url
     Write-Log "server.json 解析成功"
   } catch {
     Fail-Hard "server.json 解析失败：$($_.Exception.Message)"
@@ -240,7 +240,7 @@ $ovServerUrl = $null
 foreach ($ovf in @((Join-Path $pdRoot 'aegis-server.json'), (Join-Path $Base 'server-override.json'))) {
   if (Test-Path -LiteralPath $ovf) {
     try {
-      $ovu = [string](Get-Content -LiteralPath $ovf -Raw | ConvertFrom-Json).server_url
+      $ovu = [string](Get-Content -Encoding UTF8 -LiteralPath $ovf -Raw | ConvertFrom-Json).server_url
       if ($ovu -and $ovu.StartsWith('https://')) { $ovServerUrl = $ovu.TrimEnd('/'); Write-Log "预留覆盖文件生效：$ovf"; break }
     } catch { }
   }
@@ -319,7 +319,7 @@ Write-Log "device_id=$deviceId（12位小写hex，服务端据此签发 per-devi
 if (-not ('Security.Cryptography.ProtectedData' -as [type])) {
   try { Add-Type -AssemblyName System.Security } catch { Write-Log "Add-Type System.Security 失败：$($_.Exception.Message)" 'WARN' }
 }
-$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.34.8' } | ConvertTo-Json -Compress
+$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.34.9' } | ConvertTo-Json -Compress
 $enroll = $null
 $enrollError = $null
 for ($attempt = 1; $attempt -le 3; $attempt++) {

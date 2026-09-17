@@ -1,11 +1,11 @@
-$ErrorActionPreference = 'SilentlyContinue'
+﻿$ErrorActionPreference = 'SilentlyContinue'
 $installDir = Join-Path $env:ProgramData 'AegisAgent'
 $policyPath = Join-Path $installDir 'aegis-policy.json'
 $reportPath = Join-Path $installDir 'reports\latest.json'
-$expected = @{ 'aegis-policy.json'='a8935b03ae59c08002a428d524b46ee69bde6042a5173c510d184f62d6737740'; 'aegis-windows.ps1'='63bd6d3ab7ad0c26d719be26f1eac4a2104e5308d7846d2605b216cab50a9d0f'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
+$expected = @{ 'aegis-policy.json'='a8935b03ae59c08002a428d524b46ee69bde6042a5173c510d184f62d6737740'; 'aegis-windows.ps1'='611e3e62a88faf347d904ccb5e79e6a80bf1ddf6d5ca00e19a9a4d17490a13bd'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
 $installed=$true;$integrityValid=$true
 foreach($name in $expected.Keys){$path=Join-Path $installDir $name;if(-not(Test-Path $path)){$installed=$false;$integrityValid=$false}elseif((Get-FileHash $path -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]){$integrityValid=$false}}
-$policyVersion = if (Test-Path $policyPath) { (Get-Content $policyPath -Raw | ConvertFrom-Json).version } else { 'missing' }
+$policyVersion = if (Test-Path $policyPath) { (Get-Content -Encoding UTF8 $policyPath -Raw | ConvertFrom-Json).version } else { 'missing' }
 $task=Get-ScheduledTask -TaskName 'Aegis AI Agent Security Scan' -ErrorAction SilentlyContinue
 $taskHealthy=[bool]($task -and $task.State -ne 'Disabled')
 $reportingConfigured=$false;$reportingHost='';$reportingPath=Join-Path $installDir 'reporting.dpapi'
@@ -20,11 +20,11 @@ if(Test-Path $reportingPath){
 }
 $reportingHealthy=$false;$uploadStatusPath=Join-Path $reportDir 'upload-status.json'
 if($reportingConfigured -and (Test-Path $uploadStatusPath)){
-  try{$uploadStatus=Get-Content $uploadStatusPath -Raw|ConvertFrom-Json;$uploadNames=@($uploadStatus.PSObject.Properties.Name|Sort-Object);$uploadAge=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()-[int64]$uploadStatus.last_success;$reportingHealthy=($uploadNames -join ',') -ceq 'collector_host,last_success,schema,status' -and $uploadStatus.schema -ceq 'aegis.upload-status/v1' -and $uploadStatus.status -ceq 'accepted' -and $uploadStatus.collector_host -ceq $reportingHost -and $uploadAge -ge 0 -and $uploadAge -lt 86400}catch{$reportingHealthy=$false}
+  try{$uploadStatus=Get-Content -Encoding UTF8 $uploadStatusPath -Raw|ConvertFrom-Json;$uploadNames=@($uploadStatus.PSObject.Properties.Name|Sort-Object);$uploadAge=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()-[int64]$uploadStatus.last_success;$reportingHealthy=($uploadNames -join ',') -ceq 'collector_host,last_success,schema,status' -and $uploadStatus.schema -ceq 'aegis.upload-status/v1' -and $uploadStatus.status -ceq 'accepted' -and $uploadStatus.collector_host -ceq $reportingHost -and $uploadAge -ge 0 -and $uploadAge -lt 86400}catch{$reportingHealthy=$false}
 }
 $recent = $false; $reportValid = $false; $critical = 0; $high = 0
 if (Test-Path $reportPath) {
-  $report = Get-Content $reportPath -Raw | ConvertFrom-Json
+  $report = Get-Content -Encoding UTF8 $reportPath -Raw | ConvertFrom-Json
   $age=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [int64]$report.scanned_at
   $findings=@($report.findings);$invalidFindings=@($findings|Where-Object{$_ -isnot [PSCustomObject] -or $_.severity -notin @('critical','high','medium','low') -or -not ($_.kind -is [string]) -or -not ($_.path -is [string]) -or -not ($_.message -is [string])});$actualCritical=@($findings|Where-Object severity -eq 'critical').Count;$actualHigh=@($findings|Where-Object severity -eq 'high').Count;$actualMedium=@($findings|Where-Object severity -eq 'medium').Count;$actualLow=@($findings|Where-Object severity -eq 'low').Count
   $reportValid=$report.schema -eq 'aegis.report/v1' -and $report.agent_version -eq '0.30.0' -and $report.policy_version -eq $policyVersion -and $report.device_id -match '^[a-f0-9]{12}$' -and $report.findings -is [System.Array] -and $findings.Count -le 10000 -and $invalidFindings.Count -eq 0 -and $report.summary -and [int]$report.summary.critical -eq $actualCritical -and [int]$report.summary.high -eq $actualHigh -and [int]$report.summary.medium -eq $actualMedium -and [int]$report.summary.low -eq $actualLow

@@ -7,7 +7,7 @@ if (-not $prin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
 $here = $PSScriptRoot
 $man = Join-Path $here 'PUSH-MANIFEST.json'
 if (-not (Test-Path $man)) { Write-Host '缺 PUSH-MANIFEST.json' -ForegroundColor Red; exit 3 }
-$m = Get-Content $man -Raw | ConvertFrom-Json
+$m = Get-Content -Encoding UTF8 $man -Raw | ConvertFrom-Json
 $bad = @()
 foreach ($p in $m.components.PSObject.Properties) {
   $f = Join-Path $here $p.Name

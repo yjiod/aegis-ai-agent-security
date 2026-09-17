@@ -33,7 +33,7 @@ cat > "$W/PUSH-MANIFEST.json" <<EOF
     "aegis-security-baseline.md": "$(sha "$W/aegis-security-baseline.md")"
   },
   "apply": "apply-mac.sh",
-  "notes": "仅替换脚本+基线并重启 launchd; 不触碰 reporting/policy/入网凭据。host 无独立二进制(mac 为纯 python)。"
+  "notes": "Replaces scripts+baseline then kickstarts launchd; does not touch reporting/policy/enrollment creds. No separate host binary on mac (pure python)."
 }
 EOF
 ( cd "$W" && zip -q -r "$OUT/aegis-push-mac.zip" . )
@@ -58,7 +58,7 @@ for ARCH in x64 arm64; do
   "kind": "lite",
   "components": { $comps },
   "apply": "apply-win.ps1",
-  "notes": "仅替换扫描器/安装脚本(含 host exe 时一并替换)并 Restart-Service; 不触碰 reporting.dpapi/入网。MSI 结构/ACL 变更仍需完整 .msi。"
+  "notes": "Replaces scanner/install scripts (and host exe when included) then Restart-Service; does not touch reporting.dpapi/enrollment. MSI structure/ACL changes still need the full .msi."
 }
 EOF
   ( cd "$W" && zip -q -r "$OUT/aegis-push-win-$ARCH.zip" . )

@@ -11,15 +11,15 @@
   "artifacts": {
     "windows_detection": {
       "file": "mdm-windows-detect.ps1",
-      "sha256": "a307fc895cdb1bb584b4507f6dc38f11cc9486bb0343181a086749eefe167925"
+      "sha256": "f9ebaada4aea19419df690822a639e7bb47615ce87f28df1d8f3e296b683b2c4"
     },
     "windows_remediation": {
       "file": "mdm-windows-remediate.ps1",
-      "sha256": "5f4a40486b936227061448f4ee357a66b7db493f601d8d6e1bc55ace92161198"
+      "sha256": "adb40457562f12fbdc84d6bc911b2f24274963fe7bcc3abedba5fca16bfcd0ee"
     },
     "windows_compliance_discovery": {
       "file": "mdm-compliance-discovery.ps1",
-      "sha256": "5ab659b94921062d08be21e41a1be170d45c3bf17f1a386b90dd13512efa2ff9"
+      "sha256": "8524051c98cebbd5653dad10cb7305b3ec2466ff3b097c2a134fdfe7f80dfabe"
     },
     "windows_compliance_rules": {
       "file": "mdm-compliance-policy.json",
@@ -27,23 +27,23 @@
     },
     "windows_reporting_configuration": {
       "file": "aegis-configure-windows.ps1",
-      "sha256": "c067d06297234d76676f444de3db88813a0722942c2107423ecd4ca07be9af15"
+      "sha256": "8ac9ab5b3347b53de4bf7a823d961145b226db1fe74639ba70647c5081299350"
     },
     "windows_rollback": {
       "file": "rollback-aegis-windows.ps1",
-      "sha256": "940d60616b78d47e11be3238f033b2095b589d851852a0b2e956ad0b8cf4ef8b"
+      "sha256": "92225f6e70456b0530205105b239961b4aa32b3a7cb51a34de3197af5072376d"
     },
     "windows_uninstall": {
       "file": "uninstall-aegis-windows.ps1",
-      "sha256": "f4c14eeb02a365a1fa8e7042f3cca7dd9d88784b428759066f335d9d8ef00a4d"
+      "sha256": "f4eb9d171ae71174e29156b8eafcb9cb82d657cd28aa3c2f4aedc22f758aefb6"
     },
     "macos_install": {
       "file": "mdm-macos-install.sh",
-      "sha256": "27840fe41d90be4aa9c1e439a32aa2c9c4d48e75cae837c218343794afa0f8fc"
+      "sha256": "a09d824aad5f462e934b6d273baa4b6be94679dc01c3ed9e6edc1cdfa113b304"
     },
     "macos_compliance_discovery": {
       "file": "mdm-macos-compliance.sh",
-      "sha256": "b21a9f7fc27453285bae0af33b0b208e13c246e0edcc2c0d1332120c3f1c81f5"
+      "sha256": "e75fe3574609937e83ccae94edec26023246852a199a68e7ce775ee1b7177d57"
     },
     "macos_compliance_rules": {
       "file": "mdm-macos-compliance-policy.json",

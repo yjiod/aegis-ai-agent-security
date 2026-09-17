@@ -1,10 +1,10 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $baseUrl = if ($env:AEGIS_BASE_URL) { $env:AEGIS_BASE_URL } else { 'https://aegis.example.com/downloads' }
 $installDir = Join-Path $env:ProgramData 'AegisAgent'
 $reportDir = Join-Path $installDir 'reports'
 $previousDir = Join-Path $installDir 'previous'
 $stageDir = Join-Path $installDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
-$expected = @{ 'aegis-policy.json'='a8935b03ae59c08002a428d524b46ee69bde6042a5173c510d184f62d6737740'; 'aegis-windows.ps1'='63bd6d3ab7ad0c26d719be26f1eac4a2104e5308d7846d2605b216cab50a9d0f'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
+$expected = @{ 'aegis-policy.json'='a8935b03ae59c08002a428d524b46ee69bde6042a5173c510d184f62d6737740'; 'aegis-windows.ps1'='611e3e62a88faf347d904ccb5e79e6a80bf1ddf6d5ca00e19a9a4d17490a13bd'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
 New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null
 & icacls.exe $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
 try {
@@ -22,7 +22,7 @@ try {
   }
   foreach ($name in $expected.Keys) { Move-Item (Join-Path $stageDir $name) (Join-Path $installDir $name) -Force }
 } finally { Remove-Item $stageDir -Recurse -Force -ErrorAction SilentlyContinue }
-$baseline = Get-Content (Join-Path $installDir 'aegis-security-baseline.md') -Raw
+$baseline = Get-Content -Encoding UTF8 (Join-Path $installDir 'aegis-security-baseline.md') -Raw
 $userBaselineStart='<!-- aegis-managed-user-baseline:start -->';$userBaselineEnd='<!-- aegis-managed-user-baseline:end -->'
 $userBaselineBlock=$userBaselineStart+"`n"+$baseline.TrimEnd()+"`n"+$userBaselineEnd
 Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
@@ -33,7 +33,7 @@ Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','
   foreach ($target in $targets) {
     New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
     if((Test-Path $target) -and ((Get-Item $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){continue}
-    $existing=if(Test-Path $target){Get-Content $target -Raw}else{''}
+    $existing=if(Test-Path $target){Get-Content -Encoding UTF8 $target -Raw}else{''}
     $pattern=[regex]::Escape($userBaselineStart)+'.*?'+[regex]::Escape($userBaselineEnd)
     if($existing.Contains($userBaselineStart) -xor $existing.Contains($userBaselineEnd)){Write-Output "Aegis baseline markers malformed; preserving $target";continue}
     if($existing -match [regex]::Escape($userBaselineStart)){$updated=[regex]::Replace($existing,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match)$userBaselineBlock},[System.Text.RegularExpressions.RegexOptions]::Singleline)}
