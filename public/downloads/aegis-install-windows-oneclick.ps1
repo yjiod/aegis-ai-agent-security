@@ -64,22 +64,26 @@ if ($p.ExitCode -ne 0) { Log ('安装失败, 日志: ' + $log); exit 4 }
 # 4) SYSTEM 补跑安装脚本(建服务 + 零接触入网 + ACL)
 $installPs1 = Join-Path $env:ProgramFiles 'AegisAgent\Install-Aegis-Windows.ps1'
 if (-not (Test-Path $installPs1)) { Log ('缺少安装脚本: ' + $installPs1); exit 5 }
-$tr = '"' + 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' + '" -NoProfile -ExecutionPolicy Bypass -File "' + $installPs1 + '" -ServerUrl "' + $Server + '"'
-& schtasks.exe /Delete /TN AegisOneClick /F | Out-Null
-& schtasks.exe /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR $tr | Out-Null
-& schtasks.exe /Run /TN AegisOneClick | Out-Null
+# 把安装脚本复制到无空格路径, /TR 只需一层外引号(内嵌引号在 PS5.1 调原生 exe 时会被剥掉,
+# 路径在 'Program Files' 空格处断开 —— 上一版正是这么坏的)
+$tmpPs1 = 'C:\Windows\Temp\AegisOneClickInstall.ps1'
+Copy-Item -LiteralPath $installPs1 -Destination $tmpPs1 -Force
+$tr = 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File ' + $tmpPs1 + ' -ServerUrl ' + $Server
+& schtasks.exe /Delete /TN AegisOneClick /F 2>$null | Out-Null
+& schtasks.exe /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR $tr 2>$null | Out-Null
+& schtasks.exe /Run /TN AegisOneClick 2>$null | Out-Null
 Log '已触发 SYSTEM 安装任务, 等待完成...'
 $ok = $false
 for ($i = 0; $i -lt $WaitSeconds; $i += 5) {
   Start-Sleep -Seconds 5
-  $q = (& schtasks.exe /Query /TN AegisOneClick /V /FO LIST) -join "`n"
+  $q = (& schtasks.exe /Query /TN AegisOneClick /V /FO LIST 2>$null) -join "`n"
   if ($q -match 'Last Result[^:]*:\s*(\d+)') {
     $code = [int]$Matches[1]
     if ($code -eq 0) { $ok = $true; break }
     if ($code -ne 267011) { Log ('SYSTEM 任务退出码 ' + $code + ' (非0即失败, 267011=仍在运行)'); break }
   }
 }
-& schtasks.exe /Delete /TN AegisOneClick /F | Out-Null
+& schtasks.exe /Delete /TN AegisOneClick /F 2>$null | Out-Null
 if (-not $ok) { Log 'SYSTEM 安装任务未在时限内成功; 可重跑本脚本或按 Issue#2 恢复手册排查' }
 
 # 5) 验收
