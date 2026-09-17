@@ -187,7 +187,17 @@ foreach ($f in 'aegis-windows.ps1', 'aegis-policy.json', 'aegis-security-baselin
 New-Item -ItemType Directory -Force -Path $Data, (Join-Path $Data 'reports'), (Join-Path $Data 'spool') | Out-Null
 foreach ($f in 'aegis-windows.ps1', 'aegis-policy.json', 'aegis-security-baseline.md') {
   $src = Join-Path $Base $f
-  if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $Data $f) -Force }
+  if (Test-Path -LiteralPath $src) {
+    try {
+      Copy-Item -LiteralPath $src -Destination (Join-Path $Data $f) -Force
+    } catch [System.UnauthorizedAccessException] {
+      # BUG H/I 自愈: 旧版加固半途而废留下空 DACL(连 SYSTEM 都拒) → takeown+/reset 后重试一次
+      Write-Log "落地 $f 被拒(空 DACL?)，takeown+icacls /reset 后重试" 'WARN'
+      & takeown.exe /f $Data /r /d Y | Out-Null
+      & icacls.exe $Data /reset /t /c | Out-Null
+      Copy-Item -LiteralPath $src -Destination (Join-Path $Data $f) -Force
+    }
+  }
 }
 Write-Log "运行时已落地到 $Data"
 
@@ -306,7 +316,7 @@ Write-Log "device_id=$deviceId（12位小写hex，服务端据此签发 per-devi
 if (-not ('Security.Cryptography.ProtectedData' -as [type])) {
   try { Add-Type -AssemblyName System.Security } catch { Write-Log "Add-Type System.Security 失败：$($_.Exception.Message)" 'WARN' }
 }
-$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.34.5' } | ConvertTo-Json -Compress
+$body = @{ hostname = $env:COMPUTERNAME; device_id = $deviceId; agent_version = '0.34.6' } | ConvertTo-Json -Compress
 $enroll = $null
 $enrollError = $null
 for ($attempt = 1; $attempt -le 3; $attempt++) {
@@ -392,9 +402,24 @@ if (-not $enrolled) {
 # & icacls.exe 一旦无法启动（被安全软件拦截 / 受限环境）就以退出码 1 静默终止，
 # MSI 侧只剩无上下文的 1722。失败降级为 WARN，目录保持默认 ACL，安装继续。
 try {
-  & icacls.exe $Data /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
+  # BUG I 修法: 先 /reset /t 清历史坏 ACL(空 DACL 自愈); 目录级 grant 带 (OI)(CI) 但**不带 /T**
+  # (继承只作用于新子对象); 既有子文件单独显式授权(**不带继承标志**, 避免 (OI)(CI) 落在文件上
+  # 逐文件失败而继承 ACE 已被剥光 → 空 DACL 锁死配置/上报, 即 BUG I)。
+  & icacls.exe $Data /reset /t /c | Out-Null
+  & icacls.exe $Data /inheritance:r /C | Out-Null
+  & icacls.exe $Data /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /C | Out-Null
+  & icacls.exe $Data /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' '*S-1-5-32-545:RX' /T /C | Out-Null
   Write-Log "icacls 收紧退出码=$LASTEXITCODE"
-  & icacls.exe $Data /grant:r '*S-1-5-32-545:RX' /C | Out-Null
+  # 加固后自检: 抽一个子文件, 若 Access 为空视为加固失败 → /reset 回退并记 ERROR,
+  # 绝不能让"收紧"产出比默认更糟的状态(空 DACL)。
+  $probe = Join-Path $Data 'aegis-policy.json'
+  if (Test-Path -LiteralPath $probe) {
+    $acl = Get-Acl -LiteralPath $probe -ErrorAction SilentlyContinue
+    if ($acl -and @($acl.Access).Count -eq 0) {
+      Write-Log "加固自检失败(子文件空 DACL)，回退 /reset" 'ERROR'
+      & icacls.exe $Data /reset /t /c | Out-Null
+    }
+  }
   # BUG D：诊断文件（install.log / enrollment-status.json）显式给 Administrators 只读，
   # 否则提权管理员也读不到、现场排障取不到关键入网日志。SYSTEM 保持完全控制。
   foreach ($diag in @((Join-Path $Data 'install.log'), $StatusPath)) {

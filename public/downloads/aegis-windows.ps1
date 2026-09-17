@@ -205,43 +205,119 @@ function Inspect-AegisDependencies([System.IO.FileInfo]$file,[string]$text) {
     foreach($line in $text -split "`r?`n"){$value=$line.Trim();if(-not $value -or $value.StartsWith('#')){continue};if($value -match '^(?i)(-e\s+)?(https?://|git\+)'){$script:findings += @{kind='dependency_untrusted_source';severity='high';path=$safePath;message='Python 依赖直接使用远程源码'}}elseif($value -notmatch '=='){$script:findings += @{kind='dependency_unpinned';severity='medium';path=$safePath;message='Python 依赖未固定到精确版本'}}}
   }
 }
+function Get-AegisUserHomes {
+  # 跨盘枚举用户主目录: ProfileList 的 ProfileImagePath 为权威来源(不假设 C:),
+  # 回退到各固定盘的 \Users。用户可能把 profile/软件装在 D:/E: 等盘。
+  $paths = @()
+  Get-ChildItem 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction SilentlyContinue | ForEach-Object {
+    $p = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).ProfileImagePath
+    if ($p) {
+      $p = $p.Replace('%SystemDrive%', "$env:SystemDrive")
+      if (Test-Path -LiteralPath $p -PathType Container) { $paths += $p }
+    }
+  }
+  if (-not $paths) {
+    foreach ($d in [IO.DriveInfo]::GetDrives()) {
+      if ($d.DriveType -eq 'Fixed' -and $d.IsReady) {
+        $u = Join-Path $d.Name 'Users'
+        if (Test-Path -LiteralPath $u) { Get-ChildItem $u -Directory -ErrorAction SilentlyContinue | ForEach-Object { $paths += $_.FullName } }
+      }
+    }
+  }
+  $skip = @('Public','Default','Default User','All Users','DefaultAccount','systemprofile')
+  return @($paths | Where-Object { (Split-Path $_ -Leaf) -notin $skip } | Select-Object -Unique | ForEach-Object { Get-Item $_ })
+}
+function Get-AegisProgramRoots {
+  # 所有固定盘的 Program Files / Program Files (x86), 不假设 C:
+  $roots = @()
+  if ($env:ProgramFiles) { $roots += $env:ProgramFiles }
+  if (${env:ProgramFiles(x86)}) { $roots += ${env:ProgramFiles(x86)} }
+  foreach ($d in [IO.DriveInfo]::GetDrives()) {
+    if ($d.DriveType -eq 'Fixed' -and $d.IsReady) {
+      foreach ($n in @('Program Files','Program Files (x86)')) { $p = Join-Path $d.Name $n; if (Test-Path -LiteralPath $p) { $roots += $p } }
+    }
+  }
+  return @($roots | Select-Object -Unique)
+}
 function Get-ManagedRepos {
   $repos=@()
-  Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') } | ForEach-Object {
+  foreach ($home_ in (Get-AegisUserHomes)) {
     foreach($relative in @('source\repos','Documents\GitHub','Projects','Code')) {
-      $base=Join-Path $_.FullName $relative
-      if(Test-Path $base) { Get-ChildItem $base -Directory -Recurse -Depth 4 | Where-Object { Test-Path (Join-Path $_.FullName '.git') } | ForEach-Object { $repos += $_.FullName } }
+      $base=Join-Path $home_ $relative
+      if(Test-Path $base) { Get-ChildItem $base -Directory -Recurse -Depth 4 -ErrorAction SilentlyContinue | Where-Object { Test-Path (Join-Path $_.FullName '.git') } | ForEach-Object { $repos += $_.FullName } }
     }
   }
   return $repos | Select-Object -Unique
 }
-$userHomes = @(Get-ChildItem 'C:\Users' -Directory | Where-Object { $_.Name -notin @('Public','Default','Default User','All Users') })
+$userHomes = @(Get-AegisUserHomes)
 Sync-AegisUserBaselines $userHomes
 $agentMarkers = @{
   cursor=@('.cursor\mcp.json','AppData\Roaming\Cursor\User\settings.json','AppData\Local\Programs\cursor\Cursor.exe')
   codex=@('.codex\config.toml','AppData\Roaming\npm\codex.cmd')
   claude_code=@('.claude.json','.claude\settings.json','AppData\Roaming\npm\claude.cmd')
   windsurf=@('.codeium\windsurf\mcp_config.json','AppData\Roaming\Windsurf\User\settings.json','AppData\Local\Programs\Windsurf\Windsurf.exe')
-  codebuddy=@('.codebuddy\rules.md','AppData\Roaming\CodeBuddy\settings.json','AppData\Local\Programs\CodeBuddy\CodeBuddy.exe')
+  codebuddy=@('.codebuddy\rules.md','.codebuddy\device-id','AppData\Roaming\CodeBuddy\settings.json','AppData\Local\Programs\CodeBuddy\CodeBuddy.exe')
   qwen_enterprise=@('.qwenworkcn\AGENTS.md','.qwenworkcn\mcp.json')
-  workbuddy=@('.workbuddy\AGENTS.md','.workbuddy\mcp.json')
+  workbuddy=@('.workbuddy\AGENTS.md','.workbuddy\mcp.json','.workbuddy\device-id','.workbuddy-ai\SOUL.md','.workbuddy-ai\AGENTS.md')
   gemini_cli=@('.gemini\GEMINI.md','.gemini\settings.json')
   github_copilot_cli=@('.copilot\copilot-instructions.md')
   tongyi_lingma=@('.lingma\rules.md')
 }
+# 多源检测(不盲目按固定路径): 用户目录 marker + 注册表 Uninstall 显示名 + 进程 + 各盘 Program Files 厂商目录
+$detected = @{}
+function Add-AegisAgent([string]$name,[string]$path,[string]$scope,[string]$by) {
+  if (-not $detected.ContainsKey($name)) { $detected[$name] = @{ path = $path; scope = $scope; by = $by } }
+}
+$uninstallKeywords = [ordered]@{
+  'cursor'='cursor'; 'codex'='codex'; 'claude'='claude_code'; 'windsurf'='windsurf'; 'codeium'='windsurf';
+  'codebuddy'='codebuddy'; 'qwen'='qwen_enterprise'; 'workbuddy'='workbuddy';
+  'gemini'='gemini_cli'; 'copilot'='github_copilot_cli'; 'lingma'='tongyi_lingma'
+}
+$vendorDirs = [ordered]@{
+  'Cursor'='cursor'; 'CodeBuddy'='codebuddy'; 'WorkBuddyAI'='workbuddy'; 'WorkBuddy'='workbuddy';
+  'Windsurf'='windsurf'; 'QwenWork'='qwen_enterprise'; 'Gemini'='gemini_cli'; 'Lingma'='tongyi_lingma';
+  'Claude'='claude_code'; 'Codex'='codex'
+}
+$processNames = [ordered]@{
+  'Cursor'='cursor'; 'Codex'='codex'; 'Claude'='claude_code'; 'Windsurf'='windsurf'; 'CodeBuddy'='codebuddy';
+  'WorkBuddy'='workbuddy'; 'QwenWork'='qwen_enterprise'; 'Gemini'='gemini_cli'; 'Copilot'='github_copilot_cli'; 'Lingma'='tongyi_lingma'
+}
 foreach ($userHome in $userHomes) {
-  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf')) { $candidate=Join-Path $userHome.FullName $relative; if(Test-Path $candidate){$roots += $candidate} }
+  foreach ($relative in @('.cursor','.codex','.claude','.codeium\windsurf')) { $candidate=Join-Path $userHome $relative; if(Test-Path $candidate){$roots += $candidate} }
   foreach ($agent in $agentMarkers.Keys) {
-    foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $userHome.FullName $relative; if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=(Protect-AegisPath $marker);scope='user';detected_by='filesystem_marker'};break} }
+    foreach ($relative in $agentMarkers[$agent]) { $marker=Join-Path $userHome $relative; if(Test-Path $marker){ Add-AegisAgent $agent (Protect-AegisPath $marker) 'user' 'filesystem_marker'; break } }
   }
 }
-$systemMarkers = @{
-  cursor=@("$env:LOCALAPPDATA\Programs\cursor\Cursor.exe","$env:ProgramFiles\Cursor\Cursor.exe")
-  codex=@("$env:ProgramFiles\nodejs\codex.cmd")
-  claude_code=@("$env:ProgramFiles\nodejs\claude.cmd")
-  windsurf=@("$env:LOCALAPPDATA\Programs\Windsurf\Windsurf.exe","$env:ProgramFiles\Windsurf\Windsurf.exe")
+
+# 注册表 Uninstall 显示名(HKLM/WOW64/HKCU), InstallLocation 跨盘
+foreach ($hive in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')) {
+  Get-ItemProperty $hive -ErrorAction SilentlyContinue | ForEach-Object {
+    $dn = [string]$_.DisplayName
+    if (-not $dn) { return }
+    foreach ($k in $uninstallKeywords.Keys) {
+      if ($dn.ToLower().Contains($k)) { Add-AegisAgent $uninstallKeywords[$k] ([string]$_.InstallLocation) 'system' 'registry_uninstall'; return }
+    }
+  }
 }
-foreach($agent in $systemMarkers.Keys){foreach($marker in $systemMarkers[$agent]){if(Test-Path $marker){$inventory += @{type='ai_agent';name=$agent;path=$marker;scope='system';detected_by='filesystem_marker'};break}}}
+# 进程名(装到任意盘/任意路径都能抓到)
+Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+  $pn = [string]$_.ProcessName
+  foreach ($k in $processNames.Keys) {
+    if ($pn.ToLower().Contains($k.ToLower())) {
+      $pp = [string]$_.Path
+      Add-AegisAgent $processNames[$k] ($(if($pp){Protect-AegisPath $pp}else{$pn})) 'process' 'process'
+      return
+    }
+  }
+}
+# 各固定盘 Program Files 厂商目录
+foreach ($proot in (Get-AegisProgramRoots)) {
+  foreach ($v in $vendorDirs.Keys) { $p = Join-Path $proot $v; if (Test-Path -LiteralPath $p) { Add-AegisAgent $vendorDirs[$v] $p 'system' 'program_files' } }
+}
+foreach ($name in ($detected.Keys | Sort-Object)) {
+  $dd = $detected[$name]
+  $inventory += @{ type='ai_agent'; name=$name; path=$dd.path; scope=$dd.scope; detected_by=$dd.by }
+}
 foreach($repo in Get-ManagedRepos) { Install-AegisBaseline $repo; $roots += $repo; $inventory += @{type='managed_repository';path=(Protect-AegisPath $repo)} }
 foreach ($root in $roots) {
   if (Test-Path $root) {
@@ -282,7 +358,7 @@ $badSn = @('', 'To be filled by O.E.M.', 'None', 'Default string', 'Unknown', 'O
 if ($sn -and ($badSn -notcontains $sn.Trim())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$agentVersion = '0.34.5'
+$agentVersion = '0.34.6'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
