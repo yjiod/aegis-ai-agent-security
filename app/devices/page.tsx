@@ -449,7 +449,10 @@ export default function DevicesPage() {
     const map = new Map<string, { total: number; online: number }>();
     for (const device of devices) {
       const tools = ((device as { tools?: string[] }).tools ?? []) as string[];
-      const list = tools.length > 0 ? tools : [device.agent_type ?? 'unknown'];
+      // 无检测到的 AI 工具时归入本地化占位桶（此前是英文 'unknown'，与全站中文 UI 不一致，
+      // 用户反馈"上报者是 unknown"）。老扫描器（如 Windows 0.34.4）inventory 为空会落这里；
+      // Agent 更新到当前版本、上报完整 inventory 后即归位到真实工具名。
+      const list = tools.length > 0 ? tools : [device.agent_type ?? '未识别工具'];
       for (const tool of list) {
         const cur = map.get(tool) ?? { total: 0, online: 0 };
         cur.total += 1;

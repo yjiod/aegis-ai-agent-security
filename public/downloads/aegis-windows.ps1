@@ -73,6 +73,63 @@ function Write-AegisUploadStatus([string]$url){
   $path=Join-Path (Split-Path $Output) 'upload-status.json';$temp=$path+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
   try{$status|Set-Content -Encoding UTF8 $temp;Move-Item $temp $path -Force}finally{Remove-Item $temp -Force -ErrorAction SilentlyContinue}
 }
+function Compare-AegisVersion([string]$a,[string]$b) {
+  # 按数字段比较版本串：a>b 返回 1，a<b 返回 -1，相等返回 0（非数字段按 0）。镜像 aegis_self_update.py version_tuple。
+  $pa=[string]$a -split '\.'; $pb=[string]$b -split '\.'
+  $n=[Math]::Max($pa.Count,$pb.Count)
+  for($i=0;$i -lt $n;$i++){
+    $da=0;$db=0
+    if($i -lt $pa.Count){$m=[regex]::Match($pa[$i],'\d+');if($m.Success){$da=[int]$m.Value}}
+    if($i -lt $pb.Count){$m=[regex]::Match($pb[$i],'\d+');if($m.Success){$db=[int]$m.Value}}
+    if($da -gt $db){return 1}elseif($da -lt $db){return -1}
+  }
+  return 0
+}
+function Update-AegisScanner([string]$ReportUrl,[string]$CurrentVersion,[string]$ScriptPath) {
+  # Windows 客户端自更新兜底通道。此前 Windows 侧（PowerShell 扫描器 + .NET 服务宿主）完全
+  # 没有自更新逻辑——只有 mac/linux 的 python agent 会跑 aegis_self_update.py，导致 Windows
+  # 终端永远停在安装时的版本、控制台版本长期落后（用户反馈"上线了还是 0.34.6，没自动更新"）。
+  # 主通道仍是桌管/MDM 推送；本函数让无桌管的 Windows 终端也能自动跟上版本轴。
+  # 严格镜像 aegis_self_update.py 的安全语义：
+  #   仅 https；占位域(RFC2606)拒绝；工件 URL 同源钉子(scheme+host+port 必须与 manifest 一致)；
+  #   下载后 sha256 校验 + PS5.1 BOM 校验；幂等短路(本地已是目标 sha256 则不动)；.prev 备份后替换；
+  #   只替换脚本文件、不执行下载内容(下轮扫描自然生效)；任何失败静默返回、绝不影响本轮扫描与上报。
+  try {
+    if(-not $ReportUrl -or -not $ScriptPath -or -not (Test-Path -LiteralPath $ScriptPath)){return}
+    $base=$null
+    if(-not [Uri]::TryCreate($ReportUrl,[UriKind]::Absolute,[ref]$base) -or $base.Scheme -cne 'https'){return}
+    $mh=$base.Host.ToLowerInvariant()
+    if($mh -eq 'aegis.example.com' -or $mh.EndsWith('.example.com') -or $mh.EndsWith('.example') -or $mh.EndsWith('.invalid') -or $mh.EndsWith('.test') -or $mh.EndsWith('.localhost')){return}
+    try{[Net.ServicePointManager]::SecurityProtocol=[Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12}catch{}
+    $origin=$base.Scheme+'://'+$base.Host+$(if($base.IsDefaultPort){''}else{':'+$base.Port})
+    $man=$null
+    try{$man=Invoke-RestMethod -Uri ($origin+'/downloads/update-manifest.json') -Method Get -TimeoutSec 20}catch{return}
+    if(-not $man -or ([string]$man.schema) -cne 'aegis.update/v1'){return}
+    $offered=[string]$man.agent_version; if(-not $offered){$offered=[string]$man.release}
+    if(-not $offered -or (Compare-AegisVersion $offered $CurrentVersion) -le 0){return}
+    $art=$man.artifacts.'aegis-windows.ps1'
+    if(-not $art -or -not $art.url -or -not $art.sha256){return}
+    $wantSha=([string]$art.sha256).ToLowerInvariant()
+    if($wantSha -notmatch '^[0-9a-f]{64}$'){return}
+    try{$localSha=(Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256).Hash.ToLowerInvariant()}catch{$localSha=$null}
+    if($localSha -eq $wantSha){return}
+    # 同源钉子：相对 url 按 manifest 源解析为绝对地址；解析后 scheme+host+port 必须与 manifest 一致，
+    # 未签名 manifest 即便被中间人替换也无法把下载改指向恶意主机。
+    $resolved=$null
+    try{$resolved=New-Object System.Uri($base,[string]$art.url)}catch{return}
+    if($resolved.Scheme -cne 'https' -or $resolved.Host -cne $base.Host -or $resolved.Port -ne $base.Port){return}
+    $staging=$ScriptPath+'.'+[Guid]::NewGuid().ToString('N')+'.staging'
+    try{
+      Invoke-WebRequest -Uri $resolved.AbsoluteUri -OutFile $staging -TimeoutSec 60 -UseBasicParsing
+      if((Get-FileHash -LiteralPath $staging -Algorithm SHA256).Hash.ToLowerInvariant() -cne $wantSha){return}
+      $fs=[IO.File]::OpenRead($staging);$bom=New-Object byte[] 3;$read=$fs.Read($bom,0,3);$fs.Close()
+      if($read -lt 3 -or $bom[0] -ne 0xEF -or $bom[1] -ne 0xBB -or $bom[2] -ne 0xBF){return}
+      Copy-Item -LiteralPath $ScriptPath -Destination ($ScriptPath+'.prev') -Force
+      Move-Item -LiteralPath $staging -Destination $ScriptPath -Force
+    }catch{return}
+    finally{if(Test-Path -LiteralPath $staging){try{Remove-Item -LiteralPath $staging -Force}catch{}}}
+  }catch{return}
+}
 function Protect-AegisPath([string]$path) {
   foreach ($userHome in $userHomes) { if ($path.StartsWith($userHome.FullName,[StringComparison]::OrdinalIgnoreCase)) { return '~' + $path.Substring($userHome.FullName.Length) } }
   return $path
@@ -358,7 +415,7 @@ $badSn = @('', 'To be filled by O.E.M.', 'None', 'Default string', 'Unknown', 'O
 if ($sn -and ($badSn -notcontains $sn.Trim())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$agentVersion = '0.34.7'
+$agentVersion = '0.34.8'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
@@ -386,16 +443,39 @@ if ($ovServer) {
     } catch { }
   }
 }
-# Agent 以 LocalSystem 服务/计划任务运行时 $env:USERNAME 为空或 SYSTEM，无法定位真实使用者，
-# 导致控制台 owner 显示"待分配"。回退到交互控制台登录用户(Win32_ComputerSystem.UserName)，仍无则 unknown。
+# 自更新兜底：拉控制台 update-manifest，若 agent 版本轴更新则 sha256+BOM 校验后原子替换本脚本，
+# 下一轮扫描（服务宿主每 interval 重新以 -File 拉起）自然生效。主通道仍是桌管/MDM 推送；
+# 此前 Windows 侧无任何自更新，终端会永远停在安装版本（用户反馈"上线了还是 0.34.6，没自动更新"）。
+$selfPath = $PSCommandPath
+if (-not $selfPath) { try { $selfPath = $MyInvocation.MyCommand.Path } catch { $selfPath = $null } }
+Update-AegisScanner -ReportUrl $ReportUrl -CurrentVersion $agentVersion -ScriptPath $selfPath
+# 交互使用者解析（服务以 LocalSystem 运行时 $env:USERNAME 为空/SYSTEM）：多源解析 + 粘滞缓存。
+# 此前仅靠 Win32_ComputerSystem.UserName，遇到无人交互登录的扫描周期（锁屏/会话断开/无头 VM）
+# 会把上报用户抖动成字面量 'unknown'（用户反馈"上报者是 unknown"；实测同一台机 shine/unknown 交替）。
+# 现：① 交互控制台用户 → ② 活动会话 explorer.exe 属主 → 解析到真实用户就落盘 last-os-user 缓存；
+# 本轮解析不到就复用上次已知值（设备主用户不会周期间跳变，粘滞更稳）；从未解析到才 'unknown'。
 $osUser = $env:USERNAME
 if (-not $osUser -or $osUser -ieq 'SYSTEM' -or $osUser.EndsWith('$')) {
+  $osUser = $null
   $cs = $null
   try { $cs = (Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).UserName } catch { $cs = $null }
   if (-not $cs) { try { $cs = (Get-WmiObject -Class Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName } catch { $cs = $null } }
-  if ($cs) { $osUser = ($cs -split '\\')[-1] }
+  if ($cs) { $osUser = ([string]$cs -split '\\')[-1] }
+  if (-not $osUser) {
+    try {
+      $exp = Get-CimInstance -ClassName Win32_Process -Filter "Name='explorer.exe'" -ErrorAction Stop | Select-Object -First 1
+      if ($exp) { $own = Invoke-CimMethod -InputObject $exp -MethodName GetOwner -ErrorAction SilentlyContinue; if ($own -and $own.User) { $osUser = [string]$own.User } }
+    } catch { }
+  }
 }
-if (-not $osUser -or $osUser -ieq 'SYSTEM' -or $osUser.EndsWith('$')) { $osUser = 'unknown' }
+$osUserCache = Join-Path $installDir 'last-os-user'
+if ($osUser -and $osUser -ine 'SYSTEM' -and -not $osUser.EndsWith('$')) {
+  try { [IO.File]::WriteAllText($osUserCache, $osUser) } catch { }
+} else {
+  $osUser = $null
+  if (Test-Path -LiteralPath $osUserCache) { try { $cachedUser = ([IO.File]::ReadAllText($osUserCache)).Trim(); if ($cachedUser) { $osUser = $cachedUser } } catch { } }
+}
+if (-not $osUser) { $osUser = 'unknown' }
 # 归属人：优先安装期显式绑定的 AEGIS_DEVICE_OWNER，其次由控制台按 os_user 归一(override||os_user||待分配)。
 $owner = if ($env:AEGIS_DEVICE_OWNER) { [string]$env:AEGIS_DEVICE_OWNER } else { '' }
 $report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
