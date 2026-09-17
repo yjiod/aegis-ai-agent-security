@@ -55,7 +55,8 @@ jobs:
           "$PYBIN" -c 'import platform;print("interpreter arch =",platform.machine())'
           echo "pybin=$PYBIN" >> "$GITHUB_OUTPUT"
       - name: Install PyInstaller (into target-arch interpreter)
-        run: "${{ steps.py.outputs.pybin }}" -m pip install --upgrade pip pyinstaller
+        run: |
+          "${{ steps.py.outputs.pybin }}" -m pip install --upgrade pip pyinstaller
       - name: Freeze agent (--onefile, self-contained)
         run: |
           "${{ steps.py.outputs.pybin }}" -m PyInstaller --onefile --name "aegis-agent-darwin-${{ matrix.arch }}" \
