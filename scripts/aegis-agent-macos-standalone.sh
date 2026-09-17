@@ -85,6 +85,15 @@ fi
 
 # python3 非必需：优先用冻结原生二进制（解包后按 uname -m 选择）；既无二进制又无 python3 才失败。
 
+# 互斥防呆：本机若已装系统级（.pkg → /Library/LaunchDaemons，root 扫 /Users），不要再装用户级。
+# 两级同 device_id 会双重上报——scan_root 在 /Users 与 ~ 之间来回跳、device_tokens 翻倍、重复扫描
+# （现网实测过）。企业纳管应只跑系统级；确要用户级请先卸系统级。
+if [ -f /Library/LaunchDaemons/com.aegis.agent.plist ]; then
+  echo "错误: 本机已存在系统级 Aegis（LaunchDaemon，root 扫 /Users，更符合企业纳管）。" >&2
+  echo "      为避免与系统级双重上报，已跳过用户级安装。确需用户级请先卸载系统级 .pkg。" >&2
+  exit 6
+fi
+
 echo "═══ Aegis 终端安装（自包含 / 用户级 / 无需 sudo）═══"
 echo "  设备 ID    : $DEVICE_ID"
 echo "  安全中心   : $SERVER"

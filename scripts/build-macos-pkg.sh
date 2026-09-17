@@ -139,6 +139,14 @@ if [ -f "$INSTALL_DIR/enroll-pending" ]; then
   REASON="$(head -1 "$INSTALL_DIR/enroll-pending" 2>/dev/null || echo unknown)"
   osascript -e "display dialog \"Aegis 已安装，但零接触入网暂失败（$REASON）。守护进程会在能访问控制台后自动重试；如需立即入网请确认网络或使用已烘焙正确地址的安装包。\" with title \"Aegis 安装提示\" buttons {\"知道了\"} default button 1" 2>/dev/null || true
 fi
+# 互斥：装了系统级就停用任何用户级 LaunchAgent（同 device_id 会双重上报：scan_root 在 /Users 与 ~
+# 之间来回跳、令牌翻倍）。bootout + 改名禁用（不删、可恢复；改名防下次登录又被 launchd 自动加载）。
+for _up in /Users/*/Library/LaunchAgents/com.aegis.agent.plist; do
+  [ -f "$_up" ] || continue
+  _u=$(echo "$_up" | awk -F/ '{print $3}'); _uid=$(id -u "$_u" 2>/dev/null || true)
+  if [ -n "$_uid" ]; then launchctl bootout "gui/$_uid/com.aegis.agent" 2>/dev/null || true; fi
+  mv -f "$_up" "$_up.disabled-by-system-install" 2>/dev/null || true
+done
 chown -R root:wheel "$INSTALL_DIR" 2>/dev/null || true
 launchctl bootout system "$PLIST" 2>/dev/null || true
 launchctl bootstrap system "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null || true
