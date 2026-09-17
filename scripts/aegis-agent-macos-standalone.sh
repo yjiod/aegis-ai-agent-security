@@ -79,11 +79,11 @@ fi
 if [ "$DO_UNINSTALL" = "1" ]; then
   launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
   [ -f "$PLIST" ] && mv -f "$PLIST" "$HOME/.Trash/" 2>/dev/null || true
-  echo "已卸载用户级 LaunchAgent；运行时目录保留在 $INSTALL_DIR（如需清理请手动移入废纸篓）。"
+  echo "已卸载用户级 LaunchAgent；运行时目录保留在 ${INSTALL_DIR}（如需清理请手动移入废纸篓）。"
   exit 0
 fi
 
-if [ -z "$PYTHON_BIN" ]; then echo "错误: 需要 python3" >&2; exit 1; fi
+# python3 非必需：优先用冻结原生二进制（解包后按 uname -m 选择）；既无二进制又无 python3 才失败。
 
 echo "═══ Aegis 终端安装（自包含 / 用户级 / 无需 sudo）═══"
 echo "  设备 ID    : $DEVICE_ID"
@@ -105,52 +105,37 @@ for f in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do
 done
 chmod 700 "$INSTALL_DIR/aegis_agent.py"
 chmod 600 "$INSTALL_DIR/aegis-policy.json" "$INSTALL_DIR/aegis-security-baseline.md"
+# 去-python 化 B：优先用与本架构匹配的冻结原生二进制（无系统 python3 也能跑）；缺则回退 python3+脚本。
+ARCH=$(uname -m); AGENT="$INSTALL_DIR/aegis-agent"
+case "$ARCH" in
+  arm64)  BIN_SRC="$INSTALL_DIR/aegis-agent-darwin-arm64" ;;
+  x86_64) BIN_SRC="$INSTALL_DIR/aegis-agent-darwin-x64" ;;
+  *)      BIN_SRC="" ;;
+esac
+if [ -n "$BIN_SRC" ] && [ -f "$BIN_SRC" ]; then
+  cp -f "$BIN_SRC" "$AGENT"
+  xattr -d com.apple.quarantine "$AGENT" 2>/dev/null || true
+  chmod 755 "$AGENT"; AGENT_MODE="binary"
+  echo "  ✓ 原生二进制就位（${ARCH}，无需 python3）"
+elif [ -n "$PYTHON_BIN" ]; then
+  AGENT_MODE="python"; echo "  ✓ 回退 python3 形态（${PYTHON_BIN}）"
+else
+  echo "错误: 无本架构(${ARCH})冻结二进制，且无系统 python3，无法安装。" >&2; exit 1
+fi
+run_agent() { if [ "$AGENT_MODE" = "binary" ]; then "$AGENT" "$@"; else "$PYTHON_BIN" "$INSTALL_DIR/aegis_agent.py" "$@"; fi; }
+if [ "$AGENT_MODE" = "binary" ]; then
+  PROG_ARGS="        <string>${AGENT}</string>"
+else
+  PROG_ARGS="        <string>${PYTHON_BIN}</string>
+        <string>${INSTALL_DIR}/aegis_agent.py</string>"
+fi
 AGENT_VER=$(grep -m1 'AGENT_VERSION =' "$INSTALL_DIR/aegis_agent.py" | sed 's/[^"]*"\([^"]*\)".*/\1/')
 echo "  ✓ 运行时已就位（agent ${AGENT_VER:-unknown}）"
 
 echo "═══ 2. 获取凭据与策略，写入配置（0600）═══"
-# 手动模式校验令牌；自动模式向 /api/enroll 申请令牌+signing_secret+去签名策略。
-# 全部在 python 内完成（写 config.json / reporting.json，必要时用服务端策略覆盖出厂策略）。
-if ! "$PYTHON_BIN" - "$INSTALL_DIR" "$COLLECTOR_URL" "$ENROLL_URL" "$DEVICE_ID" "$INTERVAL" "$TOKEN" "$AGENT_VER" <<'PY'
-import json,os,sys,socket,secrets,urllib.request,urllib.error
-install_dir,collector_url,enroll_url,device_id,interval,token,agent_ver=sys.argv[1:8]
-interval=int(interval); manual=bool(token)
-report_url=collector_url.rstrip('/')+'/v1/reports'
-signing_secret=os.environ.get('AEGIS_REPORT_SIGNING_SECRET','')
-policy=None
-if manual:
-    if '<' in token and '>' in token:
-        print("  x 令牌是占位符（如 '<令牌>'）。请填真实令牌，或留空以零接触自动入网。",file=sys.stderr); sys.exit(2)
-    if not (32<=len(token)<=4096):
-        print("  x 令牌长度 %d 不在 32-4096。请填真实令牌，或留空以自动入网。"%len(token),file=sys.stderr); sys.exit(2)
-    if not signing_secret: signing_secret=secrets.token_hex(32)
-else:
-    req=urllib.request.Request(enroll_url,data=json.dumps({"hostname":socket.gethostname(),"device_id":device_id,"agent_version":agent_ver}).encode(),headers={"Content-Type":"application/json"})
-    try:
-        d=json.load(urllib.request.urlopen(req,timeout=25))
-    except urllib.error.HTTPError as e:
-        print("  x 自动入网失败 HTTP %s: %s"%(e.code,e.read().decode()[:200]),file=sys.stderr); sys.exit(3)
-    except Exception as e:
-        print("  x 自动入网失败 %s（请检查能否访问 %s）"%(type(e).__name__,enroll_url),file=sys.stderr); sys.exit(3)
-    token=d.get('report_token') or ''
-    signing_secret=d.get('signing_secret') or signing_secret or secrets.token_hex(32)
-    report_url=d.get('report_url') or report_url
-    pol=d.get('policy')
-    if isinstance(pol,dict) and pol.get('schema')=='aegis.policy/v1': policy=pol
-    if not (32<=len(token)<=4096):
-        print("  x 入网响应缺少有效 report_token（服务端未配置 AEGIS_COLLECTOR_TOKEN？）",file=sys.stderr); sys.exit(4)
-# 服务端下发的去签名已发布策略覆盖包内出厂策略（终端从而跑到当前策略而非出厂版）。
-if policy is not None:
-    p=os.path.join(install_dir,'aegis-policy.json')
-    open(p,'w').write(json.dumps(policy,ensure_ascii=False)); os.chmod(p,0o600)
-os.makedirs(install_dir,exist_ok=True)
-cfg={"collectorURL":collector_url,"reportURL":report_url,"deviceId":device_id,"token":token,"hmacSecret":signing_secret,"scanIntervalSeconds":interval,"scanRoot":None}
-open(os.path.join(install_dir,'config.json'),'w').write(json.dumps(cfg,ensure_ascii=False)); os.chmod(os.path.join(install_dir,'config.json'),0o600)
-rpt={"schema":"aegis.reporting/v1","report_url":report_url,"report_token":token,"signing_secret":signing_secret}
-open(os.path.join(install_dir,'reporting.json'),'w').write(json.dumps(rpt,ensure_ascii=False)); os.chmod(os.path.join(install_dir,'reporting.json'),0o600)
-print("  + 凭据来源: %s | 上报: %s | 策略: %s"%('手动令牌' if manual else '自动入网',report_url,(policy or {}).get('version','包内出厂')))
-PY
-then
+# 由 agent 自身（冻结二进制或 python3 脚本）完成入网+写配置——安装器不再内嵌 python heredoc，
+# 故无 python3 的 mac 也能装（二进制自带 --install-config 逻辑，与旧 heredoc 等价）。
+if ! run_agent --install-config "$INSTALL_DIR" "$COLLECTOR_URL" "$ENROLL_URL" "$DEVICE_ID" "$INTERVAL" "$TOKEN" "$AGENT_VER"; then
   echo "错误: 凭据/策略获取失败，安装中止（未注册 LaunchAgent）。" >&2; exit 1
 fi
 
@@ -164,8 +149,7 @@ cat > "$PLIST" <<PLISTEOF
     <key>Label</key><string>${LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>${PYTHON_BIN}</string>
-        <string>${INSTALL_DIR}/aegis_agent.py</string>
+${PROG_ARGS}
         <string>${HOME}</string>
         <string>--policy</string><string>${INSTALL_DIR}/aegis-policy.json</string>
         <string>--report-config</string><string>${INSTALL_DIR}/reporting.json</string>
@@ -187,7 +171,7 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIS
 echo "  ✓ LaunchAgent 已加载（开机自启 + 每 ${INTERVAL}s 上报）"
 
 echo "═══ 4. 立即首报并确认连通 ═══"
-"$PYTHON_BIN" "$INSTALL_DIR/aegis_agent.py" "$HOME" \
+run_agent "$HOME" \
   --policy "$INSTALL_DIR/aegis-policy.json" \
   --report-config "$INSTALL_DIR/reporting.json" \
   --output "$INSTALL_DIR/last-report.json" --auto-enroll 2>&1 | tail -4 || echo "  （首报返回非零，见 $INSTALL_DIR/agent-error.log）"

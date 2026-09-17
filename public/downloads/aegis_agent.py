@@ -971,8 +971,54 @@ def maybe_self_update(policy, report_url):
         return
 
 
+def install_config(argv):
+    """安装期一次性配置（去-python 化 B）：手动令牌校验 或 零接触自动入网，写 config.json /
+    reporting.json（0600），服务端下发策略则覆盖包内出厂策略。安装器(.run/.pkg) 以冻结二进制
+    `aegis-agent --install-config <7 args>` 调用本函数，从而**安装期也无需系统 python3**。
+    逻辑与原安装器内嵌的 python heredoc 完全一致（argv 顺序也一致）。"""
+    import socket, secrets, urllib.error
+    install_dir, collector_url, enroll_url, device_id, interval, token, agent_ver = argv[:7]
+    interval = int(interval); manual = bool(token)
+    report_url = collector_url.rstrip("/") + "/v1/reports"
+    signing_secret = os.environ.get("AEGIS_REPORT_SIGNING_SECRET", "")
+    policy = None
+    if manual:
+        if "<" in token and ">" in token:
+            print("  x 令牌是占位符（如 '<令牌>'）。请填真实令牌，或留空以零接触自动入网。", file=sys.stderr); raise SystemExit(2)
+        if not (32 <= len(token) <= 4096):
+            print("  x 令牌长度 %d 不在 32-4096。请填真实令牌，或留空以自动入网。" % len(token), file=sys.stderr); raise SystemExit(2)
+        if not signing_secret: signing_secret = secrets.token_hex(32)
+    else:
+        req = urllib.request.Request(enroll_url, data=json.dumps({"hostname": socket.gethostname(), "device_id": device_id, "agent_version": agent_ver}).encode(), headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as r: d = json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            print("  x 自动入网失败 HTTP %s: %s" % (e.code, e.read().decode()[:200]), file=sys.stderr); raise SystemExit(3)
+        except Exception as e:
+            print("  x 自动入网失败 %s（请检查能否访问 %s）" % (type(e).__name__, enroll_url), file=sys.stderr); raise SystemExit(3)
+        token = d.get("report_token") or ""
+        signing_secret = d.get("signing_secret") or signing_secret or secrets.token_hex(32)
+        report_url = d.get("report_url") or report_url
+        pol = d.get("policy")
+        if isinstance(pol, dict) and pol.get("schema") == "aegis.policy/v1": policy = pol
+        if not (32 <= len(token) <= 4096):
+            print("  x 入网响应缺少有效 report_token（服务端未配置 AEGIS_COLLECTOR_TOKEN？）", file=sys.stderr); raise SystemExit(4)
+    if policy is not None:
+        p = os.path.join(install_dir, "aegis-policy.json")
+        open(p, "w", encoding="utf-8").write(json.dumps(policy, ensure_ascii=False)); os.chmod(p, 0o600)
+    os.makedirs(install_dir, exist_ok=True)
+    cfg = {"collectorURL": collector_url, "reportURL": report_url, "deviceId": device_id, "token": token, "hmacSecret": signing_secret, "scanIntervalSeconds": interval, "scanRoot": None}
+    open(os.path.join(install_dir, "config.json"), "w", encoding="utf-8").write(json.dumps(cfg, ensure_ascii=False)); os.chmod(os.path.join(install_dir, "config.json"), 0o600)
+    rpt = {"schema": "aegis.reporting/v1", "report_url": report_url, "report_token": token, "signing_secret": signing_secret}
+    open(os.path.join(install_dir, "reporting.json"), "w", encoding="utf-8").write(json.dumps(rpt, ensure_ascii=False)); os.chmod(os.path.join(install_dir, "reporting.json"), 0o600)
+    print("  + 凭据来源: %s | 上报: %s | 策略: %s" % ("手动令牌" if manual else "自动入网", report_url, (policy or {}).get("version", "包内出厂")))
+
+
 def main():
-    ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); ap.add_argument("--enrollment-config",default=os.getenv("AEGIS_ENROLLMENT_CONFIG","")); ap.add_argument("--enrollment-dir",default=os.getenv("AEGIS_ENROLLMENT_DIR","")); args=ap.parse_args()
+    ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); ap.add_argument("--enrollment-config",default=os.getenv("AEGIS_ENROLLMENT_CONFIG","")); ap.add_argument("--enrollment-dir",default=os.getenv("AEGIS_ENROLLMENT_DIR","")); ap.add_argument("--install-config",nargs=7,metavar=("INSTALL_DIR","COLLECTOR_URL","ENROLL_URL","DEVICE_ID","INTERVAL","TOKEN","AGENT_VER"),help=argparse.SUPPRESS); args=ap.parse_args()
+    # 安装期一次性配置模式（去-python 化 B）：安装器以冻结二进制跑本模式完成入网+写配置后立即退出，
+    # 使 .run/.pkg 安装全程无需系统 python3。
+    if args.install_config: return install_config(args.install_config)
     # 扫描看门狗（watch 模式）：每个周期在**子进程**内跑一次性扫描+上报，父进程以
     # 时间预算(AEGIS_SCAN_BUDGET_SECONDS,默认1800s)监督；子进程挂死(如阻塞在 hung/
     # 网络挂载的 open())会被 kill，父进程记录 scan_timeout 并进入下一周期，绝不让

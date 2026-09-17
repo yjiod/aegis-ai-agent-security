@@ -17,15 +17,20 @@ HEADER="$ROOT/scripts/aegis-agent-macos-standalone.sh"
 DL="$ROOT/public/downloads"
 OUT="$DL/aegis-agent-macos-standalone.run"
 RUNTIME="aegis_agent.py aegis-policy.json aegis-security-baseline.md"
+# 去-python 化 B：CI(build-agent-binaries.yml) 冻结的双架构原生二进制，若已就位于 downloads/ 则一并
+# 打进 payload（安装器按 uname -m 选对应架构、exec 二进制，无需系统 python3）；缺则 .run 退回纯 python 形态。
+BINS=""
+for b in aegis-agent-darwin-arm64 aegis-agent-darwin-x64; do [ -f "$DL/$b" ] && BINS="$BINS $b"; done
 
 [ -f "$HEADER" ] || { echo "缺少安装器头部: $HEADER" >&2; exit 1; }
 for f in $RUNTIME; do [ -f "$DL/$f" ] || { echo "缺少运行时文件: $DL/$f" >&2; exit 1; }; done
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT INT TERM
-for f in $RUNTIME; do cp "$DL/$f" "$STAGE/$f"; done
+for f in $RUNTIME $BINS; do cp "$DL/$f" "$STAGE/$f"; done
 # COPYFILE_DISABLE=1 避免 macOS tar 写入 ._ AppleDouble 资源叉文件，保持包干净。
-( cd "$STAGE" && COPYFILE_DISABLE=1 tar czf payload.tar.gz $RUNTIME )
+( cd "$STAGE" && COPYFILE_DISABLE=1 tar czf payload.tar.gz $RUNTIME $BINS )
+echo "  嵌入原生二进制:${BINS:- 无（纯 python 形态）}"
 
 # 头部末行必须是 __PAYLOAD__，其后紧跟 tar.gz 字节流（安装器用 tail -n+ 自解压）。
 cat "$HEADER" "$STAGE/payload.tar.gz" > "$OUT"

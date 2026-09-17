@@ -57,3 +57,7 @@ scripts/aegis-adapters.production.json
 #   privacy-blocklist.local = 具体敏感字面量正则（本地强 substring 扫描；CI 无此文件时走 HMAC 指纹兜底）
 scripts/.privacy-hmac-key
 scripts/privacy-blocklist.local
+
+# 去-python 化 B：CI(build-agent-binaries.yml) 冻结产出的原生二进制，构建/部署期拉取，不入库
+/public/downloads/aegis-agent-darwin-*
+/public/downloads/aegis-agent-linux-*
