@@ -152,7 +152,7 @@ done
 # 这就是「同一个 MSI 有的机器能装、中文机器装不上」的根因。
 # 编辑器/CI 很容易在某次改动后悄悄丢掉 BOM，故在此**每次构建都补齐并校验**，
 # 把这个修复固化成流程而不是某一次的文件状态。
-for PS1 in "$DL/aegis-windows.ps1" "$CLIENT/Install-Aegis-Windows.ps1"; do
+for PS1 in "$DL/aegis-windows.ps1" "$CLIENT/Install-Aegis-Windows.ps1" "$DL/aegis-install-windows-oneclick.ps1"; do
   if [ "$(head -c 3 "$PS1" | od -An -tx1 | tr -d ' \n')" != "efbbbf" ]; then
     printf '\xef\xbb\xbf' > "$WORK/bom.tmp"
     cat "$PS1" >> "$WORK/bom.tmp"
