@@ -2,7 +2,7 @@
 # 用法(管理员 PowerShell):
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Aegis-Windows-OneClick.ps1
 # 可选参数:
-#   -Server  https://<控制台>          默认 https://REDACTED_DOMAIN
+#   -Server  https://<控制台>          必填(仓库副本为占位域且拒绝运行; 控制台副本已注入真实 origin)
 #   -MsiUrl  <url>                    覆盖 msi 下载地址
 #   -MsiPath <本地msi路径>             跳过下载
 #   -WaitSeconds <秒>                 等待 SYSTEM 安装任务的上限, 默认 120
