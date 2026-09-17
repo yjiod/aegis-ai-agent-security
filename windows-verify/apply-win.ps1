@@ -20,7 +20,7 @@ Write-Host ('组件校验通过: ' + (($m.components.PSObject.Properties.Name) -
 $dst = Join-Path $env:ProgramFiles 'AegisAgent'
 if (-not (Test-Path $dst)) { Write-Host '未找到安装目录(先装一次完整 .msi)' -ForegroundColor Red; exit 5 }
 foreach ($p in $m.components.PSObject.Properties) { Copy-Item -LiteralPath (Join-Path $here $p.Name) -Destination (Join-Path $dst $p.Name) -Force }
-$svc = Get-CimInstance Win32_Service -Filter "Name='AegisAgent'" -ErrorAction SilentlyContinue
-if ($svc) { Restart-Service AegisAgent -Force; Write-Host ('服务已重启: ' + (Get-CimInstance Win32_Service -Filter "Name='AegisAgent"' ).State) }
+$svc = Get-Service AegisAgent -ErrorAction SilentlyContinue
+if ($svc) { Restart-Service AegisAgent -Force; Write-Host ('服务已重启: ' + (Get-Service AegisAgent).Status) }
 else { Write-Host '服务不存在: 用一键脚本/完整 .msi 先注册服务' }
 Write-Host '已应用轻量包; 版本见 PUSH-MANIFEST.json'
