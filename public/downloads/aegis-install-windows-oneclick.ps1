@@ -93,12 +93,17 @@ cmd /c "schtasks /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR 
 cmd /c "schtasks /Run /TN AegisOneClick >nul 2>nul"
 Log '已触发 SYSTEM 安装任务, 等待完成...'
 $ok = $false
+$elapsed = 0
 for ($i = 0; $i -lt $WaitSeconds; $i += 5) {
   Start-Sleep -Seconds 5
+  $elapsed += 5
+  # 每 15s 打一行进度: 此前等待期完全静默, 真机用户误以为脚本卡死(实际 SYSTEM 任务
+  # 入网+建服务本身要 1~2 分钟)。有输出才看得出"活着"。
+  if ($elapsed % 15 -eq 0) { Log ("等待 SYSTEM 安装任务... {0}s / {1}s" -f $elapsed, $WaitSeconds) }
   $q = (cmd /c "schtasks /Query /TN AegisOneClick /V /FO LIST 2>nul") -join "`n"
   if ($q -match 'Last Result[^:]*:\s*(\d+)') {
     $code = [int]$Matches[1]
-    if ($code -eq 0) { $ok = $true; break }
+    if ($code -eq 0) { $ok = $true; Log ('SYSTEM 安装任务完成(耗时约 {0}s)' -f $elapsed); break }
     if ($code -ne 267011) { Log ('SYSTEM 任务退出码 ' + $code + ' (非0即失败, 267011=仍在运行)'); break }
   }
 }
