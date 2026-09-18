@@ -56,8 +56,10 @@ if ($prod) {
 $pd = Join-Path $env:ProgramData 'AegisAgent'
 if (Test-Path $pd) {
   Log '清理 ProgramData 空 DACL(BUG H 自愈: takeown + /reset + 删目录)'
-  & takeown.exe /f $pd /r /d Y | Out-Null
-  & icacls.exe $pd /reset /t /c | Out-Null
+  # 经 cmd /c 做原生重定向: PS5.1 + EAP=Stop 下原生 exe 的 stderr 会变终止性错误
+  # (2>$null / 2>&1 都拦不住, 真机两次捕获), 会让脚本中途死掉。cmd 自己吞 stderr 最稳。
+  cmd /c "takeown /f `"$pd`" /r /d Y >nul 2>nul"
+  cmd /c "icacls `"$pd`" /reset /t /c >nul 2>nul"
   Remove-Item $pd -Recurse -Force -ErrorAction SilentlyContinue
 }
 
@@ -84,23 +86,23 @@ if (-not (Test-Path $installPs1)) { Log ('缺少安装脚本: ' + $installPs1); 
 $wrap = 'C:\Windows\Temp\AegisOneClickRun.cmd'
 Set-Content -LiteralPath $wrap -Value ('@powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\AegisAgent\Install-Aegis-Windows.ps1" -ServerUrl ' + $Server) -Encoding ASCII
 $tr = $wrap
-# schtasks 的 stderr 在 PS5.1 + EAP=Stop 下即便 2>$null 也会冒成 NativeCommandError 红字
-# (真机捕获, 纯噪音但极误导)。改用 2>&1 把 stderr 并入成功流再丢弃, 彻底不冒错。
-& schtasks.exe /Delete /TN AegisOneClick /F 2>&1 | Out-Null
-& schtasks.exe /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR $tr 2>&1 | Out-Null
-& schtasks.exe /Run /TN AegisOneClick 2>&1 | Out-Null
+# schtasks 一律经 cmd /c 并由 cmd 做 >nul 2>nul: PS5.1 + EAP=Stop 下原生 exe 的 stderr
+# 是终止性错误(2>$null / 2>&1 均拦不住, 真机捕获两次, 第二次甚至让脚本中途死掉)。
+cmd /c "schtasks /Delete /TN AegisOneClick /F >nul 2>nul"
+cmd /c "schtasks /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR $tr >nul 2>nul"
+cmd /c "schtasks /Run /TN AegisOneClick >nul 2>nul"
 Log '已触发 SYSTEM 安装任务, 等待完成...'
 $ok = $false
 for ($i = 0; $i -lt $WaitSeconds; $i += 5) {
   Start-Sleep -Seconds 5
-  $q = (& schtasks.exe /Query /TN AegisOneClick /V /FO LIST 2>&1) -join "`n"
+  $q = (cmd /c "schtasks /Query /TN AegisOneClick /V /FO LIST 2>nul") -join "`n"
   if ($q -match 'Last Result[^:]*:\s*(\d+)') {
     $code = [int]$Matches[1]
     if ($code -eq 0) { $ok = $true; break }
     if ($code -ne 267011) { Log ('SYSTEM 任务退出码 ' + $code + ' (非0即失败, 267011=仍在运行)'); break }
   }
 }
-& schtasks.exe /Delete /TN AegisOneClick /F 2>&1 | Out-Null
+cmd /c "schtasks /Delete /TN AegisOneClick /F >nul 2>nul"
 if (-not $ok) { Log 'SYSTEM 安装任务未在时限内成功; 可重跑本脚本或按 Issue#2 恢复手册排查' }
 
 # 5) 验收
