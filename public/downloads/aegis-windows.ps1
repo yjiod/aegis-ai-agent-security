@@ -415,16 +415,16 @@ $sn = $null
 $badSn = @('', 'to be filled by o.e.m.', 'none', 'default string', 'unknown', 'o.e.m.', 'not specified', 'system serial number', 'serial number', 'n/a', 'na', 'empty', 'to be filled')
 function Test-AegisGoodSn([string]$v) { return ($v -and ($badSn -notcontains $v.Trim().ToLower())) }
 foreach ($src in @(
-  { try { (Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber } catch { $null } },
-  { try { (Get-CimInstance Win32_BIOS).SerialNumber } catch { $null } },
-  { try { (Get-CimInstance Win32_BaseBoard).SerialNumber } catch { $null } }
+  { try { (Get-CimInstance Win32_ComputerSystemProduct -OperationTimeoutSec 10).IdentifyingNumber } catch { $null } },
+  { try { (Get-CimInstance Win32_BIOS -OperationTimeoutSec 10).SerialNumber } catch { $null } },
+  { try { (Get-CimInstance Win32_BaseBoard -OperationTimeoutSec 10).SerialNumber } catch { $null } }
 )) {
   $c = & $src
   if (Test-AegisGoodSn $c) { $sn = $c.Trim(); break }
 }
 if (-not $sn) {
   try {
-    $u = [string](Get-CimInstance Win32_ComputerSystemProduct).UUID
+    $u = [string](Get-CimInstance Win32_ComputerSystemProduct -OperationTimeoutSec 10).UUID
     $t = $u.Replace('-', '')
     if ($t -and ($t -notmatch '^(0+|F+)$') -and ($badSn -notcontains $t.ToLower())) { $sn = $u }
   } catch { }
@@ -475,12 +475,12 @@ $osUser = $env:USERNAME
 if (-not $osUser -or $osUser -ieq 'SYSTEM' -or $osUser.EndsWith('$')) {
   $osUser = $null
   $cs = $null
-  try { $cs = (Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).UserName } catch { $cs = $null }
+  try { $cs = (Get-CimInstance -ClassName Win32_ComputerSystem -OperationTimeoutSec 10 -ErrorAction Stop).UserName } catch { $cs = $null }
   if (-not $cs) { try { $cs = (Get-WmiObject -Class Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName } catch { $cs = $null } }
   if ($cs) { $osUser = ([string]$cs -split '\\')[-1] }
   if (-not $osUser) {
     try {
-      $exp = Get-CimInstance -ClassName Win32_Process -Filter "Name='explorer.exe'" -ErrorAction Stop | Select-Object -First 1
+      $exp = Get-CimInstance -ClassName Win32_Process -Filter "Name='explorer.exe'" -OperationTimeoutSec 10 -ErrorAction Stop | Select-Object -First 1
       if ($exp) { $own = Invoke-CimMethod -InputObject $exp -MethodName GetOwner -ErrorAction SilentlyContinue; if ($own -and $own.User) { $osUser = [string]$own.User } }
     } catch { }
   }
@@ -496,24 +496,28 @@ if (-not $osUser) { $osUser = 'unknown' }
 # 归属人：优先安装期显式绑定的 AEGIS_DEVICE_OWNER，其次由控制台按 os_user 归一(override||os_user||待分配)。
 $owner = if ($env:AEGIS_DEVICE_OWNER) { [string]$env:AEGIS_DEVICE_OWNER } else { '' }
 # ── 物理网卡采集（MAC + 本机 IP）──────────────────────────────────────────
-# 只收**物理**网卡：Get-NetAdapter -Physical 天然排除 Hyper-V/VMware/Parallels/VPN/docker
-# 等虚拟适配器与回环。本机 IP 取物理口上的可路由地址（剔除回环 127.*/::1 与链路本地
-# 169.254./fe80）。互联网出口 IP 不在此采集——由 Collector 记录上报请求的源 IP
-# （NAT 后公网视角），避免终端为测出口外联第三方 IP 回显服务。
-# 全程 try/catch 兜底空对象：采集失败绝不影响上报（容错哲学对齐 macOS 入网脚本）。
+# 用 .NET NetworkInterface 而非 Get-NetAdapter/Get-NetIPAddress：后者走 WMI/CIM，
+# 在 WMI 仓库慢/挂的机器上会把整个扫描周期拖死（真机疑似捕获：服务在跑但永不上报）。
+# .NET 这条路不碰 WMI，快且不会挂。物理判定：排除 Tunnel/Loopback/Ppp 等类型 +
+# 描述含虚拟关键字(Hyper-V/VMware/Parallels/vEthernet/Docker/TAP…)。本机 IP 剔除
+# 回环(127.*/::1)与链路本地(169.254./fe80)。出口 IP 由 Collector 记请求源, 不在此采集。
+# 全程 try/catch 兜底空对象：采集失败绝不影响上报。
 $networkInfo = @{ physical_nics = @(); macs = @(); local_ips = @() }
 try {
-  $phys = @(Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.MacAddress -and $_.MacAddress -ne 'N/A' })
   $nics = @(); $allMacs = @(); $allIps = @()
-  foreach ($ad in $phys) {
-    $mac = ([string]$ad.MacAddress).ToLower()
+  foreach ($ni in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+    $t = [string]$ni.NetworkInterfaceType
+    if ($t -in @('Tunnel', 'Loopback', 'Ppp', 'Unknown', 'Atm', 'GenericModem')) { continue }
+    if ($ni.Description -match 'Virtual|VMware|Hyper-V|Parallels|VirtualBox|TAP-Windows|TUN|Docker|vEthernet|WireGuard|ZeroTier') { continue }
+    $macraw = $ni.GetPhysicalAddress().ToString()
+    if (-not $macraw -or $macraw -eq '000000000000') { continue }
+    $mac = (([regex]::Matches($macraw, '..') | ForEach-Object { $_.Value }) -join ':').ToLower()
     $ips = @()
     try {
-      $ips = @(Get-NetIPAddress -InterfaceAlias $ad.InterfaceAlias -ErrorAction SilentlyContinue |
-        Where-Object { $_.IPAddress -and $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike 'fe80*' -and $_.IPAddress -ne '::1' } |
-        ForEach-Object { $_.IPAddress })
+      $ips = @($ni.GetIPProperties().UnicastAddresses | ForEach-Object { $_.Address.ToString() } |
+        Where-Object { $_ -and $_ -notlike '127.*' -and $_ -notlike '169.254.*' -and $_ -notlike 'fe80*' -and $_ -ne '::1' })
     } catch { }
-    $nics += @{ name = $ad.InterfaceAlias; mac = $mac; ips = $ips }
+    $nics += @{ name = $ni.Name; mac = $mac; ips = $ips }
     $allMacs += $mac
     $allIps += $ips
   }
