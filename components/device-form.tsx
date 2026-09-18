@@ -72,6 +72,13 @@ export type Device = {
   os?: string;
   /** 真实硬件序列号（mac/win 上报），作为终端主标识便于定位设备。 */
   serial?: string;
+  /** 物理网卡采集（MAC + 本机 IP）+ Collector 观测的互联网出口 IP；仅物理网卡，不含虚拟口。 */
+  network?: {
+    physical_nics?: { name: string; mac: string; ips?: string[] }[];
+    macs?: string[];
+    local_ips?: string[];
+    egress_ip?: string;
+  };
 };
 
 /** 表单提交给 `/api/devices` 的载荷。 */
@@ -187,6 +194,33 @@ function parseFindings(value: unknown): FindingsSummary | null {
   };
 }
 
+/** 收敛不可信的 network 采集载荷：只保留形态合法的物理网卡/MAC/IP/出口 IP，丢弃非法项。 */
+function parseNetwork(raw: unknown): Device['network'] | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const n = raw as Record<string, unknown>;
+  const strList = (v: unknown): string[] | undefined =>
+    Array.isArray(v)
+      ? v.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 64).slice(0, 64)
+      : undefined;
+  const macs = strList(n.macs);
+  const localIps = strList(n.local_ips);
+  const egress = text(n.egress_ip, 64);
+  const pn = Array.isArray(n.physical_nics)
+    ? n.physical_nics
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x))
+        .slice(0, 64)
+        .map((x) => ({ name: text(x.name, 64), mac: text(x.mac, 64), ips: strList(x.ips) ?? [] }))
+        .filter((x) => x.name && x.mac)
+    : undefined;
+  if (!macs && !localIps && !egress && !(pn && pn.length > 0)) return undefined;
+  return {
+    ...(pn && pn.length > 0 ? { physical_nics: pn } : {}),
+    ...(macs ? { macs } : {}),
+    ...(localIps ? { local_ips: localIps } : {}),
+    ...(egress ? { egress_ip: egress } : {}),
+  };
+}
+
 /** 把单条不可信记录规范化为 `Device`；缺少 device_id 时返回 null。 */
 export function parseDevice(raw: unknown): Device | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -217,6 +251,8 @@ export function parseDevice(raw: unknown): Device | null {
     // 序列号必须透传：设备页以它为主标识并支持搜索；此前 parseDevice 未取该字段，
     // 导致前端拿不到序列号（列表回落 device_id、编辑面板显示占位）。
     ...(() => { const s = text(data.serial ?? data.serial_number, 64); return s ? { serial: s } : {}; })(),
+    // 物理网卡/出口 IP 必须透传：设备页要展示 MAC、本机 IP、互联网出口；此前未取会静默丢字段。
+    ...(() => { const n = parseNetwork(data.network); return n ? { network: n } : {}; })(),
   };
 }
 

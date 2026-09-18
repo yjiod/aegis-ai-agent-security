@@ -881,6 +881,82 @@ def sync_enterprise_baseline(base_url,token,device_id,department):
     except Exception:
         pass
     return ENTERPRISE_BASELINE_VERSION
+# ── 物理网卡采集（MAC + 本机 IP）──────────────────────────────────────────
+# 只收**物理**网卡：mac 用 networksetup -listallhardwareports（系统认定的硬件端口，
+# 天然排除 utun/awdl/bridge/vmenet/pktap 等虚拟口）；linux 用 /sys/class/net/<if>/device
+# 符号链接存在=有真实硬件（虚拟口无 device 节点），再排除 lo 与常见虚拟前缀。
+# 本机 IP 只保留可路由地址：剔除回环(127.*/::1)、链路本地(169.254./fe80)。
+# 互联网出口 IP 不在此采集——由 Collector 在收到上报时记录请求源 IP（NAT 后公网视角），
+# 避免终端为测出口而外联第三方 IP 回显服务。
+# 全程 try/except 兜底返回 {}：采集失败绝不能影响上报（容错哲学对齐 macOS 入网脚本）。
+_VIRTUAL_IFACE_PREFIXES=("lo","bridge","veth","docker","br-","virbr","vmnet","vmenet","tap","tun","utun","awdl","llw","pktap","anpi","ipsec","bond","wg","zt","tailscale")
+def _run_text(argv):
+    try:
+        r=subprocess.run(argv,capture_output=True,text=True,timeout=10)
+        return r.stdout or ""
+    except Exception:
+        return ""
+def _physical_nics_darwin():
+    out=_run_text(["networksetup","-listallhardwareports"])
+    nics=[]; name=None
+    for line in out.splitlines():
+        line=line.strip()
+        if line.startswith("Device:"):
+            name=line.split(":",1)[1].strip()
+            if name.startswith(_VIRTUAL_IFACE_PREFIXES): name=None  # bridge0(Thunderbolt Bridge)等聚合口=虚拟
+        elif line.startswith("Ethernet Address:"):
+            mac=line.split(":",1)[1].strip().lower()
+            if name and mac and mac!="00:00:00:00:00:00":
+                nics.append({"name":name,"mac":mac})
+            name=None
+    return nics
+def _physical_nics_linux():
+    base="/sys/class/net"; nics=[]
+    try:
+        for ifn in sorted(os.listdir(base)):
+            if ifn=="lo" or ifn.startswith(_VIRTUAL_IFACE_PREFIXES): continue
+            if not os.path.islink(os.path.join(base,ifn,"device")): continue  # 无硬件节点=虚拟口
+            try:
+                mac=open(os.path.join(base,ifn,"address")).read().strip().lower()
+            except OSError:
+                mac=""
+            if not mac or mac=="00:00:00:00:00:00": continue
+            nics.append({"name":ifn,"mac":mac})
+    except OSError:
+        pass
+    return nics
+def _iface_ips():
+    ips={}
+    if platform.system()=="Darwin":
+        cur=None
+        for line in _run_text(["ifconfig"]).splitlines():
+            if line and not line[0].isspace():
+                cur=line.split(":",1)[0].strip(); ips.setdefault(cur,[])
+            else:
+                s=line.strip()
+                if cur and s.startswith("inet "):
+                    a=s.split()[1].split("%")[0]
+                    if not a.startswith("127.") and not a.startswith("169.254."): ips[cur].append(a)
+                elif cur and s.startswith("inet6 "):
+                    a=s.split()[1].split("%")[0]
+                    if not a.startswith("fe80") and a!="::1": ips[cur].append(a)
+    else:
+        for line in _run_text(["ip","-o","addr","show"]).splitlines():
+            f=line.split()
+            if len(f)>=4 and f[2] in ("inet","inet6"):
+                a=f[3].split("/")[0].split("%")[0]
+                if a.startswith("127.") or a.startswith("169.254.") or a.startswith("fe80") or a=="::1": continue
+                ips.setdefault(f[1],[]).append(a)
+    return ips
+def collect_physical_network():
+    try:
+        nics=_physical_nics_darwin() if platform.system()=="Darwin" else _physical_nics_linux()
+        ips=_iface_ips(); out=[]
+        for n in nics:
+            n=dict(n); n["ips"]=ips.get(n["name"],[]); out.append(n)
+        return {"physical_nics":out,"macs":[n["mac"] for n in out],"local_ips":[i for n in out for i in n["ips"]]}
+    except Exception:
+        return {}
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
     baseline_inv,baseline_findings=verify_user_baselines()
@@ -889,12 +965,12 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"network":collect_physical_network(),"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.35.1"
+AGENT_VERSION = "0.36.0"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用

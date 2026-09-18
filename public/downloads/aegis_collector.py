@@ -17,6 +17,10 @@ def db_open(path):
         if "report_hash" not in columns: db.execute("ALTER TABLE reports ADD COLUMN report_hash TEXT")
         if "agent_version" not in columns: db.execute("ALTER TABLE reports ADD COLUMN agent_version TEXT")
         if "policy_version" not in columns: db.execute("ALTER TABLE reports ADD COLUMN policy_version TEXT")
+        # 互联网出口 IP：Collector 在收报时记录请求源 IP（nginx 经 X-Real-IP/XFF 透传真实客户端）。
+        # 独立列而非写进 body——body 是终端签名的 canonical 正文，掺入服务端观测值会破坏
+        # 签名一致性, 也会让 report_hash(去重键)随出口 IP 漂移。
+        if "egress_ip" not in columns: db.execute("ALTER TABLE reports ADD COLUMN egress_ip TEXT")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_hash ON reports(report_hash) WHERE report_hash IS NOT NULL")
         db.execute("CREATE INDEX IF NOT EXISTS idx_reports_device_time ON reports(device_id, received_at DESC)"); db.commit()
         db.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY,event TEXT NOT NULL,occurred_at INTEGER NOT NULL,device_id TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
@@ -68,14 +72,33 @@ def valid_signal_matches(sm):
             if not isinstance(ln,int) or isinstance(ln,bool) or ln<1: return False
             if not isinstance(m.get("text"),str) or len(m["text"])>200: return False
     return True
+def _valid_network(n):
+    """network = 终端物理网卡采集 {physical_nics:[{name,mac,ips[]}], macs[], local_ips[]}。
+    egress_ip(互联网出口)由 Collector 在收报时以独立列记录, 不来自终端、也不进签名正文。
+    结构宽松校验: 形态不符只拒该字段所在报告(契约问题), 但绝不因采集为空而拒收。"""
+    if not isinstance(n,dict): return False
+    for key in ("macs","local_ips"):
+        v=n.get(key)
+        if v is not None and not (isinstance(v,list) and len(v)<=64 and all(isinstance(x,str) and 1<=len(x)<=64 for x in v)): return False
+    pn=n.get("physical_nics")
+    if pn is not None:
+        if not (isinstance(pn,list) and len(pn)<=64): return False
+        for x in pn:
+            if not isinstance(x,dict): return False
+            if not (isinstance(x.get("name"),str) and 1<=len(x["name"])<=64): return False
+            if not (isinstance(x.get("mac"),str) and 1<=len(x["mac"])<=64): return False
+            ips=x.get("ips")
+            if ips is not None and not (isinstance(ips,list) and len(ips)<=64 and all(isinstance(i,str) and 1<=len(i)<=64 for i in ips)): return False
+    return True
 def valid_report(d,now=None):
     """Validate the published v1 contract without a third-party JSON Schema runtime."""
     if not isinstance(d,dict): return False
     required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}
-    allowed=required|{"scan_root","inventory","hostname","os_user","owner","os","serial","enterprise_baseline_version"}
+    allowed=required|{"scan_root","inventory","hostname","os_user","owner","os","serial","enterprise_baseline_version","network"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
     if d.get("schema")!="aegis.report/v1": return False
     if "owner" in d and not (isinstance(d["owner"],str) and len(d["owner"])<=64): return False
+    if "network" in d and not _valid_network(d["network"]): return False
     if "enterprise_baseline_version" in d and not (isinstance(d["enterprise_baseline_version"],str) and len(d["enterprise_baseline_version"])<=32): return False
     if "os" in d and not (isinstance(d["os"],str) and 1<=len(d["os"])<=16): return False
     if "serial" in d and not (isinstance(d["serial"],str) and len(d["serial"])<=64): return False
@@ -216,13 +239,13 @@ class RateLimiter:
             while queue and queue[0]<=cutoff: queue.popleft()
             if len(queue)>=self.limit: return False,max(1,int(self.window-(now-queue[0])+0.999))
             queue.append(now); return True,0
-def store_report(db_path,body,report,now=None,days=None,credential_generation=None):
+def store_report(db_path,body,report,now=None,days=None,credential_generation=None,egress_ip=None):
     now=int(time.time()) if now is None else now; days=retention_days(days)
     severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"
     canonical=json.dumps(report,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); digest=hashlib.sha256(canonical).hexdigest(); receipt_id=hashlib.sha256(body).hexdigest()[:20]
     with db_open(db_path) as db:
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
-        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version) VALUES(?,?,?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode(),report.get("agent_version"),report.get("policy_version"))); duplicate=cursor.rowcount==0
+        cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version,egress_ip) VALUES(?,?,?,?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode(),report.get("agent_version"),report.get("policy_version"),egress_ip)); duplicate=cursor.rowcount==0
         if credential_generation is not None: db.execute("INSERT INTO device_auth_state(device_id,last_seen,generation) VALUES(?,?,?) ON CONFLICT(device_id) DO UPDATE SET last_seen=excluded.last_seen,generation=excluded.generation",(report["device_id"],now,int(credential_generation)))
         generation="legacy" if credential_generation is None else "g"+str(int(credential_generation)); db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity+":"+generation)); prune_audit(db,now); db.commit()
     return {"accepted":True,"duplicate":duplicate,"report_id":receipt_id,"severity":severity}
@@ -333,7 +356,7 @@ class Handler(BaseHTTPRequestHandler):
             if not 1<=limit<=10000: return self.reply(400,{"error":"invalid_limit"})
             try:
                 generated_at=int(time.time())
-                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.body FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
+                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.body,r.egress_ip FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             complete=len(rows)<=limit; rows=rows[:limit]; audit_event(self.server.db_path,"devices_read",detail=str(len(rows))+":"+("complete" if complete else "partial"))
             devices_out=[]
@@ -350,11 +373,15 @@ class Handler(BaseHTTPRequestHandler):
                         if isinstance(body.get("serial"),str): dev["serial"]=body["serial"][:64]
                         if isinstance(body.get("agent_version"),str): dev["agent_version"]=body["agent_version"][:32]
                         if isinstance(body.get("policy_version"),str): dev["policy_version"]=body["policy_version"][:32]
+                        net=body.get("network")
+                        if isinstance(net,dict): dev["network"]=net
                         inv=body.get("inventory")
                         if isinstance(inv,list):
                             dev["tools"]=sorted({x.get("name") for x in inv if isinstance(x,dict) and x.get("type")=="ai_agent" and isinstance(x.get("name"),str)})[:20]
                             dev["latest_severity"]={"critical":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="critical"),"high":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="high"),"medium":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="medium"),"low":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="low")}
                 except (ValueError,TypeError): pass
+                eg=r[5]
+                if isinstance(eg,str) and eg: dev.setdefault("network",{})["egress_ip"]=eg
                 devices_out.append(dev)
             return self.reply(200,{"generated_at":generated_at,"complete":complete,"devices":devices_out})
         if parsed.path=="/v1/findings":
@@ -437,7 +464,11 @@ class Handler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError): return self.reply(400,{"error":"invalid_json"})
         if not valid_report(report): return self.reply(400,{"error":"invalid_report"})
         if binding and report["device_id"]!=binding[0]: return self.reply(401,{"error":"device_identity_mismatch"})
-        try: result=store_report(self.server.db_path,body,report,credential_generation=binding[2] if binding else None)
+        # 互联网出口 IP：Collector 观测值（NAT 后公网视角）。nginx 透传真实客户端
+        # （X-Real-IP 优先，其次 X-Forwarded-For 首跳），无代理直连时回落 peer 地址。
+        # 存独立列，不写进签名正文（见 db_open 注释）。
+        egress=(self.headers.get("X-Real-IP") or (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip() or self.client_address[0] or "")[:64] or None
+        try: result=store_report(self.server.db_path,body,report,credential_generation=binding[2] if binding else None,egress_ip=egress)
         except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(200 if result["duplicate"] else 202,result)
     def do_DELETE(self):

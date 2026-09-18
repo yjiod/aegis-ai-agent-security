@@ -227,6 +227,15 @@ class AegisTests(unittest.TestCase):
         oversized_inventory={**report,'inventory':[{}]*5001}; self.assertFalse(self.collector.valid_report(oversized_inventory,now))
         oversized_version={**report,'agent_version':'x'*65}; self.assertFalse(self.collector.valid_report(oversized_version,now))
         oversized_finding={**report,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'x','severity':'high','path':'p','message':'x'*2049}]}; self.assertFalse(self.collector.valid_report(oversized_finding,now))
+        # network（物理网卡采集，0.36.0+）契约：合法接受、旧 Agent 缺省向后兼容、畸形一律拒绝。
+        net_ok={'physical_nics':[{'name':'en0','mac':'aa:bb:cc:dd:ee:ff','ips':['203.0.113.5']}],'macs':['aa:bb:cc:dd:ee:ff'],'local_ips':['203.0.113.5']}
+        self.assertTrue(self.collector.valid_report({**report,'network':net_ok},now))
+        self.assertTrue(self.collector.valid_report(report,now))  # 旧 Agent 无 network 仍接受
+        self.assertFalse(self.collector.valid_report({**report,'network':'nope'},now))
+        self.assertFalse(self.collector.valid_report({**report,'network':{'physical_nics':'nope'}},now))
+        self.assertFalse(self.collector.valid_report({**report,'network':{'physical_nics':[{'name':'en0'}]}},now))  # 缺 mac
+        self.assertFalse(self.collector.valid_report({**report,'network':{'macs':['x'*65]}},now))                   # mac 超长
+        self.assertFalse(self.collector.valid_report({**report,'network':{'physical_nics':[{'name':'en0','mac':'m','ips':['x'*65]}]}},now))  # ip 超长
         # 同源键(终端 0.34.1+)：finding 带 asset_type/asset_key 必须被接受——否则新终端上报
         # 恒被判 invalid_report → 400 拒收（真机验证捕获的级联漏改）；非法类型/超长 key 仍拒绝。
         _hi={'critical':0,'high':1,'medium':0,'low':0}

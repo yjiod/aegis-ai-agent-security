@@ -415,7 +415,7 @@ $badSn = @('', 'To be filled by O.E.M.', 'None', 'Default string', 'Unknown', 'O
 if ($sn -and ($badSn -notcontains $sn.Trim())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
-$agentVersion = '0.35.1'
+$agentVersion = '0.36.0'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
@@ -478,7 +478,31 @@ if ($osUser -and $osUser -ine 'SYSTEM' -and -not $osUser.EndsWith('$')) {
 if (-not $osUser) { $osUser = 'unknown' }
 # 归属人：优先安装期显式绑定的 AEGIS_DEVICE_OWNER，其次由控制台按 os_user 归一(override||os_user||待分配)。
 $owner = if ($env:AEGIS_DEVICE_OWNER) { [string]$env:AEGIS_DEVICE_OWNER } else { '' }
-$report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+# ── 物理网卡采集（MAC + 本机 IP）──────────────────────────────────────────
+# 只收**物理**网卡：Get-NetAdapter -Physical 天然排除 Hyper-V/VMware/Parallels/VPN/docker
+# 等虚拟适配器与回环。本机 IP 取物理口上的可路由地址（剔除回环 127.*/::1 与链路本地
+# 169.254./fe80）。互联网出口 IP 不在此采集——由 Collector 记录上报请求的源 IP
+# （NAT 后公网视角），避免终端为测出口外联第三方 IP 回显服务。
+# 全程 try/catch 兜底空对象：采集失败绝不影响上报（容错哲学对齐 macOS 入网脚本）。
+$networkInfo = @{ physical_nics = @(); macs = @(); local_ips = @() }
+try {
+  $phys = @(Get-NetAdapter -Physical -ErrorAction Stop | Where-Object { $_.MacAddress -and $_.MacAddress -ne 'N/A' })
+  $nics = @(); $allMacs = @(); $allIps = @()
+  foreach ($ad in $phys) {
+    $mac = ([string]$ad.MacAddress).ToLower()
+    $ips = @()
+    try {
+      $ips = @(Get-NetIPAddress -InterfaceAlias $ad.InterfaceAlias -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -and $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -notlike 'fe80*' -and $_.IPAddress -ne '::1' } |
+        ForEach-Object { $_.IPAddress })
+    } catch { }
+    $nics += @{ name = $ad.InterfaceAlias; mac = $mac; ips = $ips }
+    $allMacs += $mac
+    $allIps += $ips
+  }
+  $networkInfo = @{ physical_nics = $nics; macs = $allMacs; local_ips = $allIps }
+} catch { }
+$report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); network=$networkInfo; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

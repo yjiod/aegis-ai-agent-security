@@ -22,6 +22,13 @@ function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status, headers: HEADERS });
 }
 
+interface DeviceNetwork {
+  physical_nics?: { name: string; mac: string; ips?: string[] }[];
+  macs?: string[];
+  local_ips?: string[];
+  egress_ip?: string;
+}
+
 interface CollectorDevice {
   device_id: string;
   last_seen: number;
@@ -31,6 +38,7 @@ interface CollectorDevice {
   policy_version?: string;
   latest_severity?: { critical: number; high: number; medium: number; low: number };
   tools?: string[];
+  network?: DeviceNetwork;
 }
 
 async function fetchCollectorDevices(): Promise<CollectorDevice[] | null> {
@@ -92,6 +100,7 @@ export async function GET(request: Request) {
       os_user: ((d as any).os_user as string) || '',
       os: ((d as any).os as string) || '',
       serial: ((d as any).serial as string) || '',
+      network: (d as any).network as DeviceNetwork | undefined,
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',

@@ -4,7 +4,7 @@ $installDir = Join-Path $env:ProgramData 'AegisAgent'
 $reportDir = Join-Path $installDir 'reports'
 $previousDir = Join-Path $installDir 'previous'
 $stageDir = Join-Path $installDir ('.stage-' + [Guid]::NewGuid().ToString('N'))
-$expected = @{ 'aegis-policy.json'='a8935b03ae59c08002a428d524b46ee69bde6042a5173c510d184f62d6737740'; 'aegis-windows.ps1'='e2701843dffb677fae6cf9d53333482fd0edb28f39a45f629a873fd565acd6a9'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
+$expected = @{ 'aegis-policy.json'='a8935b03ae59c08002a428d524b46ee69bde6042a5173c510d184f62d6737740'; 'aegis-windows.ps1'='978a9d314b63ce3fdf8c84d4d736af95b793526647122b7ee70e8b80e286de97'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
 New-Item -ItemType Directory -Force -Path $installDir,$reportDir,$previousDir,$stageDir | Out-Null
 & icacls.exe $installDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
 try {

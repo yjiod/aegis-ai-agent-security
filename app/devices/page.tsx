@@ -804,6 +804,53 @@ export default function DevicesPage() {
                         </p>
                       )}
                     </div>
+                    {/* 物理网卡采集：MAC + 本机 IP（终端上报，仅物理网卡）+ 互联网出口（Collector 观测请求源 IP） */}
+                    {(() => {
+                      const net = (
+                        device as {
+                          network?: { physical_nics?: { name: string; mac: string; ips?: string[] }[]; macs?: string[]; local_ips?: string[]; egress_ip?: string };
+                        }
+                      ).network;
+                      if (!net) {
+                        return (
+                          <div style={{ marginBottom: 12 }}>
+                            <h4 style={{ fontSize: 12, margin: '0 0 6px', color: 'var(--muted-foreground)' }}>网络（仅物理网卡）</h4>
+                            <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>
+                              该设备最近一次上报未包含网卡信息（客户端版本较旧，升级后显示）。
+                            </p>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div style={{ marginBottom: 12 }}>
+                          <h4 style={{ fontSize: 12, margin: '0 0 6px', color: 'var(--muted-foreground)' }}>网络（仅物理网卡）</h4>
+                          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted-foreground)', marginBottom: 6 }}>
+                            <span>
+                              互联网出口：<b style={{ color: 'var(--text)' }}>{net.egress_ip || '—'}</b>
+                            </span>
+                            <span>
+                              本机地址：<b style={{ color: 'var(--text)' }}>{(net.local_ips ?? []).join('、') || '—'}</b>
+                            </span>
+                          </div>
+                          {(net.physical_nics ?? []).length > 0 ? (
+                            <div className="data-table">
+                              <div className="data-head">
+                                <span>网卡</span><span>MAC</span><span>本机 IP</span>
+                              </div>
+                              {(net.physical_nics ?? []).map((n) => (
+                                <div className="data-row" key={n.name + n.mac}>
+                                  <span style={{ fontSize: 12 }}>{n.name}</span>
+                                  <span style={{ fontSize: 11, fontFamily: 'monospace' }}>{n.mac}</span>
+                                  <span style={{ fontSize: 11 }}>{(n.ips ?? []).join('、') || '—'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>未检出物理网卡 MAC（客户端采集为空）。</p>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <h3 style={{ fontSize: 14, margin: 0 }}>最新扫描发现项</h3>
                       <button onClick={() => void toggleFindings(device.device_id)} style={{ background: 'none', border: 0, color: 'var(--muted-foreground)', cursor: 'pointer', fontSize: 12 }}>收起</button>

@@ -11,6 +11,34 @@
     "device_id": {"type": "string", "minLength": 8, "maxLength": 128},
     "scanned_at": {"type": "integer"},
     "scan_root": {"type": "string", "maxLength": 1024},
+    "hostname": {"type": "string", "maxLength": 128},
+    "os_user": {"type": "string", "maxLength": 64},
+    "owner": {"type": "string", "maxLength": 64},
+    "os": {"type": "string", "minLength": 1, "maxLength": 16},
+    "serial": {"type": "string", "maxLength": 64},
+    "enterprise_baseline_version": {"type": "string", "maxLength": 32},
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "physical_nics": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "required": ["name", "mac"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string", "minLength": 1, "maxLength": 64},
+              "mac": {"type": "string", "minLength": 1, "maxLength": 64},
+              "ips": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 64}}
+            }
+          }
+        },
+        "macs": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+        "local_ips": {"type": "array", "maxItems": 64, "items": {"type": "string", "minLength": 1, "maxLength": 64}}
+      }
+    },
     "inventory": {"type": "array", "maxItems": 5000, "items": {"type": "object"}},
     "summary": {
       "type": "object",
