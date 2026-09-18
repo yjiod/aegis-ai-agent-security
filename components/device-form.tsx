@@ -194,6 +194,13 @@ function parseFindings(value: unknown): FindingsSummary | null {
   };
 }
 
+/** BIOS/CSProduct 占位序列号（白牌机/部分主板返回的字面垃圾值）。当作真实序列号会显示
+ *  垃圾且可能跨机碰撞；命中则视为"无有效序列号"，界面回落设备 ID 标识。 */
+const PLACEHOLDER_SERIALS = new Set([
+  '', 'to be filled by o.e.m.', 'none', 'default string', 'unknown', 'o.e.m.', 'not specified',
+  'system serial number', 'serial number', 'n/a', 'na', 'empty', 'to be filled',
+]);
+
 /** 收敛不可信的 network 采集载荷：只保留形态合法的物理网卡/MAC/IP/出口 IP，丢弃非法项。 */
 function parseNetwork(raw: unknown): Device['network'] | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
@@ -250,7 +257,11 @@ export function parseDevice(raw: unknown): Device | null {
     ...(() => { const o = text(data.os ?? data.platform, 16); return o ? { os: o } : {}; })(),
     // 序列号必须透传：设备页以它为主标识并支持搜索；此前 parseDevice 未取该字段，
     // 导致前端拿不到序列号（列表回落 device_id、编辑面板显示占位）。
-    ...(() => { const s = text(data.serial ?? data.serial_number, 64); return s ? { serial: s } : {}; })(),
+    // 但 BIOS 占位垃圾值（如 "System Serial Number"）视为无序列号，回落设备 ID。
+    ...(() => {
+      const s = text(data.serial ?? data.serial_number, 64);
+      return s && !PLACEHOLDER_SERIALS.has(s.toLowerCase()) ? { serial: s } : {};
+    })(),
     // 物理网卡/出口 IP 必须透传：设备页要展示 MAC、本机 IP、互联网出口；此前未取会静默丢字段。
     ...(() => { const n = parseNetwork(data.network); return n ? { network: n } : {}; })(),
   };

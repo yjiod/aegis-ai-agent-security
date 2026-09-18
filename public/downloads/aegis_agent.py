@@ -695,7 +695,8 @@ def hardware_serial():
     中文系统输出"序列号 (系统):"匹配不到 → 序列号空 → 回落 hostname → 同一台机器换名/升级
     后产生"新终端"(重复设备)。现统一按序列号识别（用户要求）。"""
     import platform
-    _BAD = {"", "to be filled by o.e.m.", "none", "default string", "unknown", "o.e.m.", "not specified"}
+    _BAD = {"", "to be filled by o.e.m.", "none", "default string", "unknown", "o.e.m.", "not specified",
+            "system serial number", "serial number", "n/a", "na", "empty", "to be filled"}
     try:
         sysname = platform.system()
         if sysname == "Darwin":

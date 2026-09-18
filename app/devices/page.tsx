@@ -789,7 +789,7 @@ export default function DevicesPage() {
                       <span>
                         序列号：
                         <b style={{ color: 'var(--text)' }}>
-                          {(device as { serial?: string }).serial || '（旧版客户端未上报，升级后显示）'}
+                          {(device as { serial?: string }).serial || '（未读到有效序列号，以设备 ID 标识）'}
                         </b>
                       </span>
                       <span>

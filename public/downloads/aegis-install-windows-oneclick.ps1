@@ -84,21 +84,23 @@ if (-not (Test-Path $installPs1)) { Log ('缺少安装脚本: ' + $installPs1); 
 $wrap = 'C:\Windows\Temp\AegisOneClickRun.cmd'
 Set-Content -LiteralPath $wrap -Value ('@powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\AegisAgent\Install-Aegis-Windows.ps1" -ServerUrl ' + $Server) -Encoding ASCII
 $tr = $wrap
-& schtasks.exe /Delete /TN AegisOneClick /F 2>$null | Out-Null
-& schtasks.exe /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR $tr 2>$null | Out-Null
-& schtasks.exe /Run /TN AegisOneClick 2>$null | Out-Null
+# schtasks 的 stderr 在 PS5.1 + EAP=Stop 下即便 2>$null 也会冒成 NativeCommandError 红字
+# (真机捕获, 纯噪音但极误导)。改用 2>&1 把 stderr 并入成功流再丢弃, 彻底不冒错。
+& schtasks.exe /Delete /TN AegisOneClick /F 2>&1 | Out-Null
+& schtasks.exe /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR $tr 2>&1 | Out-Null
+& schtasks.exe /Run /TN AegisOneClick 2>&1 | Out-Null
 Log '已触发 SYSTEM 安装任务, 等待完成...'
 $ok = $false
 for ($i = 0; $i -lt $WaitSeconds; $i += 5) {
   Start-Sleep -Seconds 5
-  $q = (& schtasks.exe /Query /TN AegisOneClick /V /FO LIST 2>$null) -join "`n"
+  $q = (& schtasks.exe /Query /TN AegisOneClick /V /FO LIST 2>&1) -join "`n"
   if ($q -match 'Last Result[^:]*:\s*(\d+)') {
     $code = [int]$Matches[1]
     if ($code -eq 0) { $ok = $true; break }
     if ($code -ne 267011) { Log ('SYSTEM 任务退出码 ' + $code + ' (非0即失败, 267011=仍在运行)'); break }
   }
 }
-& schtasks.exe /Delete /TN AegisOneClick /F 2>$null | Out-Null
+& schtasks.exe /Delete /TN AegisOneClick /F 2>&1 | Out-Null
 if (-not $ok) { Log 'SYSTEM 安装任务未在时限内成功; 可重跑本脚本或按 Issue#2 恢复手册排查' }
 
 # 5) 验收

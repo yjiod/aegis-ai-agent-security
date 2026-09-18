@@ -411,8 +411,11 @@ if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLim
 $sn = $null
 try { $sn = (Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber } catch { $sn = $null }
 if (-not $sn) { try { $sn = (Get-CimInstance Win32_BIOS).SerialNumber } catch { $sn = $null } }
-$badSn = @('', 'To be filled by O.E.M.', 'None', 'Default string', 'Unknown', 'O.E.M.', 'Not Specified')
-if ($sn -and ($badSn -notcontains $sn.Trim())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
+# BIOS/CSProduct 占位序列号白名单(小写比较): 白牌机/部分主板返回 "System Serial Number" 等
+# 字面占位值, 若当作真实序列号会(1)显示垃圾 (2)多台同占位值机器 device_id 碰撞合并成一台。
+# 命中则序列号置空、device_id 回落 computername|domain(稳定且唯一)。
+$badSn = @('', 'to be filled by o.e.m.', 'none', 'default string', 'unknown', 'o.e.m.', 'not specified', 'system serial number', 'serial number', 'n/a', 'na', 'empty', 'to be filled')
+if ($sn -and ($badSn -notcontains $sn.Trim().ToLower())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $sn = $null; $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $agentVersion = '0.36.0'
