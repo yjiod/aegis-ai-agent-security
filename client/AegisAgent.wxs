@@ -120,12 +120,25 @@
     <CustomAction Id="UninstallAegisArm64" FileKey="ServiceHostArm64" ExeCommand="--uninstall"
                   Execute="deferred" Impersonate="no" Return="check" />
 
-    <!-- 条件必须与上面 HostX64/HostArm64 的组件条件**逐字一致**：组件决定装哪个 host，
-         动作决定跑哪个 host。两边判定不同步就会「装了文件却没跑安装动作」——MSI 报成功，
-         但服务没注册、没入网，比直接失败更难查。 -->
+    <!-- 条件与上面 HostX64/HostArm64 的组件条件**同门**：组件决定装哪个 host，
+         动作决定跑哪个 host，两边都用 AEGIS_PROCARCH 判定，天然同步。
+
+         ── BUG G 修复（AEGIS-WIN-0002，2026-09-18）────────────────────────────
+         旧条件尾部带 `AND $HostX64=3`（组件动作状态=本地安装）。原生 WiX 里 `$Comp=3`
+         是合法的「该组件本次被本地安装」判定；但 **wixl/msitools 0.106 会把 `$` 前缀
+         吞掉**，产出的 MSI 条件变成 `HostX64=3`——引用一个不存在的属性，格式化后恒为空，
+         `空=3` 恒为**假**，于是 InstallAegisX64/Arm64 这两个建服务+入网的延迟自定义动作
+         **永远不会被调度**。后果：双击 MSI 只铺文件、不建服务、不入网，用户看到的就是
+         「点了没反应」。msiinfo export InstallExecuteSequence 可复现（条件里是 HostX64=3
+         而非 $HostX64=3）。
+
+         修法：直接去掉组件状态守卫。组件条件与动作条件都以 AEGIS_PROCARCH 为准且互斥，
+         FileKey 指向的 host 文件在动作被调度时必然已装（同一 ARCH 分支），无需再用
+         `$Comp=3` 二次确认。`NOT Installed` 保证仅全新安装触发，避免维护/修复路径重复入网。
+         该修复对原生 WiX 与 wixl 两条轨道都成立（WiX 下少一个恒真守卫，语义不变）。 -->
     <InstallExecuteSequence>
-      <Custom Action="InstallAegisX64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH&lt;&gt;"ARM64" AND $HostX64=3</Custom>
-      <Custom Action="InstallAegisArm64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH="ARM64" AND $HostArm64=3</Custom>
+      <Custom Action="InstallAegisX64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH&lt;&gt;"ARM64"</Custom>
+      <Custom Action="InstallAegisArm64" After="InstallFiles">NOT Installed AND AEGIS_PROCARCH="ARM64"</Custom>
       <Custom Action="UninstallAegisX64" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND AEGIS_PROCARCH&lt;&gt;"ARM64"</Custom>
       <Custom Action="UninstallAegisArm64" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE AND AEGIS_PROCARCH="ARM64"</Custom>
     </InstallExecuteSequence>

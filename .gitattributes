@@ -1,0 +1,5 @@
+# Windows batch wrappers must keep CRLF; cmd.exe can mis-handle LF-only
+# files (label/goto and line-continuation edge cases). The deploy-time
+# origin injection reads the working-tree bytes, so CRLF must be stable.
+*.cmd text eol=crlf
+*.bat text eol=crlf

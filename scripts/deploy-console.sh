@@ -47,7 +47,7 @@ echo "  ✓ uploaded"
 # 一键脚本隐私双通道: 仓库/GitHub 副本恒为 RFC2606 占位域(且脚本拒绝以占位域运行);
 # 服务器 served 副本在此注入真实 origin(私有通道), 用户从自己控制台下载即"一条命令可用",
 # 真实域名不入库/不进 GitHub。
-for f in aegis-install-windows-oneclick.ps1 aegis-install-macos-oneclick.sh; do
+for f in aegis-install-windows-oneclick.ps1 aegis-install-macos-oneclick.sh install-aegis-windows.cmd; do
   if [ -f "public/downloads/$f" ]; then
     sed "s|https://aegis.example.com|$AEGIS_PUBLIC_ORIGIN|g" "public/downloads/$f" > "/tmp/$f"
     scp $SCP_OPTS "/tmp/$f" "$SERVER:/opt/aegis/client/downloads/$f" >/dev/null
