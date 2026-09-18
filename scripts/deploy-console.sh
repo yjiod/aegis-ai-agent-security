@@ -35,14 +35,19 @@ npm run build >/dev/null 2>&1
 echo "  ✓ build complete (clean dist)"
 
 echo "═══ 备份当前 wrangler vars (scp 会覆盖 wrangler.json) ═══"
-ssh $SSH_OPTS "$SERVER" 'cp -a /opt/aegis/console-server/wrangler.json /tmp/aegis-wrangler-vars.bak 2>/dev/null || printf "{\"vars\":{}}" > /tmp/aegis-wrangler-vars.bak; echo "  ✓ backed up"'
+# 双备份: /tmp 供本次合并回注; 带时间戳的持久备份供"上传中断致 wrangler.json 被构建产物
+# 覆盖"后恢复(2026-09-18 真事故: scp 中断 → 备份链断裂 → 丢 7 个持久 vars, 靠 09-15 旧备份找回)。
+ssh $SSH_OPTS "$SERVER" 'cp -a /opt/aegis/console-server/wrangler.json /tmp/aegis-wrangler-vars.bak 2>/dev/null || printf "{\"vars\":{}}" > /tmp/aegis-wrangler-vars.bak; cp -a /opt/aegis/console-server/wrangler.json /opt/aegis/console-server/wrangler.json.bak.$(date +%Y%m%d_%H%M%S) 2>/dev/null; echo "  ✓ backed up (tmp + dated)"'
 
 echo "═══ 上传 server + client ═══"
 ssh $SSH_OPTS "$SERVER" "mkdir -p /opt/aegis/console-server /opt/aegis/client"
 scp $SCP_OPTS -r dist/server/* "$SERVER:/opt/aegis/console-server/" >/dev/null
-ssh $SSH_OPTS "$SERVER" "rm -rf /opt/aegis/client && mkdir -p /opt/aegis/client"
-scp $SCP_OPTS -r dist/client/* "$SERVER:/opt/aegis/client/" >/dev/null
-echo "  ✓ uploaded"
+# client 原子替换: 先传到 .stage 再 mv, 避免 scp 中断留下半残 client 目录把 worker 挂住
+# (2026-09-18 真事故: 中断的 rm -rf + scp 使 /opt/aegis/client 半残 → worker 无响应 → 全站 000)。
+ssh $SSH_OPTS "$SERVER" "rm -rf /opt/aegis/client.stage" >/dev/null 2>&1
+scp $SCP_OPTS -r dist/client "$SERVER:/opt/aegis/client.stage" >/dev/null
+ssh $SSH_OPTS "$SERVER" "rm -rf /opt/aegis/client.prev; [ -d /opt/aegis/client ] && mv /opt/aegis/client /opt/aegis/client.prev; mv /opt/aegis/client.stage /opt/aegis/client" >/dev/null
+echo "  ✓ uploaded (client atomic swap)"
 
 # 一键脚本隐私双通道: 仓库/GitHub 副本恒为 RFC2606 占位域(且脚本拒绝以占位域运行);
 # 服务器 served 副本在此注入真实 origin(私有通道), 用户从自己控制台下载即"一条命令可用",
