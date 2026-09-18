@@ -92,9 +92,9 @@ export default function PoliciesPage() {
   }, [reloadKeys]);
 
   const ROTATE_ERR: Record<string, string> = {
-    key_not_in_keyring: '目标密钥未预置在 keyring（先在 AEGIS_POLICY_SIGNING_KEYS 配置）',
+    key_not_in_keyring: '目标密钥尚未启用（请先在签名密钥配置 AEGIS_POLICY_SIGNING_KEYS 中预置）',
     already_active: '该密钥已是活跃密钥',
-    no_keyring: '未配置签名密钥环（AEGIS_POLICY_SIGNING_KEYS）',
+    no_keyring: '尚未配置签名密钥（AEGIS_POLICY_SIGNING_KEYS）',
   };
   const RETIRE_ERR: Record<string, string> = {
     is_active: '不能退役当前活跃密钥',
@@ -170,7 +170,7 @@ export default function PoliciesPage() {
           </p>
         ) : (
           <p style={{ fontSize: 13, color: 'var(--muted-foreground)', marginTop: 8 }}>
-            还没有从控制台发布过签名策略。到「处置中心」对 Skill/MCP 打标后点击"发布策略"，即可生成签名的 aegis.policy/v1 下发终端强制。
+            还没有从控制台发布过签名策略。到「处置中心」对 Skill/MCP 打标后点击"发布策略"，即可生成签名策略并下发终端强制生效。
           </p>
         )}
         {posture && posture.published && (
@@ -183,13 +183,13 @@ export default function PoliciesPage() {
                 <b style={{ color: 'var(--foreground)' }}>{posture.on_current}/{posture.total_devices}</b> 台在 v{posture.current_version}
                 （覆盖率 {posture.coverage ?? 0}%）· {posture.drifted} 台漂移 · {posture.unknown} 台未知。
                 {(posture.drifted > 0 || posture.unknown > 0) &&
-                  ' 终端不会自动拉取策略：需下载下方签名工件，经 MDM/桌管分发为终端的 aegis-policy.json，Agent 加载时验签生效。'}
+                  ' 终端不会自动拉取策略：需下载下方签名策略文件，经桌管分发到终端，客户端加载时验签生效。'}
               </>
             )}
             <br />
             <span style={{ fontSize: 11 }}>
               {posture.source === 'collector'
-                ? '数据源：接收器活体上报（agent 真实 policy_version）'
+                ? '数据源：接收器活体上报（客户端真实策略版本）'
                 : '数据源：控制台注册表（接收器未连接，版本可能滞后）'}
             </span>
           </p>
@@ -197,10 +197,10 @@ export default function PoliciesPage() {
         {current && (
           <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
-              分发：下载拍平的签名工件，经 MDM/桌管落盘为终端的 aegis-policy.json（响应头 X-Aegis-Policy-Sha256 供完整性校验）。
+              分发：下载签名策略文件，经桌管分发到终端；文件含完整性校验值，客户端加载时验签。
             </span>
             <Link className="handle" href="/api/policy/artifact" style={{ marginLeft: 'auto', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Download size={13} /> 下载签名策略工件 v{current.version}
+              <Download size={13} /> 下载签名策略文件 v{current.version}
             </Link>
           </div>
         )}
@@ -220,7 +220,7 @@ export default function PoliciesPage() {
           )}
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginBottom: 10 }}>
-          密钥料只存在于服务端 env/KMS（AEGIS_POLICY_SIGNING_KEYS），绝不入库、绝不在此展示；此处仅显示指纹与治理状态。轮换时旧钥转「退役中」，重叠期内终端仍可用它验签，确认无生效策略依赖后再退役。
+          签名密钥仅保存在服务端（AEGIS_POLICY_SIGNING_KEYS），绝不入库、绝不在此展示；此处仅显示指纹与治理状态。轮换时旧钥转「退役中」，重叠期内终端仍可用它验签，确认无生效策略依赖后再退役。
         </p>
         {keysMsg && (
           <p style={{ fontSize: 12, marginBottom: 10, color: keysMsg.includes('失败') ? '#ff685f' : '#49e8a5' }}>{keysMsg}</p>
@@ -228,7 +228,7 @@ export default function PoliciesPage() {
         {keys === null ? (
           <p className="empty-hint">加载签名密钥…</p>
         ) : keys.keys.length === 0 ? (
-          <p className="empty-hint">未配置签名密钥环；设置 AEGIS_POLICY_SIGNING_KEYS 后才能发布签名策略与轮换。</p>
+          <p className="empty-hint">尚未配置签名密钥；设置 AEGIS_POLICY_SIGNING_KEYS 后才能发布签名策略与轮换。</p>
         ) : (
           <div className="data-table">
             <div className="data-head" style={{ gridTemplateColumns: '1.4fr 1.2fr 0.9fr 0.6fr auto' }}>
@@ -238,7 +238,7 @@ export default function PoliciesPage() {
               const statusLabel = k.status === 'active' ? '活跃' : k.status === 'retiring' ? '退役中(重叠验签)' : k.status === 'retired' ? '已退役' : '已预置';
               return (
                 <div className="data-row" key={k.key_id} style={{ gridTemplateColumns: '1.4fr 1.2fr 0.9fr 0.6fr auto' }}>
-                  <strong style={{ fontSize: 12 }}>{k.key_id}{!k.in_keyring ? '（不在 keyring）' : ''}</strong>
+                  <strong style={{ fontSize: 12 }}>{k.key_id}{!k.in_keyring ? '（未启用）' : ''}</strong>
                   <span style={{ fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'monospace' }}>{k.fingerprint || '—'}</span>
                   <span><i className={k.status === 'active' ? 'pass' : k.status === 'retired' ? 'warn' : ''} style={{ fontStyle: 'normal', fontSize: 11 }}>{statusLabel}</i></span>
                   <span style={{ fontSize: 12 }}>{k.releases}</span>

@@ -125,7 +125,7 @@ interface AuditLite {
 /* ─── 防护能力(功能描述, 非指标) ──────────────────────────────────────── */
 const modules = [
   { icon: ScanLine, title: '终端 Agent 发现', desc: '清点已安装的 AI 编码工具', status: '已启用', tone: 'green' },
-  { icon: Sparkles, title: 'Skill 扫描器', desc: '权限、指令与依赖', status: '已打包', tone: 'blue' },
+  { icon: Sparkles, title: 'Skill 扫描器', desc: '权限、指令与依赖', status: '已启用', tone: 'green' },
   { icon: Network, title: 'MCP 扫描器', desc: '工具、密钥与外联', status: '已启用', tone: 'green' },
   { icon: Code2, title: '代码质量扫描', desc: 'SAST、依赖与密钥', status: '已启用', tone: 'green' },
 ];

@@ -116,7 +116,7 @@ export default function BaselinesPage() {
         <div>
           <p className="eyebrow">治理 / 编码规范基线</p>
           <h1>基线管理</h1>
-          <p>自定义基线导入 + 上游同步 + 扫描模式；生效=upstream+custom 合并(同 id 自定义优先)。</p>
+          <p>支持自定义基线导入与上游同步；上游与自定义基线合并生效，同一规则以自定义为准。</p>
         </div>
       </div>
 
@@ -134,7 +134,7 @@ export default function BaselinesPage() {
           ))}
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 8 }}>
-          quick=密钥+依赖检查；standard=quick+核心 SAST/代码质量规则集；custom=仅已导入且终端可执行的基线规则（无可执行规则时禁止发布）。
+          「快速」只检查密钥与依赖；「标准」在快速基础上增加核心代码安全与质量规则；「自定义」只包含已导入且终端可执行的基线规则（无可执行规则时不能发布）。
         </p>
       </div>
 

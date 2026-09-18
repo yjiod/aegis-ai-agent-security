@@ -764,7 +764,7 @@ export default function DevicesPage() {
                       <span>
                         序列号：
                         <b style={{ color: 'var(--text)' }}>
-                          {(device as { serial?: string }).serial || '（终端 Agent ≤0.34.2 未上报，更新到 0.34.3+ 后显示）'}
+                          {(device as { serial?: string }).serial || '（旧版客户端未上报，升级后显示）'}
                         </b>
                       </span>
                       <span>
@@ -841,9 +841,9 @@ export default function DevicesPage() {
             <AlertTriangle size={36} />
             <h2>设备接口暂不可用</h2>
             <p>
-              {notice || '无法从 /api/devices 获取终端清单。'}
+              {notice || '暂时无法获取终端清单。'}
               <br />
-              未展示任何终端不代表没有终端——请重试或检查 Collector 连接。
+              未展示任何终端不代表没有终端——请重试，或检查数据采集服务是否正常。
             </p>
             <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={refreshing}>
               {refreshing ? <Spinner /> : <RefreshCw />}
@@ -867,8 +867,8 @@ export default function DevicesPage() {
         <p className="safety-note">
           <ShieldCheck size={15} />
           {source === 'api'
-            ? '终端清单来自 /api/devices；注册、编辑与删除会即时写入控制台存储，历史工单按审计要求留档。'
-            : '设备接口暂不可用，请稍后重试或检查 Collector 连接。'}
+            ? '终端清单实时同步；注册、编辑与删除会即时保存，历史工单按审计要求留档。'
+            : '设备接口暂不可用，请稍后重试，或检查数据采集服务是否正常。'}
         </p>
       </div>
 

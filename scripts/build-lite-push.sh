@@ -73,9 +73,9 @@ done
     [ -f "$z" ] || continue
     name=$(basename "$z")
     case "$name" in
-      *mac*) plat="macos"; scene="仅脚本+基线; apply 后 kickstart 生效; 无独立 host 二进制" ;;
-      *arm64*) plat="windows-arm64"; scene="扫描器/安装脚本(+单架构 host exe); apply 后 Restart-Service" ;;
-      *x64*) plat="windows-x64"; scene="扫描器/安装脚本(+单架构 host exe); apply 后 Restart-Service" ;;
+      *mac*) plat="macos"; scene="更新扫描脚本与安全基线，应用后自动生效" ;;
+      *arm64*) plat="windows-arm64"; scene="更新扫描脚本与服务程序，应用后自动重启服务" ;;
+      *x64*) plat="windows-x64"; scene="更新扫描脚本与服务程序，应用后自动重启服务" ;;
       *) plat="unknown"; scene="" ;;
     esac
     [ $first -eq 0 ] && printf ',\n'

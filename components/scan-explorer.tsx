@@ -195,8 +195,8 @@ export function ScanExplorer({
             <h2>{status === 401 ? '会话已过期或未登录' : '读取失败'}</h2>
             <p>
               {status === 401
-                ? '读取 /api/findings 返回 401：当前会话无效或已过期。请重新登录后再查看真实扫描发现。'
-                : `无法从 /api/findings 读取真实发现：${error}。未展示数据不代表没有风险。`}
+                ? '当前会话无效或已过期，请重新登录后再查看扫描发现。'
+                : `暂时无法读取扫描发现：${error}。未展示数据不代表没有风险。`}
             </p>
             {status === 401 ? (
               <a href="/login" className="handle" style={{ fontSize: 12 }}>去登录</a>

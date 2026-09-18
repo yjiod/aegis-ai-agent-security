@@ -103,7 +103,7 @@ export function MfaPanel() {
       {secret ? (
         <div style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted-foreground)' }}>
-            <QrCode size={14} /> 将下列密钥录入 authenticator App（或扫描 otpauth URI）：
+            <QrCode size={14} /> 将下列密钥录入身份验证器 App（或扫码添加）：
           </div>
           <code style={{ fontSize: 12, wordBreak: 'break-all', background: 'var(--muted)', padding: '8px 10px', borderRadius: 8 }}>{secret}</code>
           <code style={{ fontSize: 10, wordBreak: 'break-all', color: 'var(--muted-foreground)' }}>{uri}</code>

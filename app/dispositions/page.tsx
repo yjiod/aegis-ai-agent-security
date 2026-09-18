@@ -443,7 +443,7 @@ export default function DispositionsPage() {
           </p>
         ) : (
           <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 10 }}>
-            尚未发布任何策略；终端仍使用出厂默认策略。发布后，处置决定会编译成签名的 aegis.policy/v1 下发终端强制。
+            尚未发布任何策略；终端仍使用出厂默认策略。发布后，处置决定会生成签名策略并下发终端强制生效。
           </p>
         )}
 

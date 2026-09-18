@@ -23,20 +23,19 @@ export default function LoginPage() {
       .catch(() => setOidc({ enabled: false, url: '', label: '统一身份登录' }));
   }, []);
 
-  // Surface SSO callback errors passed via URL (?error=...&got=...)
+  // Surface SSO callback errors passed via URL (?error=...)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const err = params.get('error');
-    const got = params.get('got');
     if (err) {
       const map: Record<string, string> = {
-        missing_uac_token: 'UAC 回跳未携带 token/rtoken',
-        not_authorized: '该工号不在管理员白名单，拒绝登录',
-        uac_token_invalid: 'UAC token 校验失败',
-        uac_not_configured: '服务端未配置 UAC',
-        uac_unreachable: 'UAC 网关不可达',
+        missing_uac_token: '统一身份登录未完成，请重试',
+        not_authorized: '该账号不在管理员白名单，拒绝登录',
+        uac_token_invalid: '统一身份校验失败，请重试',
+        uac_not_configured: '服务端未配置统一身份登录',
+        uac_unreachable: '统一身份服务暂不可达，请稍后重试',
       };
-      setError(`${map[err] ?? err}${got ? `（UAC 实际回传参数: ${got}）` : ''}`);
+      setError(map[err] ?? '登录失败，请重试');
     }
   }, []);
 

@@ -110,7 +110,7 @@ export default function IntegrationsPage() {
       </div>
 
       <div className="panel animate-entrance animate-entrance-3" style={{ padding: 14, marginBottom: 14 }}>
-        <strong style={{ fontSize: 14 }}>集成配置（settings 优先, 留空回退环境变量）</strong>
+        <strong style={{ fontSize: 14 }}>集成配置（此处配置优先；留空则使用服务端预设）</strong>
         {!isAdmin && (
           <p style={{ fontSize: 12, color: 'var(--muted-foreground)', marginTop: 6 }}>
             只读身份：仅管理员可编辑集成配置。
@@ -155,7 +155,7 @@ export default function IntegrationsPage() {
         {items === null ? (
           <p className="empty-hint">加载集成列表…</p>
         ) : items.length === 0 ? (
-          <p className="empty-hint">暂无集成配置。在控制台环境配置 AEGIS_INT_*_URL/TOKEN 后此处显示。</p>
+          <p className="empty-hint">暂无集成配置。在服务端配置各集成的地址与令牌（AEGIS_INT_*）后，此处会显示。</p>
         ) : (
           items.map((it) => {
             const meta = HEALTH_META[it.health];

@@ -29,7 +29,7 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
         // 诚实呈现服务端返回的真实结果：本环境配置只读，改密仅校验、需服务器
         // 更新 AEGIS_CONSOLE_PASSWORD 并重启后生效——不再谎称"下次登录使用新密码"。
         const data = (await res.json().catch(() => ({}))) as { message?: string };
-        setServerMsg(data.message ?? '已校验当前密码；新密码需服务器配置后重启生效。');
+        setServerMsg(data.message ?? '已校验当前密码；新密码需管理员在服务端更新后才会生效。');
         setSuccess(true);
       } else {
         const data = (await res.json().catch(() => ({}))) as any;

@@ -71,7 +71,7 @@ export default function EnginesPage() {
         <div className="panel-head">
           <div>
             <h2>已注册引擎</h2>
-            <p>静态注册表（镜像引擎框架）· 每个引擎保持原生规则语法，不强行转换 · 非本机实时探测</p>
+            <p>引擎能力清单 · 每个引擎保持原生规则语法，不强行转换 · 非本机实时探测状态</p>
           </div>
         </div>
         <div className="module-grid">
@@ -111,7 +111,7 @@ export default function EnginesPage() {
         <div className="panel-head">
           <div>
             <h2>规则更新管道</h2>
-            <p>RuleUpdatePipeline 的门禁流程（设计说明）：隔离区 → 许可证 → 哈希 → 结构 → 回归 → 发布</p>
+            <p>规则更新的门禁流程（设计说明）：隔离区 → 许可证 → 哈希 → 结构 → 回归 → 发布</p>
           </div>
           <Badge variant="outline">
             <span className="demo-dot" />
@@ -140,9 +140,9 @@ export default function EnginesPage() {
           <Inbox size={32} />
           <h2>管道遥测未接入</h2>
           <p>
-            规则更新管道在引擎框架（RuleUpdatePipeline）内运行，但尚未接入后端遥测 API。
+            规则更新管道尚未接入后端遥测。
             <br />
-            此处不展示任何虚构的管道活动样例；接入真实 /api/engines 遥测后，会呈现真实的隔离→发布流水与规则集版本。
+            此处不展示任何虚构的管道活动样例；接入真实遥测后，会呈现真实的隔离→发布流水与规则集版本。
           </p>
         </div>
       </div>

@@ -192,10 +192,10 @@ export default function TeamPage() {
           ) : (
             <>
               {developers.map((a) => (
-                <div className="data-row" key={a}><strong>{a}</strong><span>持久化</span><span><button className="handle" onClick={() => void delDeveloper(a)}>移除</button></span></div>
+                <div className="data-row" key={a}><strong>{a}</strong><span>手动添加</span><span><button className="handle" onClick={() => void delDeveloper(a)}>移除</button></span></div>
               ))}
               {envDevelopers.map((a) => (
-                <div className="data-row" key={`env-${a}`}><strong>{a}</strong><span>环境变量</span><span><span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>env 配置不可在此移除</span></span></div>
+                <div className="data-row" key={`env-${a}`}><strong>{a}</strong><span>系统预置</span><span><span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>系统预置，不可在此移除</span></span></div>
               ))}
             </>
           )}
@@ -219,7 +219,7 @@ export default function TeamPage() {
               {operators.map((a) => (
                 <div className="data-row" key={a}>
                   <strong>{a}</strong>
-                  <span>持久化</span>
+                  <span>手动添加</span>
                   <span>终端管理</span>
                   <span><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <button className="handle" onClick={() => void delOperator(a)}>移除</button></span>
                 </div>
@@ -227,9 +227,9 @@ export default function TeamPage() {
               {envOperators.map((a) => (
                 <div className="data-row" key={`env-${a}`}>
                   <strong>{a}</strong>
-                  <span>环境变量</span>
+                  <span>系统预置</span>
                   <span>终端管理</span>
-                  <span><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>env 配置不可在此移除</span></span>
+                  <span><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>系统预置，不可在此移除</span></span>
                 </div>
               ))}
             </>
