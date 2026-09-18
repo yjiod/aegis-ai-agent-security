@@ -79,7 +79,7 @@ const navSections: NavSection[] = [
       { href: '/audit', label: '审计日志', icon: ScrollText },
       { href: '/team', label: '团队与权限', icon: Users },
       { href: '/settings', label: '系统设置', icon: Settings },
-      { href: '/push', label: '桌管推送包', icon: Package },
+      { href: '/push', label: '分发中心', icon: Package },
     ],
   },
 ];
