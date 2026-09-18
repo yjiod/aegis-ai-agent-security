@@ -19,7 +19,15 @@ $ErrorActionPreference = 'Stop'
 $Server = $Server.TrimEnd('/')
 # 隐私红线: 仓库/GitHub 副本恒为 RFC2606 占位域且拒绝运行; 真实 origin 由
 # -Server 传入, 或使用你控制台 /downloads/ 下的定制副本(部署时注入真实 origin)。
-if ($Server -eq 'https://aegis.example.com') {
+# 占位判定用"主机名后缀"而非完整占位 URL 字面量: 部署注入是对全文做
+# s|https://aegis.example.com|<真实origin>|g, 守卫里若也写完整占位 URL 会被一并替换成
+# 真实 origin → 守卫恒真 → 注入副本反而拒绝运行(真机捕获的自伤 bug)。后缀模式不含该字面量, 注入改不动它。
+$_u = $null
+$_placeholder = $true
+if ([Uri]::TryCreate($Server, [UriKind]::Absolute, [ref]$_u)) {
+  $_placeholder = ($_u.Host -match '(^|\.)example\.(com|net|org)$') -or ($_u.Host -in @('invalid', 'localhost', 'test'))
+}
+if ($_placeholder) {
   Write-Host '请用 -Server https://<你的控制台> 运行; 或直接下载你控制台 /downloads/ 下的定制副本(已注入真实 origin)。' -ForegroundColor Red
   exit 2
 }

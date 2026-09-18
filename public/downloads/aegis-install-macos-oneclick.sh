@@ -20,10 +20,18 @@ done
 SERVER="${SERVER%/}"
 # 隐私红线: 仓库/GitHub 副本恒为 RFC2606 占位域且拒绝运行; 真实 origin 由 -Server 传入,
 # 或使用你控制台 /downloads/ 下的定制副本(部署时注入真实 origin)。
-if [ "$SERVER" = "https://aegis.example.com" ]; then
-  echo "[aegis] 请用 -Server https://<你的控制台> 运行; 或直接下载你控制台 /downloads/ 下的定制副本(已注入真实 origin)。" >&2
-  exit 2
-fi
+# 占位判定用"主机名后缀" case, 而非完整占位 URL 字面量: 部署注入是对全文做
+# s|https://aegis.example.com|<真实origin>|g, 守卫里若也写完整占位 URL 会被一并替换成真实
+# origin → 守卫恒真 → 注入副本反而拒绝运行(与 windows oneclick 同款自伤 bug)。后缀模式不含该字面量。
+_host=$(printf '%s' "$SERVER" | sed -E 's#^[a-z]+://##; s#[:/].*$##')
+case "$_host" in
+  "")
+    echo "[aegis] 请用 -Server https://<你的控制台> 运行; 或直接下载你控制台 /downloads/ 下的定制副本(已注入真实 origin)。" >&2
+    exit 2 ;;
+  example.com|*.example.com|example.net|*.example.net|example.org|*.example.org|invalid|*.invalid|localhost|test|*.test)
+    echo "[aegis] 请用 -Server https://<你的控制台> 运行; 或直接下载你控制台 /downloads/ 下的定制副本(已注入真实 origin)。" >&2
+    exit 2 ;;
+esac
 [ -n "$PKG_URL" ] || PKG_URL="$SERVER/downloads/aegis-agent-macos.pkg"
 
 # 0) 提权(非 root 自动 sudo 重跑)
