@@ -102,6 +102,11 @@ const cellStackStyle: CSSProperties = {
   minWidth: 0,
 };
 
+/** 主表 5 列网格：序列号/ID · 用户·工具 · Agent 版本 · 网络(MAC/IP) · 状态。 */
+const deviceGridStyle: CSSProperties = {
+  gridTemplateColumns: '1.5fr 0.9fr 0.7fr 1.4fr 0.5fr',
+};
+
 const inlinePanelStyle: CSSProperties = {
   border: '1px solid var(--line-base)',
   borderRadius: 10,
@@ -634,10 +639,11 @@ export default function DevicesPage() {
         </div>
 
         <div className="data-table">
-          <div className="data-head">
+          <div className="data-head" style={deviceGridStyle}>
             <span>序列号 / 设备 ID</span>
             <span>用户 · 工具</span>
             <span>Agent 版本</span>
+            <span>网络（MAC / IP）</span>
             <span>状态</span>
           </div>
 
@@ -657,6 +663,7 @@ export default function DevicesPage() {
                 <div
                   className="data-row animate-row-entrance"
                   style={{
+                    ...deviceGridStyle,
                     animationDelay: `${index * 30 + 200}ms`,
                     cursor: canMutate ? 'pointer' : 'default',
                   }}
@@ -685,6 +692,24 @@ export default function DevicesPage() {
                       <b style={{ marginRight: 4, color: 'var(--muted-foreground)', fontWeight: 600 }}>{osLabel(device.os)}</b>
                     ) : null}
                     {agentVersionLabel(device.agent_version)}
+                  </span>
+                  {/* 网络列：物理网卡 MAC + 本机 IP + 互联网出口（终端上报/Collector 观测） */}
+                  <span style={{ ...cellStackStyle, fontSize: 10, color: 'var(--muted-foreground)' }}>
+                    {(() => {
+                      const net = (device as { network?: { macs?: string[]; local_ips?: string[]; egress_ip?: string } }).network;
+                      if (!net) return <span>—</span>;
+                      const v4 = (net.local_ips ?? []).filter((i) => i.includes('.'));
+                      return (
+                        <>
+                          <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>
+                            MAC {net.macs?.[0] ?? '—'}
+                            {(net.macs?.length ?? 0) > 1 ? ` +${(net.macs?.length ?? 0) - 1}` : ''}
+                          </span>
+                          <span>本机 {v4.slice(0, 2).join(' / ') || '—'}</span>
+                          <span>出口 {net.egress_ip || '—'}</span>
+                        </>
+                      );
+                    })()}
                   </span>
                   <div
                     style={{
