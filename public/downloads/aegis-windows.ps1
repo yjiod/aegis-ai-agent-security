@@ -409,13 +409,27 @@ $inventoryLimit=5000;$findingLimit=10000
 if(@($inventory).Count -gt $inventoryLimit){$omitted=@($inventory).Count-$inventoryLimit+1;$inventory=@($inventory|Select-Object -First ($inventoryLimit-1));$inventory += @{type='inventory_truncated';omitted=$omitted}}
 if(@($findings).Count -gt $findingLimit){$omitted=@($findings).Count-$findingLimit+1;$findings=@($findings|Select-Object -First ($findingLimit-1));$findings += @{kind='findings_truncated';severity='medium';path='managed-windows-roots';message="报告发现项超限，省略 $omitted 项"}}
 $sn = $null
-try { $sn = (Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber } catch { $sn = $null }
-if (-not $sn) { try { $sn = (Get-CimInstance Win32_BIOS).SerialNumber } catch { $sn = $null } }
-# BIOS/CSProduct 占位序列号白名单(小写比较): 白牌机/部分主板返回 "System Serial Number" 等
-# 字面占位值, 若当作真实序列号会(1)显示垃圾 (2)多台同占位值机器 device_id 碰撞合并成一台。
-# 命中则序列号置空、device_id 回落 computername|domain(稳定且唯一)。
+# 序列号来源降级链(取第一个非占位值): 系统序列号 → BIOS → 主板(BaseBoard) → SMBIOS UUID。
+# 白牌机常见: 系统/BIOS 序列号是字面占位("System Serial Number"), 主板序列号也可能占位;
+# SMBIOS UUID 通常烧录于主板、比字符串序列号更可靠(劣质板全0/全F需排除)。全失败才回落计算机名。
 $badSn = @('', 'to be filled by o.e.m.', 'none', 'default string', 'unknown', 'o.e.m.', 'not specified', 'system serial number', 'serial number', 'n/a', 'na', 'empty', 'to be filled')
-if ($sn -and ($badSn -notcontains $sn.Trim().ToLower())) { $deviceMaterial = "aegis-hw:" + $sn.Trim() } else { $sn = $null; $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
+function Test-AegisGoodSn([string]$v) { return ($v -and ($badSn -notcontains $v.Trim().ToLower())) }
+foreach ($src in @(
+  { try { (Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber } catch { $null } },
+  { try { (Get-CimInstance Win32_BIOS).SerialNumber } catch { $null } },
+  { try { (Get-CimInstance Win32_BaseBoard).SerialNumber } catch { $null } }
+)) {
+  $c = & $src
+  if (Test-AegisGoodSn $c) { $sn = $c.Trim(); break }
+}
+if (-not $sn) {
+  try {
+    $u = [string](Get-CimInstance Win32_ComputerSystemProduct).UUID
+    $t = $u.Replace('-', '')
+    if ($t -and ($t -notmatch '^(0+|F+)$') -and ($badSn -notcontains $t.ToLower())) { $sn = $u }
+  } catch { }
+}
+if ($sn) { $deviceMaterial = "aegis-hw:" + $sn } else { $sn = $null; $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $agentVersion = '0.36.0'

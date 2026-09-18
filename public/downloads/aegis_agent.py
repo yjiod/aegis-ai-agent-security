@@ -717,9 +717,15 @@ def hardware_serial():
                     if v:
                         return v
         elif sysname == "Windows":
-            ps = ("try{$s=(Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber}catch{$s=$null};"
-                  "if(-not $s){try{$s=(Get-CimInstance Win32_BIOS).SerialNumber}catch{$s=$null}};"
-                  "if($s){$s.Trim()}else{''}")
+            # 降级链: 系统序列号 → BIOS → 主板(BaseBoard) → SMBIOS UUID(白牌机字符串序列号
+            # 常为占位, UUID 通常烧录于主板更可靠; 全0/全F 排除)。与 aegis-windows.ps1 同序。
+            ps = ("$b=@('to be filled by o.e.m.','none','default string','unknown','o.e.m.','not specified','system serial number','serial number','n/a','na','empty','to be filled');"
+                  "$s=$null;"
+                  "try{$c=(Get-CimInstance Win32_ComputerSystemProduct).IdentifyingNumber;if($c -and $b -notcontains $c.Trim().ToLower()){$s=$c.Trim()}}catch{};"
+                  "if(-not $s){try{$c=(Get-CimInstance Win32_BIOS).SerialNumber;if($c -and $b -notcontains $c.Trim().ToLower()){$s=$c.Trim()}}catch{}};"
+                  "if(-not $s){try{$c=(Get-CimInstance Win32_BaseBoard).SerialNumber;if($c -and $b -notcontains $c.Trim().ToLower()){$s=$c.Trim()}}catch{}};"
+                  "if(-not $s){try{$u=(Get-CimInstance Win32_ComputerSystemProduct).UUID;$t=$u.Replace('-','');if($t -and $t -notmatch '^(0+|F+)$'){$s=$u}}catch{}};"
+                  "if($s){$s}else{''}")
             v = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=20).stdout.strip()
             if v.lower() not in _BAD:
                 return v
