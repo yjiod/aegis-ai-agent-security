@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Aegis endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
-import argparse, base64, hashlib, hmac, json, os, platform, re, shutil, signal, stat, subprocess, sys, tempfile, time, urllib.request
+import argparse, base64, hashlib, hmac, json, os, platform, re, shutil, signal, socket, stat, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 # 冻结(PyInstaller/Nuitka --onefile)后 __file__ 指向临时解压目录(_MEIPASS)，agent 的 sibling
@@ -616,13 +616,20 @@ def _mcp_hard_block(server_name,spec):
         m=os.stat(str(bin)).st_mode & 0o777
         if m & 0o111:
             os.chmod(str(bin),m & ~0o111)
-            store[str(bin)]=m; _save_exec_deny_store(store)
+            store[str(bin)]=m; _save_exec_deny_store(store); _write_es_deny_list(store)
             out.append({"asset_type":"mcp","asset_key":server_name,"action":"exec_denied","target":str(bin),"reason":"policy_deny","ok":True,"at":now})
     except OSError: pass
+    url=spec.get("url","")
+    host=""
+    if url:
+        try: host=urlsplit(url).hostname or ""
+        except Exception: host=""
+    if host: out.extend(_pf_apply(server_name,host))
     return out
 def _mcp_hard_unblock(server_name,spec):
     out=[]
     if not isinstance(spec,dict): return out
+    out.extend(_pf_remove(server_name))  # 连接级解封与二进制无关(url 型 MCP 无 bin 也要解)
     bin=_resolve_bin(spec.get("command",""))
     if not bin: return out
     store=_load_exec_deny_store()
@@ -630,13 +637,139 @@ def _mcp_hard_unblock(server_name,spec):
     if m is None: return out
     try:
         os.chmod(str(bin),m)
-        del store[str(bin)]; _save_exec_deny_store(store)
+        del store[str(bin)]; _save_exec_deny_store(store); _write_es_deny_list(store)
         out.append({"asset_type":"mcp","asset_key":server_name,"action":"exec_restored","target":str(bin),"reason":"policy_no_longer_denies","ok":True,"at":int(time.time())})
     except OSError: pass
     return out
+# ── mac 连接级封禁: pf anchor 按 host 整机封禁(调研结论: 无 entitlement 前提下最务实) ──
+# 只加载"仅含我们 deny 规则"的 anchor(com.aegis/deny), 默认策略保持 pass, 风险限制在 anchor 内;
+# 启用 pf 前先 pfctl -nf 干跑校验 stock /etc/pf.conf, 失败则不启用; 加载失败回滚(冲 anchor,
+# 若 pf 是我们启用的且原先关闭则 pfctl -d 复原)。仅 root 可用; 用户态 agent 优雅跳过并留回执。
+# 粒度为 host 级(非 per-process): 对被禁 MCP host 而言整机都不该连, 语义正确。per-process 需
+# NEFilterDataProvider 系统扩展(Apple entitlement+MDM), 另立项。
+PF_ANCHOR="com.aegis/deny"
+PF_ANCHOR_FILE="/etc/pf.anchors/aegis-deny.conf"
+PFCTL="/sbin/pfctl"
+PF_STORE=QUARANTINE_DIRNAME+"/.aegis-pf-store.json"
+def _pf_store_path():
+    return Path(os.path.expanduser("~"))/PF_STORE
+def _pf_load_store():
+    try: return json.loads(_pf_store_path().read_text())
+    except (OSError,ValueError): return {}
+def _pf_save_store(store):
+    try:
+        p=_pf_store_path(); p.parent.mkdir(parents=True,exist_ok=True); _atomic_write_json(p,store)
+    except OSError: pass
+def _pf_run(args):
+    try: return subprocess.run([PFCTL]+args,capture_output=True,text=True,timeout=15).returncode
+    except Exception: return 1
+def _pf_enabled():
+    try:
+        out=subprocess.run([PFCTL,"-s","info"],capture_output=True,text=True,timeout=15).stdout
+        return "Status: Enabled" in out
+    except Exception: return False
+def _pf_rules_text(hosts):
+    lines=["# aegis deny anchor - generated; do not edit","anchor-only, default policy untouched"]
+    for name in sorted(hosts):
+        for ip in sorted(hosts[name]):
+            lines.append(f"block drop out quick proto tcp from any to {ip}  # aegis-deny:{name}")
+            lines.append(f"block drop out quick proto udp from any to {ip}  # aegis-deny:{name}")
+    return "\n".join(lines)+"\n"
+def _pf_resolve(host):
+    ips=set()
+    try:
+        for fam,_,_,_,sa in socket.getaddrinfo(host,None):
+            ips.add(sa[0])
+            if len(ips)>=16: break
+    except OSError: pass
+    return sorted(ips)
+def _pf_apply(name,host):
+    now=int(time.time())
+    if sys.platform!="darwin": return []
+    if os.geteuid()!=0:
+        return [{"asset_type":"mcp","asset_key":name,"action":"net_block_skipped","target":host,"reason":"needs_root","ok":False,"at":now}]
+    ips=_pf_resolve(host)
+    if not ips:
+        return [{"asset_type":"mcp","asset_key":name,"action":"net_block_skipped","target":host,"reason":"dns_resolve_failed","ok":False,"at":now}]
+    store=_pf_load_store()
+    hosts=store.get("hosts",{}); hosts[name]=ips
+    try:
+        Path(PF_ANCHOR_FILE).parent.mkdir(parents=True,exist_ok=True)
+        with open(PF_ANCHOR_FILE,"w") as fh: fh.write(_pf_rules_text(hosts))
+    except OSError:
+        return [{"asset_type":"mcp","asset_key":name,"action":"net_block_skipped","target":host,"reason":"write_anchor_failed","ok":False,"at":now}]
+    was_enabled=_pf_enabled()
+    if not was_enabled:
+        if _pf_run(["-nf","/etc/pf.conf"])!=0:
+            return [{"asset_type":"mcp","asset_key":name,"action":"net_block_skipped","target":host,"reason":"pf_conf_parse_failed","ok":False,"at":now}]
+        if _pf_run(["-e"])!=0:
+            return [{"asset_type":"mcp","asset_key":name,"action":"net_block_skipped","target":host,"reason":"pf_enable_failed","ok":False,"at":now}]
+        store["enabled_by_aegis"]=True
+    if _pf_run(["-a",PF_ANCHOR,"-f",PF_ANCHOR_FILE])!=0:
+        _pf_run(["-a",PF_ANCHOR,"-F","rules"])
+        if store.get("enabled_by_aegis") and not was_enabled: _pf_run(["-d"]); store["enabled_by_aegis"]=False
+        _pf_save_store(store)
+        return [{"asset_type":"mcp","asset_key":name,"action":"net_block_failed","target":host,"reason":"anchor_load_failed","ok":False,"at":now}]
+    store["hosts"]=hosts; _pf_save_store(store)
+    return [{"asset_type":"mcp","asset_key":name,"action":"net_blocked","target":host,"reason":"policy_deny","ok":True,"at":now}]
+def _pf_remove(name):
+    now=int(time.time())
+    if sys.platform!="darwin": return []
+    if os.geteuid()!=0: return []
+    store=_pf_load_store(); hosts=store.get("hosts",{})
+    if name not in hosts: return []
+    hosts.pop(name,None); store["hosts"]=hosts
+    out=[{"asset_type":"mcp","asset_key":name,"action":"net_unblocked","target":name,"reason":"policy_no_longer_denies","ok":True,"at":now}]
+    try:
+        if hosts:
+            with open(PF_ANCHOR_FILE,"w") as fh: fh.write(_pf_rules_text(hosts))
+            _pf_run(["-a",PF_ANCHOR,"-f",PF_ANCHOR_FILE])
+        else:
+            _pf_run(["-a",PF_ANCHOR,"-F","rules"])
+            if store.get("enabled_by_aegis"):
+                _pf_run(["-d"]); store["enabled_by_aegis"]=False
+    except OSError: pass
+    _pf_save_store(store)
+    return out
+# ── ES AUTH_EXEC 守护协作: Agent 写 deny-list(路径), 守护(若已授权)在 exec 时 DENY 并记 log ──
+# 守护未授权/未运行时 log 不增长, 本段零副作用; 执行级封禁回退 chmod exec-deny(已有)。
+ES_DENY_LIST_FILE=".aegis-exec-deny-list.json"
+ES_DENY_LOG=QUARANTINE_DIRNAME+"/.aegis-es-deny.log"
+ES_OFFSET_FILE=QUARANTINE_DIRNAME+"/.aegis-es-offset"
+def _write_es_deny_list(store):
+    try:
+        p=Path(os.path.expanduser("~"))/ES_DENY_LIST_FILE
+        _atomic_write_json(p,sorted(store.keys()))
+    except OSError: pass
+def _drain_es_deny_log():
+    out=[]
+    candidates=["/Library/Application Support/AegisAgent/.aegis-es-deny.log",
+                str(Path(os.path.expanduser("~"))/ES_DENY_LOG)]
+    offp=Path(os.path.expanduser("~"))/ES_OFFSET_FILE
+    try: offsets=json.loads(offp.read_text())
+    except (OSError,ValueError): offsets={}
+    if not isinstance(offsets,dict): offsets={}
+    for logp in candidates:
+        off=int(offsets.get(logp,0) or 0)
+        try:
+            with open(logp,"rb") as fh:
+                fh.seek(off); blob=fh.read(); newoff=fh.tell()
+        except OSError: continue
+        offsets[logp]=newoff
+        for line in blob.splitlines():
+            try: e=json.loads(line)
+            except ValueError: continue
+            if isinstance(e,dict) and e.get("action")=="exec_blocked_es":
+                tgt=str(e.get("target",""))
+                out.append({"asset_type":str(e.get("asset_type","mcp")),"asset_key":(Path(tgt).name or tgt)[:64],"action":"exec_blocked_es","target":tgt[:512],"reason":"es_auth_deny","ok":True,"at":int(e.get("at",0) or 0)})
+    try:
+        offp.parent.mkdir(parents=True,exist_ok=True); offp.write_text(json.dumps(offsets))
+    except OSError: pass
+    return out[:20]
 def reconcile_enforcement(policy):
     """每周期对账：该封的封、不该封但被本 Agent 隔离/移除的自动恢复。返回回执列表。"""
     actions=[]
+    actions.extend(_drain_es_deny_log())  # ES 守护(若点亮)的 exec 拒绝回执
     en_skill=policy_module(policy,"skill_enforce",False)
     en_mcp=policy_module(policy,"mcp_enforce",False)
     deny_skills=set(policy_deny(policy,"skills"))

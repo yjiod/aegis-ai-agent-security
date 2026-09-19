@@ -29,6 +29,10 @@ RUNTIME="aegis_agent.py aegis-policy.json aegis-security-baseline.md"
 # 去-python 化 B：CI 冻结的双架构二进制在 downloads/ 就打进 payload；postinstall 按 uname -m 选。
 BINS=""; HAS_BINS=0
 for b in aegis-agent-darwin-arm64 aegis-agent-darwin-x64; do [ -f "$DL/$b" ] && { BINS="$BINS $b"; HAS_BINS=1; }; done
+# ES AUTH_EXEC 执行级封禁守护(可选): 有则打进 payload; 未签名/未授权时守护自退(exit 2),
+# 终端回退 chmod exec-deny。entitlement 到位后 launchctl kickstart 即点亮。
+GUARDS=""
+for g in aegis-exec-guard-darwin-arm64 aegis-exec-guard-darwin-x64; do [ -f "$ROOT/native-dist/$g" ] && GUARDS="$GUARDS $g"; done
 # 抑制 macOS 扩展属性产生的 ._ AppleDouble 文件，保持 payload 干净（否则包里混入 ._* 冗余项）。
 export COPYFILE_DISABLE=1
 
@@ -49,8 +53,14 @@ mkdir -p "$APPDIR" "$ROOTDIR/Library/LaunchDaemons" "$SCRIPTS"
 # ── payload：运行时（root:wheel，目录 755 / agent 755 / 配置类 644，reporting 由 postinstall 写 600）
 # 用 ditto --noextattr --norsrc 复制，避免把源文件的扩展属性带进 payload（否则 pkgbuild 生成 ._ AppleDouble 冗余项）。
 for f in $RUNTIME $BINS; do ditto --noextattr --norsrc --noacl "$DL/$f" "$APPDIR/$f"; done
+for g in $GUARDS; do ditto --noextattr --norsrc --noacl "$ROOT/native-dist/$g" "$APPDIR/$g"; done
 chmod 755 "$APPDIR/aegis_agent.py"; chmod 644 "$APPDIR/aegis-policy.json" "$APPDIR/aegis-security-baseline.md"
 for b in $BINS; do chmod 755 "$APPDIR/$b"; done
+for g in $GUARDS; do chmod 755 "$APPDIR/$g"; done
+if [ -f "$ROOT/client/es-guard/com.aegis.execguard.plist" ]; then
+  ditto --noextattr --norsrc --noacl "$ROOT/client/es-guard/com.aegis.execguard.plist" "$ROOTDIR/Library/LaunchDaemons/com.aegis.execguard.plist"
+  chmod 644 "$ROOTDIR/Library/LaunchDaemons/com.aegis.execguard.plist"
+fi
 
 # plist 在构建期烘焙，故 exec 一个**架构无关的 canonical 名** aegis-agent；postinstall 按 uname -m
 # 把对应架构二进制装成该名（无二进制则回退 python3+脚本）。
@@ -150,6 +160,19 @@ done
 chown -R root:wheel "$INSTALL_DIR" 2>/dev/null || true
 launchctl bootout system "$PLIST" 2>/dev/null || true
 launchctl bootstrap system "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null || true
+# ES AUTH_EXEC 执行级封禁守护: 按架构装成 canonical 名并 best-effort 加载。
+# 未签名/未授权时守护自退(exit 2, KeepAlive=false 不重试), 终端回退 chmod exec-deny; 不阻断安装。
+case "$(uname -m)" in
+  arm64)  GUARD_SRC="$INSTALL_DIR/aegis-exec-guard-darwin-arm64" ;;
+  x86_64) GUARD_SRC="$INSTALL_DIR/aegis-exec-guard-darwin-x64" ;;
+  *) GUARD_SRC="" ;;
+esac
+if [ -n "$GUARD_SRC" ] && [ -f "$GUARD_SRC" ] && [ -f /Library/LaunchDaemons/com.aegis.execguard.plist ]; then
+  cp -f "$GUARD_SRC" "$INSTALL_DIR/aegis-exec-guard" 2>/dev/null || true
+  chmod 755 "$INSTALL_DIR/aegis-exec-guard" 2>/dev/null || true
+  launchctl bootout system /Library/LaunchDaemons/com.aegis.execguard.plist 2>/dev/null || true
+  launchctl bootstrap system /Library/LaunchDaemons/com.aegis.execguard.plist 2>/dev/null || true
+fi
 exit 0
 POST
 # 用 | 作分隔符替换占位（SERVER 含 / 不能用 /）

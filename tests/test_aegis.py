@@ -1211,5 +1211,14 @@ class AegisTests(unittest.TestCase):
                 self.agent._exec_deny_store_path=orig_store
     def test_kill_matching_exact_token_only(self):
         self.assertEqual(self.agent._kill_matching('/nonexistent/bin/xyz'),[])
+    def test_pf_rules_text_and_nonroot_skip(self):
+        txt=self.agent._pf_rules_text({'bad-mcp':['1.2.3.4']})
+        self.assertIn('block drop out quick proto tcp from any to 1.2.3.4',txt)
+        self.assertIn('aegis-deny:bad-mcp',txt)
+        import os
+        if os.geteuid()!=0:
+            acts=self.agent._pf_apply('bad-mcp','example.invalid')
+            self.assertEqual([a['action'] for a in acts],['net_block_skipped'])
+            self.assertEqual(acts[0]['reason'],'needs_root')
 
 if __name__=='__main__': unittest.main()

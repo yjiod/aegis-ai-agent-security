@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- AegisExecGuard: Endpoint Security AUTH_EXEC 执行级封禁守护(系统级, root)。
+     未签名/未授权(es entitlement)时守护自行优雅退出(exit 2), launchd 不重试轰炸(RunAtLoad 单次,
+     无 KeepAlive), 终端回退 chmod exec-deny。entitlement 到位后可手动 launchctl kickstart 点亮。 -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.aegis.execguard</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Library/Application Support/AegisAgent/aegis-exec-guard</string>
+    <string>/var/root/.aegis-exec-deny-list.json</string>
+    <string>/Library/Application Support/AegisAgent/.aegis-es-deny.log</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardErrorPath</key><string>/var/log/aegis-execguard.err</string>
+</dict>
+</plist>

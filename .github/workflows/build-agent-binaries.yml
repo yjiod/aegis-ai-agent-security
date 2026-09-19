@@ -87,3 +87,15 @@ jobs:
           name: aegis-agent-darwin-${{ matrix.arch }}
           path: dist-bin/aegis-agent-darwin-${{ matrix.arch }}
           if-no-files-found: error
+      # ES AUTH_EXEC 执行级封禁守护: 编译即产物; 未签名/未授权(entitlement)时运行自退(exit 2),
+      # 终端回退 chmod exec-deny。entitlement+签名到位后由 LaunchDaemon 点亮。
+      - name: Build ES AUTH_EXEC guard (inert without entitlement)
+        run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then TRIPLE=arm64-apple-macos12; else TRIPLE=x86_64-apple-macos12; fi
+          swiftc -O -target "$TRIPLE" -lEndpointSecurity -o dist-bin/aegis-exec-guard-darwin-${{ matrix.arch }} client/es-guard/AegisExecGuard.swift || echo "guard build skipped (SDK/entitlement)"
+      - name: Upload ES guard artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-exec-guard-darwin-${{ matrix.arch }}
+          path: dist-bin/aegis-exec-guard-darwin-${{ matrix.arch }}
+          if-no-files-found: ignore
