@@ -456,6 +456,33 @@ export default function DevicesPage() {
   const reportedCount = devices.filter(
     (device) => agentVersionLabel(device.agent_version) !== '未上报',
   ).length;
+  const offlineCount = devices.filter((device) => device.status === 'offline').length;
+  const exemptCount = devices.filter((device) => device.exempt === true).length;
+  const pinnedCount = devices.filter((device) => device.pinned === true).length;
+
+  /**
+   * 版本漂移：已上报但 agent_version ≠ 要求版本的设备数。这是"某台机器悄悄掉队/
+   * 自更失败"的核心信号——之前离线 13h 无人察觉即因缺少此类聚合告警。
+   */
+  const driftDevices = useMemo(() => {
+    const required = fleet?.required_agent_version;
+    if (!required) return [] as Device[];
+    return devices.filter((device) => {
+      const v = agentVersionLabel(device.agent_version);
+      return v !== '未上报' && v !== required;
+    });
+  }, [devices, fleet?.required_agent_version]);
+
+  /** 离线/过期设备里最久未上报的一台，用于告警横幅点名（"XX 已 N 小时未上报"）。 */
+  const longestUnseen = useMemo(() => {
+    const candidates = devices.filter(
+      (device) => device.status === 'offline' || device.status === 'stale',
+    );
+    if (candidates.length === 0) return null;
+    return candidates.reduce((oldest, device) =>
+      device.last_seen < oldest.last_seen ? device : oldest,
+    );
+  }, [devices]);
 
   const kpis = useMemo(() => {
     if (fleet && fleet.total_devices > 0) {
@@ -566,6 +593,48 @@ export default function DevicesPage() {
         </article>
       </div>
 
+      {source === 'api' &&
+        (offlineCount > 0 || staleCount > 0 || driftDevices.length > 0) && (
+          <div
+            className="animate-entrance animate-entrance-1"
+            role="status"
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 12,
+              margin: '0 0 14px',
+              padding: '14px 16px',
+              borderRadius: 11,
+              background: 'var(--card)',
+              border: '1px solid color-mix(in srgb, #e8b449 40%, var(--border))',
+              borderLeft: '3px solid #e8b449',
+            }}
+          >
+            <AlertTriangle size={18} style={{ color: '#e8b449', flexShrink: 0, marginTop: 1 }} />
+            <div style={{ minWidth: 0 }}>
+              <strong style={{ display: 'block', marginBottom: 4 }}>舰队健康告警</strong>
+              <p style={{ margin: 0, color: 'var(--muted-foreground)', fontSize: 13, lineHeight: 1.6 }}>
+                {[
+                  offlineCount > 0 ? `${offlineCount} 台离线` : '',
+                  staleCount > 0 ? `${staleCount} 台上报过期` : '',
+                  driftDevices.length > 0
+                    ? `${driftDevices.length} 台版本漂移（要求 ${fleet?.required_agent_version ?? '—'}）`
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                {longestUnseen && (
+                  <>
+                    ；最久未上报：{longestUnseen.hostname || longestUnseen.device_id}{' '}
+                    {formatLastSeen(longestUnseen.last_seen)}
+                  </>
+                )}
+                。
+              </p>
+            </div>
+          </div>
+        )}
+
       {showForm && (
         <div className="panel animate-entrance" style={{ marginBottom: 14 }}>
           <div className="panel-head">
@@ -598,8 +667,8 @@ export default function DevicesPage() {
               {source === 'loading'
                 ? '正在读取注册表…'
                 : `${devices.length} 台设备 · ${onlineCount} 台在线 · ${attentionCount} 台需处理${
-                    ''
-                  }`}
+                    exemptCount > 0 ? ` · ${exemptCount} 台封禁豁免` : ''
+                  }${pinnedCount > 0 ? ` · ${pinnedCount} 台自更保护` : ''}`}
             </p>
             <p>
               要求 Agent 版本 {fleet?.required_agent_version ?? '—'} ·
@@ -731,6 +800,28 @@ export default function DevicesPage() {
                       <b style={{ marginRight: 4, color: 'var(--muted-foreground)', fontWeight: 600 }}>{osLabel(device.os)}</b>
                     ) : null}
                     {agentVersionLabel(device.agent_version)}
+                    {(() => {
+                      const v = agentVersionLabel(device.agent_version);
+                      const required = fleet?.required_agent_version;
+                      const drift = !!required && v !== '未上报' && v !== required;
+                      if (!drift) return null;
+                      return (
+                        <span
+                          title={`要求版本 ${required}，当前 ${v}`}
+                          style={{
+                            marginLeft: 6,
+                            padding: '0 5px',
+                            borderRadius: 5,
+                            fontSize: 10,
+                            color: '#e8b449',
+                            background: 'color-mix(in srgb, #e8b449 14%, transparent)',
+                            border: '1px solid color-mix(in srgb, #e8b449 40%, transparent)',
+                          }}
+                        >
+                          漂移
+                        </span>
+                      );
+                    })()}
                   </span>
                   {/* 网络列：物理网卡 MAC + 本机 IP + 互联网出口（终端上报/Collector 观测） */}
                   <span style={{ ...cellStackStyle, fontSize: 10, color: 'var(--muted-foreground)' }}>
