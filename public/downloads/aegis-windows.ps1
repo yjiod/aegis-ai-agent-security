@@ -523,7 +523,113 @@ try {
   }
   $networkInfo = @{ physical_nics = $nics; macs = $allMacs; local_ips = $allIps }
 } catch { }
-$report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); network=$networkInfo; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+# ── 封禁执行器(deny-only): 移除 + 每周期自动再执行 + 备份可回滚, 回执进报告 ──────
+# 语义(用户口径: 封禁就真的封禁, 不是"搬一次不管"): Skill=目录移入隔离备份区(工具不可再加载),
+# MCP=从 AI 工具配置删除; 每个扫描周期自动对账, 复发即再封, 无需人工反复操作;
+# 备份/隔离区仅供管理员回滚(名单解除后自动原样恢复)。只封签名策略 deny.* 名单
+# (发布=人工审批), 且受 modules.skill_enforce/mcp_enforce 门控(缺省关=只报不封)。
+function Invoke-AegisEnforce {
+  param($Policy)
+  $actions = @()
+  $mods = if ($Policy -and $Policy.modules) { $Policy.modules } else { $null }
+  $deny = if ($Policy -and $Policy.deny) { $Policy.deny } else { $null }
+  $denySkills = @(); $denyMcp = @()
+  if ($deny) { $denySkills = @($deny.skills | Where-Object { $_ }); $denyMcp = @($deny.mcp | Where-Object { $_ }) }
+  $enSkill = [bool]($mods.skill_enforce); $enMcp = [bool]($mods.mcp_enforce)
+  $ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  $qroot = Join-Path $env:USERPROFILE '.aegis-quarantine'
+  $skillRoots = @('.codex\skills', '.claude\skills', '.cursor\skills', '.gemini\skills', '.copilot\skills', '.workbuddy\skills', '.qwenworkcn\skills', '.lingma\skills', '.codebuddy\skills')
+  if ($enSkill -and $denySkills.Count) {
+    foreach ($rel in $skillRoots) {
+      $d = Join-Path $env:USERPROFILE $rel
+      if (-not (Test-Path -LiteralPath $d)) { continue }
+      Get-ChildItem -LiteralPath $d -Directory -ErrorAction SilentlyContinue | Where-Object { $denySkills -contains $_.Name } | ForEach-Object {
+        $src = $_.FullName
+        $dest = Join-Path $qroot ("{0}-{1}" -f $ts, $_.Name)
+        if (Test-Path -LiteralPath $dest) { return }
+        try {
+          New-Item -ItemType Directory -Force -Path $qroot | Out-Null
+          Move-Item -LiteralPath $src -Destination $dest -Force
+          $mf = $dest + '.aegis-quarantine.json'
+          (@{ schema = 'aegis.quarantine/v1'; asset_type = 'skill'; asset_key = $_.Name; source = $src; dest = $dest; reason = 'policy_deny'; at = $ts; agent_version = $agentVersion } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $mf -Encoding UTF8
+          $actions += @{ asset_type = 'skill'; asset_key = $_.Name; action = 'quarantined'; target = $src; backup = $dest; reason = 'policy_deny'; ok = $true; at = $ts }
+        } catch { }
+      }
+    }
+  }
+  if (Test-Path -LiteralPath $qroot) {
+    Get-ChildItem -LiteralPath $qroot -File -Filter '*.aegis-quarantine.json' -ErrorAction SilentlyContinue | ForEach-Object {
+      $m = $null
+      try { $m = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+      if (-not $m -or $m.schema -ne 'aegis.quarantine/v1' -or $m.asset_type -ne 'skill') { return }
+      $key = [string]$m.asset_key
+      $still = $enSkill -and ($denySkills -contains $key)
+      if (-not $still) {
+        $dest = [string]$m.dest; $src = [string]$m.source
+        if ((Test-Path -LiteralPath $dest) -and -not (Test-Path -LiteralPath $src)) {
+          try {
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $src) | Out-Null
+            Move-Item -LiteralPath $dest -Destination $src -Force
+            Remove-Item -LiteralPath $_.FullName -Force
+            $actions += @{ asset_type = 'skill'; asset_key = $key; action = 'restored'; target = $src; backup = $dest; reason = 'policy_no_longer_denies'; ok = $true; at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+          } catch { }
+        }
+      }
+    }
+  }
+  $cfgRels = @('.cursor\mcp.json', '.claude.json', '.gemini\settings.json', '.copilot\mcp-config.json', '.workbuddy\mcp.json', '.qwenworkcn\mcp.json', '.lingma\mcp.json', '.codebuddy\mcp.json')
+  foreach ($rel in $cfgRels) {
+    $p = Join-Path $env:USERPROFILE $rel
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    $data = $null
+    try { $data = Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json } catch { continue }
+    if (-not $data) { continue }
+    $holder = $null
+    foreach ($k in @('mcpServers', 'servers', 'mcp_servers')) {
+      $v = $data.$k
+      if ($v) { foreach ($nm in $denyMcp) { if ($v.PSObject.Properties[$nm]) { $holder = $k; break } } }
+      if ($holder) { break }
+    }
+    $bak = $p + '.aegis-bak'
+    if ($enMcp -and $holder -and $denyMcp.Count) {
+      if (-not (Test-Path -LiteralPath $bak)) { try { Copy-Item -LiteralPath $p -Destination $bak -Force } catch { continue } }
+      foreach ($nm in $denyMcp) {
+        if ($data.$holder.PSObject.Properties[$nm]) {
+          $data.$holder.PSObject.Properties.Remove($nm)
+          $actions += @{ asset_type = 'mcp'; asset_key = $nm; action = 'config_removed'; target = $p; backup = $bak; reason = 'policy_deny'; ok = $true; at = $ts }
+        }
+      }
+      try { ($data | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath $p -Encoding UTF8 } catch { }
+    }
+    if (Test-Path -LiteralPath $bak) {
+      $bakdata = $null
+      try { $bakdata = Get-Content -LiteralPath $bak -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+      if ($bakdata) {
+        $changed = $false
+        foreach ($k in @('mcpServers', 'servers', 'mcp_servers')) {
+          $bv = $bakdata.$k
+          if (-not $bv) { continue }
+          foreach ($prop in @($bv.PSObject.Properties)) {
+            $nm = $prop.Name
+            if ($enMcp -and ($denyMcp -contains $nm)) { continue }
+            $curHas = $false
+            foreach ($ck in @('mcpServers', 'servers', 'mcp_servers')) { if ($data.$ck -and $data.$ck.PSObject.Properties[$nm]) { $curHas = $true; break } }
+            if (-not $curHas) {
+              if (-not $data.$k) { $data | Add-Member -NotePropertyName $k -NotePropertyValue ([pscustomobject]@{}) -Force }
+              $data.$k | Add-Member -NotePropertyName $nm -NotePropertyValue $prop.Value -Force
+              $changed = $true
+              $actions += @{ asset_type = 'mcp'; asset_key = $nm; action = 'config_restored'; target = $p; backup = $bak; reason = 'policy_no_longer_denies'; ok = $true; at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+            }
+          }
+        }
+        if ($changed) { try { ($data | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath $p -Encoding UTF8 } catch { } }
+      }
+    }
+  }
+  return $actions
+}
+$enforceActions = @(Invoke-AegisEnforce -Policy $policy)
+$report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); network=$networkInfo; enforcement=$enforceActions; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'

@@ -481,6 +481,11 @@ QUARANTINE_DIRNAME=".aegis-quarantine"
 QUARANTINE_MANIFEST_SUFFIX=".aegis-quarantine.json"
 MCP_BACKUP_SUFFIX=".aegis-bak"
 MCP_SERVER_KEYS=("mcpServers","servers","mcp_servers")
+# 封禁语义(用户口径: 封禁就真的封禁, 不是"搬走一次"): 从工具可加载位置移除 + 每个执行
+# tick 自动再执行(复发即再封, 无需人工反复操作); 备份仅供管理员回滚。全扫描是小时级,
+# 故另设高频 tick 只做轻量封禁对账, 把"复发窗口"从一小时压到秒级。
+ENFORCE_TICK_SECONDS=30
+ENFORCE_RECEIPTS=[]
 def quarantine_dir():
     return Path(os.path.expanduser("~"))/QUARANTINE_DIRNAME
 def _atomic_write_json(path,obj,mode=None):
@@ -1149,7 +1154,10 @@ def build_report(root,policy):
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
     network=collect_physical_network() if policy_module(policy,"network_collect",True) else {}
+    # 回执=本周期对账 + 高频 tick 累积的未上报回执(一次性 drain, 避免重复上报)。
     enforcement=reconcile_enforcement(policy)
+    if ENFORCE_RECEIPTS: enforcement=ENFORCE_RECEIPTS+enforcement; del ENFORCE_RECEIPTS[:]
+    enforcement=enforcement[:40]
     return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"network":network,"enforcement":enforcement,"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
@@ -1400,5 +1408,17 @@ def main():
                     queue_report(spool,report); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)
         print(data)
         if not args.watch: return 2 if report["summary"]["critical"] or report["summary"]["high"] else 0
-        time.sleep(max(args.interval,60))
+        # 高频封禁 tick: 把睡眠切成 ENFORCE_TICK_SECONDS 段, 段间做轻量封禁对账,
+        # 使"被禁资产复发"在秒级被再封(而非等下一轮小时级全扫描)。回执累积进下次上报。
+        remain=max(args.interval,60)
+        while remain>0:
+            step=min(ENFORCE_TICK_SECONDS,remain)
+            time.sleep(step); remain-=step
+            if remain>0:
+                try:
+                    tick_actions=reconcile_enforcement(policy)
+                    if tick_actions:
+                        ENFORCE_RECEIPTS.extend(tick_actions); del ENFORCE_RECEIPTS[:-40]
+                except Exception:
+                    pass
 if __name__=="__main__": sys.exit(main())
