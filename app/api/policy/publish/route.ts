@@ -6,6 +6,7 @@ import { logAudit } from '@/lib/store';
 import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds, BLAST_CAP_ASSETS, BLAST_CAP_PCT, BLAST_ABS_CAP_ASSETS, BLAST_ABS_CAP_PCT, BLAST_OVERRIDE_PHRASE } from '@/lib/policy';
 import { moduleOverrides } from '@/lib/modules';
 import { exemptDevices, pinnedDevices } from '@/lib/exempt';
+import { getRollout } from '@/lib/rollout';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
   const mods = moduleOverrides();
   const exempt = exemptDevices();
   const pinned = pinnedDevices();
+  const rollout = getRollout();
   const enforceOn = Boolean(mods.skill_enforce) || Boolean(mods.mcp_enforce);
   let enforceOverride = false;
   let blastNote = '';
@@ -113,7 +115,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds, modules: mods, enforceOverride, exempt, pinned });
+  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds, modules: mods, enforceOverride, exempt, pinned, rollout });
   if (!rel) {
     return NextResponse.json(
       { error: 'signing_key_not_configured', hint: '设置 AEGIS_POLICY_SIGNING_KEYS（或单钥 AEGIS_POLICY_SIGNING_KEY）后才能发布签名策略' },

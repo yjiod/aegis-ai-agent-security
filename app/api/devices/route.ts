@@ -14,6 +14,8 @@ import { NextResponse } from 'next/server';
 import { requireDeviceWriter, getSession, roleReadsAllDevices } from '@/lib/auth';
 import { getDeviceStore, logAudit } from '@/lib/store';
 import { exemptDevices, pinnedDevices } from '@/lib/exempt';
+import { getRollout, rolloutBucket, inRollout } from '@/lib/rollout';
+import { ensureBaselinesLoaded } from '@/lib/baselines';
 import type { Device } from '@/components/device-form';
 
 export const dynamic = 'force-dynamic';
@@ -96,8 +98,10 @@ export async function GET(request: Request) {
   const collectorDevices = await fetchCollectorDevices();
 
   if (collectorDevices && collectorDevices.length > 0) {
+    await ensureBaselinesLoaded().catch(() => {});
     const exemptSet = new Set(exemptDevices().map((x) => x.toLowerCase()));
     const pinnedSet = new Set(pinnedDevices().map((x) => x.toLowerCase()));
+    const rollout = getRollout();
     let devices = collectorDevices.map((d) => ({
       device_id: d.device_id,
       hostname: (d as any).hostname as string ?? d.device_id,
@@ -113,6 +117,10 @@ export async function GET(request: Request) {
       scan_root: (d as any).scan_root as string | undefined,
       exempt: exemptSet.has(String(d.device_id).toLowerCase()),
       pinned: pinnedSet.has(String(d.device_id).toLowerCase()),
+      // 灰度（canary）可视化：桶号与终端 aegis_self_update.in_rollout 逐位一致；
+      // in_canary=该设备是否落在当前放量内；will_update 再叠加 enabled/未 pinned 才是真会更新。
+      rollout_bucket: rolloutBucket(String(d.device_id)),
+      in_canary: inRollout(String(d.device_id), rollout.rollout_percent),
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',
@@ -139,8 +147,14 @@ export async function GET(request: Request) {
   }
 
   // Collector unreachable or empty: return console-side registry (may be empty)
+  await ensureBaselinesLoaded().catch(() => {});
+  const rolloutReg = getRollout();
   const store = getDeviceStore();
-  let devices = [...store.values()];
+  let devices = [...store.values()].map((d) => ({
+    ...d,
+    rollout_bucket: rolloutBucket(String(d.device_id)),
+    in_canary: inRollout(String(d.device_id), rolloutReg.rollout_percent),
+  }));
   if (search) {
     devices = devices.filter(
       (d) => d.device_id.toLowerCase().includes(search) || d.hostname.toLowerCase().includes(search) || d.owner.toLowerCase().includes(search) || ((d as any).serial as string || '').toLowerCase().includes(search),

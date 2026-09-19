@@ -143,7 +143,7 @@ export const BLAST_ABS_CAP_PCT = 50;
 /** 终端每周期最多执行的封禁动作数（分期执行，留观察/回滚窗口）。 */
 export const ENFORCE_PER_CYCLE = 5;
 
-export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean; exempt?: string[]; pinned?: string[] }): PolicyBody {
+export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean; exempt?: string[]; pinned?: string[]; rollout?: { enabled: boolean; channel: string; rollout_percent: number } }): PolicyBody {
   const labels = opts.labels ?? listLabels();
   const allowSkills = labels.filter((l) => l.asset_type === 'skill' && l.disposition === 'allow').map((l) => l.asset_key);
   const allowMcp = labels.filter((l) => l.asset_type === 'mcp' && l.disposition === 'allow').map((l) => l.asset_key);
@@ -181,7 +181,13 @@ export function computePolicyBody(opts: { version: string; scanMode: string; lab
     modules,
     deny,
     ...(opts.exempt && opts.exempt.length ? { enforce_exempt: opts.exempt } : {}),
-    agent_self_update: { ...BASE_POLICY.agent_self_update, pinned: opts.pinned ?? [] },
+    agent_self_update: {
+      ...BASE_POLICY.agent_self_update,
+      ...(opts.rollout
+        ? { enabled: opts.rollout.enabled === true, channel: opts.rollout.channel, rollout_percent: opts.rollout.rollout_percent }
+        : {}),
+      pinned: opts.pinned ?? [],
+    },
     ...(opts.enforceOverride ? { enforce_override: true } : {}),
   };
 }
@@ -501,12 +507,12 @@ function countLabels(labels: AssetLabel[]): PolicyReceipt {
  * 编译 + 签名 + 落库一次策略发布。version 单调递增，旧发布置 superseded。
  * 需要已配置签名密钥；未配置返回 null（调用方据此诚实报错，不产出未签名策略）。
  */
-export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean; exempt?: string[]; pinned?: string[] }): PolicyRelease | null {
+export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean; exempt?: string[]; pinned?: string[]; rollout?: { enabled: boolean; channel: string; rollout_percent: number } }): PolicyRelease | null {
   if (!activeKeyIdResolved()) return null;
   const arr = releases();
   const nextVersion = arr.reduce((max, r) => Math.max(max, r.version), 0) + 1;
   const labels = listLabels();
-  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds, modules: opts.modules, enforceOverride: opts.enforceOverride, exempt: opts.exempt, pinned: opts.pinned });
+  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds, modules: opts.modules, enforceOverride: opts.enforceOverride, exempt: opts.exempt, pinned: opts.pinned, rollout: opts.rollout });
   const signature = signPolicyBody(body);
   if (!signature) return null;
   const now = Date.now();

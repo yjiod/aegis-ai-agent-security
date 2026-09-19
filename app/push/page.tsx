@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Package, Download, Copy, Check, Monitor, Apple, Terminal, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { CanaryPanel } from '@/components/canary-panel';
 
 type PushPkg = { name: string; platform: string; bytes: number; sha256: string; scenario: string };
 type PushIndex = { schema: string; agent_version: string; generated_at: string; packages: PushPkg[] };
@@ -228,6 +229,9 @@ export default function PushPage() {
           </p>
         </div>
       )}
+
+      {/* ③ 自更新灰度（canary）运营面板 */}
+      <CanaryPanel latestAgentVersion={index?.agent_version} />
     </div>
   );
 }
