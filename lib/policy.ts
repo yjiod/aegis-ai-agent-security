@@ -68,7 +68,7 @@ export interface PolicyBody {
 export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allowed_mcp_servers' | 'scan_mode'> = {
   schema: POLICY_SCHEMA,
   limits: { project_files: 10000, max_file_bytes: 1000000, inventory_items: 5000, findings: 10000 },
-  enforcement: { unknown_skill: 'block', unknown_mcp: 'audit', critical_finding: 'block' },
+  enforcement: { unknown_skill: 'audit', unknown_mcp: 'audit', critical_finding: 'block' },
   allowed_mcp_transports: ['stdio', 'https'],
   allowed_mcp_commands: ['docker', 'node', 'node_repl', 'npx', 'python3', 'uvx'],
   allowed_mcp_command_paths: ['/Applications/Codex.app/Contents/Resources/cua_node/bin/node_repl'],

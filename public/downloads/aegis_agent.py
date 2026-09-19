@@ -475,8 +475,8 @@ def scan_skill(skill_file,policy,max_files=500):
 #   MCP ：先备份原配置为 <cfg>.aegis-bak，再原子改写 JSON 移除被禁 server；
 #          名单解除后从备份把该 server 合并回（不整文件回滚，避免覆盖期间其它改动）。
 # 门控：modules.skill_enforce / modules.mcp_enforce 为 True 才执行（缺省 False，防止
-#       自主破坏，符合"不可逆操作须人工审批"）；名单=签名策略 deny.*（发布即审批），
-#       或 enforcement.unknown_skill=block 时对未批准 Skill（仍需 skill_enforce 开）。
+#       自主破坏，符合"不可逆操作须人工审批"）；名单=签名策略 deny.*（发布即审批）。
+#       只封显式名单，不封"未知"：未知资产仅产出发现项供人工决策（真机演练教训）。
 QUARANTINE_DIRNAME=".aegis-quarantine"
 QUARANTINE_MANIFEST_SUFFIX=".aegis-quarantine.json"
 MCP_BACKUP_SUFFIX=".aegis-bak"
@@ -560,9 +560,10 @@ def reconcile_enforcement(policy):
     en_mcp=policy_module(policy,"mcp_enforce",False)
     deny_skills=set(policy_deny(policy,"skills"))
     deny_mcp=set(policy_deny(policy,"mcp"))
-    allowed_skills=set(policy.get("allowed_skills",[]))
-    block_unknown=en_skill and policy.get("enforcement",{}).get("unknown_skill","audit")=="block"
     homes=managed_homes()
+    # 只封显式 deny 名单(签名策略下发=人工审批)。**不做**"未知即隔离": 真机演练证明
+    # unknown+block 组合会在开关打开瞬间隔离全部未加白 Skill(含用户真实在用的),
+    # 破坏面过大; 未知 Skill 仅产出发现项供人工决策。
     if en_skill:
         seen=set()
         for home in homes:
@@ -578,16 +579,13 @@ def reconcile_enforcement(policy):
                     if nm in deny_skills:
                         r=quarantine_skill(sr,"policy_deny")
                         if r: actions.append(r)
-                    elif block_unknown and nm not in allowed_skills:
-                        r=quarantine_skill(sr,"unknown_skill_block")
-                        if r: actions.append(r)
     q=quarantine_dir()
     if q.exists():
         for mf in sorted(q.glob("*"+QUARANTINE_MANIFEST_SUFFIX)):
             try: m=json.loads(mf.read_text())
             except (OSError,ValueError): continue
             key=str(m.get("asset_key","")) if isinstance(m,dict) else ""
-            still=en_skill and (key in deny_skills or (block_unknown and key not in allowed_skills))
+            still=en_skill and (key in deny_skills)
             if not still:
                 r=restore_quarantined_skill(mf)
                 if r: actions.append(r)

@@ -9,7 +9,7 @@
     "findings": 10000
   },
   "enforcement": {
-    "unknown_skill": "block",
+    "unknown_skill": "audit",
     "unknown_mcp": "audit",
     "critical_finding": "block"
   },
