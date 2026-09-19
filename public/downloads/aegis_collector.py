@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+import urllib.request
 
 @contextmanager
 def db_open(path):
@@ -362,6 +363,22 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError,TypeError): rollout={}
             if not enterprise_in_scope(did,dept,rollout): return self.reply(404,{"error":"not_in_scope"})
             return self.reply(200,{"version":row[1],"content":row[0],"sha256":hashlib.sha256(row[0].encode()).hexdigest()})
+        if parsed.path=="/v1/policy":
+            # 设备自助拉取当前签名策略(一条命令同步策略+重启服务用)。设备令牌鉴权,
+            # 再由 Collector 以自身令牌向控制台 /api/policy/artifact 取件, 原样回传(含签名)。
+            authenticated,binding=self.report_authentication()
+            if not authenticated: return self.reply(401,{"error":"unauthorized"})
+            tok=os.environ.get("AEGIS_COLLECTOR_TOKEN","")
+            if not tok: return self.reply(503,{"error":"collector_token_missing"})
+            try:
+                req=urllib.request.Request("http://127.0.0.1:8787/api/policy/artifact",headers={"Authorization":"Bearer "+tok})
+                with urllib.request.urlopen(req,timeout=20) as r:
+                    body=r.read(); sha=r.headers.get("X-Aegis-Policy-Sha256",""); ver=r.headers.get("X-Aegis-Policy-Version","")
+                self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Cache-Control","no-store")
+                if sha: self.send_header("X-Aegis-Policy-Sha256",sha)
+                if ver: self.send_header("X-Aegis-Policy-Version",ver)
+                self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return
+            except Exception: return self.reply(502,{"error":"policy_fetch_failed"})
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         if parsed.path=="/v1/devices":
             query=parse_qs(parsed.query,keep_blank_values=True)
