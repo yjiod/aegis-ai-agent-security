@@ -1105,6 +1105,37 @@ def spool_limit(value=None):
     raw=os.getenv("AEGIS_SPOOL_MAX_REPORTS","500") if value is None else value
     try: return min(max(int(raw),10),10000)
     except (TypeError,ValueError): return 500
+def sync_policy_from_server(report_url,token,policy_path):
+    """每周期自助拉取当前签名策略, 解决"策略手动分发"导致封禁/豁免下发不到终端
+    (真机教训: 演练与豁免都卡在终端本地旧策略)。仅接受带 ed25519 签名且版本高于本地
+    的工件(TLS 认证服务端 + ed25519 完整性); 任何失败静默保持本地策略, 绝不破坏现网。"""
+    if not report_url or not token: return False
+    try:
+        u=urlsplit(report_url)
+        if not u.scheme or not u.netloc: return False
+        base=f"{u.scheme}://{u.netloc}"
+        path=u.path or ""
+        if "/aegis/" in path: base=base+"/aegis"
+        elif "/api/" in path: base=base+"/api"
+        url=base+"/v1/policy"
+        req=urllib.request.Request(url,headers={"Authorization":"Bearer "+token})
+        with urllib.request.urlopen(req,timeout=20) as r:
+            data=json.loads(r.read().decode("utf-8"))
+        if not isinstance(data,dict) or data.get("schema")!="aegis.policy/v1": return False
+        if verify_policy_ed25519(data) is not True: return False
+        try: cur=json.loads(Path(policy_path).read_text())
+        except (OSError,ValueError): cur={}
+        def vkey(v):
+            try: return [int(x) for x in str(v).split(".")]
+            except ValueError: return [0]
+        if vkey(data.get("version"))<=vkey(cur.get("version")): return False
+        tmp=Path(str(policy_path)+".sync.tmp")
+        tmp.write_text(json.dumps(data,ensure_ascii=False))
+        os.replace(str(tmp),str(policy_path))
+        try: os.chmod(str(policy_path),0o644)
+        except OSError: pass
+        return True
+    except Exception: return False
 def write_private_atomic(path,data):
     path=Path(path); path.parent.mkdir(parents=True,exist_ok=True)
     fd,temp_name=tempfile.mkstemp(prefix="."+path.name+".",suffix=".tmp",dir=path.parent); temp=Path(temp_name)
@@ -1442,7 +1473,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.36.1"
+AGENT_VERSION = "0.36.2"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -1650,6 +1681,11 @@ def main():
             # can_report 仍为 False、要等下一个周期才上报（用户实测"写全路径才生效"的真因）。
             reporting_error = False
             enrollment = None; enrollment_error = False; enrollment_mismatch = False
+        # 策略自助同步(默认开, 可以 modules.policy_auto_sync 关): 拉签名策略, 版本更新才落盘,
+        # 使封禁/豁免/模块开关能下发到终端(此前手动分发导致终端永远停在旧策略)。
+        if policy_module(policy,"policy_auto_sync",True):
+            _tok=(enrollment or {}).get("report_token") or (reporting or {}).get("report_token") or os.getenv("AEGIS_REPORT_TOKEN","")
+            sync_policy_from_server(args.report_url,_tok,args.policy)
         policy,reload_failed=reload_policy(args.policy,policy,require_signature=require_signature)
         # 先拉取企业级 MD（按灰度范围）再注入基线：保证本轮注入即用最新企业 MD，
         # 否则新发布的企业 MD 要延迟一个扫描周期才生效（注入早于拉取的历史缺陷）。

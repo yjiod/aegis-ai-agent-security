@@ -16,6 +16,26 @@ $roots = @()
 $installDir = Join-Path $env:ProgramData 'AegisAgent'
 $baselinePath = Join-Path $installDir 'aegis-security-baseline.md'
 $policyPath = Join-Path $installDir 'aegis-policy.json'
+# 策略自助同步(默认开, 可 modules.policy_auto_sync 关): 拉当前签名策略, 版本更新才落盘。
+# Windows 无 ed25519 验签原语, 此处校验 schema+签名字段存在+版本递增, 完整性由 TLS+服务端签名链保证(文档注明)。
+try{
+  if ($script:policyAutoSync -eq $false) { throw 'policy_auto_sync off' }
+  if (-not $env:AEGIS_REPORT_TOKEN) { throw 'no token' }
+  $curPol=$null; try{ $curPol=Get-Content -Encoding UTF8 $policyPath -Raw | ConvertFrom-Json }catch{}
+  $ru=[Uri]$ReportUrl; $pbase=$ru.Scheme+'://'+$ru.Host
+  if($ru.AbsolutePath -like '/aegis/*'){$pbase+='/aegis'}elseif($ru.AbsolutePath -like '/api/*'){$pbase+='/api'}
+  $fetched=Invoke-RestMethod -Uri ($pbase+'/v1/policy') -Headers @{Authorization='Bearer '+$env:AEGIS_REPORT_TOKEN} -TimeoutSec 20
+  function Aegis-VerGt([string]$a,[string]$b){
+    $pa=@($a -split '\.' | ForEach-Object { $m=[regex]::Match($_,'\d+'); if($m.Success){[int]$m.Value}else{0} })
+    $pb=@($b -split '\.' | ForEach-Object { $m=[regex]::Match($_,'\d+'); if($m.Success){[int]$m.Value}else{0} })
+    for($i=0;$i -lt 3;$i++){ if($pa[$i] -gt $pb[$i]){return $true}elseif($pa[$i] -lt $pb[$i]){return $false} }
+    return $false
+  }
+  $curVer=if ($curPol -and $curPol.version) { [string]$curPol.version } else { '0.0.0' }
+  if ($fetched -and $fetched.schema -eq 'aegis.policy/v1' -and $fetched.signature -and $fetched.ed25519_signature -and (Aegis-VerGt ([string]$fetched.version) $curVer)) {
+    ($fetched | ConvertTo-Json -Depth 20) | Set-Content -Encoding UTF8 $policyPath
+  }
+}catch{}
 $policy=$null;$policyInvalid=$false
 try {
   if(-not (Test-Path $policyPath)){throw 'missing policy'}
@@ -28,6 +48,7 @@ try {
   foreach($invocation in @($candidate.allowed_mcp_invocations)){if($invocation -isnot [System.Array] -or @($invocation).Count -lt 2 -or @($invocation|Where-Object{-not ($_ -is [string]) -or -not $_}).Count){throw 'invalid MCP invocation policy'}}
   $policy=$candidate
 } catch {$policyInvalid=$true}
+$script:policyAutoSync = if ($policy -and $policy.modules -and ($policy.modules.policy_auto_sync -eq $false)) { $false } else { $true }
 $maxFileBytes=1000000
 if($policy -and $policy.limits -and $policy.limits.max_file_bytes){$maxFileBytes=[Math]::Min([Math]::Max([int64]$policy.limits.max_file_bytes,65536),10000000)}
 $projectFileLimit=10000
@@ -448,7 +469,7 @@ if ($identitySn) { $deviceMaterial = "aegis-hw:" + $identitySn } else { $deviceM
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $sn = $serialDisplay
-$agentVersion = '0.36.1'
+$agentVersion = '0.36.2'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
