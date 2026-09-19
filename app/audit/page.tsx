@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ScrollText, ShieldCheck } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
+import { EvidenceDialog } from '@/components/evidence-dialog';
 
 /* ─── Types ─────────────────────────────────────────────── */
 type ResourceType = 'device' | 'ticket' | 'policy' | 'system';
@@ -89,6 +90,7 @@ export default function AuditPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [denied, setDenied] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
 
   const buildUrl = useCallback(
     (pageOffset: number) => {
@@ -161,6 +163,9 @@ export default function AuditPage() {
         </div>
         {/* 4A · Accounting 合规导出：全量附件下载（服务端留审计）。 */}
         <div className="head-actions">
+          <Button variant="outline" size="sm" onClick={() => setShowEvidence(true)}>
+            导出证据包
+          </Button>
           <a className="handle" href="/api/audit?format=csv" download style={{ fontSize: 12 }}>
             导出 CSV
           </a>
@@ -169,6 +174,8 @@ export default function AuditPage() {
           </a>
         </div>
       </div>
+
+      {showEvidence && <EvidenceDialog onClose={() => setShowEvidence(false)} />}
 
       {/* Filters */}
       <div
