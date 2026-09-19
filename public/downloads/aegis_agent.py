@@ -52,7 +52,26 @@ def validate_policy(data):
         except re.error as exc: raise ValueError("invalid_policy_regex") from exc
     invocations=data.get("allowed_mcp_invocations",[])
     if not isinstance(invocations,list) or any(not isinstance(item,list) or len(item)<2 or any(not isinstance(value,str) or not value for value in item) for item in invocations): raise ValueError("invalid_mcp_invocations")
+    # modules(真实可开关) 与 deny(显式封禁名单) 为可选块：缺省=全开/空名单，向后兼容旧策略。
+    modules=data.get("modules",{})
+    if not isinstance(modules,dict) or any(not isinstance(k,str) or not isinstance(v,bool) for k,v in modules.items()): raise ValueError("invalid_policy_modules")
+    deny=data.get("deny",{})
+    if not isinstance(deny,dict): raise ValueError("invalid_policy_deny")
+    for dkey in ("skills","mcp"):
+        dval=deny.get(dkey,[])
+        if not isinstance(dval,list) or any(not isinstance(x,str) or not x for x in dval): raise ValueError("invalid_policy_deny:"+dkey)
     return data
+def policy_module(policy,name,default=True):
+    """模块开关：策略 modules.<name>，缺省 default。执行类开关(skill_enforce/mcp_enforce)缺省 False 由调用方传入。"""
+    mods=policy.get("modules") if isinstance(policy,dict) else None
+    if isinstance(mods,dict) and name in mods and isinstance(mods[name],bool): return mods[name]
+    return default
+def policy_deny(policy,kind):
+    deny=policy.get("deny") if isinstance(policy,dict) else None
+    if isinstance(deny,dict):
+        val=deny.get(kind,[])
+        if isinstance(val,list): return [x for x in val if isinstance(x,str)]
+    return []
 def canonical_json(obj):
     # 必须与控制台 lib/policy.ts 的 canonicalJson 逐字节一致：递归排序 key + 紧凑分隔符 + 不转义非 ASCII。
     return json.dumps(obj,sort_keys=True,separators=(",",":"),ensure_ascii=False)
@@ -449,8 +468,163 @@ def scan_skill(skill_file,policy,max_files=500):
         if scanned>=max_files: out.append(finding("skill_scan_truncated","medium",root,f"Skill 文件数超过扫描上限 {max_files}")); break
     for f in out: f["asset_type"]="skill"; f["asset_key"]=str(name)[:128]
     return out,scanned
+# ── 执行器(enforcement)：Skill 隔离 / MCP 配置移除，带备份+可回滚+回执 ──────────
+# 不依赖任何外部 EDR，封禁=终端自身原子操作：
+#   Skill：整目录 os.replace 移到 ~/.aegis-quarantine/<ts>-<name>/，旁置 manifest；
+#          名单解除后 reconcile 只恢复"带 aegis manifest 的自己隔离物"，原样归位。
+#   MCP ：先备份原配置为 <cfg>.aegis-bak，再原子改写 JSON 移除被禁 server；
+#          名单解除后从备份把该 server 合并回（不整文件回滚，避免覆盖期间其它改动）。
+# 门控：modules.skill_enforce / modules.mcp_enforce 为 True 才执行（缺省 False，防止
+#       自主破坏，符合"不可逆操作须人工审批"）；名单=签名策略 deny.*（发布即审批），
+#       或 enforcement.unknown_skill=block 时对未批准 Skill（仍需 skill_enforce 开）。
+QUARANTINE_DIRNAME=".aegis-quarantine"
+QUARANTINE_MANIFEST_SUFFIX=".aegis-quarantine.json"
+MCP_BACKUP_SUFFIX=".aegis-bak"
+MCP_SERVER_KEYS=("mcpServers","servers","mcp_servers")
+def quarantine_dir():
+    return Path(os.path.expanduser("~"))/QUARANTINE_DIRNAME
+def _atomic_write_json(path,obj,mode=None):
+    fd,tmp=tempfile.mkstemp(prefix=".aegis-tmp-",dir=str(path.parent))
+    try:
+        with os.fdopen(fd,"w") as fh: json.dump(obj,fh,ensure_ascii=False,sort_keys=True,indent=2)
+        os.replace(tmp,str(path))
+        if mode is not None: os.chmod(str(path),mode)
+    except Exception:
+        try: os.unlink(tmp)
+        except OSError: pass
+        raise
+def quarantine_skill(skill_root,reason):
+    try:
+        q=quarantine_dir(); q.mkdir(parents=True,exist_ok=True)
+        name=Path(skill_root).name
+        dest=q/(str(int(time.time()))+"-"+name)
+        if dest.exists(): return None
+        os.replace(str(skill_root),str(dest))
+        manifest={"schema":"aegis.quarantine/v1","asset_type":"skill","asset_key":name,"source":str(skill_root),"dest":str(dest),"reason":reason,"at":int(time.time()),"agent_version":AGENT_VERSION}
+        _atomic_write_json(q/(dest.name+QUARANTINE_MANIFEST_SUFFIX),manifest)
+        return {"asset_type":"skill","asset_key":name,"action":"quarantined","target":str(skill_root),"backup":str(dest),"reason":reason,"ok":True,"at":manifest["at"]}
+    except OSError:
+        return None
+def restore_quarantined_skill(manifest_path):
+    try: m=json.loads(Path(manifest_path).read_text())
+    except (OSError,ValueError): return None
+    if not isinstance(m,dict) or m.get("schema")!="aegis.quarantine/v1" or m.get("asset_type")!="skill": return None
+    dest=Path(m.get("dest","")); src=Path(m.get("source",""))
+    if not dest.exists() or src.exists(): return None
+    try:
+        src.parent.mkdir(parents=True,exist_ok=True)
+        os.replace(str(dest),str(src))
+        os.unlink(str(manifest_path))
+    except OSError: return None
+    return {"asset_type":"skill","asset_key":str(m.get("asset_key","")),"action":"restored","target":str(src),"backup":str(dest),"reason":"policy_no_longer_denies","ok":True,"at":int(time.time())}
+def mcp_deny_apply(config_path,server_name,reason):
+    p=Path(config_path)
+    try: data=json.loads(p.read_text())
+    except (OSError,ValueError): return None
+    if not isinstance(data,dict): return None
+    holder=None
+    for k in MCP_SERVER_KEYS:
+        v=data.get(k)
+        if isinstance(v,dict) and server_name in v: holder=k; break
+    if holder is None: return None  # 已不存在=无需处理
+    backup=p.with_name(p.name+MCP_BACKUP_SUFFIX)
+    if not backup.exists():
+        try: backup.write_bytes(p.read_bytes())
+        except OSError: return None
+    data[holder].pop(server_name,None)
+    try: _atomic_write_json(p,data,mode=(os.stat(str(p)).st_mode & 0o777))
+    except OSError: return None
+    return {"asset_type":"mcp","asset_key":server_name,"action":"config_removed","target":str(p),"backup":str(backup),"reason":reason,"ok":True,"at":int(time.time())}
+def mcp_deny_restore(config_path,server_name):
+    p=Path(config_path); backup=p.with_name(p.name+MCP_BACKUP_SUFFIX)
+    if not backup.exists(): return None
+    try: cur=json.loads(p.read_text()); bak=json.loads(backup.read_text())
+    except (OSError,ValueError): return None
+    if not isinstance(cur,dict) or not isinstance(bak,dict): return None
+    src=None; holder=None
+    for k in MCP_SERVER_KEYS:
+        v=bak.get(k)
+        if isinstance(v,dict) and server_name in v: src=v[server_name]; holder=k; break
+    if src is None: return None
+    for k in MCP_SERVER_KEYS:  # 用户已手动加回则不覆盖
+        v=cur.get(k)
+        if isinstance(v,dict) and server_name in v: return None
+    cur.setdefault(holder,{})[server_name]=src
+    try: _atomic_write_json(p,cur,mode=(os.stat(str(p)).st_mode & 0o777))
+    except OSError: return None
+    return {"asset_type":"mcp","asset_key":server_name,"action":"config_restored","target":str(p),"backup":str(backup),"reason":"policy_no_longer_denies","ok":True,"at":int(time.time())}
+def reconcile_enforcement(policy):
+    """每周期对账：该封的封、不该封但被本 Agent 隔离/移除的自动恢复。返回回执列表。"""
+    actions=[]
+    en_skill=policy_module(policy,"skill_enforce",False)
+    en_mcp=policy_module(policy,"mcp_enforce",False)
+    deny_skills=set(policy_deny(policy,"skills"))
+    deny_mcp=set(policy_deny(policy,"mcp"))
+    allowed_skills=set(policy.get("allowed_skills",[]))
+    block_unknown=en_skill and policy.get("enforcement",{}).get("unknown_skill","audit")=="block"
+    homes=managed_homes()
+    if en_skill:
+        seen=set()
+        for home in homes:
+            for rel in SKILL_ROOTS:
+                d=home/rel
+                if not d.exists(): continue
+                # 先物化列表再遍历：隔离会把目录移走, 边 rglob 边移动会在 Python3.9 的
+                # 生成器里 scandir 已消失的目录 → FileNotFoundError(真机/单测均会触发)。
+                for sm in list(d.rglob("SKILL.md")):
+                    sr=sm.parent.resolve()
+                    if sr in seen or not sr.exists(): continue
+                    seen.add(sr); nm=sr.name
+                    if nm in deny_skills:
+                        r=quarantine_skill(sr,"policy_deny")
+                        if r: actions.append(r)
+                    elif block_unknown and nm not in allowed_skills:
+                        r=quarantine_skill(sr,"unknown_skill_block")
+                        if r: actions.append(r)
+    q=quarantine_dir()
+    if q.exists():
+        for mf in sorted(q.glob("*"+QUARANTINE_MANIFEST_SUFFIX)):
+            try: m=json.loads(mf.read_text())
+            except (OSError,ValueError): continue
+            key=str(m.get("asset_key","")) if isinstance(m,dict) else ""
+            still=en_skill and (key in deny_skills or (block_unknown and key not in allowed_skills))
+            if not still:
+                r=restore_quarantined_skill(mf)
+                if r: actions.append(r)
+    for home in homes:
+        for rel in AGENT_CONFIGS:
+            p=home/rel
+            if not p.exists() or p.suffix.lower()!=".json": continue
+            try: data=json.loads(p.read_text())
+            except (OSError,ValueError): continue
+            if not isinstance(data,dict): continue
+            present=set()
+            for k in MCP_SERVER_KEYS:
+                v=data.get(k)
+                if isinstance(v,dict): present|=set(v.keys())
+            if en_mcp:
+                for nm in sorted(present & deny_mcp):
+                    r=mcp_deny_apply(p,nm,"policy_deny")
+                    if r: actions.append(r)
+            backup=p.with_name(p.name+MCP_BACKUP_SUFFIX)
+            if backup.exists():
+                try: bak=json.loads(backup.read_text())
+                except (OSError,ValueError): bak=None
+                if isinstance(bak,dict):
+                    baknames=set()
+                    for k in MCP_SERVER_KEYS:
+                        v=bak.get(k)
+                        if isinstance(v,dict): baknames|=set(v.keys())
+                    for nm in sorted(baknames-present):
+                        if en_mcp and nm in deny_mcp: continue
+                        r=mcp_deny_restore(p,nm)
+                        if r: actions.append(r)
+    return actions
 def scan(root,policy):
     findings=[]; homes=managed_homes(); inventory=discover_agent_tools(homes)
+    # 模块开关(真实可关): 关掉的模块不扫描也不产出 findings。缺省全开, 向后兼容。
+    m_skill=policy_module(policy,"skill_scan",True); m_mcp=policy_module(policy,"mcp_scan",True)
+    m_code=policy_module(policy,"code_scan",True); m_deps=policy_module(policy,"deps_scan",True)
     skill_seen=set()
     for home in homes:
         for rel in AGENT_CONFIGS:
@@ -461,8 +635,11 @@ def scan(root,policy):
                     size=p.stat().st_size
                     if size>max_file_bytes(policy): findings.append(finding("oversized_file_skipped","medium",p,f"Agent 配置超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
                     else:
-                        text=p.read_text(errors="ignore"); findings.extend(scan_text(p,text,policy)); findings.extend(scan_mcp_config(p,text,policy))
+                        text=p.read_text(errors="ignore")
+                        if m_code: findings.extend(scan_text(p,text,policy))
+                        if m_mcp: findings.extend(scan_mcp_config(p,text,policy))
                 except OSError: findings.append(finding("unreadable","low",p,"配置存在但无法读取"))
+        if not m_skill: continue
         for rel in SKILL_ROOTS:
             d=home/rel
             if d.exists():
@@ -491,9 +668,10 @@ def scan(root,policy):
             try:
                 size=p.stat().st_size
                 if size<=max_file_bytes(policy):
-                    text=p.read_text(errors="ignore"); findings.extend(scan_text(p,text,policy))
-                    if p.name in ["mcp.json","mcp_config.json","config.toml"]: findings.extend(scan_mcp_config(p,text,policy))
-                    if p.name in DEPENDENCY_MANIFESTS: inventory.append({"type":"dependency_manifest","path":safe_path(p)}); findings.extend(scan_dependency_manifest(p,text))
+                    text=p.read_text(errors="ignore")
+                    if m_code: findings.extend(scan_text(p,text,policy))
+                    if m_mcp and p.name in ["mcp.json","mcp_config.json","config.toml"]: findings.extend(scan_mcp_config(p,text,policy))
+                    if m_deps and p.name in DEPENDENCY_MANIFESTS: inventory.append({"type":"dependency_manifest","path":safe_path(p)}); findings.extend(scan_dependency_manifest(p,text))
                 else: findings.append(finding("oversized_file_skipped","medium",p,f"代码或配置文件超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
             except OSError: pass
         if truncated: break
@@ -972,7 +1150,9 @@ def build_report(root,policy):
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"network":collect_physical_network(),"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    network=collect_physical_network() if policy_module(policy,"network_collect",True) else {}
+    enforcement=reconcile_enforcement(policy)
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"network":network,"enforcement":enforcement,"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -1165,8 +1345,8 @@ def main():
     # 自更新必须在 report_url 定稿之后调用：LaunchDaemon/Agent 以 --report-config 传入上报配置，
     # args.report_url 要到上面 load_reporting_config 才被赋值；此前在赋值前调用 → manifest_url
     # 恒空 → 自更新静默不执行（用户手动装新客户端后"未来自更新"不生效的根因）。
-    maybe_self_update(policy, args.report_url)
-    if args.install_baseline: install_baseline(root)
+    if policy_module(policy,"self_update",True): maybe_self_update(policy, args.report_url)
+    if args.install_baseline and policy_module(policy,"baseline_install",True): install_baseline(root)
     while True:
         # 服务器地址覆盖（预留文件 server-override.json）：用户编辑该文件即全自动重新
         # 入网、切换控制台并拉取新策略，无需重装客户端。失败 SOFT FAIL 保持原配置。
@@ -1187,7 +1367,7 @@ def main():
         eb_token=(enrollment or {}).get("report_token") or (reporting or {}).get("report_token") or os.getenv("AEGIS_REPORT_TOKEN","")
         eb_base=(args.report_url or "").replace("/v1/reports","")
         eb_dept=(enrollment or {}).get("department") or os.environ.get("AEGIS_DEVICE_DEPARTMENT","")
-        sync_enterprise_baseline(eb_base, eb_token, host_device_id, eb_dept)
+        if policy_module(policy,"baseline_install",True): sync_enterprise_baseline(eb_base, eb_token, host_device_id, eb_dept)
         if args.auto_enroll: auto_enroll(root)
         report=build_report(root,policy); data=json.dumps(report,ensure_ascii=False,indent=2)
         if reload_failed:

@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server';
 import { requireDeviceWriter, getSession, roleReadsAllDevices } from '@/lib/auth';
 import { getDeviceStore, logAudit } from '@/lib/store';
+import type { Device } from '@/components/device-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,7 @@ interface CollectorDevice {
   latest_severity?: { critical: number; high: number; medium: number; low: number };
   tools?: string[];
   network?: DeviceNetwork;
+  enforcement?: Device['enforcement'];
 }
 
 async function fetchCollectorDevices(): Promise<CollectorDevice[] | null> {
@@ -101,6 +103,7 @@ export async function GET(request: Request) {
       os: ((d as any).os as string) || '',
       serial: ((d as any).serial as string) || '',
       network: (d as any).network as DeviceNetwork | undefined,
+      enforcement: (d as any).enforcement as Device['enforcement'] | undefined,
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',

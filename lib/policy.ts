@@ -56,6 +56,8 @@ export interface PolicyBody {
   agent_self_update: Record<string, unknown>;
   custom_baseline_rules: string[];
   monitor_notes: Record<string, string>;
+  modules: Record<string, boolean>;
+  deny: { skills: string[]; mcp: string[] };
 }
 
 /**
@@ -90,6 +92,13 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
   monitor_notes: {
     node_repl: 'approved+monitor: computer-use 必需能力, 已加白但保持调用审计与 TRUSTED_CODE_PATHS 约束',
   },
+  // 模块开关出厂默认：扫描类全开；封禁执行类默认关（deny 名单只报不封，打开才真封禁）。
+  modules: {
+    skill_scan: true, mcp_scan: true, code_scan: true, deps_scan: true,
+    baseline_install: true, network_collect: true, self_update: true,
+    skill_enforce: false, mcp_enforce: false,
+  },
+  deny: { skills: [], mcp: [] },
 };
 
 /** 出厂默认已加白清单（叠加处置 allow 之前的基线）。
@@ -119,7 +128,7 @@ function dedupeSorted(items: string[]): string[] {
  * - custom_baseline_rules 来自调用方传入的 effectiveRules()∩可执行规则集，使
  *   scan_mode=custom 真正强制导入的基线，而不是空集静默关闭扫描。
  */
-export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[] }): PolicyBody {
+export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[]; modules?: Record<string, boolean> }): PolicyBody {
   const labels = opts.labels ?? listLabels();
   const allowSkills = labels.filter((l) => l.asset_type === 'skill' && l.disposition === 'allow').map((l) => l.asset_key);
   const allowMcp = labels.filter((l) => l.asset_type === 'mcp' && l.disposition === 'allow').map((l) => l.asset_key);
@@ -139,6 +148,13 @@ export function computePolicyBody(opts: { version: string; scanMode: string; lab
 
   const custom_baseline_rules = dedupeSorted(opts.customRuleIds ?? []);
 
+  // 显式封禁名单(deny.*): 终端执行器据此隔离 Skill / 移除 MCP 配置(受 modules.*_enforce 门控)。
+  // 模块开关(modules): 出厂默认之上叠加控制台持久化的覆盖值; 执行类开关默认 false。
+  const baseModules = BASE_POLICY.modules;
+  const modules: Record<string, boolean> = { ...baseModules };
+  if (opts.modules) Object.assign(modules, opts.modules);
+  const deny = { skills: dedupeSorted([...denySkills]), mcp: dedupeSorted([...denyMcp]) };
+
   return {
     ...BASE_POLICY,
     version: opts.version,
@@ -147,6 +163,8 @@ export function computePolicyBody(opts: { version: string; scanMode: string; lab
     scan_mode: opts.scanMode || DEFAULT_SCAN_MODE,
     custom_baseline_rules,
     monitor_notes,
+    modules,
+    deny,
   };
 }
 
@@ -465,12 +483,12 @@ function countLabels(labels: AssetLabel[]): PolicyReceipt {
  * 编译 + 签名 + 落库一次策略发布。version 单调递增，旧发布置 superseded。
  * 需要已配置签名密钥；未配置返回 null（调用方据此诚实报错，不产出未签名策略）。
  */
-export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[] }): PolicyRelease | null {
+export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[]; modules?: Record<string, boolean> }): PolicyRelease | null {
   if (!activeKeyIdResolved()) return null;
   const arr = releases();
   const nextVersion = arr.reduce((max, r) => Math.max(max, r.version), 0) + 1;
   const labels = listLabels();
-  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds });
+  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds, modules: opts.modules });
   const signature = signPolicyBody(body);
   if (!signature) return null;
   const now = Date.now();

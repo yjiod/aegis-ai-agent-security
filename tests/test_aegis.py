@@ -1131,4 +1131,66 @@ class AegisTests(unittest.TestCase):
             finally:
                 self.agent.server_override_path=orig_path; self.agent.enroll_to_server=orig_enroll
 
+    def test_policy_modules_deny_contract(self):
+        base=json.loads((DOWNLOADS/'aegis-policy.json').read_text())
+        self.agent.validate_policy(base)  # 出厂策略现携带 modules+deny
+        bad=dict(base); bad['modules']={'skill_scan':'yes'}
+        with self.assertRaises(ValueError): self.agent.validate_policy(bad)
+        bad2=dict(base); bad2['deny']={'skills':[1]}
+        with self.assertRaises(ValueError): self.agent.validate_policy(bad2)
+        self.assertTrue(self.agent.policy_module(base,'skill_scan'))
+        self.assertFalse(self.agent.policy_module(base,'skill_enforce',False))  # 执行类缺省关
+        self.assertEqual(self.agent.policy_deny(base,'skills'),[])
+    def test_enforcer_skill_quarantine_and_restore(self):
+        with tempfile.TemporaryDirectory() as td:
+            home=Path(td)/'home'; skill=home/'.claude'/'skills'/'evil-skill'; skill.mkdir(parents=True)
+            (skill/'SKILL.md').write_text('# evil')
+            qdir=Path(td)/'q'
+            orig_homes=self.agent.managed_homes; orig_q=self.agent.quarantine_dir
+            self.agent.managed_homes=lambda:[home]; self.agent.quarantine_dir=lambda:qdir
+            try:
+                pol={'schema':'aegis.policy/v1','version':'1','modules':{'skill_enforce':True},'deny':{'skills':['evil-skill'],'mcp':[]},'allowed_skills':[],'enforcement':{'unknown_skill':'audit'}}
+                actions=self.agent.reconcile_enforcement(pol)
+                self.assertEqual([a['action'] for a in actions],['quarantined'])
+                self.assertFalse(skill.exists()); self.assertTrue(qdir.exists())
+                pol2=dict(pol); pol2['modules']={'skill_enforce':False}
+                actions2=self.agent.reconcile_enforcement(pol2)
+                self.assertEqual([a['action'] for a in actions2],['restored'])
+                self.assertTrue((skill/'SKILL.md').exists())
+            finally:
+                self.agent.managed_homes=orig_homes; self.agent.quarantine_dir=orig_q
+    def test_enforcer_mcp_remove_and_restore(self):
+        with tempfile.TemporaryDirectory() as td:
+            home=Path(td)/'home'; cfgdir=home/'.cursor'; cfgdir.mkdir(parents=True)
+            cfg=cfgdir/'mcp.json'
+            cfg.write_text(json.dumps({'mcpServers':{'bad':{'command':'x'},'good':{'command':'y'}}}))
+            orig_homes=self.agent.managed_homes
+            self.agent.managed_homes=lambda:[home]
+            try:
+                pol={'schema':'aegis.policy/v1','version':'1','modules':{'mcp_enforce':True},'deny':{'skills':[],'mcp':['bad']},'allowed_skills':[],'enforcement':{}}
+                actions=self.agent.reconcile_enforcement(pol)
+                self.assertEqual([a['action'] for a in actions],['config_removed'])
+                data=json.loads(cfg.read_text()); self.assertNotIn('bad',data['mcpServers']); self.assertIn('good',data['mcpServers'])
+                self.assertTrue((cfgdir/'mcp.json.aegis-bak').exists())
+                pol2=dict(pol); pol2['deny']={'skills':[],'mcp':[]}
+                actions2=self.agent.reconcile_enforcement(pol2)
+                self.assertEqual([a['action'] for a in actions2],['config_restored'])
+                data2=json.loads(cfg.read_text()); self.assertIn('bad',data2['mcpServers'])
+            finally:
+                self.agent.managed_homes=orig_homes
+    def test_enforcer_off_by_default(self):
+        # 执行开关缺省关: 有 deny 名单也不动文件(只报不封), 防自主破坏。
+        with tempfile.TemporaryDirectory() as td:
+            home=Path(td)/'home'; skill=home/'.claude'/'skills'/'evil-skill'; skill.mkdir(parents=True)
+            (skill/'SKILL.md').write_text('# evil')
+            orig_homes=self.agent.managed_homes
+            self.agent.managed_homes=lambda:[home]
+            try:
+                pol={'schema':'aegis.policy/v1','version':'1','deny':{'skills':['evil-skill'],'mcp':[]},'allowed_skills':[],'enforcement':{}}
+                actions=self.agent.reconcile_enforcement(pol)
+                self.assertEqual(actions,[])
+                self.assertTrue(skill.exists())
+            finally:
+                self.agent.managed_homes=orig_homes
+
 if __name__=='__main__': unittest.main()

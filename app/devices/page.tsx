@@ -876,6 +876,29 @@ export default function DevicesPage() {
                         </div>
                       );
                     })()}
+                    {/* 执行器回执：封禁/隔离/恢复动作及备份位置（终端自报，最近若干条） */}
+                    {(((device as { enforcement?: { asset_type: string; asset_key: string; action: string; target?: string; backup?: string; reason?: string; ok?: boolean; at?: number }[] }).enforcement ?? []).length > 0) && (
+                      <div style={{ marginBottom: 12 }}>
+                        <h4 style={{ fontSize: 12, margin: '0 0 6px', color: 'var(--muted-foreground)' }}>封禁 / 隔离执行回执</h4>
+                        <div className="data-table">
+                          <div className="data-head" style={{ gridTemplateColumns: '0.7fr 1.2fr 1fr 1.6fr' }}>
+                            <span>类型</span><span>对象</span><span>动作</span><span>备份 / 原因</span>
+                          </div>
+                          {((device as { enforcement?: { asset_type: string; asset_key: string; action: string; target?: string; backup?: string; reason?: string; ok?: boolean; at?: number }[] }).enforcement ?? []).map((e, i) => (
+                            <div className="data-row" key={i} style={{ gridTemplateColumns: '0.7fr 1.2fr 1fr 1.6fr' }}>
+                              <span style={{ fontSize: 11 }}>{e.asset_type}</span>
+                              <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{e.asset_key}</span>
+                              <span>
+                                <i className={e.action === 'restored' || e.action === 'config_restored' ? 'pass' : 'warn'} style={{ fontStyle: 'normal', fontSize: 11 }}>{e.action}</i>
+                              </span>
+                              <span style={{ fontSize: 10, color: 'var(--muted-foreground)', wordBreak: 'break-all' }}>
+                                {e.backup || e.target || '—'}{e.reason ? ` · ${e.reason}` : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <h3 style={{ fontSize: 14, margin: 0 }}>最新扫描发现项</h3>
                       <button onClick={() => void toggleFindings(device.device_id)} style={{ background: 'none', border: 0, color: 'var(--muted-foreground)', cursor: 'pointer', fontSize: 12 }}>收起</button>

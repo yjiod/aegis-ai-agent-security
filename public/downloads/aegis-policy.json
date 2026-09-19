@@ -13,6 +13,21 @@
     "unknown_mcp": "audit",
     "critical_finding": "block"
   },
+  "modules": {
+    "skill_scan": true,
+    "mcp_scan": true,
+    "code_scan": true,
+    "deps_scan": true,
+    "baseline_install": true,
+    "network_collect": true,
+    "self_update": true,
+    "skill_enforce": false,
+    "mcp_enforce": false
+  },
+  "deny": {
+    "skills": [],
+    "mcp": []
+  },
   "allowed_skills": [
     "claude-dev-suite-java-quality",
     "dingtalk-aisearch",

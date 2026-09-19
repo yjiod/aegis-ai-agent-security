@@ -4,6 +4,7 @@ import { ensureLabelsLoaded } from '@/lib/labels';
 import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
 import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds } from '@/lib/policy';
+import { moduleOverrides } from '@/lib/modules';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds });
+  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds, modules: moduleOverrides() });
   if (!rel) {
     return NextResponse.json(
       { error: 'signing_key_not_configured', hint: '设置 AEGIS_POLICY_SIGNING_KEYS（或单钥 AEGIS_POLICY_SIGNING_KEY）后才能发布签名策略' },

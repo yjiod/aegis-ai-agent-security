@@ -90,15 +90,27 @@ def _valid_network(n):
             ips=x.get("ips")
             if ips is not None and not (isinstance(ips,list) and len(ips)<=64 and all(isinstance(i,str) and 1<=len(i)<=64 for i in ips)): return False
     return True
+def _valid_enforcement(e):
+    """enforcement = 终端执行器回执列表 [{asset_type,asset_key,action,target,backup,reason,ok,at}]。"""
+    if not isinstance(e,list) or len(e)>64: return False
+    for x in e:
+        if not isinstance(x,dict): return False
+        for k in ("asset_type","asset_key","action"):
+            if not (isinstance(x.get(k),str) and 1<=len(x[k])<=64): return False
+        for k in ("target","backup","reason"):
+            if k in x and not (isinstance(x[k],str) and len(x[k])<=512): return False
+        if "ok" in x and not isinstance(x["ok"],bool): return False
+    return True
 def valid_report(d,now=None):
     """Validate the published v1 contract without a third-party JSON Schema runtime."""
     if not isinstance(d,dict): return False
     required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}
-    allowed=required|{"scan_root","inventory","hostname","os_user","owner","os","serial","enterprise_baseline_version","network"}
+    allowed=required|{"scan_root","inventory","hostname","os_user","owner","os","serial","enterprise_baseline_version","network","enforcement"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
     if d.get("schema")!="aegis.report/v1": return False
     if "owner" in d and not (isinstance(d["owner"],str) and len(d["owner"])<=64): return False
     if "network" in d and not _valid_network(d["network"]): return False
+    if "enforcement" in d and not _valid_enforcement(d["enforcement"]): return False
     if "enterprise_baseline_version" in d and not (isinstance(d["enterprise_baseline_version"],str) and len(d["enterprise_baseline_version"])<=32): return False
     if "os" in d and not (isinstance(d["os"],str) and 1<=len(d["os"])<=16): return False
     if "serial" in d and not (isinstance(d["serial"],str) and len(d["serial"])<=64): return False
@@ -375,6 +387,8 @@ class Handler(BaseHTTPRequestHandler):
                         if isinstance(body.get("policy_version"),str): dev["policy_version"]=body["policy_version"][:32]
                         net=body.get("network")
                         if isinstance(net,dict): dev["network"]=net
+                        enf=body.get("enforcement")
+                        if isinstance(enf,list): dev["enforcement"]=enf[:10]
                         inv=body.get("inventory")
                         if isinstance(inv,list):
                             dev["tools"]=sorted({x.get("name") for x in inv if isinstance(x,dict) and x.get("type")=="ai_agent" and isinstance(x.get("name"),str)})[:20]

@@ -5,25 +5,77 @@ import { SlidersHorizontal, ShieldCheck, KeyRound, Download } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
+import { MODULE_LABELS, MODULE_HINTS, type ModuleKey } from '@/lib/modules';
 
-/**
- * 终端安全策略。
- *
- * 顶部「当前生效策略」读真实发布件（/api/policy/current）：显示已签名的策略版本、
- * 签名密钥指纹与发布回执；未发布时如实显示"尚未发布"。发布动作在「处置中心」，
- * 它把处置决定编译成签名的 aegis.policy/v1 下发终端强制。
- *
- * 下方「出厂默认策略基线」是终端在控制台首次发布之前使用的默认约束（只读说明），
- * 不做"点了翻转又自动弹回"的假反馈。
- */
-const policies = [
-  { name: '自动发现 AI Agent', desc: '检测主流 AI Coding 工具（Cursor、Claude Code、Codex、Windsurf）', on: true },
-  { name: '强制加载安全基线', desc: '启动时注入企业编码规范，未加载则阻断 Agent 执行', on: true },
-  { name: '高危 MCP 自动隔离', desc: '阻断越权文件访问与未声明外联，隔离后通知安全管理员', on: true },
-  { name: '未知 Skill 默认禁用', desc: '等待签名验证与安全审批，未审批 Skill 不加载', on: false },
-  { name: '代码质量门禁', desc: '阻断高危 SAST 发现合入主分支，中危需人工审批', on: true },
-  { name: '离线队列加密', desc: '报告暂存时使用 AES-256-GCM 加密，防止本地窃取', on: true },
-];
+/** 模块开关出厂默认（与 public/downloads/aegis-policy.json 的 modules 一致）。
+ *  执行类开关(skill_enforce/mcp_enforce)默认 false：deny 名单只报不封，打开才真封禁。 */
+const MODULE_DEFAULTS: Record<string, boolean> = {
+  skill_scan: true, mcp_scan: true, code_scan: true, deps_scan: true,
+  baseline_install: true, network_collect: true, self_update: true,
+  skill_enforce: false, mcp_enforce: false,
+};
+
+/** 真实可开关的模块列表：状态持久化在服务端(/api/settings/modules)，
+ *  随下一次签名策略发布下发终端。取代此前的只读假开关。 */
+function ModuleToggles({ isAdmin }: { isAdmin: boolean }) {
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState('');
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch('/api/settings/modules', { cache: 'no-store' });
+      if (r.ok) { const d = (await r.json()) as { modules?: Record<string, boolean> }; setOverrides(d.modules ?? {}); }
+      else setErr('读取模块开关失败 HTTP ' + r.status);
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    setLoaded(true);
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const toggle = async (key: string, on: boolean) => {
+    if (!isAdmin || busy) return;
+    setBusy(key); setErr('');
+    const next = { ...overrides, [key]: on };
+    try {
+      const r = await fetch('/api/settings/modules', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modules: next }) });
+      if (r.ok) { const d = (await r.json()) as { modules?: Record<string, boolean> }; setOverrides(d.modules ?? next); }
+      else setErr('保存模块开关失败 HTTP ' + r.status + '（未生效）');
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+    setBusy('');
+  };
+  return (
+    <>
+      {err && <p style={{ color: '#ff685f', fontSize: 12, margin: '0 0 8px' }}>{err}</p>}
+      {!loaded && <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>加载模块开关…</p>}
+      {Object.keys(MODULE_DEFAULTS).map((key, index) => {
+        const on = overrides[key] ?? MODULE_DEFAULTS[key];
+        return (
+          <div className="setting-row animate-row-entrance" key={key} style={{ animationDelay: `${index * 30 + 200}ms` }}>
+            <div>
+              <strong>{MODULE_LABELS[key as ModuleKey] ?? key}</strong>
+              <span>{MODULE_HINTS[key as ModuleKey] ?? ''}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <i className={on ? 'pass' : 'warn'} style={{ fontSize: 11, fontStyle: 'normal' }}>{on ? '开' : '关'}</i>
+              <button
+                className={`switch ${on ? 'on' : ''}`}
+                disabled={!isAdmin || busy === key}
+                onClick={() => void toggle(key, !on)}
+                title={isAdmin ? '切换模块；下一次发布策略后随签名策略下发终端' : '仅管理员可切换'}
+                aria-label={MODULE_LABELS[key as ModuleKey] ?? key}
+              >
+                <span />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '8px 0 0' }}>
+        开关持久化在服务端，<b>下一次「处置中心」发布策略</b>后随签名策略下发终端生效。
+        「封禁执行」类开关默认关闭：deny 名单只报不封；打开后终端才真正隔离 Skill / 移除 MCP（带备份可回滚）。
+      </p>
+    </>
+  );
+}
 
 interface CurrentRelease {
   published: boolean;
@@ -260,33 +312,11 @@ export default function PoliciesPage() {
       <div className="panel">
         <div className="panel-head">
           <div>
-            <h2>出厂默认策略基线</h2>
-            <p>终端在首次发布前使用的默认约束（只读）；共 {policies.length} 项，{policies.filter((p) => p.on).length} 项默认启用</p>
+            <h2>模块开关（真实可开关）</h2>
+            <p>控制终端各扫描/执行模块与封禁执行；服务端持久化，随下一次签名策略发布下发</p>
           </div>
         </div>
-        {policies.map((policy, index) => (
-          <div
-            className="setting-row animate-row-entrance"
-            key={policy.name}
-            style={{ animationDelay: `${index * 30 + 200}ms` }}
-          >
-            <div>
-              <strong>{policy.name}</strong>
-              <span>{policy.desc}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <i className="warn" style={{ fontSize: 11, fontStyle: 'normal' }}>只读</i>
-              <button
-                className={`switch ${policy.on ? 'on' : ''}`}
-                disabled
-                title="出厂默认基线为只读；实际生效策略以处置中心发布件为准"
-                aria-label={`${policy.name}（只读）`}
-              >
-                <span />
-              </button>
-            </div>
-          </div>
-        ))}
+        <ModuleToggles isAdmin={isAdmin} />
       </div>
     </>
   );
