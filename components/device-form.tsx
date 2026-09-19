@@ -79,6 +79,17 @@ export type Device = {
     local_ips?: string[];
     egress_ip?: string;
   };
+  /** 终端执行器回执（封禁/隔离/恢复动作及备份位置），最近若干条。 */
+  enforcement?: {
+    asset_type: string;
+    asset_key: string;
+    action: string;
+    target?: string;
+    backup?: string;
+    reason?: string;
+    ok?: boolean;
+    at?: number;
+  }[];
 };
 
 /** 表单提交给 `/api/devices` 的载荷。 */
@@ -264,6 +275,26 @@ export function parseDevice(raw: unknown): Device | null {
     })(),
     // 物理网卡/出口 IP 必须透传：设备页要展示 MAC、本机 IP、互联网出口；此前未取会静默丢字段。
     ...(() => { const n = parseNetwork(data.network); return n ? { network: n } : {}; })(),
+    // 执行器回执透传（收敛形态，丢弃非法项），设备页展示封禁/隔离/恢复动作。
+    ...(() => {
+      const raw = data.enforcement;
+      if (!Array.isArray(raw)) return {};
+      const list = raw
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x))
+        .slice(0, 10)
+        .map((x) => ({
+          asset_type: text(x.asset_type, 64),
+          asset_key: text(x.asset_key, 64),
+          action: text(x.action, 64),
+          ...(typeof x.target === 'string' ? { target: x.target.slice(0, 512) } : {}),
+          ...(typeof x.backup === 'string' ? { backup: x.backup.slice(0, 512) } : {}),
+          ...(typeof x.reason === 'string' ? { reason: x.reason.slice(0, 120) } : {}),
+          ...(typeof x.ok === 'boolean' ? { ok: x.ok } : {}),
+          ...(typeof x.at === 'number' ? { at: x.at } : {}),
+        }))
+        .filter((x) => x.asset_type && x.asset_key && x.action);
+      return list.length > 0 ? { enforcement: list } : {};
+    })(),
   };
 }
 
