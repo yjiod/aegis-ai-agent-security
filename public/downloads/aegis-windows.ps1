@@ -528,6 +528,74 @@ try {
 # MCP=从 AI 工具配置删除; 每个扫描周期自动对账, 复发即再封, 无需人工反复操作;
 # 备份/隔离区仅供管理员回滚(名单解除后自动原样恢复)。只封签名策略 deny.* 名单
 # (发布=人工审批), 且受 modules.skill_enforce/mcp_enforce 门控(缺省关=只报不封)。
+# ── 执行级封禁(真封禁): 终止在跑进程 + icacls exec-deny + 防火墙出站 block ──────
+# 弥补"移除配置"管不住已运行/已连接实例。只针对 deny 名单; 进程匹配用精确可执行路径
+# (Get-Process.Path 全等), 绝不模糊匹配。防火墙规则命名 aegis-deny-<name> 便于解封移除。
+function Get-AegisMcpSpec {
+  param($BakPath, $Name)
+  $bak = $null
+  try { $bak = Get-Content -LiteralPath $BakPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { return $null }
+  if (-not $bak) { return $null }
+  foreach ($k in @('mcpServers', 'servers', 'mcp_servers')) {
+    $v = $bak.$k
+    if ($v -and $v.PSObject.Properties[$Name]) {
+      $cfg = $v.$Name
+      return @{ command = [string]$cfg.command; url = [string]$cfg.url }
+    }
+  }
+  return $null
+}
+function Invoke-AegisHardBlock {
+  param($Name, $Spec)
+  $out = @()
+  if (-not $Spec) { return $out }
+  $cmd = [string]$Spec.command
+  $ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  $bin = $null
+  if ($cmd) {
+    if (Test-Path -LiteralPath $cmd) { $bin = (Resolve-Path -LiteralPath $cmd).Path }
+    else { $w = Get-Command $cmd -ErrorAction SilentlyContinue; if ($w) { $bin = $w.Source } }
+  }
+  if ($bin) {
+    Get-Process | Where-Object { $_.Path -eq $bin } | ForEach-Object {
+      try { Stop-Process -Id $_.Id -Force -ErrorAction Stop; $out += @{ asset_type = 'mcp'; asset_key = $Name; action = 'process_killed'; target = $bin; reason = 'policy_deny'; ok = $true; at = $ts; pid = $_.Id } } catch { }
+    }
+    try {
+      & icacls $bin /deny "*S-1-1-0:(RX)" 2>&1 | Out-Null
+      $out += @{ asset_type = 'mcp'; asset_key = $Name; action = 'exec_denied'; target = $bin; reason = 'policy_deny'; ok = $true; at = $ts }
+    } catch { }
+  }
+  $url = [string]$Spec.url
+  if ($url) {
+    try {
+      $u = [Uri]$url; $h = $u.Host
+      $rule = "aegis-deny-$Name"
+      Remove-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue | Out-Null
+      New-NetFirewallRule -DisplayName $rule -Direction Outbound -Action Block -RemoteAddress $h -ErrorAction Stop | Out-Null
+      $out += @{ asset_type = 'mcp'; asset_key = $Name; action = 'net_blocked'; target = $h; reason = 'policy_deny'; ok = $true; at = $ts }
+    } catch { }
+  }
+  return $out
+}
+function Invoke-AegisHardUnblock {
+  param($Name, $Spec)
+  $out = @()
+  $ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+  $cmd = if ($Spec) { [string]$Spec.command } else { '' }
+  $bin = $null
+  if ($cmd) {
+    if (Test-Path -LiteralPath $cmd) { $bin = (Resolve-Path -LiteralPath $cmd).Path }
+    else { $w = Get-Command $cmd -ErrorAction SilentlyContinue; if ($w) { $bin = $w.Source } }
+  }
+  if ($bin) {
+    try { & icacls $bin /remove:d "*S-1-1-0" 2>&1 | Out-Null; $out += @{ asset_type = 'mcp'; asset_key = $Name; action = 'exec_restored'; target = $bin; reason = 'policy_no_longer_denies'; ok = $true; at = $ts } } catch { }
+  }
+  try {
+    $r = Remove-NetFirewallRule -DisplayName "aegis-deny-$Name" -ErrorAction SilentlyContinue
+    if ($r) { $out += @{ asset_type = 'mcp'; asset_key = $Name; action = 'net_unblocked'; target = "aegis-deny-$Name"; reason = 'policy_no_longer_denies'; ok = $true; at = $ts } }
+  } catch { }
+  return $out
+}
 function Invoke-AegisEnforce {
   param($Policy)
   $actions = @()
@@ -597,6 +665,7 @@ function Invoke-AegisEnforce {
         if ($data.$holder.PSObject.Properties[$nm]) {
           $data.$holder.PSObject.Properties.Remove($nm)
           $actions += @{ asset_type = 'mcp'; asset_key = $nm; action = 'config_removed'; target = $p; backup = $bak; reason = 'policy_deny'; ok = $true; at = $ts }
+          $actions += @(Invoke-AegisHardBlock -Name $nm -Spec (Get-AegisMcpSpec -BakPath $bak -Name $nm))
         }
       }
       try { ($data | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath $p -Encoding UTF8 } catch { }
@@ -619,6 +688,7 @@ function Invoke-AegisEnforce {
               $data.$k | Add-Member -NotePropertyName $nm -NotePropertyValue $prop.Value -Force
               $changed = $true
               $actions += @{ asset_type = 'mcp'; asset_key = $nm; action = 'config_restored'; target = $p; backup = $bak; reason = 'policy_no_longer_denies'; ok = $true; at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+              $actions += @(Invoke-AegisHardUnblock -Name $nm -Spec (Get-AegisMcpSpec -BakPath $bak -Name $nm))
             }
           }
         }

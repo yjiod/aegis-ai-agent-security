@@ -1193,4 +1193,23 @@ class AegisTests(unittest.TestCase):
             finally:
                 self.agent.managed_homes=orig_homes
 
+    def test_enforcer_mcp_exec_deny_roundtrip(self):
+        import os
+        with tempfile.TemporaryDirectory() as td:
+            binp=Path(td)/'fake-mcp-server'; binp.write_text('#!/bin/sh\n'); os.chmod(str(binp),0o755)
+            orig_store=self.agent._exec_deny_store_path
+            self.agent._exec_deny_store_path=lambda: Path(td)/'store.json'
+            try:
+                spec={'command':str(binp),'url':''}
+                acts=self.agent._mcp_hard_block('bad-mcp',spec)
+                self.assertIn('exec_denied',[a['action'] for a in acts])
+                self.assertFalse(os.stat(str(binp)).st_mode & 0o111)  # 已不可执行
+                acts2=self.agent._mcp_hard_unblock('bad-mcp',spec)
+                self.assertIn('exec_restored',[a['action'] for a in acts2])
+                self.assertTrue(os.stat(str(binp)).st_mode & 0o111)  # 解封还原
+            finally:
+                self.agent._exec_deny_store_path=orig_store
+    def test_kill_matching_exact_token_only(self):
+        self.assertEqual(self.agent._kill_matching('/nonexistent/bin/xyz'),[])
+
 if __name__=='__main__': unittest.main()

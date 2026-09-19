@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Aegis endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
-import argparse, base64, hashlib, hmac, json, os, platform, re, stat, subprocess, sys, tempfile, time, urllib.request
+import argparse, base64, hashlib, hmac, json, os, platform, re, shutil, signal, stat, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 # 冻结(PyInstaller/Nuitka --onefile)后 __file__ 指向临时解压目录(_MEIPASS)，agent 的 sibling
@@ -558,6 +558,82 @@ def mcp_deny_restore(config_path,server_name):
     try: _atomic_write_json(p,cur,mode=(os.stat(str(p)).st_mode & 0o777))
     except OSError: return None
     return {"asset_type":"mcp","asset_key":server_name,"action":"config_restored","target":str(p),"backup":str(backup),"reason":"policy_no_longer_denies","ok":True,"at":int(time.time())}
+# ── 执行级封禁(真封禁): 终止在跑进程 + exec-deny 二进制, 弥补"移除配置"管不住已运行实例 ──
+# 只针对 deny 名单内的 MCP; 进程匹配用**精确可执行路径 token**, 绝不做模糊 pattern kill。
+# exec-deny 原权限记录在隔离区 store, 解封时还原。mac 不做 pf 防火墙(启用系统级 pf 风险大)。
+EXEC_DENY_STORE=QUARANTINE_DIRNAME+"/.aegis-exec-deny.json"
+def _exec_deny_store_path():
+    return Path(os.path.expanduser("~"))/EXEC_DENY_STORE
+def _load_exec_deny_store():
+    try: return json.loads(_exec_deny_store_path().read_text())
+    except (OSError,ValueError): return {}
+def _save_exec_deny_store(store):
+    try:
+        p=_exec_deny_store_path(); p.parent.mkdir(parents=True,exist_ok=True)
+        _atomic_write_json(p,store)
+    except OSError: pass
+def _mcp_server_spec(backup_path,server_name):
+    try: data=json.loads(Path(backup_path).read_text())
+    except (OSError,ValueError): return None
+    if not isinstance(data,dict): return None
+    for k in MCP_SERVER_KEYS:
+        v=data.get(k)
+        if isinstance(v,dict) and server_name in v and isinstance(v[server_name],dict):
+            cfg=v[server_name]
+            return {"command":str(cfg.get("command") or ""),"url":str(cfg.get("url") or "")}
+    return None
+def _resolve_bin(command):
+    if not command: return None
+    p=Path(command).expanduser()
+    if p.is_file(): return p
+    w=shutil.which(command)
+    return Path(w) if w else None
+def _kill_matching(binpath):
+    killed=[]
+    target=str(binpath)
+    try: out=subprocess.run(["ps","-eo","pid=,args="],capture_output=True,text=True,timeout=10).stdout
+    except Exception: return killed
+    for line in out.splitlines():
+        parts=line.strip().split(None,1)
+        if len(parts)<2: continue
+        pid_s,args=parts
+        if target in args.split():
+            try:
+                pid=int(pid_s)
+                if pid!=os.getpid(): os.kill(pid,signal.SIGTERM); killed.append(pid)
+            except (ValueError,OSError,ProcessLookupError): pass
+    return killed
+def _mcp_hard_block(server_name,spec):
+    out=[]
+    if not isinstance(spec,dict): return out
+    bin=_resolve_bin(spec.get("command",""))
+    if not bin: return out
+    now=int(time.time())
+    for pid in _kill_matching(bin):
+        out.append({"asset_type":"mcp","asset_key":server_name,"action":"process_killed","target":str(bin),"reason":"policy_deny","ok":True,"at":now,"pid":pid})
+    store=_load_exec_deny_store()
+    try:
+        m=os.stat(str(bin)).st_mode & 0o777
+        if m & 0o111:
+            os.chmod(str(bin),m & ~0o111)
+            store[str(bin)]=m; _save_exec_deny_store(store)
+            out.append({"asset_type":"mcp","asset_key":server_name,"action":"exec_denied","target":str(bin),"reason":"policy_deny","ok":True,"at":now})
+    except OSError: pass
+    return out
+def _mcp_hard_unblock(server_name,spec):
+    out=[]
+    if not isinstance(spec,dict): return out
+    bin=_resolve_bin(spec.get("command",""))
+    if not bin: return out
+    store=_load_exec_deny_store()
+    m=store.get(str(bin))
+    if m is None: return out
+    try:
+        os.chmod(str(bin),m)
+        del store[str(bin)]; _save_exec_deny_store(store)
+        out.append({"asset_type":"mcp","asset_key":server_name,"action":"exec_restored","target":str(bin),"reason":"policy_no_longer_denies","ok":True,"at":int(time.time())})
+    except OSError: pass
+    return out
 def reconcile_enforcement(policy):
     """每周期对账：该封的封、不该封但被本 Agent 隔离/移除的自动恢复。返回回执列表。"""
     actions=[]
@@ -605,11 +681,13 @@ def reconcile_enforcement(policy):
             for k in MCP_SERVER_KEYS:
                 v=data.get(k)
                 if isinstance(v,dict): present|=set(v.keys())
+            backup=p.with_name(p.name+MCP_BACKUP_SUFFIX)
             if en_mcp:
                 for nm in sorted(present & deny_mcp):
                     r=mcp_deny_apply(p,nm,"policy_deny")
                     if r: actions.append(r)
-            backup=p.with_name(p.name+MCP_BACKUP_SUFFIX)
+                    # 执行级封禁: 终止在跑实例 + exec-deny 二进制(真封禁, 管住已运行的)
+                    actions.extend(_mcp_hard_block(nm,_mcp_server_spec(backup,nm)))
             if backup.exists():
                 try: bak=json.loads(backup.read_text())
                 except (OSError,ValueError): bak=None
@@ -622,6 +700,7 @@ def reconcile_enforcement(policy):
                         if en_mcp and nm in deny_mcp: continue
                         r=mcp_deny_restore(p,nm)
                         if r: actions.append(r)
+                        actions.extend(_mcp_hard_unblock(nm,_mcp_server_spec(backup,nm)))
     return actions
 def scan(root,policy):
     findings=[]; homes=managed_homes(); inventory=discover_agent_tools(homes)

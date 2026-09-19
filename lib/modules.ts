@@ -66,5 +66,5 @@ export const MODULE_HINTS: Record<ModuleKey, string> = {
   network_collect: '采集物理网卡 MAC 与本机 IP（不含虚拟网卡）',
   self_update: '无桌管环境的客户端自更新兜底（主通道为桌管推送）',
   skill_enforce: '按 deny.skills 真封禁 Skill：从工具可加载位置移除，且每个执行周期自动再执行（复发即再封，无需人工反复操作）；备份仅供管理员回滚；关闭则只报不封',
-  mcp_enforce: '按 deny.mcp 真封禁 MCP：从 AI 工具配置删除，且每个执行周期自动再执行；备份仅供管理员回滚；关闭则只报不封',
+  mcp_enforce: '按 deny.mcp 真封禁 MCP：从配置删除 + 终止在跑进程 + 禁止该二进制再执行 +（Windows）防火墙出站封禁其 host；每周期自动再执行；解封自动还原；关闭则只报不封',
 };
