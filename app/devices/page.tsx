@@ -281,6 +281,22 @@ export default function DevicesPage() {
     }
   }
 
+  // 封禁豁免切换(开发主机等): 豁免设备只报不封、不自更; 清单存服务端 settings。
+  async function toggleExempt(dev: Device) {
+    try {
+      const r = await fetch('/api/settings/exempt', { cache: 'no-store' });
+      const cur = r.ok ? (((await r.json()) as { exempt?: string[] }).exempt ?? []) : [];
+      const id = dev.device_id.toLowerCase();
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      const p = await fetch('/api/settings/exempt', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ devices: next }) });
+      if (p.ok) notify(next.includes(id) ? '已加入封禁豁免：该设备只报不封、不自更' : '已移出封禁豁免', 'info');
+      else notify(`豁免设置失败 HTTP ${p.status}`, 'error');
+      await refresh();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), 'error');
+    }
+  }
+
   async function createDevice(data: DeviceFormData) {
     try {
       const response = await fetch('/api/devices', {
@@ -679,6 +695,12 @@ export default function DevicesPage() {
                       {(device as { serial?: string }).serial ? `${device.device_id} · ` : ''}
                       {device.hostname} · {osLabel(device.os)}
                     </span>
+                    {/* 能力诚实化标注: 运行态 + 真实封禁能力 + 豁免, 全部来自终端自报, 不夸大 */}
+                    <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+                      {device.run_mode === 'system' ? '系统级' : device.run_mode === 'user' ? '用户级(已废止形态)' : '运行态未知'}
+                      {device.capabilities ? ` · 连接封禁:${device.capabilities.pf ? '有' : '无'} · 执行预防:${device.capabilities.es ? '有' : '无'}` : ''}
+                      {device.exempt ? ' · 封禁豁免(开发主机)' : ''}
+                    </span>
                   </div>
                   <span>
                     {device.owner || '未指派'} · {(((device as { tools?: string[] }).tools ?? []).length > 0
@@ -876,6 +898,16 @@ export default function DevicesPage() {
                         </div>
                       );
                     })()}
+                    {canMutate && (
+                      <div style={{ marginBottom: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Button variant="outline" onClick={() => void toggleExempt(device)}>
+                          {device.exempt ? '移出封禁豁免' : '加入封禁豁免（开发主机）'}
+                        </Button>
+                        <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+                          豁免设备只报不封、不自动更新；清单随签名策略下发（enforce_exempt + 自更 pinned）。
+                        </span>
+                      </div>
+                    )}
                     {/* 执行器回执：封禁/隔离/恢复动作及备份位置（终端自报，最近若干条） */}
                     {(((device as { enforcement?: { asset_type: string; asset_key: string; action: string; target?: string; backup?: string; reason?: string; ok?: boolean; at?: number }[] }).enforcement ?? []).length > 0) && (
                       <div style={{ marginBottom: 12 }}>

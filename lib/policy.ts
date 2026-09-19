@@ -60,6 +60,8 @@ export interface PolicyBody {
   deny: { skills: string[]; mcp: string[] };
   /** 仅当发布时 typed override 通过才置 true; 终端据此放行超爆炸半径上限的封禁动作。 */
   enforce_override?: boolean;
+  /** 封禁豁免设备(开发主机等): 终端只报不封; 同时作为自更 pinned 名单。 */
+  enforce_exempt?: string[];
 }
 
 /**
@@ -87,7 +89,7 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
     // 100%：现网终端规模小且用户要求"手动装新客户端后可未来自更新"。25% 灰度桶经实测
     // 不覆盖任何在网设备(哈希分桶 46/27/73/29 均≥25)，等于自更新永不触发。下载仍强制
     // SHA-256 校验+同源钉子+原子替换+可回滚，风险可控；如需再灰度可回调此值并发布。
-    rollout_percent: 100,
+    rollout_percent: 50,
     note: '自更新仅为无桌管环境兜底; 主通道为桌管/MDM 推送。下载强制 SHA-256 校验+原子替换+可回滚。',
   },
   custom_baseline_rules: [],
@@ -141,7 +143,7 @@ export const BLAST_ABS_CAP_PCT = 50;
 /** 终端每周期最多执行的封禁动作数（分期执行，留观察/回滚窗口）。 */
 export const ENFORCE_PER_CYCLE = 5;
 
-export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean }): PolicyBody {
+export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean; exempt?: string[] }): PolicyBody {
   const labels = opts.labels ?? listLabels();
   const allowSkills = labels.filter((l) => l.asset_type === 'skill' && l.disposition === 'allow').map((l) => l.asset_key);
   const allowMcp = labels.filter((l) => l.asset_type === 'mcp' && l.disposition === 'allow').map((l) => l.asset_key);
@@ -178,6 +180,8 @@ export function computePolicyBody(opts: { version: string; scanMode: string; lab
     monitor_notes,
     modules,
     deny,
+    ...(opts.exempt && opts.exempt.length ? { enforce_exempt: opts.exempt } : {}),
+    agent_self_update: { ...BASE_POLICY.agent_self_update, pinned: opts.exempt ?? [] },
     ...(opts.enforceOverride ? { enforce_override: true } : {}),
   };
 }
@@ -497,12 +501,12 @@ function countLabels(labels: AssetLabel[]): PolicyReceipt {
  * 编译 + 签名 + 落库一次策略发布。version 单调递增，旧发布置 superseded。
  * 需要已配置签名密钥；未配置返回 null（调用方据此诚实报错，不产出未签名策略）。
  */
-export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean }): PolicyRelease | null {
+export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean; exempt?: string[] }): PolicyRelease | null {
   if (!activeKeyIdResolved()) return null;
   const arr = releases();
   const nextVersion = arr.reduce((max, r) => Math.max(max, r.version), 0) + 1;
   const labels = listLabels();
-  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds, modules: opts.modules, enforceOverride: opts.enforceOverride });
+  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds, modules: opts.modules, enforceOverride: opts.enforceOverride, exempt: opts.exempt });
   const signature = signPolicyBody(body);
   if (!signature) return null;
   const now = Date.now();

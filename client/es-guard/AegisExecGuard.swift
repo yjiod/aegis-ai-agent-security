@@ -22,6 +22,16 @@ import Foundation
 let args = CommandLine.arguments
 let denyListPath = args.count > 1 ? args[1] : (NSHomeDirectory() + "/.aegis-exec-deny-list.json")
 let eventLogPath = args.count > 2 ? args[2] : (NSHomeDirectory() + "/.aegis-quarantine/.aegis-es-deny.log")
+let statusPath = "/Library/Application Support/AegisAgent/.aegis-es-status.json"
+
+// 自报状态供终端上报 capabilities.es(能力诚实化): active=已订阅 AUTH_EXEC; degraded=未授权/未签名回退。
+func writeStatus(_ state: String, _ reason: String) {
+    let json = "{\"state\":\"\(state)\",\"reason\":\"\(reason)\",\"at\":\(Int(Date().timeIntervalSince1970))}\n"
+    if let data = json.data(using: .utf8) {
+        try? data.write(to: URL(fileURLWithPath: statusPath))
+        chmod(statusPath, 0o644)
+    }
+}
 
 var denySet: Set<String> = []
 var listMtimes: [String: TimeInterval] = [:]
@@ -93,6 +103,7 @@ let newRes = es_new_client(&client) { c, msg in
     }
 }
 guard newRes == ES_NEW_CLIENT_RESULT_SUCCESS, client != nil else {
+    writeStatus("degraded", "es_new_client=\(newRes)")
     FileHandle.standardError.write(
         "aegis-exec-guard: es_new_client failed (\(newRes)); likely missing endpoint-security entitlement or signature. Falling back to agent chmod exec-deny.\n".data(using: .utf8)!)
     exit(2)
@@ -100,8 +111,10 @@ guard newRes == ES_NEW_CLIENT_RESULT_SUCCESS, client != nil else {
 let events: [es_event_type_t] = [ES_EVENT_TYPE_AUTH_EXEC]
 let subRes = es_subscribe(client!, events, 1)
 guard subRes == ES_RETURN_SUCCESS else {
+    writeStatus("degraded", "es_subscribe=\(subRes)")
     FileHandle.standardError.write("aegis-exec-guard: es_subscribe failed (\(subRes))\n".data(using: .utf8)!)
     exit(3)
 }
+writeStatus("active", "subscribed AUTH_EXEC")
 reloadDenyList()
 RunLoop.main.run()

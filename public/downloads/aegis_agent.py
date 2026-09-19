@@ -772,10 +772,23 @@ def _drain_es_deny_log():
         offp.parent.mkdir(parents=True,exist_ok=True); offp.write_text(json.dumps(offsets))
     except OSError: pass
     return out[:20]
+def _es_guard_status():
+    """读 ES 守护自报状态(active/degraded)。守护未装/未授权时为空 → capabilities.es=false, 不夸大。"""
+    for p in ("/Library/Application Support/AegisAgent/.aegis-es-status.json",
+              str(Path(os.path.expanduser("~"))/QUARANTINE_DIRNAME/".aegis-es-status.json")):
+        try:
+            d=json.loads(Path(p).read_text())
+            if isinstance(d,dict): return d
+        except (OSError,ValueError): continue
+    return {}
 def reconcile_enforcement(policy):
     """每周期对账：该封的封、不该封但被本 Agent 隔离/移除的自动恢复。返回回执列表。"""
     actions=[]
     actions.extend(_drain_es_deny_log())  # ES 守护(若点亮)的 exec 拒绝回执
+    # 封禁豁免(签名策略一等字段): 开发主机等明确豁免设备不执行任何封禁/隔离/移除, 只报不封。
+    exempt=[str(x) for x in (policy.get("enforce_exempt") or [])] if isinstance(policy,dict) else []
+    if exempt and hardware_device_id() in exempt:
+        return actions
     en_skill=policy_module(policy,"skill_enforce",False)
     en_mcp=policy_module(policy,"mcp_enforce",False)
     deny_skills=set(policy_deny(policy,"skills"))
@@ -1416,11 +1429,15 @@ def build_report(root,policy):
     if len(findings)>REPORT_FINDING_LIMIT:
         omitted=len(findings)-REPORT_FINDING_LIMIT+1; findings=findings[:REPORT_FINDING_LIMIT-1]+[finding("findings_truncated","medium",root,f"报告发现项超限，省略 {omitted} 项")]
     network=collect_physical_network() if policy_module(policy,"network_collect",True) else {}
+    # 能力诚实化(#3): 上报运行态与真实封禁能力, 控制台按设备标注, 不夸大。
+    run_mode="system" if (hasattr(os,"geteuid") and os.geteuid()==0) else "user"
+    _esst=_es_guard_status()
+    caps={"pf":(sys.platform=="darwin" and run_mode=="system"),"es":(_esst.get("state")=="active")}
     # 回执=本周期对账 + 高频 tick 累积的未上报回执(一次性 drain, 避免重复上报)。
     enforcement=reconcile_enforcement(policy)
     if ENFORCE_RECEIPTS: enforcement=ENFORCE_RECEIPTS+enforcement; del ENFORCE_RECEIPTS[:]
     enforcement=enforcement[:40]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"network":network,"enforcement":enforcement,"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"network":network,"enforcement":enforcement,"run_mode":run_mode,"capabilities":caps,"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
@@ -1495,6 +1512,10 @@ def maybe_self_update(policy, report_url):
     except Exception:
         return
     device_id = hardware_device_id()
+    # pinned 设备(开发主机等)永不自动更新, 只接受人工/桌管更新: 防坏更新打到主力开发机。
+    pinned = [str(x) for x in (cfg.get("pinned") or [])]
+    if device_id in pinned:
+        return
     # 冻结二进制(去-python 化 B)：热替换 sys.executable 自身。mac/linux 上 os.replace 覆盖运行中的
     # 可执行文件是安全的(运行进程留旧 inode，下次 exec 用新文件；已实测)，无需重装 pkg——即
     # "手动装用 pkg、后台热更直接换二进制文件"的分工。工件按 os/arch 取；python3 形态仍换 aegis_agent.py。

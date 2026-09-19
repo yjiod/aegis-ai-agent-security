@@ -389,6 +389,11 @@ class Handler(BaseHTTPRequestHandler):
                         if isinstance(net,dict): dev["network"]=net
                         enf=body.get("enforcement")
                         if isinstance(enf,list): dev["enforcement"]=enf[:10]
+                        # 能力诚实化: 运行态(system/user) + 真实封禁能力(pf/es), 控制台按设备标注。
+                        if isinstance(body.get("run_mode"),str): dev["run_mode"]=body["run_mode"][:16]
+                        cap=body.get("capabilities")
+                        if isinstance(cap,dict): dev["capabilities"]={k:bool(cap.get(k)) for k in ("pf","es") if k in cap}
+                        if isinstance(body.get("scan_root"),str): dev["scan_root"]=body["scan_root"][:64]
                         inv=body.get("inventory")
                         if isinstance(inv,list):
                             dev["tools"]=sorted({x.get("name") for x in inv if isinstance(x,dict) and x.get("type")=="ai_agent" and isinstance(x.get("name"),str)})[:20]

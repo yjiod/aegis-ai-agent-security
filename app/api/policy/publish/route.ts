@@ -5,6 +5,7 @@ import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baseli
 import { logAudit } from '@/lib/store';
 import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds, BLAST_CAP_ASSETS, BLAST_CAP_PCT, BLAST_ABS_CAP_ASSETS, BLAST_ABS_CAP_PCT, BLAST_OVERRIDE_PHRASE } from '@/lib/policy';
 import { moduleOverrides } from '@/lib/modules';
+import { exemptDevices } from '@/lib/exempt';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
   // 超上限(资产数/单设备占比)即 409 拦截并回传精确清单；typed override 通过才放行，
   // 且签名策略带 enforce_override 标志，终端侧独立 cap 据此放行（双闸）。
   const mods = moduleOverrides();
+  const exempt = exemptDevices();
   const enforceOn = Boolean(mods.skill_enforce) || Boolean(mods.mcp_enforce);
   let enforceOverride = false;
   let blastNote = '';
@@ -63,6 +65,9 @@ export async function POST(request: Request) {
           if (r.ok) { const d = (await r.json()) as { devices?: DevAssets[] }; devices = d.devices ?? []; }
         }
       } catch { devices = []; }
+      // 豁免设备(开发主机)不执行封禁, 影响面计算排除它们。
+      const exemptSet = new Set(exempt.map((x) => x.toLowerCase()));
+      devices = devices.filter((d) => !exemptSet.has(String(d.device_id).toLowerCase()));
       const impact = devices
         .map((dev) => {
           const s = (dev.skills ?? []).filter((x) => denySkills.includes(x));
@@ -107,7 +112,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds, modules: mods, enforceOverride });
+  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds, modules: mods, enforceOverride, exempt });
   if (!rel) {
     return NextResponse.json(
       { error: 'signing_key_not_configured', hint: '设置 AEGIS_POLICY_SIGNING_KEYS（或单钥 AEGIS_POLICY_SIGNING_KEY）后才能发布签名策略' },
