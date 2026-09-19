@@ -506,7 +506,9 @@ def quarantine_skill(skill_root,reason):
     try:
         q=quarantine_dir(); q.mkdir(parents=True,exist_ok=True)
         name=Path(skill_root).name
-        dest=q/(str(int(time.time()))+"-"+name)
+        # dest 名带源路径哈希后缀: 多 home 同名 skill 否则 dest 碰撞, 第二个静默跳过=封禁不完整(真缺陷)。
+        src_tag=hashlib.sha256(str(skill_root).encode()).hexdigest()[:8]
+        dest=q/(str(int(time.time()))+"-"+name+"-"+src_tag)
         if dest.exists(): return None
         os.replace(str(skill_root),str(dest))
         manifest={"schema":"aegis.quarantine/v1","asset_type":"skill","asset_key":name,"source":str(skill_root),"dest":str(dest),"reason":reason,"at":int(time.time()),"agent_version":AGENT_VERSION}
@@ -817,8 +819,12 @@ def reconcile_enforcement(policy):
     # 只封显式 deny 名单(签名策略下发=人工审批)。**不做**"未知即隔离": 真机演练证明
     # unknown+block 组合会在开关打开瞬间隔离全部未加白 Skill(含用户真实在用的),
     # 破坏面过大; 未知 Skill 仅产出发现项供人工决策。
+    # 每周期动作上限(分期执行): 即便带 override, 单周期最多封 PER_CYCLE 个, 其余下周期继续,
+    # 留观察/回滚窗口, 防"一个 tick 全量封禁"(用户: 批量识别不要自动全量封)。
+    PER_CYCLE=5
+    applied_mcp=0
     if en_skill:
-        seen=set()
+        seen=set(); applied=0
         for home in homes:
             for rel in SKILL_ROOTS:
                 d=home/rel
@@ -829,9 +835,9 @@ def reconcile_enforcement(policy):
                     sr=sm.parent.resolve()
                     if sr in seen or not sr.exists(): continue
                     seen.add(sr); nm=sr.name
-                    if nm in deny_skills:
+                    if nm in deny_skills and applied<PER_CYCLE:
                         r=quarantine_skill(sr,"policy_deny")
-                        if r: actions.append(r)
+                        if r: actions.append(r); applied+=1
     q=quarantine_dir()
     if q.exists():
         for mf in sorted(q.glob("*"+QUARANTINE_MANIFEST_SUFFIX)):
@@ -856,8 +862,9 @@ def reconcile_enforcement(policy):
             backup=p.with_name(p.name+MCP_BACKUP_SUFFIX)
             if en_mcp:
                 for nm in sorted(present & deny_mcp):
+                    if applied_mcp>=PER_CYCLE: continue  # 分期: 本周期配额用完, 余下下周期
                     r=mcp_deny_apply(p,nm,"policy_deny")
-                    if r: actions.append(r)
+                    if r: actions.append(r); applied_mcp+=1
                     # 执行级封禁: 终止在跑实例 + exec-deny 二进制(真封禁, 管住已运行的)
                     actions.extend(_mcp_hard_block(nm,_mcp_server_spec(backup,nm)))
             if backup.exists():

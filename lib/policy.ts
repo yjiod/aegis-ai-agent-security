@@ -135,6 +135,11 @@ function dedupeSorted(items: string[]): string[] {
 export const BLAST_CAP_ASSETS = 5;
 export const BLAST_CAP_PCT = 10;
 export const BLAST_OVERRIDE_PHRASE = 'I-ACCEPT-BLAST-RADIUS';
+/** 绝对上限（fail-closed，**不可** override）：超过必须分批发布，防"批量识别→一键全封"。 */
+export const BLAST_ABS_CAP_ASSETS = 20;
+export const BLAST_ABS_CAP_PCT = 50;
+/** 终端每周期最多执行的封禁动作数（分期执行，留观察/回滚窗口）。 */
+export const ENFORCE_PER_CYCLE = 5;
 
 export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean }): PolicyBody {
   const labels = opts.labels ?? listLabels();

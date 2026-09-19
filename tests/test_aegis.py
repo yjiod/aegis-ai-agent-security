@@ -1243,4 +1243,26 @@ class AegisTests(unittest.TestCase):
             finally:
                 self.agent.managed_homes=orig_homes; self.agent.quarantine_dir=orig_q
 
+    def test_enforcer_per_cycle_staged_cap(self):
+        # 分期执行: 即便带 override, 单周期最多封 5 个, 余下下个周期(防一个 tick 全量封)。
+        with tempfile.TemporaryDirectory() as td:
+            home=Path(td)/'home'
+            roots=['.claude/skills','.cursor/skills','.codex/skills','.gemini/skills','.copilot/skills','.workbuddy/skills']
+            for rel in roots:
+                d=home/rel/'wide-skill'; d.mkdir(parents=True)
+                (d/'SKILL.md').write_text('# wide')
+            qdir=Path(td)/'q'
+            orig_homes=self.agent.managed_homes; orig_q=self.agent.quarantine_dir
+            self.agent.managed_homes=lambda:[home]; self.agent.quarantine_dir=lambda:qdir
+            try:
+                pol={'schema':'aegis.policy/v1','version':'1','modules':{'skill_enforce':True},'deny':{'skills':['wide-skill'],'mcp':[]},'allowed_skills':[],'enforcement':{},'enforce_override':True}
+                acts=self.agent.reconcile_enforcement(pol)
+                q1=[a for a in acts if a['action']=='quarantined']
+                self.assertEqual(len(q1),5)  # 单周期配额 5, 第 6 个下周期
+                acts2=self.agent.reconcile_enforcement(pol)
+                q2=[a for a in acts2 if a['action']=='quarantined']
+                self.assertEqual(len(q2),1)
+            finally:
+                self.agent.managed_homes=orig_homes; self.agent.quarantine_dir=orig_q
+
 if __name__=='__main__': unittest.main()

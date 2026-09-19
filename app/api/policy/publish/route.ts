@@ -3,7 +3,7 @@ import { requireAdmin, getSession } from '@/lib/auth';
 import { ensureLabelsLoaded, listLabels } from '@/lib/labels';
 import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
-import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds, BLAST_CAP_ASSETS, BLAST_CAP_PCT, BLAST_OVERRIDE_PHRASE } from '@/lib/policy';
+import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds, BLAST_CAP_ASSETS, BLAST_CAP_PCT, BLAST_ABS_CAP_ASSETS, BLAST_ABS_CAP_PCT, BLAST_OVERRIDE_PHRASE } from '@/lib/policy';
 import { moduleOverrides } from '@/lib/modules';
 
 export const dynamic = 'force-dynamic';
@@ -73,7 +73,21 @@ export async function POST(request: Request) {
         .filter((x) => x.count > 0);
       const total = impact.reduce((a, b) => a + b.count, 0);
       const overPct = impact.some((x) => x.pct > BLAST_CAP_PCT);
-      const exceeded = total > BLAST_CAP_ASSETS || overPct;
+      const bulkNames = denySkills.length + denyMcp.length;
+      // 绝对上限 fail-closed(不可 override): 批量识别→一键全封 必须被拆批。
+      const absExceeded = total > BLAST_ABS_CAP_ASSETS || impact.some((x) => x.pct > BLAST_ABS_CAP_PCT) || bulkNames > BLAST_ABS_CAP_ASSETS;
+      if (absExceeded) {
+        return NextResponse.json(
+          {
+            error: 'blast_radius_absolute',
+            hint: `影响面(${total} 资产 / deny 名单 ${bulkNames} 条)超过绝对上限(${BLAST_ABS_CAP_ASSETS} 资产 / 单设备 ${BLAST_ABS_CAP_PCT}%)，不可 override。请分批发布（每批 ≤ ${BLAST_CAP_ASSETS} 个资产）。`,
+            impact,
+            caps: { assets: BLAST_CAP_ASSETS, pct: BLAST_CAP_PCT, abs_assets: BLAST_ABS_CAP_ASSETS, abs_pct: BLAST_ABS_CAP_PCT },
+          },
+          { status: 409, headers: NO_STORE },
+        );
+      }
+      const exceeded = total > BLAST_CAP_ASSETS || overPct || bulkNames > BLAST_CAP_ASSETS;
       const overrideOk = typeof body.override === 'string' && body.override === BLAST_OVERRIDE_PHRASE;
       if (exceeded && !overrideOk) {
         return NextResponse.json(

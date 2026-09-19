@@ -613,7 +613,10 @@ function Invoke-AegisEnforce {
       if (-not (Test-Path -LiteralPath $d)) { continue }
       Get-ChildItem -LiteralPath $d -Directory -ErrorAction SilentlyContinue | Where-Object { $denySkills -contains $_.Name } | ForEach-Object {
         $src = $_.FullName
-        $dest = Join-Path $qroot ("{0}-{1}" -f $ts, $_.Name)
+        # dest 带源路径哈希后缀: 多 home 同名 skill 否则 dest 碰撞, 第二个静默跳过=封禁不完整。
+        $h = [System.Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($src))
+        $tag = ((($h | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 8))
+        $dest = Join-Path $qroot ("{0}-{1}-{2}" -f $ts, $_.Name, $tag)
         if (Test-Path -LiteralPath $dest) { return }
         try {
           New-Item -ItemType Directory -Force -Path $qroot | Out-Null
