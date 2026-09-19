@@ -234,8 +234,12 @@ def finding(kind,severity,path,message,evidence="",asset_type="",asset_key=""):
 def managed_homes():
     homes=[Path.home()]
     if hasattr(os,"geteuid") and os.geteuid()==0:
-        for base in [Path("/Users"),Path("/home")]:
-            if base.exists(): homes.extend(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("."))
+        # mac 的 /home 是 autofs 挂载点, 即便 root iterdir 也 EPERM(真机崩溃教训); darwin 只扫 /Users。
+        bases=[Path("/Users")] if sys.platform=="darwin" else [Path("/Users"),Path("/home")]
+        for base in bases:
+            if not base.exists(): continue
+            try: homes.extend(p for p in base.iterdir() if p.is_dir() and not p.name.startswith("."))
+            except OSError: pass
     return list(dict.fromkeys(homes))
 def discover_agent_tools(homes=None,system_markers=None):
     """Discover supported AI coding agents from files only; never execute them."""
