@@ -18,6 +18,7 @@ for ARCH in arm64 x86_64; do
   esac
   swiftc -O -target "$TRIPLE" -lEndpointSecurity -o "$OUT/aegis-exec-guard-darwin-$SUFFIX" "$SRC" 2>/dev/null \
     || { echo "  · 跳过 ES guard($ARCH 编译失败, 可能缺 EndpointSecurity SDK)"; continue; }
+  xattr -cr "$OUT/aegis-exec-guard-darwin-$SUFFIX" 2>/dev/null || true  # 去 quarantine/provenance, 免 pkg 混入 ._ AppleDouble
   echo "  ✓ aegis-exec-guard-darwin-$SUFFIX ($(wc -c < "$OUT/aegis-exec-guard-darwin-$SUFFIX" | tr -d ' ') B)"
 done
 exit 0
