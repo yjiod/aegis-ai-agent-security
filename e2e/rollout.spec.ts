@@ -66,6 +66,16 @@ test.describe('rollout settings: authorization + validation', () => {
       const body = (await get.json()) as { rollout?: { channel: string; rollout_percent: number } };
       expect(body.rollout?.channel).toBe('beta');
       expect(body.rollout?.rollout_percent).toBe(25);
+
+      // 端到端（无副作用）：preview 编译出的「若现在发布」策略体，其 agent_self_update
+      // 必须携带刚保存的灰度值——证明 settings → computePolicyBody 注入链打通。用 preview
+      // 而非 publish：preview 不创建发布件、不递增版本号，故与并行的 policy.spec 零竞态。
+      const prev = await ctx.get('/api/policy/preview', { maxRedirects: 0 });
+      expect(prev.status()).toBe(200);
+      const pj = (await prev.json()) as { policy?: { agent_self_update?: { channel?: string; rollout_percent?: number; enabled?: boolean } } };
+      expect(pj.policy?.agent_self_update?.channel).toBe('beta');
+      expect(pj.policy?.agent_self_update?.rollout_percent).toBe(25);
+
       // 还原默认，避免影响其它用例
       await ctx.put('/api/settings/rollout', { data: { enabled: true, channel: 'pilot', rollout_percent: 50 } });
     } finally { await ctx.dispose(); }

@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Gauge, Save } from 'lucide-react';
+import { Gauge, Save, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useRole } from '@/components/role-context';
@@ -45,6 +45,14 @@ function semverNewer(candidate: string, current: string): boolean {
 
 type Prediction = 'will_update' | 'up_to_date' | 'pinned' | 'out_of_canary' | 'disabled';
 
+function rolloutEq(a: RolloutConfig | null, b: RolloutConfig | null): boolean {
+  return !!a && !!b && a.enabled === b.enabled && a.channel === b.channel && a.rollout_percent === b.rollout_percent;
+}
+function rolloutText(c: RolloutConfig | null): string {
+  if (!c) return '—';
+  return `${c.channel} ${c.rollout_percent}%${c.enabled ? '' : '·关'}`;
+}
+
 function predict(d: CohortDevice, cfg: RolloutConfig, latest: string): Prediction {
   if (!cfg.enabled) return 'disabled';
   if (d.pinned) return 'pinned';
@@ -73,12 +81,16 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
   const [draft, setDraft] = useState<RolloutConfig>({ enabled: true, channel: 'pilot', rollout_percent: 50 });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  // 当前**已发布策略**里的 agent_self_update（终端实际生效值）；null=尚无已发布策略。
+  const [published, setPublished] = useState<RolloutConfig | null>(null);
+  const [hasRelease, setHasRelease] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [r, d] = await Promise.all([
+      const [r, d, p] = await Promise.all([
         fetch('/api/settings/rollout', { cache: 'no-store' }),
         fetch('/api/devices', { cache: 'no-store' }),
+        fetch('/api/policy/current', { cache: 'no-store' }),
       ]);
       if (r.ok) {
         const j = (await r.json()) as { rollout?: RolloutConfig; channels?: string[] };
@@ -88,6 +100,20 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
       if (d.ok) {
         const dj = (await d.json()) as { devices?: CohortDevice[] };
         setDevices(Array.isArray(dj.devices) ? dj.devices : []);
+      }
+      if (p.ok) {
+        const pj = (await p.json()) as { published?: boolean; policy?: { agent_self_update?: { enabled?: unknown; channel?: unknown; rollout_percent?: unknown } } };
+        setHasRelease(pj.published === true);
+        const su = pj.policy?.agent_self_update;
+        if (pj.published && su) {
+          setPublished({
+            enabled: su.enabled !== false,
+            channel: typeof su.channel === 'string' ? su.channel : 'pilot',
+            rollout_percent: typeof su.rollout_percent === 'number' ? su.rollout_percent : 0,
+          });
+        } else {
+          setPublished(null);
+        }
       }
     } catch {
       /* 保持现状，诚实不伪造 */
@@ -131,6 +157,10 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
   const inCanaryCount = devices.filter((d) => d.in_canary).length;
   const willUpdateCount = cohort.filter((r) => r.pred === 'will_update').length;
   const pct = cfg?.rollout_percent ?? draft.rollout_percent;
+  // 运营可见性：区分「未保存的本地修改」与「已保存但尚未发布生效」两种状态，
+  // 避免管理员改了放量却以为已经生效（灰度设置只在发布策略时才注入签名策略下发终端）。
+  const dirty = !rolloutEq(draft, cfg);
+  const pendingPublish = !hasRelease || !rolloutEq(cfg, published);
 
   return (
     <div className="panel animate-entrance" style={{ padding: 16, marginTop: 16 }}>
@@ -145,6 +175,28 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
         无桌管环境的兜底自更新按 device_id 稳定哈希分桶（桶号 &lt; 放量比例才更新）。先用小比例 canary 验证新版本，
         确认无异常再逐步放量到 100%。pinned（自更保护）设备永远跳过。改动需「发布策略」后生效。
       </p>
+
+      {(dirty || pendingPublish) && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', marginBottom: 14,
+            borderRadius: 8, background: 'color-mix(in srgb, #e8b449 12%, transparent)',
+            border: '1px solid color-mix(in srgb, #e8b449 38%, transparent)', fontSize: 12, lineHeight: 1.6,
+          }}
+        >
+          <AlertTriangle size={14} style={{ color: '#e8b449', flexShrink: 0, marginTop: 2 }} />
+          <span style={{ color: 'var(--foreground)' }}>
+            {dirty && <>有<strong>未保存</strong>的灰度修改。 </>}
+            {pendingPublish && (
+              hasRelease
+                ? <>已保存的灰度（<strong>{rolloutText(cfg)}</strong>）与当前<strong>生效策略</strong>（{rolloutText(published)}）不一致，需到「策略」页发布后终端才会按新放量自更新。</>
+                : <>尚无已发布策略，当前灰度设置（<strong>{rolloutText(cfg)}</strong>）需发布后才对终端生效。</>
+            )}
+            {' '}
+            <a href="/policies" style={{ color: 'var(--ring)', fontWeight: 600 }}>去发布 →</a>
+          </span>
+        </div>
+      )}
 
       {/* 旋钮（admin 可改；其余只读展示当前值） */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
