@@ -396,6 +396,10 @@ class Handler(BaseHTTPRequestHandler):
                         if isinstance(body.get("run_mode"),str): dev["run_mode"]=body["run_mode"][:16]
                         cap=body.get("capabilities")
                         if isinstance(cap,dict): dev["capabilities"]={k:bool(cap.get(k)) for k in ("pf","es") if k in cap}
+                        # 旧 Windows 客户端(0.36.1 前)不上报 run_mode: Windows agent 恒以 Windows 服务
+                        # (LocalSystem) 运行, 据此推断并标注 inferred, 不假装终端自报。
+                        if "run_mode" not in dev and isinstance(dev.get("os"),str) and dev["os"]=="windows":
+                            dev["run_mode"]="system"; dev["capabilities"]={"pf":True,"es":False}; dev["run_mode_inferred"]=True
                         if isinstance(body.get("scan_root"),str): dev["scan_root"]=body["scan_root"][:64]
                         inv=body.get("inventory")
                         if isinstance(inv,list):

@@ -79,6 +79,16 @@ export type Device = {
     local_ips?: string[];
     egress_ip?: string;
   };
+  /** 运行态：system(root 守护)/user(用户级, 已废止形态)。能力诚实化标注用。 */
+  run_mode?: string;
+  run_mode_inferred?: boolean;
+  /** 真实封禁能力：pf=连接级封禁可用; es=ES AUTH_EXEC 已点亮。未具备=false, 不夸大。 */
+  capabilities?: { pf?: boolean; es?: boolean };
+  scan_root?: string;
+  /** 封禁豁免设备（开发主机等）：只报不封。 */
+  /** 自更保护(pinned)：不自动更新，只接受人工/桌管更新。与豁免分离。 */
+  pinned?: boolean;
+  exempt?: boolean;
   /** 终端执行器回执（封禁/隔离/恢复动作及备份位置），最近若干条。 */
   enforcement?: {
     asset_type: string;
@@ -275,6 +285,15 @@ export function parseDevice(raw: unknown): Device | null {
     })(),
     // 物理网卡/出口 IP 必须透传：设备页要展示 MAC、本机 IP、互联网出口；此前未取会静默丢字段。
     ...(() => { const n = parseNetwork(data.network); return n ? { network: n } : {}; })(),
+    ...(() => { const rm = text(data.run_mode, 16); return rm ? { run_mode: rm, ...(data.run_mode_inferred === true ? { run_mode_inferred: true } : {}) } : {}; })(),
+    ...(() => {
+      const c = data.capabilities as Record<string, unknown> | undefined;
+      if (!c || typeof c !== 'object') return {};
+      return { capabilities: { pf: Boolean(c.pf), es: Boolean(c.es) } };
+    })(),
+    ...(() => { const sr = text(data.scan_root, 64); return sr ? { scan_root: sr } : {}; })(),
+    ...(data.exempt === true ? { exempt: true } : {}),
+    ...(data.pinned === true ? { pinned: true } : {}),
     // 执行器回执透传（收敛形态，丢弃非法项），设备页展示封禁/隔离/恢复动作。
     ...(() => {
       const raw = data.enforcement;

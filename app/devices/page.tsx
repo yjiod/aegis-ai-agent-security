@@ -297,6 +297,22 @@ export default function DevicesPage() {
     }
   }
 
+  // 自更保护切换(pinned, 与豁免分离): pinned 设备不自动更新, 只接受人工/桌管更新。
+  async function togglePinned(dev: Device) {
+    try {
+      const r = await fetch('/api/settings/pinned', { cache: 'no-store' });
+      const cur = r.ok ? (((await r.json()) as { pinned?: string[] }).pinned ?? []) : [];
+      const id = dev.device_id.toLowerCase();
+      const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      const p = await fetch('/api/settings/pinned', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ devices: next }) });
+      if (p.ok) notify(next.includes(id) ? '已加入自更保护：该设备不自动更新' : '已移出自更保护：恢复自动更新', 'info');
+      else notify(`自更保护设置失败 HTTP ${p.status}`, 'error');
+      await refresh();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e), 'error');
+    }
+  }
+
   async function createDevice(data: DeviceFormData) {
     try {
       const response = await fetch('/api/devices', {
@@ -697,9 +713,10 @@ export default function DevicesPage() {
                     </span>
                     {/* 能力诚实化标注: 运行态 + 真实封禁能力 + 豁免, 全部来自终端自报, 不夸大 */}
                     <span style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
-                      {device.run_mode === 'system' ? '系统级' : device.run_mode === 'user' ? '用户级(已废止形态)' : '运行态未知'}
+                      {device.run_mode === 'system' ? (device.run_mode_inferred ? '系统级(推断)' : '系统级') : device.run_mode === 'user' ? '用户级(已废止形态)' : '运行态未知'}
                       {device.capabilities ? ` · 连接封禁:${device.capabilities.pf ? '有' : '无'} · 执行预防:${device.capabilities.es ? '有' : '无'}` : ''}
                       {device.exempt ? ' · 封禁豁免(开发主机)' : ''}
+                      {device.pinned ? ' · 自更保护' : ''}
                     </span>
                   </div>
                   <span>
@@ -903,8 +920,11 @@ export default function DevicesPage() {
                         <Button variant="outline" onClick={() => void toggleExempt(device)}>
                           {device.exempt ? '移出封禁豁免' : '加入封禁豁免（开发主机）'}
                         </Button>
+                        <Button variant="outline" onClick={() => void togglePinned(device)}>
+                          {device.pinned ? '移出自更保护' : '加入自更保护'}
+                        </Button>
                         <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
-                          豁免设备只报不封、不自动更新；清单随签名策略下发（enforce_exempt + 自更 pinned）。
+                          豁免=只报不封；自更保护=不自动更新；两者独立配置，随签名策略下发。
                         </span>
                       </div>
                     )}

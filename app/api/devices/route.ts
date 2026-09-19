@@ -13,7 +13,7 @@
 import { NextResponse } from 'next/server';
 import { requireDeviceWriter, getSession, roleReadsAllDevices } from '@/lib/auth';
 import { getDeviceStore, logAudit } from '@/lib/store';
-import { exemptDevices } from '@/lib/exempt';
+import { exemptDevices, pinnedDevices } from '@/lib/exempt';
 import type { Device } from '@/components/device-form';
 
 export const dynamic = 'force-dynamic';
@@ -97,6 +97,7 @@ export async function GET(request: Request) {
 
   if (collectorDevices && collectorDevices.length > 0) {
     const exemptSet = new Set(exemptDevices().map((x) => x.toLowerCase()));
+    const pinnedSet = new Set(pinnedDevices().map((x) => x.toLowerCase()));
     let devices = collectorDevices.map((d) => ({
       device_id: d.device_id,
       hostname: (d as any).hostname as string ?? d.device_id,
@@ -107,9 +108,11 @@ export async function GET(request: Request) {
       network: (d as any).network as DeviceNetwork | undefined,
       enforcement: (d as any).enforcement as Device['enforcement'] | undefined,
       run_mode: (d as any).run_mode as string | undefined,
+      run_mode_inferred: (d as any).run_mode_inferred === true,
       capabilities: (d as any).capabilities as { pf?: boolean; es?: boolean } | undefined,
       scan_root: (d as any).scan_root as string | undefined,
       exempt: exemptSet.has(String(d.device_id).toLowerCase()),
+      pinned: pinnedSet.has(String(d.device_id).toLowerCase()),
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',
