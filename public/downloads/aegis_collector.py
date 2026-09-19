@@ -392,6 +392,9 @@ class Handler(BaseHTTPRequestHandler):
                         inv=body.get("inventory")
                         if isinstance(inv,list):
                             dev["tools"]=sorted({x.get("name") for x in inv if isinstance(x,dict) and x.get("type")=="ai_agent" and isinstance(x.get("name"),str)})[:20]
+                            # 封禁爆炸半径预览所需: 该设备已发现的 skill 名与 mcp 资产键。
+                            dev["skills"]=sorted({x.get("name") for x in inv if isinstance(x,dict) and x.get("type")=="skill" and isinstance(x.get("name"),str)})[:200]
+                            dev["mcp_assets"]=sorted({f.get("asset_key") for f in body.get("findings",[]) if isinstance(f,dict) and f.get("asset_type")=="mcp" and isinstance(f.get("asset_key"),str)})[:200]
                             dev["latest_severity"]={"critical":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="critical"),"high":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="high"),"medium":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="medium"),"low":sum(1 for f in body.get("findings",[]) if isinstance(f,dict) and f.get("severity")=="low")}
                 except (ValueError,TypeError): pass
                 eg=r[5]

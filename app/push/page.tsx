@@ -66,7 +66,6 @@ export default function PushPage() {
     `[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12\n` +
     `Invoke-WebRequest ${O}/downloads/aegis-install-windows-oneclick.ps1 -OutFile $env:TEMP\\aegis-oneclick.ps1\n` +
     `powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\\aegis-oneclick.ps1`;
-  const macRunCmd = `curl -fsSL ${O}/downloads/aegis-agent-macos-standalone.run -o /tmp/aegis.run && sh /tmp/aegis.run`;
 
   const dlBtn = (href: string, label: string) => (
     <a href={href} download style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 500 }}>
@@ -159,24 +158,15 @@ export default function PushPage() {
               <Badge variant="outline" style={{ marginLeft: 'auto', fontSize: 10 }}>Apple Silicon / Intel</Badge>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
-                ① 推荐 · 双击 .pkg <Badge variant="outline" style={{ fontSize: 9, marginLeft: 4 }}>系统级 · 企业纳管</Badge>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginBottom: 4 }}>
-                下载后双击安装，以系统权限运行，可扫描整机、无需逐项授权。Apple Silicon 与 Intel 均适用。
-              </div>
-              {dlBtn('/downloads/aegis-agent-macos.pkg', 'aegis-agent-macos.pkg')}
-            </div>
-
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
-                ② 备选 · 终端 .run <Badge variant="outline" style={{ fontSize: 9, marginLeft: 4 }}>仅当前用户 · 免管理员</Badge>
+                系统级 · 唯一形态 <Badge variant="outline" style={{ fontSize: 9, marginLeft: 4 }}>root 扫全部 /Users</Badge>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
-                只纳管当前用户目录、无需管理员权限时使用：
+              <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginBottom: 4 }}>
+                下载后双击安装。以 root 扫描全部用户目录、支持连接级封禁、无需逐用户授权。
+                用户级安装已取消（避免与系统级双重上报）；历史用户级安装可用 .run --uninstall 清理。
               </div>
-              {cmdBlock(macRunCmd, 'mac-run')}
+              {dlBtn('/downloads/aegis-agent-macos.pkg', 'aegis-agent-macos.pkg')}
             </div>
           </div>
         </div>

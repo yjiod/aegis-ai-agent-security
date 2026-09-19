@@ -775,6 +775,41 @@ def reconcile_enforcement(policy):
     deny_skills=set(policy_deny(policy,"skills"))
     deny_mcp=set(policy_deny(policy,"mcp"))
     homes=managed_homes()
+    # 终端侧独立爆炸半径闸(与控制台发布闸双闸): 本周期计划影响资产数超 cap 且签名策略未带
+    # enforce_override 时, 本周期拒绝执行并留回执 cap_exceeded, 防过宽 deny 一次性大面积隔离。
+    BLAST_CAP=5
+    blast_override=bool(policy.get("enforce_override")) if isinstance(policy,dict) else False
+    if en_skill:
+        seen=set(); planned_skill=0
+        for home in homes:
+            for rel in SKILL_ROOTS:
+                d=home/rel
+                if not d.exists(): continue
+                for sm in list(d.rglob("SKILL.md")):
+                    sr=sm.parent.resolve()
+                    if sr in seen or not sr.exists(): continue
+                    seen.add(sr)
+                    if sr.name in deny_skills: planned_skill+=1
+        if planned_skill>BLAST_CAP and not blast_override:
+            actions.append({"asset_type":"skill","asset_key":"*","action":"cap_exceeded","target":f"{planned_skill} assets > cap {BLAST_CAP}","reason":"blast_radius_cap","ok":False,"at":int(time.time())})
+            en_skill=False
+    if en_mcp:
+        planned_mcp=0
+        for home in homes:
+            for rel in AGENT_CONFIGS:
+                p=home/rel
+                if not p.exists() or p.suffix.lower()!=".json": continue
+                try: data=json.loads(p.read_text())
+                except (OSError,ValueError): continue
+                if not isinstance(data,dict): continue
+                present=set()
+                for k in MCP_SERVER_KEYS:
+                    v=data.get(k)
+                    if isinstance(v,dict): present|=set(v.keys())
+                planned_mcp+=len(present & deny_mcp)
+        if planned_mcp>BLAST_CAP and not blast_override:
+            actions.append({"asset_type":"mcp","asset_key":"*","action":"cap_exceeded","target":f"{planned_mcp} assets > cap {BLAST_CAP}","reason":"blast_radius_cap","ok":False,"at":int(time.time())})
+            en_mcp=False
     # 只封显式 deny 名单(签名策略下发=人工审批)。**不做**"未知即隔离": 真机演练证明
     # unknown+block 组合会在开关打开瞬间隔离全部未加白 Skill(含用户真实在用的),
     # 破坏面过大; 未知 Skill 仅产出发现项供人工决策。
@@ -1361,6 +1396,10 @@ def build_report(root,policy):
     inventory,findings=scan(root,policy)
     baseline_inv,baseline_findings=verify_user_baselines()
     inventory.extend(baseline_inv); findings.extend(baseline_findings)
+    # 用户级安装已取消(2026-09): mac 非 root 运行=历史用户级安装, 能力受限(仅扫当前用户、
+    # 无 pf 连接级封禁)。产出发现项让控制台可见, 驱动迁移到系统级 .pkg。(置于截断上限之前)
+    if sys.platform=="darwin" and os.geteuid()!=0:
+        findings.append(finding("user_level_deprecated","medium",str(BASE_DIR),"用户级安装已取消: 本机以非 root 运行, 仅扫当前用户且无连接级封禁; 请用系统级 .pkg 重装"))
     if len(inventory)>REPORT_INVENTORY_LIMIT:
         inventory=inventory[:REPORT_INVENTORY_LIMIT-1]+[{"type":"inventory_truncated","omitted":len(inventory)-REPORT_INVENTORY_LIMIT+1}]
     if len(findings)>REPORT_FINDING_LIMIT:

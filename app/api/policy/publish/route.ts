@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
-import { ensureLabelsLoaded } from '@/lib/labels';
+import { ensureLabelsLoaded, listLabels } from '@/lib/labels';
 import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
-import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds } from '@/lib/policy';
+import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds, BLAST_CAP_ASSETS, BLAST_CAP_PCT, BLAST_OVERRIDE_PHRASE } from '@/lib/policy';
 import { moduleOverrides } from '@/lib/modules';
 
 export const dynamic = 'force-dynamic';
@@ -41,7 +41,59 @@ export async function POST(request: Request) {
     );
   }
 
-  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds, modules: moduleOverrides() });
+  // ── 封禁爆炸半径闸（PM 评审 #1）：发布前用 Collector 各设备已发现资产预估影响面。
+  // 超上限(资产数/单设备占比)即 409 拦截并回传精确清单；typed override 通过才放行，
+  // 且签名策略带 enforce_override 标志，终端侧独立 cap 据此放行（双闸）。
+  const mods = moduleOverrides();
+  const enforceOn = Boolean(mods.skill_enforce) || Boolean(mods.mcp_enforce);
+  let enforceOverride = false;
+  let blastNote = '';
+  if (enforceOn) {
+    const labelsNow = listLabels();
+    const denySkills = labelsNow.filter((l) => l.asset_type === 'skill' && l.disposition === 'deny').map((l) => l.asset_key);
+    const denyMcp = labelsNow.filter((l) => l.asset_type === 'mcp' && l.disposition === 'deny').map((l) => l.asset_key);
+    if (denySkills.length || denyMcp.length) {
+      type DevAssets = { device_id: string; skills?: string[]; mcp_assets?: string[] };
+      let devices: DevAssets[] = [];
+      try {
+        const cu = process.env.AEGIS_COLLECTOR_URL;
+        const ct = process.env.AEGIS_COLLECTOR_TOKEN;
+        if (cu && ct) {
+          const r = await fetch(`${cu.replace(/\/$/, '')}/v1/devices?limit=500`, { headers: { Authorization: `Bearer ${ct}`, Accept: 'application/json' }, cache: 'no-store' });
+          if (r.ok) { const d = (await r.json()) as { devices?: DevAssets[] }; devices = d.devices ?? []; }
+        }
+      } catch { devices = []; }
+      const impact = devices
+        .map((dev) => {
+          const s = (dev.skills ?? []).filter((x) => denySkills.includes(x));
+          const m = (dev.mcp_assets ?? []).filter((x) => denyMcp.includes(x));
+          const denom = (dev.skills ?? []).length;
+          return { device_id: dev.device_id, skills: s, mcp: m, count: s.length + m.length, pct: denom ? Math.round((100 * s.length) / denom) : 0 };
+        })
+        .filter((x) => x.count > 0);
+      const total = impact.reduce((a, b) => a + b.count, 0);
+      const overPct = impact.some((x) => x.pct > BLAST_CAP_PCT);
+      const exceeded = total > BLAST_CAP_ASSETS || overPct;
+      const overrideOk = typeof body.override === 'string' && body.override === BLAST_OVERRIDE_PHRASE;
+      if (exceeded && !overrideOk) {
+        return NextResponse.json(
+          {
+            error: 'blast_radius_exceeded',
+            hint: `本次发布将影响 ${total} 个资产（上限 ${BLAST_CAP_ASSETS}）或单设备占比超 ${BLAST_CAP_PCT}%。确需执行请在 override 字段输入 ${BLAST_OVERRIDE_PHRASE} 后重试。`,
+            impact,
+            caps: { assets: BLAST_CAP_ASSETS, pct: BLAST_CAP_PCT, override: BLAST_OVERRIDE_PHRASE },
+          },
+          { status: 409, headers: NO_STORE },
+        );
+      }
+      if (exceeded && overrideOk) {
+        enforceOverride = true;
+        blastNote = ` blast-override=${BLAST_OVERRIDE_PHRASE} affected=${total}`;
+      }
+    }
+  }
+
+  const rel = publishPolicyRelease({ scanMode, by: session?.subject ?? 'console', note, customRuleIds, modules: mods, enforceOverride });
   if (!rel) {
     return NextResponse.json(
       { error: 'signing_key_not_configured', hint: '设置 AEGIS_POLICY_SIGNING_KEYS（或单钥 AEGIS_POLICY_SIGNING_KEY）后才能发布签名策略' },
@@ -54,7 +106,7 @@ export async function POST(request: Request) {
     action: 'policy:publish',
     resource_type: 'policy',
     resource_id: `v${rel.version}`,
-    detail: `发布签名策略 v${rel.version}（key=${rel.signing_key_id}）：allow=${rel.receipt.label_counts.allow} monitor=${rel.receipt.label_counts.monitor} deny=${rel.receipt.label_counts.deny}${note ? ` note=${note}` : ''}`,
+    detail: `发布签名策略 v${rel.version}（key=${rel.signing_key_id}）：allow=${rel.receipt.label_counts.allow} monitor=${rel.receipt.label_counts.monitor} deny=${rel.receipt.label_counts.deny}${blastNote}${note ? ` note=${note}` : ''}`,
   });
 
   return NextResponse.json(

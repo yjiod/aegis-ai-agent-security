@@ -1221,4 +1221,26 @@ class AegisTests(unittest.TestCase):
             self.assertEqual([a['action'] for a in acts],['net_block_skipped'])
             self.assertEqual(acts[0]['reason'],'needs_root')
 
+    def test_enforcer_blast_cap_refuses_overwide_deny(self):
+        # 终端侧独立爆炸半径闸: 计划影响 >5 且策略无 enforce_override → 本周期拒绝执行+回执。
+        with tempfile.TemporaryDirectory() as td:
+            home=Path(td)/'home'
+            roots=['.claude/skills','.cursor/skills','.codex/skills','.gemini/skills','.copilot/skills','.workbuddy/skills']
+            for rel in roots:
+                d=home/rel/'wide-skill'; d.mkdir(parents=True)
+                (d/'SKILL.md').write_text('# wide')
+            qdir=Path(td)/'q'
+            orig_homes=self.agent.managed_homes; orig_q=self.agent.quarantine_dir
+            self.agent.managed_homes=lambda:[home]; self.agent.quarantine_dir=lambda:qdir
+            try:
+                pol={'schema':'aegis.policy/v1','version':'1','modules':{'skill_enforce':True},'deny':{'skills':['wide-skill'],'mcp':[]},'allowed_skills':[],'enforcement':{}}
+                acts=self.agent.reconcile_enforcement(pol)
+                self.assertIn('cap_exceeded',[a['action'] for a in acts])
+                self.assertTrue((home/'.claude'/'skills'/'wide-skill'/'SKILL.md').exists())  # 未隔离
+                pol2=dict(pol); pol2['enforce_override']=True
+                acts2=self.agent.reconcile_enforcement(pol2)
+                self.assertIn('quarantined',[a['action'] for a in acts2])  # override 后放行
+            finally:
+                self.agent.managed_homes=orig_homes; self.agent.quarantine_dir=orig_q
+
 if __name__=='__main__': unittest.main()

@@ -58,6 +58,8 @@ export interface PolicyBody {
   monitor_notes: Record<string, string>;
   modules: Record<string, boolean>;
   deny: { skills: string[]; mcp: string[] };
+  /** 仅当发布时 typed override 通过才置 true; 终端据此放行超爆炸半径上限的封禁动作。 */
+  enforce_override?: boolean;
 }
 
 /**
@@ -128,7 +130,13 @@ function dedupeSorted(items: string[]): string[] {
  * - custom_baseline_rules 来自调用方传入的 effectiveRules()∩可执行规则集，使
  *   scan_mode=custom 真正强制导入的基线，而不是空集静默关闭扫描。
  */
-export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[]; modules?: Record<string, boolean> }): PolicyBody {
+/** 封禁爆炸半径硬上限（PM 评审 #1）：单次发布影响资产数上限，及单设备已发现 skill 占比上限。
+ *  超限发布需 typed override，且签名策略带 enforce_override 标志终端才放行超 cap 动作。 */
+export const BLAST_CAP_ASSETS = 5;
+export const BLAST_CAP_PCT = 10;
+export const BLAST_OVERRIDE_PHRASE = 'I-ACCEPT-BLAST-RADIUS';
+
+export function computePolicyBody(opts: { version: string; scanMode: string; labels?: AssetLabel[]; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean }): PolicyBody {
   const labels = opts.labels ?? listLabels();
   const allowSkills = labels.filter((l) => l.asset_type === 'skill' && l.disposition === 'allow').map((l) => l.asset_key);
   const allowMcp = labels.filter((l) => l.asset_type === 'mcp' && l.disposition === 'allow').map((l) => l.asset_key);
@@ -165,6 +173,7 @@ export function computePolicyBody(opts: { version: string; scanMode: string; lab
     monitor_notes,
     modules,
     deny,
+    ...(opts.enforceOverride ? { enforce_override: true } : {}),
   };
 }
 
@@ -483,12 +492,12 @@ function countLabels(labels: AssetLabel[]): PolicyReceipt {
  * 编译 + 签名 + 落库一次策略发布。version 单调递增，旧发布置 superseded。
  * 需要已配置签名密钥；未配置返回 null（调用方据此诚实报错，不产出未签名策略）。
  */
-export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[]; modules?: Record<string, boolean> }): PolicyRelease | null {
+export function publishPolicyRelease(opts: { scanMode: string; by: string; note?: string; customRuleIds?: string[]; modules?: Record<string, boolean>; enforceOverride?: boolean }): PolicyRelease | null {
   if (!activeKeyIdResolved()) return null;
   const arr = releases();
   const nextVersion = arr.reduce((max, r) => Math.max(max, r.version), 0) + 1;
   const labels = listLabels();
-  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds, modules: opts.modules });
+  const body = computePolicyBody({ version: policyVersionString(nextVersion), scanMode: opts.scanMode, labels, customRuleIds: opts.customRuleIds, modules: opts.modules, enforceOverride: opts.enforceOverride });
   const signature = signPolicyBody(body);
   if (!signature) return null;
   const now = Date.now();
@@ -508,6 +517,47 @@ export function publishPolicyRelease(opts: { scanMode: string; by: string; note?
   for (const r of arr) if (r.status === 'published') r.status = 'superseded';
   arr.push(release);
   // PG 写穿透
+  pgInsertPolicyRelease({
+    release_id: release.release_id,
+    version: release.version,
+    created_at: release.created_at,
+    created_by: release.created_by,
+    signing_key_id: release.signing_key_id,
+    signature: release.signature,
+    policy_json: JSON.stringify(release.policy),
+    note: release.note,
+    status: 'published',
+  });
+  pgSupersedePolicyReleases(release.release_id);
+  return release;
+}
+
+/**
+ * 一键回滚（PM 评审 #1 的 rollback UX 后端）：把指定历史发布的 policy body 以**新版本号**
+ * 重新签名发布（不修改历史release，保持审计不可变）。用于"封错了立刻回到上一版"。
+ */
+export function publishPolicyBodyRaw(base: PolicyBody, by: string, note: string): PolicyRelease | null {
+  if (!activeKeyIdResolved()) return null;
+  const arr = releases();
+  const nextVersion = arr.reduce((max, r) => Math.max(max, r.version), 0) + 1;
+  const body: PolicyBody = { ...base, version: policyVersionString(nextVersion) };
+  const signature = signPolicyBody(body);
+  if (!signature) return null;
+  const now = Date.now();
+  const release: PolicyRelease = {
+    release_id: randomUUID(),
+    version: nextVersion,
+    created_at: now,
+    created_by: by,
+    signing_key_id: signingKeyId(),
+    signature,
+    policy: body,
+    note,
+    status: 'published',
+    receipt: countLabels(listLabels()),
+  };
+  for (const r of arr) if (r.status === 'published') r.status = 'superseded';
+  arr.push(release);
   pgInsertPolicyRelease({
     release_id: release.release_id,
     version: release.version,

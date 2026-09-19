@@ -78,6 +78,9 @@ export default function DispositionsPage() {
   const [current, setCurrent] = useState<CurrentRelease | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishMsg, setPublishMsg] = useState('');
+  // 封禁爆炸半径闸(PM 评审 #1): 发布被 409 拦截时展示精确影响清单 + typed override 输入。
+  const [blast, setBlast] = useState<{ hint: string; impact: { device_id: string; skills: string[]; mcp: string[]; count: number; pct: number }[]; override: string } | null>(null);
+  const [blastInput, setBlastInput] = useState('');
   // 系统默认放行（原生自带）默认折叠，避免"加白"列表被非用户决策项刷屏（用户反馈）。
   const [showDefaults, setShowDefaults] = useState(false);
 
@@ -228,15 +231,33 @@ export default function DispositionsPage() {
     }
   }
 
-  async function publishPolicy() {
+  async function publishPolicy(override?: string) {
     setPublishing(true);
     setPublishMsg('');
     try {
-      const r = await fetch('/api/policy/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-      const d = (await r.json().catch(() => ({}))) as { version?: number; error?: string };
-      if (r.ok) setPublishMsg(`已发布签名策略 v${d.version}，终端下次加载即验签生效。`);
+      const r = await fetch('/api/policy/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(override ? { override } : {}) });
+      const d = (await r.json().catch(() => ({}))) as { version?: number; error?: string; hint?: string; impact?: { device_id: string; skills: string[]; mcp: string[]; count: number; pct: number }[]; caps?: { override?: string } };
+      if (r.ok) { setPublishMsg(`已发布签名策略 v${d.version}，终端下次加载即验签生效。`); setBlast(null); setBlastInput(''); }
+      else if (d.error === 'blast_radius_exceeded') { setBlast({ hint: d.hint ?? '', impact: d.impact ?? [], override: d.caps?.override ?? '' }); setPublishMsg('发布被爆炸半径闸拦截：影响面超上限，见下方清单。'); }
       else if (d.error === 'signing_key_not_configured') setPublishMsg('发布失败：服务端未配置签名密钥（AEGIS_POLICY_SIGNING_KEY）。');
       else setPublishMsg(`发布失败 HTTP ${r.status}`);
+      await load();
+    } catch (e) {
+      setPublishMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  // 一键回滚(PM 评审 #1): 把上一个被取代版本的内容以新版本号重签发布, 历史不改。
+  async function rollback() {
+    setPublishing(true);
+    setPublishMsg('');
+    try {
+      const r = await fetch('/api/policy/rollback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const d = (await r.json().catch(() => ({}))) as { version?: number; rolled_back_to?: number; error?: string; hint?: string };
+      if (r.ok) setPublishMsg(`已回滚：新发布 v${d.version}（内容 = v${d.rolled_back_to}），终端下次加载即生效。`);
+      else setPublishMsg(`回滚失败：${d.hint ?? d.error ?? `HTTP ${r.status}`}`);
       await load();
     } catch (e) {
       setPublishMsg(e instanceof Error ? e.message : String(e));
@@ -431,7 +452,45 @@ export default function DispositionsPage() {
               {publishing ? '发布中…' : `发布策略 (v${preview.next_version})`}
             </Button>
           )}
+          {isAdmin && current && (
+            <Button variant="outline" onClick={() => void rollback()} disabled={publishing} title="把上一个被取代版本的内容以新版本号重新签名发布（封错了一键回到上一版）">
+              回滚上一版
+            </Button>
+          )}
         </div>
+
+        {blast && (
+          <div style={{ border: '1px solid #7a4b00', background: 'rgba(122,75,0,0.08)', borderRadius: 10, padding: 12, marginTop: 10 }}>
+            <strong style={{ fontSize: 13 }}>爆炸半径超限，发布已拦截</strong>
+            <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '6px 0' }}>{blast.hint}</p>
+            <div className="data-table" style={{ marginBottom: 8 }}>
+              <div className="data-head" style={{ gridTemplateColumns: '1.2fr 2fr 1.4fr 0.6fr 0.6fr' }}>
+                <span>设备</span><span>将隔离的 Skill</span><span>将移除的 MCP</span><span>数量</span><span>占比</span>
+              </div>
+              {blast.impact.map((x) => (
+                <div className="data-row" key={x.device_id} style={{ gridTemplateColumns: '1.2fr 2fr 1.4fr 0.6fr 0.6fr' }}>
+                  <span style={{ fontSize: 11, fontFamily: 'monospace' }}>{x.device_id.slice(0, 12)}</span>
+                  <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{x.skills.join(', ') || '—'}</span>
+                  <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{x.mcp.join(', ') || '—'}</span>
+                  <span style={{ fontSize: 11 }}>{x.count}</span>
+                  <span style={{ fontSize: 11 }}>{x.pct}%</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                value={blastInput}
+                onChange={(e) => setBlastInput(e.target.value)}
+                placeholder={`输入 ${blast.override} 以确认`}
+                style={{ fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface-1)', color: 'var(--foreground)', minWidth: 220 }}
+              />
+              <Button disabled={publishing || blastInput !== blast.override} onClick={() => void publishPolicy(blast.override)}>
+                <Upload size={14} /> 确认超半径并发布
+              </Button>
+              <Button variant="outline" onClick={() => { setBlast(null); setBlastInput(''); }}>取消</Button>
+            </div>
+          </div>
+        )}
 
         {current ? (
           <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 10 }}>
