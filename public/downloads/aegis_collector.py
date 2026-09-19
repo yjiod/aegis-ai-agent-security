@@ -506,7 +506,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.path!="/v1/reports": return self.reply(404,{"error":"not_found"})
         if self.rate_limited(): return
         authenticated,binding=self.report_authentication()
-        if not authenticated: return self.reply(401,{"error":"unauthorized"})
+        if not authenticated:
+            # 401 诊断(真机 401 反复): 记录令牌匹配情况, 区分"令牌错/设备错/令牌属于别的设备"。
+            did_h=self.headers.get("X-Aegis-Device-ID","") or ""
+            sup=self.headers.get("Authorization","").removeprefix("Bearer ")
+            th=hashlib.sha256(sup.encode()).hexdigest() if sup else ""
+            info="no_token"
+            try:
+                with db_open(self.server.db_path) as db:
+                    exact=db.execute("SELECT 1 FROM device_tokens WHERE device_id=? AND token_hash=?",(did_h,th)).fetchone()
+                    n=db.execute("SELECT COUNT(*) FROM device_tokens WHERE device_id=?",(did_h,)).fetchone()[0]
+                    anydev=db.execute("SELECT device_id FROM device_tokens WHERE token_hash=?",(th,)).fetchone()
+                info="exact=%s tokens_for_device=%d token_belongs_to=%s" % (bool(exact), n, (anydev[0] if anydev else ""))
+            except sqlite3.Error: info="db_error"
+            audit_event(self.server.db_path,"report_auth_failed",device_id=did_h,detail=info[:200])
+            return self.reply(401,{"error":"unauthorized"})
         try: length=int(self.headers.get("Content-Length","0"))
         except ValueError: return self.reply(400,{"error":"invalid_size"})
         if length<2 or length>2_000_000: return self.reply(413,{"error":"invalid_size"})

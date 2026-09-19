@@ -434,9 +434,20 @@ if (-not $sn) {
     if ($t -and ($t -notmatch '^(0+|F+)$') -and ($badSn -notcontains $t.ToLower())) { $sn = $u }
   } catch { }
 }
-if ($sn) { $deviceMaterial = "aegis-hw:" + $sn } else { $sn = $null; $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
+$serialDisplay = $sn
+# 身份(device_id)用**旧链**(CSProduct→BIOS + 旧占位名单), 保证存量设备 id 稳定——令牌(DPAPI)、
+# 封禁豁免名单都绑在旧 id 上; 改身份链会使令牌与 device_id 失配恒 401(真机教训)。
+# 主板序列号/UUID 只用于**显示** serial($serialDisplay)。
+$legacyBad = @('', 'to be filled by o.e.m.', 'none', 'default string', 'unknown', 'o.e.m.', 'not specified')
+$identitySn = $null
+foreach ($src in @(
+  { try { (Get-CimInstance Win32_ComputerSystemProduct -OperationTimeoutSec 10).IdentifyingNumber } catch { $null } },
+  { try { (Get-CimInstance Win32_BIOS -OperationTimeoutSec 10).SerialNumber } catch { $null } }
+)) { $c = & $src; if ($c -and ($legacyBad -notcontains $c.Trim().ToLower())) { $identitySn = $c.Trim(); break } }
+if ($identitySn) { $deviceMaterial = "aegis-hw:" + $identitySn } else { $deviceMaterial = "$env:COMPUTERNAME|$env:USERDOMAIN" }
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
+$sn = $serialDisplay
 $agentVersion = '0.36.1'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──

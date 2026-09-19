@@ -12,7 +12,7 @@
     },
     "aegis-windows.ps1": {
       "url": "/downloads/aegis-windows.ps1",
-      "sha256": "d9af6215729e767feda2d121d8b842474af62500a780fc3103f10b08a070716b"
+      "sha256": "8bbe35b7dd24a33e918f9c5d974a430f3974b55321a26b31eea0a98010dfe3d8"
     },
     "aegis_self_update.py": {
       "url": "/downloads/aegis_self_update.py",
