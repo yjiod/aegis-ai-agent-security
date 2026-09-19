@@ -9,7 +9,7 @@ mkdir -m 700 "$STAGE_DIR"
 trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 2>/dev/null || true' EXIT HUP INT TERM
 for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
 verify_sha256() { if command -v shasum >/dev/null 2>&1; then echo "$1  $2" | shasum -a 256 -c -; else echo "$1  $2" | sha256sum -c -; fi; }
-verify_sha256 "7d5c5be3c08dde95907667b6be474d53775b0f14e99d60afb3bfe1436ba6e5ca" "$STAGE_DIR/aegis_agent.py"
+verify_sha256 "4536a2171053f45d285fb198ded4ee1ac16cfbfd131e979c7bee17f9556dbb98" "$STAGE_DIR/aegis_agent.py"
 verify_sha256 "6d059c7f31b10c8d133184f3673fcba01d25fd409b0310944f7bde0eab30088b" "$STAGE_DIR/aegis-policy.json"
 verify_sha256 "5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806" "$STAGE_DIR/aegis-security-baseline.md"
 CURRENT_COMPLETE=1
