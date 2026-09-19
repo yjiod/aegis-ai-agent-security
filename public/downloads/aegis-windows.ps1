@@ -718,7 +718,7 @@ try{$reportJson|Set-Content -Encoding UTF8 $outputTemp;Move-Item $outputTemp $Ou
 if($ReportUrl){
   $spool=Join-Path $installDir 'spool';New-Item -ItemType Directory -Force -Path $spool|Out-Null
   try{
-    foreach($queued in @(Get-ChildItem $spool -Filter '*.json' -File|Sort-Object Name|Select-Object -First 50)){
+    foreach($queued in @(Get-ChildItem $spool -Filter '*.json' -File|Sort-Object Name|Select-Object -First 5)){
       try{$queuedJson=Get-Content -Encoding UTF8 $queued.FullName -Raw;$null=$queuedJson|ConvertFrom-Json}catch{Move-Item $queued.FullName ($queued.FullName+'.'+[Guid]::NewGuid().ToString('N')+'.invalid') -Force;continue}
       try{$null=Send-AegisReport $queuedJson $ReportUrl;Remove-Item $queued.FullName -Force}catch{break}
     }
@@ -727,7 +727,7 @@ if($ReportUrl){
     $queue=Join-Path $spool ($report.scanned_at.ToString()+'-'+$report.device_id+'-'+[Guid]::NewGuid().ToString('N')+'.json');$reportJson|Set-Content -Encoding UTF8 $queue
     Get-ChildItem $spool -Filter '*.json' -File|Sort-Object LastWriteTimeUtc -Descending|Select-Object -Skip 500|Remove-Item -Force
     Get-ChildItem $spool -Filter '*.invalid' -File|Sort-Object LastWriteTimeUtc -Descending|Select-Object -Skip 20|Remove-Item -Force
-    Write-Warning 'Report upload failed and was queued locally.'
+    Write-Warning ('Report upload failed and was queued locally. reason: ' + $_.Exception.Message)
   }
 }
 if ($report.summary.critical -gt 0 -or $report.summary.high -gt 0) { exit 2 }
