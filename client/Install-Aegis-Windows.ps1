@@ -408,6 +408,9 @@ try {
   # BUG I 修法: 先 /reset /t 清历史坏 ACL(空 DACL 自愈); 目录级 grant 带 (OI)(CI) 但**不带 /T**
   # (继承只作用于新子对象); 既有子文件单独显式授权(**不带继承标志**, 避免 (OI)(CI) 落在文件上
   # 逐文件失败而继承 ACE 已被剥光 → 空 DACL 锁死配置/上报, 即 BUG I)。
+  # 真机教训: 目录已带"拒绝 Administrators"的坏 ACL 时, /reset 因 admin 非所有者而失败,
+  # 收紧整段无效且目录保持不可访问。先 takeown 夺回所有权再 /reset, 使收紧自愈。
+  & takeown.exe /f $Data /r /d Y | Out-Null
   & icacls.exe $Data /reset /t /c | Out-Null
   & icacls.exe $Data /inheritance:r /C | Out-Null
   & icacls.exe $Data /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /C | Out-Null
