@@ -85,7 +85,12 @@ function Compare-AegisVersion([string]$a,[string]$b) {
   }
   return 0
 }
-function Update-AegisScanner([string]$ReportUrl,[string]$CurrentVersion,[string]$ScriptPath) {
+function Update-AegisScanner([string]$ReportUrl,[string]$CurrentVersion,[string]$ScriptPath,[object]$Policy=$null,[string]$DeviceId='') {
+  # pinned 设备(开发主机)永不自动更新, 只接受人工/桌管更新。
+  if ($Policy -and $DeviceId) {
+    $pinned = @($Policy.agent_self_update.pinned | Where-Object { $_ })
+    if ($pinned -contains $DeviceId) { return }
+  }
   # Windows 客户端自更新兜底通道。此前 Windows 侧（PowerShell 扫描器 + .NET 服务宿主）完全
   # 没有自更新逻辑——只有 mac/linux 的 python agent 会跑 aegis_self_update.py，导致 Windows
   # 终端永远停在安装时的版本、控制台版本长期落后（用户反馈"上线了还是 0.34.6，没自动更新"）。
@@ -465,7 +470,7 @@ if ($ovServer) {
 # 此前 Windows 侧无任何自更新，终端会永远停在安装版本（用户反馈"上线了还是 0.34.6，没自动更新"）。
 $selfPath = $PSCommandPath
 if (-not $selfPath) { try { $selfPath = $MyInvocation.MyCommand.Path } catch { $selfPath = $null } }
-Update-AegisScanner -ReportUrl $ReportUrl -CurrentVersion $agentVersion -ScriptPath $selfPath
+Update-AegisScanner -ReportUrl $ReportUrl -CurrentVersion $agentVersion -ScriptPath $selfPath -Policy $policy -DeviceId $deviceId
 # 交互使用者解析（服务以 LocalSystem 运行时 $env:USERNAME 为空/SYSTEM）：多源解析 + 粘滞缓存。
 # 此前仅靠 Win32_ComputerSystem.UserName，遇到无人交互登录的扫描周期（锁屏/会话断开/无头 VM）
 # 会把上报用户抖动成字面量 'unknown'（用户反馈"上报者是 unknown"；实测同一台机 shine/unknown 交替）。
@@ -599,6 +604,9 @@ function Invoke-AegisHardUnblock {
 function Invoke-AegisEnforce {
   param($Policy)
   $actions = @()
+  # 封禁豁免(签名策略一等字段): 开发主机等豁免设备不执行任何封禁, 只报不封。
+  $exempt = @($Policy.enforce_exempt | Where-Object { $_ })
+  if ($exempt -contains $deviceId) { return $actions }
   $mods = if ($Policy -and $Policy.modules) { $Policy.modules } else { $null }
   $deny = if ($Policy -and $Policy.deny) { $Policy.deny } else { $null }
   $denySkills = @(); $denyMcp = @()
@@ -702,7 +710,7 @@ function Invoke-AegisEnforce {
   return $actions
 }
 $enforceActions = @(Invoke-AegisEnforce -Policy $policy)
-$report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); network=$networkInfo; enforcement=$enforceActions; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
+$report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); network=$networkInfo; enforcement=$enforceActions; run_mode='system'; capabilities=@{ pf=$true; es=$false }; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
 $outputTemp=$Output+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
