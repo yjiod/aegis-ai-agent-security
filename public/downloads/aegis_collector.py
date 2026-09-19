@@ -315,6 +315,15 @@ class Handler(BaseHTTPRequestHandler):
     def report_authentication(self):
         device_id=self.headers.get("X-Aegis-Device-ID","")
         supplied=self.headers.get("Authorization","").removeprefix("Bearer ")
+        # 0) 仅令牌（无设备头）：token 哈希反查设备（令牌本身即密钥，持有即设备），
+        #    供 /v1/policy 等自助端点一条命令调用（不便先算 device_id 的场景）。
+        if supplied and not device_id:
+            th=hashlib.sha256(supplied.encode()).hexdigest()
+            try:
+                with db_open(self.server.db_path) as db:
+                    row=db.execute("SELECT device_id,signing_secret FROM device_tokens WHERE token_hash=?",(th,)).fetchone()
+                if row: return (True,(row[0],[row[1]],0))
+            except sqlite3.Error: pass
         # 1) 每设备上报令牌（批4，DB 存储 sha256 哈希）：命中即通过（双接受过渡期）。
         if device_id and supplied:
             th=hashlib.sha256(supplied.encode()).hexdigest()
