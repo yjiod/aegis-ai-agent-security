@@ -105,10 +105,13 @@ def valid_report(d,now=None):
     """Validate the published v1 contract without a third-party JSON Schema runtime."""
     if not isinstance(d,dict): return False
     required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}
-    allowed=required|{"scan_root","inventory","hostname","os_user","owner","os","serial","enterprise_baseline_version","network","enforcement"}
+    allowed=required|{"scan_root","inventory","hostname","os_user","owner","os","serial","enterprise_baseline_version","network","enforcement","run_mode","capabilities"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
     if d.get("schema")!="aegis.report/v1": return False
     if "owner" in d and not (isinstance(d["owner"],str) and len(d["owner"])<=64): return False
+    if "run_mode" in d and not (isinstance(d["run_mode"],str) and 1<=len(d["run_mode"])<=16): return False
+    cap=d.get("capabilities")
+    if cap is not None and not (isinstance(cap,dict) and all(isinstance(cap.get(k),bool) for k in cap if k in ("pf","es"))): return False
     if "network" in d and not _valid_network(d["network"]): return False
     if "enforcement" in d and not _valid_enforcement(d["enforcement"]): return False
     if "enterprise_baseline_version" in d and not (isinstance(d["enterprise_baseline_version"],str) and len(d["enterprise_baseline_version"])<=32): return False
