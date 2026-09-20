@@ -49,7 +49,7 @@ function semverNewer(candidate: string, current: string): boolean {
   return false;
 }
 
-type Prediction = 'will_update' | 'up_to_date' | 'pinned' | 'out_of_canary' | 'disabled';
+type Prediction = 'will_update' | 'up_to_date' | 'unknown' | 'pinned' | 'out_of_canary' | 'disabled';
 
 function rolloutEq(a: RolloutConfig | null, b: RolloutConfig | null): boolean {
   return !!a && !!b && a.enabled === b.enabled && a.channel === b.channel && a.rollout_percent === b.rollout_percent;
@@ -64,13 +64,17 @@ function predict(d: CohortDevice, cfg: RolloutConfig, latest: string): Predictio
   if (d.pinned) return 'pinned';
   if (!d.in_canary) return 'out_of_canary';
   const cur = d.agent_version ?? '';
-  if (latest && cur && semverNewer(latest, cur)) return 'will_update';
+  // 诚实化：拿不到"最新版本"（如 dev 无 PUSH-INDEX/清单缺失）或设备未报版本时，
+  // 不能谎称"已最新"——显示"未知"，避免把"不知道"伪装成"没问题"。
+  if (!latest || !cur) return 'unknown';
+  if (semverNewer(latest, cur)) return 'will_update';
   return 'up_to_date';
 }
 
 const PREDICT_LABEL: Record<Prediction, { text: string; cls: string }> = {
   will_update: { text: '会更新', cls: 'pass' },
   up_to_date: { text: '已最新', cls: '' },
+  unknown: { text: '未知', cls: 'warn' },
   pinned: { text: '自更保护·跳过', cls: 'warn' },
   out_of_canary: { text: '不在灰度', cls: '' },
   disabled: { text: '自更已关', cls: 'warn' },
@@ -155,7 +159,7 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
   const cohort = useMemo(() => {
     const rows = devices.map((d) => ({ d, pred: predict(d, cfg ?? draft, latest) }));
     // 会更新的排前面，其次按桶号
-    const order: Record<Prediction, number> = { will_update: 0, pinned: 1, out_of_canary: 2, up_to_date: 3, disabled: 4 };
+    const order: Record<Prediction, number> = { will_update: 0, unknown: 1, pinned: 2, out_of_canary: 3, up_to_date: 4, disabled: 5 };
     rows.sort((a, b) => order[a.pred] - order[b.pred] || (a.d.rollout_bucket ?? 0) - (b.d.rollout_bucket ?? 0));
     return rows;
   }, [devices, cfg, draft, latest]);
