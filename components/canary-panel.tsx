@@ -93,6 +93,8 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
   const [draft, setDraft] = useState<RolloutConfig>({ enabled: true, channel: 'pilot', rollout_percent: 50 });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [advancing, setAdvancing] = useState(false);
+  const [confirmAdvance, setConfirmAdvance] = useState(false);
   // 当前**已发布策略**里的 agent_self_update（终端实际生效值）；null=尚无已发布策略。
   const [published, setPublished] = useState<RolloutConfig | null>(null);
   const [hasRelease, setHasRelease] = useState(false);
@@ -156,6 +158,47 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
       setMsg('保存失败：网络错误');
     }
     setBusy(false);
+  }
+
+  // 一键推进：门禁（无坏自更回执）通过才允许；保存 rollout+step 并立即发布策略使其生效。
+  // 与 scripts/run_canary_release.py --advance 同一语义/门禁，供控制台直接操作。
+  async function doAdvance(step = 25) {
+    if (!isAdmin || badUpdates.length > 0) return;
+    setAdvancing(true);
+    setMsg('');
+    const cur = (cfg ?? draft).rollout_percent;
+    const next = Math.min(100, cur + step);
+    try {
+      const put = await fetch('/api/settings/rollout', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true, channel: (cfg ?? draft).channel, rollout_percent: next }),
+      });
+      if (!put.ok) {
+        const j = (await put.json().catch(() => ({}))) as { details?: string[]; error?: string };
+        setMsg(`推进失败（保存）：${(j.details ?? []).join('；') || j.error || `HTTP ${put.status}`}`);
+        setAdvancing(false);
+        setConfirmAdvance(false);
+        return;
+      }
+      const pub = await fetch('/api/policy/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: `canary advance ${cur}%->${next}% (console)` }),
+      });
+      if (!pub.ok) {
+        const j = (await pub.json().catch(() => ({}))) as { error?: string; hint?: string };
+        setMsg(`推进失败（发布）：${j.hint || j.error || `HTTP ${pub.status}`}`);
+      } else {
+        const j = (await pub.json()) as { version?: number };
+        setMsg(`已推进并发布 v${j.version}：放量 ${cur}% → ${next}%。等待 ≥1 个扫描周期、重跑门禁确认无坏自更后再推进。`);
+        await load();
+      }
+    } catch {
+      setMsg('推进失败：网络错误');
+    }
+    setAdvancing(false);
+    setConfirmAdvance(false);
   }
 
   const cohort = useMemo(() => {
@@ -301,6 +344,43 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
             <Save size={15} />
             {busy ? '保存中…' : '保存灰度设置'}
           </Button>
+        )}
+      </div>
+
+      {/* 推进门禁结论 + 一键推进（与 run_canary_release.py --advance 同语义/门禁） */}
+      <div
+        style={{
+          display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12,
+          padding: '10px 12px', borderRadius: 8, background: 'var(--accent)', border: '1px solid var(--border)',
+        }}
+      >
+        <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>推进门禁：</span>
+        {badUpdates.length === 0 ? (
+          <i className="pass" style={{ fontSize: 11 }}>OK · 无坏自更回执，可推进</i>
+        ) : (
+          <i className="fail" style={{ fontSize: 11 }}>
+            BLOCKED · {badUpdates.length} 台坏自更（{badUpdates.slice(0, 3).map((b) => b.hostname || b.device_id).join('、')}），先排查/回滚
+          </i>
+        )}
+        {isAdmin && (cfg ?? draft).rollout_percent < 100 && (
+          confirmAdvance ? (
+            <>
+              <span style={{ fontSize: 12 }}>
+                确认把放量从 {(cfg ?? draft).rollout_percent}% 提到 {Math.min(100, (cfg ?? draft).rollout_percent + 25)}% 并立即发布策略？
+              </span>
+              <Button size="sm" onClick={() => void doAdvance(25)} disabled={advancing || badUpdates.length > 0}>
+                {advancing ? '推进中…' : '确认推进并发布'}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirmAdvance(false)} disabled={advancing}>
+                取消
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={() => setConfirmAdvance(true)} disabled={advancing || badUpdates.length > 0}>
+              <Gauge size={14} />
+              一键推进 +25 并发布
+            </Button>
+          )
         )}
       </div>
 
