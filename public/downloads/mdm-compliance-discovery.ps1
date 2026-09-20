@@ -2,7 +2,7 @@
 $installDir = Join-Path $env:ProgramData 'AegisAgent'
 $policyPath = Join-Path $installDir 'aegis-policy.json'
 $reportPath = Join-Path $installDir 'reports\latest.json'
-$expected = @{ 'aegis-policy.json'='6d059c7f31b10c8d133184f3673fcba01d25fd409b0310944f7bde0eab30088b'; 'aegis-windows.ps1'='8dae78d89d1ef73da7759a31c26c13d49a55c98bb806bb76e9133ad7c0e4a785'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
+$expected = @{ 'aegis-policy.json'='6d059c7f31b10c8d133184f3673fcba01d25fd409b0310944f7bde0eab30088b'; 'aegis-windows.ps1'='ddd8475a5953273cf8946d65f9a36bc16046bcd35826e7df7d65048492661a16'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
 $installed=$true;$integrityValid=$true
 foreach($name in $expected.Keys){$path=Join-Path $installDir $name;if(-not(Test-Path $path)){$installed=$false;$integrityValid=$false}elseif((Get-FileHash $path -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]){$integrityValid=$false}}
 $policyVersion = if (Test-Path $policyPath) { (Get-Content -Encoding UTF8 $policyPath -Raw | ConvertFrom-Json).version } else { 'missing' }
