@@ -8,8 +8,9 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
  * ENG-MBP-1032 式设备 id / 演示模式 toast）。模式感知：demo（无 Collector）断连态，
  * live（有 Collector）真实数据态；两者都不得出现伪造内容。
  *
- * 仍 skip 的块：policies（开关/发布交互细节待按当前真实行为重写）、responsive
- * （断点细节待核对 globals.css 后重写）。跟踪项 modernize-console-spec。
+ * policies 块：模块开关用例已按当前真实行为重写（ModuleToggles 取代旧只读假开关，admin
+ * 会话下可切换）；signing-key 治理柄用例仍 skip（待迁到带 admin 会话的套件）。
+ * 跟踪项 modernize-console-spec。
  */
 
 const BASE_URL =
@@ -284,17 +285,22 @@ test.describe('policies page', () => {
     await expect(page.locator('main h1')).toHaveText('终端安全策略');
   });
 
-  test('factory baseline switches are read-only and honestly labeled', async ({ page }) => {
-    // 出厂默认基线为只读：开关 disabled + 「只读」标签，不伪装可切换。
+  test('module switches are admin-interactive and honestly labeled (apply on next publish)', async ({ page }) => {
+    // ModuleToggles 已取代旧的"只读假开关"：管理员可切换模块开关，并诚实标注"下一次发布策略后
+    // 随签名策略下发终端"。console.spec 的 beforeEach 注入的是 admin 会话，故 /api/auth/me
+    // 解析后开关应为 enabled（首帧按默认 viewer 渲染为 disabled，属异步角色解析的正常过渡）。
     const switches = page.locator('.setting-row button.switch');
     await switches.first().waitFor();
     const n = await switches.count();
     expect(n).toBeGreaterThanOrEqual(1);
+    // 等异步角色解析为 admin → 首个开关变为可切换（而非旧的 disabled+只读）。
+    await expect(switches.first()).toBeEnabled({ timeout: 10000 });
     for (let i = 0; i < n; i += 1) {
-      await expect(switches.nth(i)).toBeDisabled();
-      await expect(switches.nth(i)).toHaveAttribute('aria-label', /只读/);
+      const label = (await switches.nth(i).getAttribute('aria-label')) ?? '';
+      expect(label.length, 'each switch carries a module-name aria-label').toBeGreaterThan(0);
+      expect(label, 'no longer a read-only fake switch').not.toMatch(/只读/);
+      await expect(switches.nth(i)).toHaveAttribute('title', /切换模块|下一次发布/);
     }
-    await expect(page.locator('.setting-row i.warn').first()).toHaveText('只读');
   });
 
   test('signing-key governance handles are present for the configured keyring', async ({
