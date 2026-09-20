@@ -24,6 +24,7 @@ const SECTION_OPTIONS: { key: string; label: string }[] = [
   { key: 'enforcement', label: '执行回执' },
   { key: 'audit', label: '审计日志' },
   { key: 'policy', label: '策略姿态' },
+  { key: 'canary', label: '灰度/自更' },
 ];
 
 const WINDOW_OPTIONS: { key: string; label: string; ms: number | null }[] = [

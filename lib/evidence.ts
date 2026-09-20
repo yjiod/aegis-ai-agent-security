@@ -21,12 +21,13 @@
 import { createHash } from 'node:crypto';
 import { canonicalJson, ed25519PolicyFields, currentPolicyRelease } from '@/lib/policy';
 import { getAuditStore, getTicketStore, type Ticket } from '@/lib/store';
+import { getRollout, inRollout } from '@/lib/rollout';
 
 export const EVIDENCE_SCHEMA = 'aegis.evidence/v1';
 
 export type RedactionLevel = 'standard' | 'verbose';
-export type EvidenceSection = 'audit' | 'findings' | 'tickets' | 'enforcement' | 'inventory' | 'policy';
-export const EVIDENCE_SECTIONS: readonly EvidenceSection[] = ['audit', 'findings', 'tickets', 'enforcement', 'inventory', 'policy'] as const;
+export type EvidenceSection = 'audit' | 'findings' | 'tickets' | 'enforcement' | 'inventory' | 'policy' | 'canary';
+export const EVIDENCE_SECTIONS: readonly EvidenceSection[] = ['audit', 'findings', 'tickets', 'enforcement', 'inventory', 'policy', 'canary'] as const;
 
 /** 各 section 的条数上限，避免长生命周期 isolate 里无限膨胀 / 单包过大。 */
 const CAPS: Record<EvidenceSection, number> = {
@@ -36,6 +37,7 @@ const CAPS: Record<EvidenceSection, number> = {
   enforcement: 2_000,
   inventory: 10_000,
   policy: 1,
+  canary: 1,
 };
 
 const TEXT_TRUNC = 180;
@@ -151,6 +153,7 @@ interface RawDevice {
   enforcement?: { asset_type: string; asset_key: string; action: string; target?: string; backup?: string; reason?: string; ok?: boolean; at?: number }[];
   exempt?: boolean;
   pinned?: boolean;
+  self_update?: { updated?: boolean; reason?: string; from?: string; to?: string; latest?: string; at?: number };
 }
 
 function collectorCreds(): { url: string; token: string } | null {
@@ -272,8 +275,33 @@ function mapInventory(devices: RawDevice[], level: RedactionLevel, deviceId: str
         scan_root: level === 'standard' ? homePrefix(d.scan_root ?? '') : (d.scan_root ?? ''),
         network: { macs: macs.slice(0, 8), local_ips: localIps.slice(0, 8), egress_ip: level === 'standard' ? maskIp(net?.egress_ip) : (net?.egress_ip ?? '') },
         latest_severity: d.latest_severity ?? { critical: 0, high: 0, medium: 0, low: 0 },
+        // 自更非例行结果（成功更新/被 preflight 拒绝/自动回滚/应用失败）：让证据包能讲清
+        // "这台机器更新发生了什么"。reason/from/to/latest 为版本/状态串，不含敏感信息。
+        ...(d.self_update ? { self_update: d.self_update } : {}),
       };
     });
+}
+
+/** canary/自更态势 section：导出时刻的灰度配置 + 已发布策略的 agent_self_update + 坏自更设备清单。 */
+function mapCanary(devices: RawDevice[], deviceId: string | null) {
+  const rollout = getRollout();
+  const rel = currentPolicyRelease();
+  const publishedSu = (rel?.policy as { agent_self_update?: Record<string, unknown> } | undefined)?.agent_self_update ?? null;
+  const scoped = deviceId ? devices.filter((d) => d.device_id === deviceId) : devices;
+  const bad = scoped
+    .filter((d) => {
+      const r = d.self_update?.reason ?? '';
+      return !!r && r !== 'ok' && (r.startsWith('preflight_failed') || r.startsWith('rolled_back') || r.startsWith('apply_failed'));
+    })
+    .map((d) => ({ device_id: d.device_id, hostname: d.hostname ?? '', reason: d.self_update?.reason ?? '', latest: d.self_update?.latest ?? '', at: d.self_update?.at ?? 0 }));
+  const inCanary = scoped.filter((d) => inRollout(d.device_id, rollout.rollout_percent)).length;
+  return {
+    rollout,
+    published_agent_self_update: publishedSu,
+    total: scoped.length,
+    in_canary: inCanary,
+    bad_self_updates: bad,
+  };
 }
 
 function mapEnforcement(devices: RawDevice[], level: RedactionLevel, deviceId: string | null, since: number | null, until: number | null) {
@@ -412,6 +440,7 @@ function buildReport(opts: EvidenceOptions, generatedAt: number, sections: Recor
     enforcement: '终端执行回执（封禁/隔离/恢复动作与备份位置）',
     audit: '审计日志（Collector + 控制台两源合并）',
     policy: '生效策略姿态（版本/签名密钥 id/漂移计数）',
+    canary: '灰度/自更态势（导出时刻放量配置 + 已发布 agent_self_update + 坏自更设备清单）',
   };
   for (const name of EVIDENCE_SECTIONS) {
     if (name in sections) L.push(`| ${name} | ${counts[name] ?? 0} | ${desc[name]} |`);
@@ -522,6 +551,9 @@ export async function buildEvidenceBundle(opts: EvidenceOptions): Promise<Eviden
     const reqAgent = await fetchManifestAgentVersion();
     const scoped = deviceId ? devices.filter((d) => d.device_id === deviceId) : devices;
     const v = mapPolicy(scoped, reqAgent); rawSections.policy = [v]; counts.policy = 1;
+  }
+  if (want.has('canary')) {
+    const v = mapCanary(devices, deviceId); rawSections.canary = v; counts.canary = 1;
   }
 
   const manifest: Record<string, { count: number; sha256: string }> = {};
