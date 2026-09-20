@@ -1025,6 +1025,26 @@ export default function DevicesPage() {
                         </span>
                       </div>
                     )}
+                    {/* 自更新结果：终端最近一次非例行自更（成功更新 / 被 preflight 拒绝 / 自动回滚 / 应用失败） */}
+                    {device.self_update && (
+                      <div style={{ marginBottom: 12 }}>
+                        <h4 style={{ fontSize: 12, margin: '0 0 6px', color: 'var(--muted-foreground)' }}>自更新结果（最近一次非例行）</h4>
+                        <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                          <i
+                            className={device.self_update.updated ? 'pass' : 'fail'}
+                            style={{ fontStyle: 'normal', fontSize: 11 }}
+                          >
+                            {device.self_update.updated ? '已更新' : '未更新'}
+                          </i>{' '}
+                          <code style={{ fontSize: 11 }}>{device.self_update.reason}</code>
+                          {device.self_update.from || device.self_update.to
+                            ? ` · ${device.self_update.from ?? ''} → ${device.self_update.to ?? ''}`
+                            : ''}
+                          {device.self_update.latest ? ` · 目标 ${device.self_update.latest}` : ''}
+                          {device.self_update.at ? ` · ${new Date(device.self_update.at * 1000).toLocaleString()}` : ''}
+                        </div>
+                      </div>
+                    )}
                     {/* 执行器回执：封禁/隔离/恢复动作及备份位置（终端自报，最近若干条） */}
                     {(((device as { enforcement?: { asset_type: string; asset_key: string; action: string; target?: string; backup?: string; reason?: string; ok?: boolean; at?: number }[] }).enforcement ?? []).length > 0) && (
                       <div style={{ marginBottom: 12 }}>
