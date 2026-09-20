@@ -128,7 +128,17 @@ def verify(downloads):
         if um.get("release") != release.get("release"): errors.append("update_manifest_release_drift")
         for name, art in (um.get("artifacts") or {}).items():
             p = downloads / name
-            if not isinstance(art, dict) or not p.is_file() or art.get("sha256") != digest(p):
+            # 冻结二进制工件(aegis-agent-<os>-<arch>[.exe])是 gitignored 的 CI 产物，发布时才由
+            # fetch-agent-binaries.sh 拉到 downloads/；全新 checkout（如 CI verify 作业）里本就不在仓内。
+            # 故对这类工件"文件缺失"不算错误（跳过）；一旦存在仍强制 sha256 对账。其余被跟踪的运行时
+            # 文件缺失即错误——既不弱化真实发布（二进制已 fetch 时逐位校验），又不因 CI 无二进制而误红。
+            is_frozen_binary = name.startswith("aegis-agent-") and name.endswith(("-arm64", "-x64", "-arm64.exe", "-x64.exe"))
+            if not p.is_file():
+                if is_frozen_binary:
+                    continue
+                errors.append(f"update_manifest_sha_mismatch:{name}")
+                continue
+            if not isinstance(art, dict) or art.get("sha256") != digest(p):
                 errors.append(f"update_manifest_sha_mismatch:{name}")
     except (OSError, ValueError) as exc:
         errors.append(f"invalid_update_manifest:{type(exc).__name__}")

@@ -1215,11 +1215,15 @@ class AegisTests(unittest.TestCase):
         txt=self.agent._pf_rules_text({'bad-mcp':['1.2.3.4']})
         self.assertIn('block drop out quick proto tcp from any to 1.2.3.4',txt)
         self.assertIn('aegis-deny:bad-mcp',txt)
-        import os
+        import os, sys
         if os.geteuid()!=0:
             acts=self.agent._pf_apply('bad-mcp','example.invalid')
-            self.assertEqual([a['action'] for a in acts],['net_block_skipped'])
-            self.assertEqual(acts[0]['reason'],'needs_root')
+            if sys.platform=="darwin":
+                self.assertEqual([a['action'] for a in acts],['net_block_skipped'])
+                self.assertEqual(acts[0]['reason'],'needs_root')
+            else:
+                # pf(连接级封禁)是 macOS 专有能力；非 darwin 平台 _pf_apply 直接返回 []（不做网络封禁）。
+                self.assertEqual(acts,[])
 
     def test_enforcer_blast_cap_refuses_overwide_deny(self):
         # 终端侧独立爆炸半径闸: 计划影响 >5 且策略无 enforce_override → 本周期拒绝执行+回执。
