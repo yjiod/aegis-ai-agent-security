@@ -126,6 +126,10 @@ export async function GET(request: Request) {
       self_update: (d as any).self_update as { updated?: boolean; reason?: string; from?: string; to?: string; latest?: string; at?: number } | undefined,
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
+      // 该设备可被 deny 的资产面（skill 名 / MCP server 名）：供控制台做封禁影响预览/透明化，
+      // 让运维在发布 deny 前看清"这台机器有什么可被封"，呼应爆炸半径可控的诉求。
+      skills: (d as any).skills as string[] | undefined,
+      mcp_assets: (d as any).mcp_assets as string[] | undefined,
       agent_version: d.agent_version ?? '0.0.0',
       policy_version: d.policy_version ?? '0.0.0',
       status: connectivityStatus(d.last_seen),

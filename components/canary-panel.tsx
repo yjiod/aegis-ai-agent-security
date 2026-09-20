@@ -31,6 +31,8 @@ interface CohortDevice {
   rollout_bucket?: number;
   in_canary?: boolean;
   self_update?: { updated?: boolean; reason?: string; from?: string; to?: string; latest?: string; at?: number };
+  skills?: string[];
+  mcp_assets?: string[];
 }
 
 /** 自更"坏结果"：preflight 拒绝 / 自动回滚 / 应用失败。'ok'(成功更新)不算异常。 */
@@ -170,6 +172,8 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
   // canary 监控闭环：终端把"坏更新被 preflight 拒绝 / 自动回滚 / 应用失败"随报告上报，
   // 这里聚合展示——灰度放量期间若某台回滚/被拒，运维能立刻看到而不是只翻终端日志。
   const badUpdates = devices.filter((d) => isBadSelfUpdate(d.self_update?.reason));
+  // canary 进展：已成功自更到新版本台数（终端上报 self_update.updated=true）。与异常数一起看放量效果。
+  const okUpdates = devices.filter((d) => d.self_update?.updated === true);
   // 运营可见性：区分「未保存的本地修改」与「已保存但尚未发布生效」两种状态，
   // 避免管理员改了放量却以为已经生效（灰度设置只在发布策略时才注入签名策略下发终端）。
   const dirty = !rolloutEq(draft, cfg);
@@ -182,6 +186,7 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
         <h2 style={{ margin: 0, fontSize: 15 }}>自更新灰度（canary）</h2>
         <Badge variant="outline" style={{ marginLeft: 'auto', fontSize: 10 }}>
           放量 {pct}% · 灰度内 {inCanaryCount}/{devices.length} 台 · 预计更新 {willUpdateCount} 台
+          {okUpdates.length > 0 ? ` · 已自更 ${okUpdates.length} 台` : ''}
           {badUpdates.length > 0 ? ` · 自更异常 ${badUpdates.length} 台` : ''}
         </Badge>
       </div>
@@ -318,6 +323,11 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
               <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {d.hostname || d.device_id}
                 <span style={{ color: 'var(--muted-foreground)', fontSize: 10, marginLeft: 6 }}>{d.device_id}</span>
+                {(d.skills?.length || d.mcp_assets?.length) ? (
+                  <span style={{ display: 'block', color: 'var(--muted-foreground)', fontSize: 10 }}>
+                    可封禁 {d.skills?.length ?? 0} skill / {d.mcp_assets?.length ?? 0} mcp
+                  </span>
+                ) : null}
               </span>
               <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12 }}>{d.rollout_bucket ?? '—'}</span>
               <span>

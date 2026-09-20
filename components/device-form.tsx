@@ -92,6 +92,9 @@ export type Device = {
   /** 自更非例行结果（preflight_failed / rolled_back:* / apply_failed:* / updated）。
    *  例行结果终端不上报，故常缺省。用于 canary 监控闭环（坏更新被拒/回滚可见）。 */
   self_update?: { updated?: boolean; reason?: string; from?: string; to?: string; latest?: string; at?: number };
+  /** 该设备可被 deny 的资产面（skill 名 / MCP server 名），供封禁影响预览/透明化。 */
+  skills?: string[];
+  mcp_assets?: string[];
   /** 终端执行器回执（封禁/隔离/恢复动作及备份位置），最近若干条。 */
   enforcement?: {
     asset_type: string;
@@ -311,6 +314,15 @@ export function parseDevice(raw: unknown): Device | null {
           ...(typeof su.at === 'number' ? { at: su.at } : {}),
         },
       };
+    })(),
+    // 可封禁资产面透传（收敛：只保留字符串、限长限量）。
+    ...(() => {
+      const s = data.skills;
+      return Array.isArray(s) ? { skills: s.filter((x): x is string => typeof x === 'string' && x.length <= 128).slice(0, 200) } : {};
+    })(),
+    ...(() => {
+      const s = data.mcp_assets;
+      return Array.isArray(s) ? { mcp_assets: s.filter((x): x is string => typeof x === 'string' && x.length <= 128).slice(0, 200) } : {};
     })(),
     // 执行器回执透传（收敛形态，丢弃非法项），设备页展示封禁/隔离/恢复动作。
     ...(() => {
