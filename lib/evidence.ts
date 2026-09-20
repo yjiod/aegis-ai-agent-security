@@ -19,7 +19,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { canonicalJson, ed25519PolicyFields, currentPolicyRelease } from '@/lib/policy';
+import { canonicalJson, ed25519PolicyFields, currentPolicyRelease, ensurePolicyReleasesLoaded } from '@/lib/policy';
 import { getAuditStore, getTicketStore, type Ticket } from '@/lib/store';
 import { getRollout, inRollout } from '@/lib/rollout';
 
@@ -521,6 +521,10 @@ export async function buildEvidenceBundle(opts: EvidenceOptions): Promise<Eviden
   const deviceId = opts.deviceId ?? null;
   const since = opts.since ?? null;
   const until = opts.until ?? null;
+
+  // policy/canary section 依赖已发布策略；workerd isolate 需先水合 releases，否则
+  // currentPolicyRelease() 为 null → published_agent_self_update/policy 段缺失。
+  await ensurePolicyReleasesLoaded().catch(() => {});
 
   // 单次拉取全量终端（null=Collector 不可达）；connected 据此诚实标注。
   const devicesOrNull = await fetchRawDevices();
