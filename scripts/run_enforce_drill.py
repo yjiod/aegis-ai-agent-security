@@ -102,11 +102,13 @@ def poll(fn, desc, timeout=180, interval=10):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--console", default=os.environ.get("AEGIS_CONSOLE", "https://tx.yjiod.com"))
+    ap.add_argument("--console", default=os.environ.get("AEGIS_CONSOLE", "https://aegis.example.com"),
+                    help="console base URL; real value via --console or AEGIS_CONSOLE (repo keeps placeholder)")
     ap.add_argument("--user", default=os.environ.get("AEGIS_DRILL_USER", ""))
     ap.add_argument("--password", default=os.environ.get("AEGIS_DRILL_PASSWORD", ""))
     ap.add_argument("--exec", required=True, help="guest command runner prefix")
-    ap.add_argument("--guest-home", default="C:\\Users\\lvshuai")
+    ap.add_argument("--guest-home", default="C:\\Users\\drill-target",
+                    help="guest user home holding the skill roots; pass the real test-endpoint home")
     ap.add_argument("--service", default="AegisAgent")
     ap.add_argument("--fillers", type=int, default=10)
     args = ap.parse_args()
