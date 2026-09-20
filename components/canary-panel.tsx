@@ -30,6 +30,12 @@ interface CohortDevice {
   exempt?: boolean;
   rollout_bucket?: number;
   in_canary?: boolean;
+  self_update?: { updated?: boolean; reason?: string; from?: string; to?: string; latest?: string; at?: number };
+}
+
+/** 自更"坏结果"：preflight 拒绝 / 自动回滚 / 应用失败。'ok'(成功更新)不算异常。 */
+function isBadSelfUpdate(reason?: string): boolean {
+  return !!reason && reason !== 'ok' && (reason.startsWith('preflight_failed') || reason.startsWith('rolled_back') || reason.startsWith('apply_failed'));
 }
 
 function semverNewer(candidate: string, current: string): boolean {
@@ -157,6 +163,9 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
   const inCanaryCount = devices.filter((d) => d.in_canary).length;
   const willUpdateCount = cohort.filter((r) => r.pred === 'will_update').length;
   const pct = cfg?.rollout_percent ?? draft.rollout_percent;
+  // canary 监控闭环：终端把"坏更新被 preflight 拒绝 / 自动回滚 / 应用失败"随报告上报，
+  // 这里聚合展示——灰度放量期间若某台回滚/被拒，运维能立刻看到而不是只翻终端日志。
+  const badUpdates = devices.filter((d) => isBadSelfUpdate(d.self_update?.reason));
   // 运营可见性：区分「未保存的本地修改」与「已保存但尚未发布生效」两种状态，
   // 避免管理员改了放量却以为已经生效（灰度设置只在发布策略时才注入签名策略下发终端）。
   const dirty = !rolloutEq(draft, cfg);
@@ -169,12 +178,35 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
         <h2 style={{ margin: 0, fontSize: 15 }}>自更新灰度（canary）</h2>
         <Badge variant="outline" style={{ marginLeft: 'auto', fontSize: 10 }}>
           放量 {pct}% · 灰度内 {inCanaryCount}/{devices.length} 台 · 预计更新 {willUpdateCount} 台
+          {badUpdates.length > 0 ? ` · 自更异常 ${badUpdates.length} 台` : ''}
         </Badge>
       </div>
       <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '0 0 14px' }}>
         无桌管环境的兜底自更新按 device_id 稳定哈希分桶（桶号 &lt; 放量比例才更新）。先用小比例 canary 验证新版本，
         确认无异常再逐步放量到 100%。pinned（自更保护）设备永远跳过。改动需「发布策略」后生效。
       </p>
+
+      {badUpdates.length > 0 && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', marginBottom: 14,
+            borderRadius: 8, background: 'color-mix(in srgb, var(--destructive) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--destructive) 40%, transparent)', fontSize: 12, lineHeight: 1.6,
+          }}
+        >
+          <AlertTriangle size={14} style={{ color: 'var(--destructive)', flexShrink: 0, marginTop: 2 }} />
+          <span style={{ color: 'var(--foreground)' }}>
+            <strong>{badUpdates.length} 台设备自更新异常</strong>（preflight 拒绝 / 自动回滚 / 应用失败）——坏更新已被终端自行拦截，未生效：
+            {badUpdates.slice(0, 6).map((d) => (
+              <span key={d.device_id} style={{ display: 'block', marginLeft: 4, color: 'var(--muted-foreground)' }}>
+                · {d.hostname || d.device_id}：{d.self_update?.reason}
+                {d.self_update?.latest ? `（目标 ${d.self_update.latest}）` : ''}
+              </span>
+            ))}
+            {badUpdates.length > 6 ? <span style={{ display: 'block', marginLeft: 4, color: 'var(--muted-foreground)' }}>… 另有 {badUpdates.length - 6} 台</span> : null}
+          </span>
+        </div>
+      )}
 
       {(dirty || pendingPublish) && (
         <div

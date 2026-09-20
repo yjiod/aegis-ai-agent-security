@@ -102,11 +102,21 @@ def _valid_enforcement(e):
             if k in x and not (isinstance(x[k],str) and len(x[k])<=512): return False
         if "ok" in x and not isinstance(x["ok"],bool): return False
     return True
+def _valid_self_update(su):
+    """self_update = 终端最近一次自更新的非例行结果 {updated,reason[,from,to,latest,at]}。
+    仅非例行结果上报（preflight_failed/rolled_back:*/apply_failed:*/updated），例行不上报。"""
+    if not isinstance(su,dict): return False
+    if not isinstance(su.get("updated"),bool): return False
+    if not (isinstance(su.get("reason"),str) and 1<=len(su["reason"])<=64): return False
+    for k in ("from","to","latest"):
+        if k in su and not (isinstance(su[k],str) and len(su[k])<=32): return False
+    if "at" in su and not (isinstance(su["at"],int) and not isinstance(su["at"],bool)): return False
+    return True
 def valid_report(d,now=None):
     """Validate the published v1 contract without a third-party JSON Schema runtime."""
     if not isinstance(d,dict): return False
     required={"schema","agent_version","policy_version","device_id","scanned_at","summary","findings"}
-    allowed=required|{"scan_root","inventory","hostname","os_user","owner","os","serial","enterprise_baseline_version","network","enforcement","run_mode","capabilities"}
+    allowed=required|{"scan_root","inventory","hostname","os_user","owner","os","serial","enterprise_baseline_version","network","enforcement","run_mode","capabilities","self_update"}
     if not required.issubset(d) or not set(d).issubset(allowed): return False
     if d.get("schema")!="aegis.report/v1": return False
     if "owner" in d and not (isinstance(d["owner"],str) and len(d["owner"])<=64): return False
@@ -115,6 +125,7 @@ def valid_report(d,now=None):
     if cap is not None and not (isinstance(cap,dict) and all(isinstance(cap.get(k),bool) for k in cap if k in ("pf","es"))): return False
     if "network" in d and not _valid_network(d["network"]): return False
     if "enforcement" in d and not _valid_enforcement(d["enforcement"]): return False
+    if "self_update" in d and not _valid_self_update(d["self_update"]): return False
     if "enterprise_baseline_version" in d and not (isinstance(d["enterprise_baseline_version"],str) and len(d["enterprise_baseline_version"])<=32): return False
     if "os" in d and not (isinstance(d["os"],str) and 1<=len(d["os"])<=16): return False
     if "serial" in d and not (isinstance(d["serial"],str) and len(d["serial"])<=64): return False
@@ -427,6 +438,10 @@ class Handler(BaseHTTPRequestHandler):
                         if "run_mode" not in dev and isinstance(dev.get("os"),str) and dev["os"]=="windows":
                             dev["run_mode"]="system"; dev["capabilities"]={"pf":True,"es":False}; dev["run_mode_inferred"]=True
                         if isinstance(body.get("scan_root"),str): dev["scan_root"]=body["scan_root"][:64]
+                        # 自更非例行结果（preflight_failed/rolled_back/apply_failed/updated）：
+                        # 形状已由 valid_report._valid_self_update 校验，原样留存供 /v1/devices 暴露。
+                        su=body.get("self_update")
+                        if isinstance(su,dict): dev["self_update"]=su
                         inv=body.get("inventory")
                         if isinstance(inv,list):
                             dev["tools"]=sorted({x.get("name") for x in inv if isinstance(x,dict) and x.get("type")=="ai_agent" and isinstance(x.get("name"),str)})[:20]

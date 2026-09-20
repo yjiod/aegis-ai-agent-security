@@ -160,5 +160,45 @@ class SelfUpdateRobustnessTests(unittest.TestCase):
             self.assertFalse(agent._binary_selftest_preflight(str(d / "missing.sh")))  # 不存在 → 拒绝
 
 
+    def test_report_includes_nonroutine_self_update_only(self):
+        agent = self.agent
+        policy = json.loads((DOWNLOADS / "aegis-policy.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as td:
+            # 例行（None）→ 报告不带 self_update（不刷屏）
+            agent._SELF_UPDATE_RESULT = None
+            rep = agent.build_report(Path(td), policy)
+            self.assertNotIn("self_update", rep)
+            # 非例行（preflight 拒绝）→ 报告携带 self_update，供 collector/控制台观测
+            agent._SELF_UPDATE_RESULT = {"updated": False, "reason": "preflight_failed", "latest": "0.36.4", "at": 1}
+            try:
+                rep2 = agent.build_report(Path(td), policy)
+                self.assertIn("self_update", rep2)
+                self.assertEqual(rep2["self_update"]["reason"], "preflight_failed")
+                self.assertFalse(rep2["self_update"]["updated"])
+            finally:
+                agent._SELF_UPDATE_RESULT = None
+
+    def test_collector_validates_self_update_field(self):
+        col = load("col_robust", "aegis_collector.py")
+        now = 1_700_000_000
+        base = {
+            "schema": "aegis.report/v1",
+            "agent_version": "0.36.4",
+            "policy_version": "4.29.0",
+            "device_id": "0123456789ab",
+            "scanned_at": now,
+            "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "findings": [],
+        }
+        good = dict(base, self_update={"updated": False, "reason": "rolled_back:sha_mismatch", "latest": "0.36.4", "at": now})
+        self.assertTrue(col.valid_report(good, now=now))
+        # 缺 reason / reason 过长 / updated 非 bool → 拒收
+        self.assertFalse(col.valid_report(dict(base, self_update={"updated": False}), now=now))
+        self.assertFalse(col.valid_report(dict(base, self_update={"updated": False, "reason": "x" * 65}), now=now))
+        self.assertFalse(col.valid_report(dict(base, self_update={"updated": "no", "reason": "ok"}), now=now))
+        # 未知顶层字段仍拒收（白名单不变，仅新增 self_update）
+        self.assertFalse(col.valid_report(dict(base, bogus=1), now=now))
+
+
 if __name__ == "__main__":
     unittest.main()

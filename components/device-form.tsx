@@ -89,6 +89,9 @@ export type Device = {
   /** 自更保护(pinned)：不自动更新，只接受人工/桌管更新。与豁免分离。 */
   pinned?: boolean;
   exempt?: boolean;
+  /** 自更非例行结果（preflight_failed / rolled_back:* / apply_failed:* / updated）。
+   *  例行结果终端不上报，故常缺省。用于 canary 监控闭环（坏更新被拒/回滚可见）。 */
+  self_update?: { updated?: boolean; reason?: string; from?: string; to?: string; latest?: string; at?: number };
   /** 终端执行器回执（封禁/隔离/恢复动作及备份位置），最近若干条。 */
   enforcement?: {
     asset_type: string;
@@ -294,6 +297,21 @@ export function parseDevice(raw: unknown): Device | null {
     ...(() => { const sr = text(data.scan_root, 64); return sr ? { scan_root: sr } : {}; })(),
     ...(data.exempt === true ? { exempt: true } : {}),
     ...(data.pinned === true ? { pinned: true } : {}),
+    // 自更非例行结果透传（收敛形态：只保留已知字段，丢弃非法项）。
+    ...(() => {
+      const su = data.self_update as Record<string, unknown> | undefined;
+      if (!su || typeof su !== 'object' || typeof su.reason !== 'string') return {};
+      return {
+        self_update: {
+          updated: su.updated === true,
+          reason: String(su.reason).slice(0, 64),
+          ...(typeof su.from === 'string' ? { from: su.from.slice(0, 32) } : {}),
+          ...(typeof su.to === 'string' ? { to: su.to.slice(0, 32) } : {}),
+          ...(typeof su.latest === 'string' ? { latest: su.latest.slice(0, 32) } : {}),
+          ...(typeof su.at === 'number' ? { at: su.at } : {}),
+        },
+      };
+    })(),
     // 执行器回执透传（收敛形态，丢弃非法项），设备页展示封禁/隔离/恢复动作。
     ...(() => {
       const raw = data.enforcement;

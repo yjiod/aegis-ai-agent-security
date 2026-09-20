@@ -459,6 +459,11 @@ export default function DevicesPage() {
   const offlineCount = devices.filter((device) => device.status === 'offline').length;
   const exemptCount = devices.filter((device) => device.exempt === true).length;
   const pinnedCount = devices.filter((device) => device.pinned === true).length;
+  /** 自更异常（preflight 拒绝 / 自动回滚 / 应用失败）台数——canary 监控闭环的舰队级信号。 */
+  const badSelfUpdateCount = devices.filter((device) => {
+    const r = device.self_update?.reason;
+    return !!r && r !== 'ok' && (r.startsWith('preflight_failed') || r.startsWith('rolled_back') || r.startsWith('apply_failed'));
+  }).length;
 
   /**
    * 版本漂移：已上报但 agent_version ≠ 要求版本的设备数。这是"某台机器悄悄掉队/
@@ -594,7 +599,7 @@ export default function DevicesPage() {
       </div>
 
       {source === 'api' &&
-        (offlineCount > 0 || staleCount > 0 || driftDevices.length > 0) && (
+        (offlineCount > 0 || staleCount > 0 || driftDevices.length > 0 || badSelfUpdateCount > 0) && (
           <div
             className="animate-entrance animate-entrance-1"
             role="status"
@@ -620,6 +625,7 @@ export default function DevicesPage() {
                   driftDevices.length > 0
                     ? `${driftDevices.length} 台版本漂移（要求 ${fleet?.required_agent_version ?? '—'}）`
                     : '',
+                  badSelfUpdateCount > 0 ? `${badSelfUpdateCount} 台自更异常（已被终端拦截/回滚）` : '',
                 ]
                   .filter(Boolean)
                   .join(' · ')}

@@ -121,6 +121,9 @@ export async function GET(request: Request) {
       // in_canary=该设备是否落在当前放量内；will_update 再叠加 enabled/未 pinned 才是真会更新。
       rollout_bucket: rolloutBucket(String(d.device_id)),
       in_canary: inRollout(String(d.device_id), rollout.rollout_percent),
+      // 自更非例行结果（preflight_failed/rolled_back:*/apply_failed:*/updated）：让"坏更新被
+      // preflight 拒绝/自动回滚"在控制台可观测（canary 监控闭环）。例行结果终端不上报，此处为 undefined。
+      self_update: (d as any).self_update as { updated?: boolean; reason?: string; from?: string; to?: string; latest?: string; at?: number } | undefined,
       agent_type: d.tools?.[0] ?? 'unknown',
       tools: d.tools ?? [],
       agent_version: d.agent_version ?? '0.0.0',

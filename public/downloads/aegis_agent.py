@@ -1468,12 +1468,15 @@ def build_report(root,policy):
     enforcement=reconcile_enforcement(policy)
     if ENFORCE_RECEIPTS: enforcement=ENFORCE_RECEIPTS+enforcement; del ENFORCE_RECEIPTS[:]
     enforcement=enforcement[:40]
-    return {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"network":network,"enforcement":enforcement,"run_mode":run_mode,"capabilities":caps,"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    report = {"schema":"aegis.report/v1","agent_version":AGENT_VERSION,"policy_version":policy["version"],"device_id":hardware_device_id(),"hostname":os.uname().nodename,"os_user":interactive_os_user(),"owner":(os.environ.get("AEGIS_DEVICE_OWNER") or "")[:64],"os":platform.system().lower()[:16],"serial":device_serial()[:64],"network":network,"enforcement":enforcement,"run_mode":run_mode,"capabilities":caps,"enterprise_baseline_version":ENTERPRISE_BASELINE_VERSION,"scanned_at":int(time.time()),"scan_root":safe_path(root),"inventory":inventory,"summary":{s:sum(f["severity"]==s for f in findings) for s in ["critical","high","medium","low"]},"findings":findings}
+    # 自更非例行结果（updated/preflight_failed/rolled_back/apply_failed）随报告上报；例行不上报。
+    if _SELF_UPDATE_RESULT is not None: report["self_update"] = _SELF_UPDATE_RESULT
+    return report
 def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.36.3"
+AGENT_VERSION = "0.36.4"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -1534,12 +1537,19 @@ def _binary_selftest_preflight(path, timeout=20):
     return False
 
 
+# 本进程最近一次自更新的"非例行"结果（updated / preflight_failed / rolled_back:* /
+# apply_failed:*）。例行结果(up_to_date/already_current/not_in_rollout)不上报，避免刷屏；
+# 非例行结果随报告上报，让"坏更新被 preflight 拒绝 / 自动回滚"在控制台可观测（canary 监控闭环）。
+_SELF_UPDATE_RESULT = None
+
+
 def maybe_self_update(policy, report_url):
     """无桌管环境的自更新兜底通道；主通道永远是桌管/MDM 推送。
 
     仅当策略 agent_self_update.enabled=true 且能推导 manifest URL 时执行。
     best-effort：任何失败静默返回，绝不影响本轮扫描/上报。
     """
+    global _SELF_UPDATE_RESULT
     cfg = policy.get("agent_self_update") if isinstance(policy, dict) else None
     if not isinstance(cfg, dict) or cfg.get("enabled") is not True:
         return
@@ -1595,10 +1605,12 @@ def maybe_self_update(policy, report_url):
         )
         if res.get("updated"):
             print(f"aegis agent self-updated {res.get('from')} -> {res.get('to')}; next run uses new version", file=sys.stderr)
+            _SELF_UPDATE_RESULT = {"updated": True, "reason": "ok", "from": res.get("from"), "to": res.get("to"), "at": int(time.time())}
         elif res.get("reason") not in ("up_to_date", "already_current", "not_in_rollout", None):
             # 让 preflight 拒绝 / 自动回滚 / 应用失败这些"非例行"结果在服务日志里可见（运维/应急据此排查），
-            # 但不刷屏例行的 up_to_date/already_current/not_in_rollout。
+            # 但不刷屏例行的 up_to_date/already_current/not_in_rollout。同时记入 _SELF_UPDATE_RESULT 随报告上报。
             print(f"aegis self-update not applied: {res.get('reason')} (latest={res.get('latest')})", file=sys.stderr)
+            _SELF_UPDATE_RESULT = {"updated": False, "reason": res.get("reason"), "latest": res.get("latest"), "at": int(time.time())}
     except Exception:
         return
 
