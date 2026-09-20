@@ -1473,7 +1473,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.36.2"
+AGENT_VERSION = "0.36.3"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -1507,6 +1507,31 @@ def self_update_binary_artifact_name() -> str:
     m = (platform.machine() or "").lower()
     arch = {"x86_64": "x64", "amd64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(m, m)
     return f"aegis-agent-{os_name}-{arch}"
+
+
+def _binary_selftest_preflight(path, timeout=20):
+    """冻结二进制形态的 preflight 钩子：exec 下载到的新二进制跑 `--selftest`。
+
+    - exit 0 → 健康，放行替换。
+    - exit 2 且 stderr 提示不识别参数（旧格式二进制尚无 --selftest）→ 宽容放行：无法用
+      selftest 校验，但也不应阻断更新；由 check_and_apply 的"应用后 sha256 复核 + 自动回滚"兜底。
+    - 其它非零 / 超时 / 无法 exec → 拒绝（返回 False），保留旧版本，绝不把机队更新成砖。
+    下载件已 sha256 校验 + 同源钉子，故此处的 exec 对象一定是官方发布工件；--selftest 不联网/不扫描/不写盘。
+    """
+    try:
+        os.chmod(path, 0o755)  # download 落地的 staging 可能无 +x，exec 前补上（apply_update 之后仍按原 target 权限位归位）
+    except OSError:
+        pass
+    try:
+        p = subprocess.run([path, "--selftest"], capture_output=True, timeout=timeout, check=False)
+    except Exception:  # noqa: BLE001 - 超时/无法执行一律视为不健康
+        return False
+    if p.returncode == 0:
+        return True
+    err = (p.stderr or b"").decode("utf-8", "replace").lower()
+    if p.returncode == 2 and ("unrecognized" in err or "usage" in err or "invalid" in err):
+        return True  # 旧格式二进制无 --selftest：宽容放行
+    return False
 
 
 def maybe_self_update(policy, report_url):
@@ -1553,9 +1578,11 @@ def maybe_self_update(policy, report_url):
     if frozen:
         artifact_name = self_update_binary_artifact_name()
         target = sys.executable
+        preflight = _binary_selftest_preflight  # 冻结二进制：exec 新工件 --selftest 校验后再替换
     else:
         artifact_name = "aegis_agent.py"
         target = str(BASE_DIR / "aegis_agent.py")
+        preflight = None  # 脚本形态：用 check_and_apply 内置的 .py 语法解析 preflight
     try:
         res = su.check_and_apply(
             manifest_url,
@@ -1564,9 +1591,14 @@ def maybe_self_update(policy, report_url):
             artifact_name,
             target,
             rollout_percent=int(cfg.get("rollout_percent", 100)),
+            preflight=preflight,
         )
         if res.get("updated"):
             print(f"aegis agent self-updated {res.get('from')} -> {res.get('to')}; next run uses new version", file=sys.stderr)
+        elif res.get("reason") not in ("up_to_date", "already_current", "not_in_rollout", None):
+            # 让 preflight 拒绝 / 自动回滚 / 应用失败这些"非例行"结果在服务日志里可见（运维/应急据此排查），
+            # 但不刷屏例行的 up_to_date/already_current/not_in_rollout。
+            print(f"aegis self-update not applied: {res.get('reason')} (latest={res.get('latest')})", file=sys.stderr)
     except Exception:
         return
 
@@ -1614,8 +1646,42 @@ def install_config(argv):
     print("  + 凭据来源: %s | 上报: %s | 策略: %s" % ("手动令牌" if manual else "自动入网", report_url, (policy or {}).get("version", "包内出厂")))
 
 
+def run_selftest():
+    """轻量自检：证明"这份 Agent（脚本或冻结二进制）本身可用"，供自更新 preflight 在
+    原子替换前校验下载到的新工件、以及 CI 冻结烟雾使用。
+
+    只验证：核心符号可调用、内嵌/同目录的 aegis_self_update 可导入、AGENT_VERSION 合法、
+    同目录出厂策略(若存在)可解析。**绝不联网、不扫描、不写盘、不需要 root**，秒级返回。
+    成功 exit 0；任何异常 exit 1（preflight 据此拒绝坏工件、保留旧版本，绝不把机队更新成砖）。
+    """
+    try:
+        script_dir = str(BASE_DIR)
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+        import aegis_self_update as _su
+        for fn in (build_report, hardware_device_id, _su.check_and_apply, _su.in_rollout):
+            if not callable(fn):
+                raise ValueError("missing_callable:%r" % (fn,))
+        if not (isinstance(AGENT_VERSION, str) and AGENT_VERSION):
+            raise ValueError("bad_agent_version")
+        # 同目录出厂策略若随包分发则确认可解析；缺失/不可读不算失败（自检只证明二进制自身可用）。
+        try:
+            if DEFAULT_POLICY.is_file():
+                json.loads(DEFAULT_POLICY.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        print("aegis-selftest-ok", AGENT_VERSION)
+        return 0
+    except Exception as e:  # noqa: BLE001 - 自检必须捕获一切并如实报错
+        print("aegis-selftest-fail: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+        return 1
+
+
 def main():
-    ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); ap.add_argument("--enrollment-config",default=os.getenv("AEGIS_ENROLLMENT_CONFIG","")); ap.add_argument("--enrollment-dir",default=os.getenv("AEGIS_ENROLLMENT_DIR","")); ap.add_argument("--install-config",nargs=7,metavar=("INSTALL_DIR","COLLECTOR_URL","ENROLL_URL","DEVICE_ID","INTERVAL","TOKEN","AGENT_VER"),help=argparse.SUPPRESS); args=ap.parse_args()
+    ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); ap.add_argument("--enrollment-config",default=os.getenv("AEGIS_ENROLLMENT_CONFIG","")); ap.add_argument("--enrollment-dir",default=os.getenv("AEGIS_ENROLLMENT_DIR","")); ap.add_argument("--install-config",nargs=7,metavar=("INSTALL_DIR","COLLECTOR_URL","ENROLL_URL","DEVICE_ID","INTERVAL","TOKEN","AGENT_VER"),help=argparse.SUPPRESS); ap.add_argument("--selftest",action="store_true",help=argparse.SUPPRESS); args=ap.parse_args()
+    # 自检模式：证明"本工件（脚本/冻结二进制）自身可用"，供自更新 preflight 在替换前校验下载的
+    # 新工件、以及 CI 冻结烟雾使用；成功 exit 0，任何异常 exit 1。不联网/不扫描/不写盘/不需 root。
+    if args.selftest: return run_selftest()
     # 安装期一次性配置模式（去-python 化 B）：安装器以冻结二进制跑本模式完成入网+写配置后立即退出，
     # 使 .run/.pkg 安装全程无需系统 python3。
     if args.install_config: return install_config(args.install_config)

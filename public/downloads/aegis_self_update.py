@@ -16,6 +16,7 @@ Aegis 客户端自更新（无桌管环境兜底通道）。
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -151,6 +152,36 @@ def rollback(target: str) -> bool:
     return True
 
 
+def _safe_remove(path: str) -> None:
+    """删除 Agent 自更新过程中自己产生的 staging 临时件（非用户文件）；失败忽略。"""
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except OSError:
+        pass
+
+
+def preflight_script(path: str) -> bool:
+    """.py 工件的内置 preflight：语法可解析即视为健康。
+    sha256 已保证字节与发布件逐位一致，故这里能挡住的正是"发布件自身语法损坏/被截断"
+    这类会让 agent 下次启动即崩、把机队更新成砖的极端情况。"""
+    try:
+        with open(path, "rb") as fh:
+            ast.parse(fh.read())
+        return True
+    except (OSError, SyntaxError, ValueError):
+        return False
+
+
+def default_preflight(target_path: str, staging: str) -> bool:
+    """未显式传 preflight 钩子时的内置校验：仅对 .py 目标做语法解析；其它形态（冻结二进制）
+    无法在更新器内廉价校验，返回 True，由"应用后 sha256 复核 + 自动回滚"兜底。
+    冻结二进制形态应由调用方传入 exec `--selftest` 的钩子（见 aegis_agent.maybe_self_update）。"""
+    if str(target_path).endswith(".py"):
+        return preflight_script(staging)
+    return True
+
+
 def check_and_apply(
     manifest_url: str,
     current_version: str,
@@ -158,10 +189,18 @@ def check_and_apply(
     artifact_name: str,
     target_path: str,
     rollout_percent: int = 100,
+    preflight=None,
 ) -> dict:
     """
-    端到端：拉 manifest → 版本/灰度判断 → 下载校验 → 原子替换。
+    端到端：拉 manifest → 版本/灰度判断 → 下载校验 → preflight 校验 → 原子替换 → 应用后复核。
     返回 {"updated": bool, "from":..., "to":..., "reason":...}。任何失败不抛、返回原因。
+
+    健壮性（PM#2 · 绝不把机队更新成砖）：
+      - preflight（替换**前**）：校验下载到 staging 的新工件；不通过则拒绝、保留旧版本
+        （reason=preflight_failed）。钩子由调用方注入（冻结二进制传"exec --selftest"），
+        缺省对 .py 目标做语法解析；钩子自身异常一律 fail-closed（拒绝更新）。
+      - 应用后复核（替换**后**）：重算 target 的 sha256，与工件期望不符即自动 rollback 到
+        .prev（reason=rolled_back:sha_mismatch），确保替换绝不产出比原来更糟的状态。
     """
     try:
         manifest = fetch_manifest(manifest_url)
@@ -175,6 +214,7 @@ def check_and_apply(
         return {"updated": False, "reason": "up_to_date", "current": current_version, "latest": offered}
     if not in_rollout(device_id, rollout_percent):
         return {"updated": False, "reason": "not_in_rollout", "latest": offered}
+    staging = target_path + ".staging"
     try:
         art = manifest_artifact(manifest, artifact_name)
         # 幂等短路：本地文件已是目标 sha256 → 无需重复下载/原子替换（防版本轴错配 churn）。
@@ -183,11 +223,33 @@ def check_and_apply(
                 local_sha = hashlib.sha256(fh.read()).hexdigest()
             if local_sha == art.get("sha256"):
                 return {"updated": False, "reason": "already_current", "current": current_version, "latest": offered}
-        staging = target_path + ".staging"
         # 相对工件 url 按 manifest 源解析为绝对地址并强制同源（见 resolve_artifact_url）。
         artifact_url = resolve_artifact_url(manifest_url, art["url"])
         download_and_verify(artifact_url, art["sha256"], staging)
+        # preflight：替换前校验新工件；不通过即拒绝、保留旧版本（staging 清理掉）。
+        try:
+            healthy = preflight(staging) if callable(preflight) else default_preflight(target_path, staging)
+        except Exception:  # noqa: BLE001 - 钩子异常 fail-closed，宁可 stays-old 也不冒险替换
+            healthy = False
+        if not healthy:
+            _safe_remove(staging)
+            return {"updated": False, "reason": "preflight_failed", "current": current_version, "latest": offered}
         apply_update(staging, target_path)
+        # 应用后复核：target 的 sha256 必须等于期望；不符则自动回滚（绝不留在坏状态）。
+        try:
+            with open(target_path, "rb") as fh:
+                applied_sha = hashlib.sha256(fh.read()).hexdigest()
+        except OSError:
+            applied_sha = ""
+        if applied_sha != art.get("sha256"):
+            rolled = rollback(target_path)
+            return {
+                "updated": False,
+                "reason": "rolled_back:sha_mismatch" if rolled else "apply_verify_failed",
+                "current": current_version,
+                "latest": offered,
+            }
     except Exception as e:  # noqa: BLE001
+        _safe_remove(staging)
         return {"updated": False, "reason": "apply_failed:" + type(e).__name__, "latest": offered}
     return {"updated": True, "from": current_version, "to": offered, "reason": "ok"}

@@ -1,8 +1,14 @@
 {
-  "release": "0.73.2",
+  "release": "0.73.3",
   "channel": "pilot",
-  "published_at": "2026-09-17T01:40:00+08:00",
+  "published_at": "2026-09-20T08:11:35+08:00",
   "features": [
+    "self_update_preflight_and_auto_rollback",
+    "agent_selftest_flag",
+    "windows_selfupdate_syntax_preflight",
+    "canary_rollout_console_cockpit",
+    "evidence_export_bundle_signed",
+    "fleet_health_observability",
     "report_real_hardware_serial",
     "serial_display_console",
     "mac_console_user_multifallback",

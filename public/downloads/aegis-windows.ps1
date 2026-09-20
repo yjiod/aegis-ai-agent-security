@@ -150,8 +150,21 @@ function Update-AegisScanner([string]$ReportUrl,[string]$CurrentVersion,[string]
       if((Get-FileHash -LiteralPath $staging -Algorithm SHA256).Hash.ToLowerInvariant() -cne $wantSha){return}
       $fs=[IO.File]::OpenRead($staging);$bom=New-Object byte[] 3;$read=$fs.Read($bom,0,3);$fs.Close()
       if($read -lt 3 -or $bom[0] -ne 0xEF -or $bom[1] -ne 0xBB -or $bom[2] -ne 0xBF){return}
+      # preflight（PM#2）：替换前用 PowerShell 解析器校验下载脚本语法，挡住"发布件语法损坏"把
+      # Windows agent 更新成砖（sha+BOM 只证字节完整，不证语法可解析）。解析报错即拒绝、保留旧脚本。
+      try{
+        $ptok=$null;$perr=$null
+        [void][System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($staging),[ref]$ptok,[ref]$perr)
+        if($perr -and $perr.Count -gt 0){return}
+      }catch{return}
       Copy-Item -LiteralPath $ScriptPath -Destination ($ScriptPath+'.prev') -Force
       Move-Item -LiteralPath $staging -Destination $ScriptPath -Force
+      # 应用后复核：替换后 target 的 sha256 必须仍等于期望；不符则从 .prev 自动回滚（绝不留在坏状态）。
+      try{
+        if((Get-FileHash -LiteralPath $ScriptPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $wantSha){
+          if(Test-Path -LiteralPath ($ScriptPath+'.prev')){Move-Item -LiteralPath ($ScriptPath+'.prev') -Destination $ScriptPath -Force}
+        }
+      }catch{}
     }catch{return}
     finally{if(Test-Path -LiteralPath $staging){try{Remove-Item -LiteralPath $staging -Force}catch{}}}
   }catch{return}
@@ -469,7 +482,7 @@ if ($identitySn) { $deviceMaterial = "aegis-hw:" + $identitySn } else { $deviceM
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $sn = $serialDisplay
-$agentVersion = '0.36.2'
+$agentVersion = '0.36.3'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null

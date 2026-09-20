@@ -1,0 +1,164 @@
+"""
+tests/test_self_update_robustness.py — 自更新 preflight + 自动回滚 + --selftest 单测（PM#2）。
+
+覆盖 aegis_self_update.check_and_apply 的健壮性新增路径与 aegis_agent 的 --selftest /
+冻结二进制 preflight 钩子：
+  - preflight 拒绝语法损坏的 .py 工件（保留旧版本、清理 staging）；
+  - 自定义 preflight 钩子 reject/accept；
+  - 应用后 sha256 复核不符 → 自动回滚到 .prev（绝不留在坏状态）；
+  - --selftest 退出码 0 且打印 aegis-selftest-ok；
+  - _binary_selftest_preflight 对 exit0 / 旧格式(exit2+unrecognized) / 损坏(exit1) 的判定。
+不联网（file:// manifest）、不依赖真实冻结二进制（用假可执行脚本驱动钩子逻辑）。
+"""
+import hashlib
+import importlib.util
+import json
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).parents[1]
+DOWNLOADS = ROOT / "public" / "downloads"
+
+
+def load(name, file):
+    spec = importlib.util.spec_from_file_location(name, DOWNLOADS / file)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def sha(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def write_manifest(d: Path, artifact_name: str, art_path: Path, agent_version: str, url: str | None = None) -> Path:
+    man = d / "update-manifest.json"
+    man.write_text(json.dumps({
+        "schema": "aegis.update/v1",
+        "release": "0.99.0",
+        "agent_version": agent_version,
+        "artifacts": {artifact_name: {"url": url or ("file://" + str(art_path)), "sha256": sha(art_path.read_bytes())}},
+    }))
+    return man
+
+
+class SelfUpdateRobustnessTests(unittest.TestCase):
+    def setUp(self):
+        self.su = load("su_robust", "aegis_self_update.py")
+        self.agent = load("agent_robust", "aegis_agent.py")
+
+    def test_preflight_rejects_syntactically_broken_script(self):
+        su = self.su
+        with tempfile.TemporaryDirectory() as dd:
+            d = Path(dd)
+            broken = d / "new.py"
+            broken.write_text("def oops(:\n    pass\n")  # 语法错误
+            man = write_manifest(d, "aegis_agent.py", broken, "0.99.0")
+            target = d / "agent.py"
+            target.write_text('print("old-good")')
+            res = su.check_and_apply("file://" + str(man), "0.36.3", "dev1", "aegis_agent.py", str(target))
+            self.assertFalse(res["updated"])
+            self.assertEqual(res["reason"], "preflight_failed")
+            self.assertEqual(target.read_text(), 'print("old-good")')  # 旧版本保留
+            self.assertFalse(os.path.exists(str(target) + ".staging"))  # staging 已清理
+            self.assertFalse(os.path.exists(str(target) + ".prev"))  # 从未替换 → 无 .prev
+
+    def test_preflight_hook_reject_keeps_old(self):
+        su = self.su
+        with tempfile.TemporaryDirectory() as dd:
+            d = Path(dd)
+            new = d / "new.py"
+            new.write_text('print("v99")')
+            man = write_manifest(d, "aegis_agent.py", new, "0.99.0")
+            target = d / "agent.py"
+            target.write_text('print("old")')
+            res = su.check_and_apply("file://" + str(man), "0.36.3", "dev1", "aegis_agent.py", str(target), preflight=lambda p: False)
+            self.assertFalse(res["updated"])
+            self.assertEqual(res["reason"], "preflight_failed")
+            self.assertEqual(target.read_text(), 'print("old")')
+
+    def test_preflight_hook_accept_allows_update(self):
+        su = self.su
+        with tempfile.TemporaryDirectory() as dd:
+            d = Path(dd)
+            new = d / "new.py"
+            new.write_text('print("v99")')
+            man = write_manifest(d, "aegis_agent.py", new, "0.99.0")
+            target = d / "agent.py"
+            target.write_text('print("old")')
+            res = su.check_and_apply("file://" + str(man), "0.36.3", "dev1", "aegis_agent.py", str(target), preflight=lambda p: True)
+            self.assertTrue(res["updated"])
+            self.assertEqual(res["to"], "0.99.0")
+            self.assertEqual(target.read_text(), 'print("v99")')
+
+    def test_preflight_hook_exception_is_fail_closed(self):
+        su = self.su
+        def boom(_p):
+            raise RuntimeError("hook exploded")
+        with tempfile.TemporaryDirectory() as dd:
+            d = Path(dd)
+            new = d / "new.py"
+            new.write_text('print("v99")')
+            man = write_manifest(d, "aegis_agent.py", new, "0.99.0")
+            target = d / "agent.py"
+            target.write_text('print("old")')
+            res = su.check_and_apply("file://" + str(man), "0.36.3", "dev1", "aegis_agent.py", str(target), preflight=boom)
+            self.assertFalse(res["updated"])
+            self.assertEqual(res["reason"], "preflight_failed")  # 钩子异常 → fail-closed 拒绝
+            self.assertEqual(target.read_text(), 'print("old")')
+
+    def test_post_apply_sha_mismatch_triggers_auto_rollback(self):
+        # preflight 钩子在 sha 校验通过后篡改 staging → apply 后 target 的 sha 与期望不符 → 自动回滚到 .prev。
+        su = self.su
+        with tempfile.TemporaryDirectory() as dd:
+            d = Path(dd)
+            new = d / "new.bin"
+            new.write_bytes(b"GOOD-BINARY")
+            man = write_manifest(d, "aegis-agent", new, "0.99.0")
+            target = d / "aegis-agent"
+            target.write_bytes(b"OLD-BINARY")
+
+            def mutating_preflight(path):
+                with open(path, "ab") as fh:
+                    fh.write(b"CORRUPT")  # 篡改已下载工件，破坏 sha 一致性
+                return True
+
+            res = su.check_and_apply("file://" + str(man), "0.36.3", "dev1", "aegis-agent", str(target), preflight=mutating_preflight)
+            self.assertFalse(res["updated"])
+            self.assertEqual(res["reason"], "rolled_back:sha_mismatch")
+            self.assertEqual(target.read_bytes(), b"OLD-BINARY")  # 已自动回滚到旧版本
+
+    def test_selftest_flag_exits_zero(self):
+        # 直接调用 run_selftest()
+        self.assertEqual(self.agent.run_selftest(), 0)
+        # 子进程 --selftest（脚本形态）：退出码 0 且打印标记
+        r = subprocess.run([sys.executable, str(DOWNLOADS / "aegis_agent.py"), "--selftest"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("aegis-selftest-ok", r.stdout)
+
+    def _fake_exe(self, d: Path, name: str, body: str) -> str:
+        p = d / name
+        p.write_text(body)
+        p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        return str(p)
+
+    def test_binary_selftest_preflight_decision_matrix(self):
+        agent = self.agent
+        with tempfile.TemporaryDirectory() as dd:
+            d = Path(dd)
+            ok = self._fake_exe(d, "ok.sh", "#!/bin/sh\nexit 0\n")
+            old = self._fake_exe(d, "old.sh", '#!/bin/sh\necho "unrecognized arguments: --selftest" >&2\nexit 2\n')
+            bad = self._fake_exe(d, "bad.sh", "#!/bin/sh\nexit 1\n")
+            self.assertTrue(agent._binary_selftest_preflight(ok))    # 健康
+            self.assertTrue(agent._binary_selftest_preflight(old))   # 旧格式无 --selftest → 宽容放行
+            self.assertFalse(agent._binary_selftest_preflight(bad))  # 损坏 → 拒绝
+            self.assertFalse(agent._binary_selftest_preflight(str(d / "missing.sh")))  # 不存在 → 拒绝
+
+
+if __name__ == "__main__":
+    unittest.main()
