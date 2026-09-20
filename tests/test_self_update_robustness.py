@@ -200,5 +200,52 @@ class SelfUpdateRobustnessTests(unittest.TestCase):
         self.assertFalse(col.valid_report(dict(base, bogus=1), now=now))
 
 
+    def test_drill_preflight_reject_flows_into_report_and_collector(self):
+        # 端到端演练（安全形态，temp 目录、file:// manifest、不碰真实 home/舰队）：
+        # 坏工件(.py 语法损坏) → check_and_apply 经 maybe_self_update 被 preflight 拒绝 →
+        # _SELF_UPDATE_RESULT 记录 preflight_failed → build_report 携带 → collector 校验通过。
+        # 证明"坏更新被终端拦截"这件事既发生、又可被服务端观测（canary 监控闭环）。
+        agent = self.agent
+        col = load("col_drill", "aegis_collector.py")
+        policy = json.loads((DOWNLOADS / "aegis-policy.json").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as dd:
+            d = Path(dd)
+            broken = d / "new.py"
+            broken.write_text("def oops(:\n    pass\n")  # 语法损坏 → preflight 必拒
+            man = write_manifest(d, "aegis_agent.py", broken, "0.99.0")
+            target = d / "aegis_agent.py"
+            target.write_text('print("old-good")')
+            agent._SELF_UPDATE_RESULT = None
+            # 直接驱动 check_and_apply（maybe_self_update 的 manifest 推导依赖 report_url/网络，
+            # 这里用 file:// manifest 等价覆盖"拉清单→preflight→拒绝"链路），再模拟 maybe_self_update 的记账。
+            res = check_and_apply_fresh("file://" + str(man), "0.36.4", "dev-drill-01", "aegis_agent.py", str(target))
+            self.assertFalse(res["updated"])
+            self.assertEqual(res["reason"], "preflight_failed")
+            self.assertEqual(target.read_text(), 'print("old-good")')  # 旧版本保留
+            # 记账 + 上报 + 服务端校验
+            agent._SELF_UPDATE_RESULT = {"updated": False, "reason": res["reason"], "latest": res.get("latest"), "at": 1}
+            try:
+                rep = agent.build_report(d, policy)
+                self.assertEqual(rep["self_update"]["reason"], "preflight_failed")
+                now = 1_700_000_000
+                base = {
+                    "schema": "aegis.report/v1", "agent_version": "0.36.4", "policy_version": policy["version"],
+                    "device_id": "0123456789ab", "scanned_at": now,
+                    "summary": {"critical": 0, "high": 0, "medium": 0, "low": 0}, "findings": [],
+                    "self_update": rep["self_update"],
+                }
+                self.assertTrue(col.valid_report(base, now=now))  # 服务端接受该上报
+            finally:
+                agent._SELF_UPDATE_RESULT = None
+
+
+def check_and_apply_fresh(*args, **kwargs):
+    import importlib.util as _iu
+    spec = _iu.spec_from_file_location("su_drill2", DOWNLOADS / "aegis_self_update.py")
+    m = _iu.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m.check_and_apply(*args, **kwargs)
+
+
 if __name__ == "__main__":
     unittest.main()
