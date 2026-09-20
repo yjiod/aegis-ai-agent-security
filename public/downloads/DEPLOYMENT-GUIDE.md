@@ -184,3 +184,14 @@ Agent 0.31.0 收口逐设备入网的终端侧：Agent 现在按优先级解析�
 - **会话吊销**：团队页每行「吊销会话」或 `POST /api/auth/revoke {subject}`（仅 admin）；改密、移除白名单亦自动吊销该 subject 既有会话；经 `session_invalid_before:<subject>` 生效（≤30s 缓存窗口）。
 - **审计导出**：审计日志页「导出 CSV / 导出 JSON」=`GET /api/audit?format=csv|json`（全量、合并 Collector+控制台两源、附件下载）；导出自身留审计 `audit:export`；仅 admin/auditor。
 - **隐私门禁**：CI 跑 `scripts/privacy-scan.sh`，跟踪内容命中厂商名/真实主机/真实域名/工号/RFC1918/硬编码长密钥即失败；真实值一律经环境变量注入，仓库只留占位。
+
+## 生产 serving 与可靠性手册（0.73.x）
+
+控制台以 `wrangler dev --config /opt/aegis/console-server/wrangler.json` 常驻（self-hosted 无 Cloudflare 远端，workerd 本地运行时）。小内存盒上的运维要点：
+
+- **NODE_ENV=production**：systemd unit 必须设 `Environment=NODE_ENV=production`，让 vinext 以生产 bundle 服务（关闭 dev 重编译/热更开销）。误设 development 会显著加重冷启与内存。
+- **内存 sizing**：drop-in `limits.conf` 设 `MemoryHigh=1600M / MemoryMax=2400M`。冷启期 wrangler 需打包全部路由，峰值 ~1.3–1.5G；上限过低（如 1.5G）会在冷启时内存抖动→worker 长时间不 bind→公网 502/000（真实事故）。3.7G 盒上 2.4G 上限给冷启留足余量且仍受 cgroup 约束。
+- **冷启预期**：首次 bind 可能需 1–4 分钟（小盒打包慢）。部署/重启后**不要**只看 `systemctl is-active`（进程在≠worker 在），要轮询 `curl 127.0.0.1:8787/login` 直到 200/307 才算就绪。
+- **自愈看门狗**：`aegis-console-healthcheck.timer` 每 60s 探活 `127.0.0.1:8787/login`；**仅当** worker 不可用且服务已启动超过 240s（boot grace，避免把正常冷启误杀成重启循环）才 `systemctl restart aegis-console`。真实挂死自愈窗口 ≤ 探活间隔+grace 判定。改探活间隔/grace 时务必保持 grace > 最长冷启时间。
+- **重启循环防护**：unit 已 `Restart=always / RestartSec=5`；看门狗 grace 是防"冷启被探活误杀→反复重启"的关键，勿删。
+- **演练**：enforce 封禁/恢复演练用 `scripts/run_enforce_drill.py`（见下），在隔离的非豁免测试端点上验证 deny→quarantine→回执 与 un-deny→auto-restore→回执，绝不触碰豁免的开发主机。
