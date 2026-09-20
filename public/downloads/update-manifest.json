@@ -1,18 +1,18 @@
 {
   "schema": "aegis.update/v1",
   "release": "0.73.3",
-  "agent_version": "0.36.4",
+  "agent_version": "0.36.5",
   "channel": "pilot",
   "published_at": "2026-09-20T08:11:35+08:00",
   "min_agent_version": "0.33.0",
   "artifacts": {
     "aegis_agent.py": {
       "url": "/downloads/aegis_agent.py",
-      "sha256": "d02e17c680ce4d3889036f5269bd2a670065961069bbd4609dae62e78bf21be2"
+      "sha256": "ffb8cd58e000506cfd47e688f90119a86967bb594ad1d76a518a9939d9eaae21"
     },
     "aegis-windows.ps1": {
       "url": "/downloads/aegis-windows.ps1",
-      "sha256": "5ccf8a2dca8f36d75a1bd9dd434c67bbf75755d88a6a498678c2998e4fb5d77b"
+      "sha256": "7f7dbd7734c4f0af8611b68483dda24a9ecfc57e69e89e230ded3c338940a191"
     },
     "aegis_self_update.py": {
       "url": "/downloads/aegis_self_update.py",
@@ -20,11 +20,11 @@
     },
     "aegis-agent-darwin-arm64": {
       "url": "/downloads/aegis-agent-darwin-arm64",
-      "sha256": "2a164b504d7cbed54e5d7d6a487bb48af88b70e90f30454c30b31e6167bfc8b8"
+      "sha256": "f851626f9fbaa2a2e1d3bd6a41d3d4d5be297d8ef47e8f296dfcef5269e8cd45"
     },
     "aegis-agent-darwin-x64": {
       "url": "/downloads/aegis-agent-darwin-x64",
-      "sha256": "4d36ae1842371473e1e8fc51462a0d56e2be19b273267313958131b58beaf31e"
+      "sha256": "d76bf4d1168a1d796bc79c88ac3b5baa7f70ddda1f16e19bdf3f7a5d723a41a6"
     }
   }
 }
