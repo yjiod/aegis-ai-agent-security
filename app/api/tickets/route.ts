@@ -55,7 +55,10 @@ const AUTO_SYNC_INTERVAL_MS = 60_000;
  * findings 拉取失败/未配置 → 返回 null，调用方保守沿用 Collector 的 latest_severity
  * （宁可多开一张待研判工单，也绝不因抑制逻辑漏掉真实风险）。
  */
-async function adjustedSeverity(deviceId: string, allowed: Set<string>): Promise<{ critical: number; high: number } | null> {
+async function adjustedSeverity(
+  deviceId: string,
+  allowed: Set<string>,
+): Promise<{ critical: number; high: number; empty: boolean } | null> {
   const url = process.env.AEGIS_COLLECTOR_URL;
   const token = process.env.AEGIS_COLLECTOR_TOKEN;
   if (!url || !token) return null;
@@ -76,7 +79,9 @@ async function adjustedSeverity(deviceId: string, allowed: Set<string>): Promise
       if (s === 'critical') critical += 1;
       else if (s === 'high') high += 1;
     }
-    return { critical, high };
+    // empty：本次 findings 读取为空。若 collector 原始 latest_severity 仍报 critical/high，
+    // 二者矛盾（多为瞬态空读取），调用方不得据此自动闭环工单。
+    return { critical, high, empty: findings.length === 0 };
   } catch {
     return null;
   }
@@ -127,6 +132,12 @@ async function syncTicketsFromCollector(): Promise<void> {
       // 自动 resolve 该设备由 Collector 自动生成的 open 工单并留审计痕迹。
       // adj 为 null（findings 拉取失败）时绝不误关——宁可留一张待研判工单。
       if (adj && critical + high <= 0) {
+        // 防瞬态空读取误闭环：本次 findings 读取为空、但 collector 原始 latest_severity 仍报
+        // critical/high，二者矛盾（多为瞬态空读取/上报间隙），不自动 resolve——否则会出现
+        // "误闭环→下轮又重建"的工单抖动（风险中心曾因此角标与页面计数不一致）。等两者一致再闭环。
+        if (adj.empty && rawCritHigh > 0) {
+          continue;
+        }
         if (openAuto.length > 0) {
           const now = Date.now();
           for (const t of openAuto) {

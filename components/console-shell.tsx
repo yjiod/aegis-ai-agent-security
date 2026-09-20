@@ -132,11 +132,27 @@ export default function ConsoleShell({
     // 侧栏「风险中心」告警角标只统计未闭环工单（open/acknowledged/investigating）。
     // 已解决/已驳回属于历史处置记录，不应继续以红色角标示警，否则会把已处置事件
     // 误读为当前活跃威胁。status 过滤在服务端完成，total 即过滤后计数。
-    fetch('/api/tickets?status=open,acknowledged,investigating&limit=1', { cache: 'no-store' })
-      .then((r) => (r.ok ? (r.json() as Promise<Record<string, unknown>>) : null))
-      .then((d) => { if (d && typeof d.total === 'number') setTicketCount(d.total); })
-      .catch(() => setTicketCount(null));
-  }, []);
+    // 工单集合会被 /api/tickets 的同步(auto-create/auto-resolve)随时改变，故角标必须
+    // 周期刷新 + 路由切换刷新；否则会与风险中心页面计数不一致（曾出现角标 7 而页面
+    // 待处理 0 的陈旧角标 bug）。
+    let alive = true;
+    const load = () => {
+      fetch('/api/tickets?status=open,acknowledged,investigating&limit=1', { cache: 'no-store' })
+        .then((r) => (r.ok ? (r.json() as Promise<Record<string, unknown>>) : null))
+        .then((d) => {
+          if (alive && d && typeof d.total === 'number') setTicketCount(d.total);
+        })
+        .catch(() => {
+          if (alive) setTicketCount(null);
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     const controller = new AbortController();
