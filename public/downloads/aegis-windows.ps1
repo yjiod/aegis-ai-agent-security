@@ -210,12 +210,12 @@ function Install-AegisBaseline([string]$repo) {
 function Sync-AegisUserBaselines([object[]]$homes) {
   if(-not (Test-Path $baselinePath)){return}
   $content=(Get-Content -Encoding UTF8 $baselinePath -Raw).TrimEnd();$start='<!-- aegis-managed-user-baseline:start -->';$end='<!-- aegis-managed-user-baseline:end -->';$block=$start+"`n"+$content+"`n"+$end
-  foreach($home in $homes){
-    $targets=@();$codex=Join-Path $home.FullName '.codex';$claude=Join-Path $home.FullName '.claude'
+  foreach($homeDir in $homes){
+    $targets=@();$codex=Join-Path $homeDir.FullName '.codex';$claude=Join-Path $homeDir.FullName '.claude'
     if((Test-Path $codex) -and -not ((Get-Item $codex -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){$targets+=Join-Path $codex 'AGENTS.md'}
-    if(((Test-Path $claude) -and -not ((Get-Item $claude -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) -or (Test-Path (Join-Path $home.FullName '.claude.json'))){$targets+=Join-Path $claude 'CLAUDE.md'}
+    if(((Test-Path $claude) -and -not ((Get-Item $claude -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) -or (Test-Path (Join-Path $homeDir.FullName '.claude.json'))){$targets+=Join-Path $claude 'CLAUDE.md'}
     foreach($target in $targets){
-      if(-not (Test-AegisSafeTarget $home.FullName $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target)|Out-Null;if(-not (Test-AegisSafeTarget $home.FullName $target)){continue}
+      if(-not (Test-AegisSafeTarget $homeDir.FullName $target)){continue};New-Item -ItemType Directory -Force -Path (Split-Path $target)|Out-Null;if(-not (Test-AegisSafeTarget $homeDir.FullName $target)){continue}
       $existing=if(Test-Path $target){Get-Content -Encoding UTF8 $target -Raw}else{''};$pattern=[regex]::Escape($start)+'.*?'+[regex]::Escape($end)
       if($existing.Contains($start) -xor $existing.Contains($end)){$script:findings+=@{kind='malformed_user_baseline_block';severity='high';path=(Protect-AegisPath $target);message='用户级安全基线托管标记不完整，已停止自动修改'};continue}
       if($existing.Contains($start)){$updated=[regex]::Replace($existing,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($match)$block},[System.Text.RegularExpressions.RegexOptions]::Singleline)}else{$updated=$existing.TrimEnd()+$(if($existing.Trim()){"`n`n"}else{''})+$block+"`n"}
@@ -482,7 +482,7 @@ if ($identitySn) { $deviceMaterial = "aegis-hw:" + $identitySn } else { $deviceM
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $sn = $serialDisplay
-$agentVersion = '0.36.4'
+$agentVersion = '0.36.5'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
@@ -658,52 +658,59 @@ function Invoke-AegisEnforce {
   if ($deny) { $denySkills = @($deny.skills | Where-Object { $_ }); $denyMcp = @($deny.mcp | Where-Object { $_ }) }
   $enSkill = [bool]($mods.skill_enforce); $enMcp = [bool]($mods.mcp_enforce)
   $ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-  $qroot = Join-Path $env:USERPROFILE '.aegis-quarantine'
   $skillRoots = @('.codex\skills', '.claude\skills', '.cursor\skills', '.gemini\skills', '.copilot\skills', '.workbuddy\skills', '.qwenworkcn\skills', '.lingma\skills', '.codebuddy\skills')
-  if ($enSkill -and $denySkills.Count) {
-    foreach ($rel in $skillRoots) {
-      $d = Join-Path $env:USERPROFILE $rel
-      if (-not (Test-Path -LiteralPath $d)) { continue }
-      Get-ChildItem -LiteralPath $d -Directory -ErrorAction SilentlyContinue | Where-Object { $denySkills -contains $_.Name } | ForEach-Object {
-        $src = $_.FullName
-        # dest 带源路径哈希后缀: 多 home 同名 skill 否则 dest 碰撞, 第二个静默跳过=封禁不完整。
-        $h = [System.Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($src))
-        $tag = ((($h | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 8))
-        $dest = Join-Path $qroot ("{0}-{1}-{2}" -f $ts, $_.Name, $tag)
-        if (Test-Path -LiteralPath $dest) { return }
-        try {
-          New-Item -ItemType Directory -Force -Path $qroot | Out-Null
-          Move-Item -LiteralPath $src -Destination $dest -Force
-          $mf = $dest + '.aegis-quarantine.json'
-          (@{ schema = 'aegis.quarantine/v1'; asset_type = 'skill'; asset_key = $_.Name; source = $src; dest = $dest; reason = 'policy_deny'; at = $ts; agent_version = $agentVersion } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $mf -Encoding UTF8
-          $actions += @{ asset_type = 'skill'; asset_key = $_.Name; action = 'quarantined'; target = $src; backup = $dest; reason = 'policy_deny'; ok = $true; at = $ts }
-        } catch { }
+  # 封禁/恢复必须覆盖**所有受管用户主目录**(与发现侧 managed homes 一致)。此前只看 $env:USERPROFILE
+  # (=服务账户 systemprofile), 真实用户 home 里的 skill 永远封不到 → Windows deny 实际空转(真机演练发现)。
+  foreach ($homeDir in @($userHomes)) {
+    $qroot = Join-Path $homeDir.FullName '.aegis-quarantine'
+    if ($enSkill -and $denySkills.Count) {
+      foreach ($rel in $skillRoots) {
+        $d = Join-Path $homeDir.FullName $rel
+        if (-not (Test-Path -LiteralPath $d)) { continue }
+        Get-ChildItem -LiteralPath $d -Directory -ErrorAction SilentlyContinue | Where-Object { $denySkills -contains $_.Name } | ForEach-Object {
+          $src = $_.FullName
+          # dest 带源路径哈希后缀: 多 home 同名 skill 否则 dest 碰撞, 第二个静默跳过=封禁不完整。
+          $h = [System.Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($src))
+          $tag = ((($h | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 8))
+          $dest = Join-Path $qroot ("{0}-{1}-{2}" -f $ts, $_.Name, $tag)
+          if (Test-Path -LiteralPath $dest) { return }
+          try {
+            New-Item -ItemType Directory -Force -Path $qroot | Out-Null
+            Move-Item -LiteralPath $src -Destination $dest -Force
+            $mf = $dest + '.aegis-quarantine.json'
+            (@{ schema = 'aegis.quarantine/v1'; asset_type = 'skill'; asset_key = $_.Name; source = $src; dest = $dest; reason = 'policy_deny'; at = $ts; agent_version = $agentVersion } | ConvertTo-Json -Compress) | Set-Content -LiteralPath $mf -Encoding UTF8
+            $actions += @{ asset_type = 'skill'; asset_key = $_.Name; action = 'quarantined'; target = $src; backup = $dest; reason = 'policy_deny'; ok = $true; at = $ts }
+          } catch { }
+        }
       }
     }
-  }
-  if (Test-Path -LiteralPath $qroot) {
-    Get-ChildItem -LiteralPath $qroot -File -Filter '*.aegis-quarantine.json' -ErrorAction SilentlyContinue | ForEach-Object {
-      $m = $null
-      try { $m = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
-      if (-not $m -or $m.schema -ne 'aegis.quarantine/v1' -or $m.asset_type -ne 'skill') { return }
-      $key = [string]$m.asset_key
-      $still = $enSkill -and ($denySkills -contains $key)
-      if (-not $still) {
-        $dest = [string]$m.dest; $src = [string]$m.source
-        if ((Test-Path -LiteralPath $dest) -and -not (Test-Path -LiteralPath $src)) {
-          try {
-            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $src) | Out-Null
-            Move-Item -LiteralPath $dest -Destination $src -Force
-            Remove-Item -LiteralPath $_.FullName -Force
-            $actions += @{ asset_type = 'skill'; asset_key = $key; action = 'restored'; target = $src; backup = $dest; reason = 'policy_no_longer_denies'; ok = $true; at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
-          } catch { }
+    if (Test-Path -LiteralPath $qroot) {
+      Get-ChildItem -LiteralPath $qroot -File -Filter '*.aegis-quarantine.json' -ErrorAction SilentlyContinue | ForEach-Object {
+        $m = $null
+        try { $m = Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+        if (-not $m -or $m.schema -ne 'aegis.quarantine/v1' -or $m.asset_type -ne 'skill') { return }
+        $key = [string]$m.asset_key
+        $still = $enSkill -and ($denySkills -contains $key)
+        if (-not $still) {
+          $dest = [string]$m.dest; $src = [string]$m.source
+          if ((Test-Path -LiteralPath $dest) -and -not (Test-Path -LiteralPath $src)) {
+            try {
+              New-Item -ItemType Directory -Force -Path (Split-Path -Parent $src) | Out-Null
+              Move-Item -LiteralPath $dest -Destination $src -Force
+              Remove-Item -LiteralPath $_.FullName -Force
+              $actions += @{ asset_type = 'skill'; asset_key = $key; action = 'restored'; target = $src; backup = $dest; reason = 'policy_no_longer_denies'; ok = $true; at = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+            } catch { }
+          }
         }
       }
     }
   }
   $cfgRels = @('.cursor\mcp.json', '.claude.json', '.gemini\settings.json', '.copilot\mcp-config.json', '.workbuddy\mcp.json', '.qwenworkcn\mcp.json', '.lingma\mcp.json', '.codebuddy\mcp.json')
+  # MCP 封禁/恢复同样必须覆盖所有受管用户主目录(与发现侧一致)。此前只看 $env:USERPROFILE
+  # (=服务账户 systemprofile), 真实用户 home 的 MCP 配置永远封不到 → Windows MCP deny 空转(与 skill 同源 bug)。
+  foreach ($homeDir in @($userHomes)) {
   foreach ($rel in $cfgRels) {
-    $p = Join-Path $env:USERPROFILE $rel
+    $p = Join-Path $homeDir.FullName $rel
     if (-not (Test-Path -LiteralPath $p)) { continue }
     $data = $null
     try { $data = Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json } catch { continue }
@@ -751,6 +758,7 @@ function Invoke-AegisEnforce {
         if ($changed) { try { ($data | ConvertTo-Json -Depth 12) | Set-Content -LiteralPath $p -Encoding UTF8 } catch { } }
       }
     }
+  }
   }
   return $actions
 }

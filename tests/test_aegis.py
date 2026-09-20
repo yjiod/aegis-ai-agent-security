@@ -1211,6 +1211,18 @@ class AegisTests(unittest.TestCase):
                 self.agent._exec_deny_store_path=orig_store
     def test_kill_matching_exact_token_only(self):
         self.assertEqual(self.agent._kill_matching('/nonexistent/bin/xyz'),[])
+    def test_windows_ps1_no_readonly_home_loopvar_and_perhome_enforcement(self):
+        # 回归(真机演练发现的两处 Windows bug)：
+        # (1) foreach($home in ...) 用只读自动变量 $home 作循环变量 → 存在 .claude/.codex 时扫描崩溃(exit2)。
+        # (2) skill 封禁/恢复只看 $env:USERPROFILE(=服务账户 systemprofile) → 真实用户 home 的 skill 永远封不到(deny 空转)。
+        ps1=(DOWNLOADS/'aegis-windows.ps1').read_text(encoding='utf-8')
+        self.assertNotIn('foreach($home in', ps1)          # 只读 $home 不得作循环变量
+        self.assertNotIn('foreach ($home in', ps1)
+        self.assertIn('foreach($homeDir in $homes)', ps1)  # 用户基线同步按 homeDir 遍历
+        self.assertIn('foreach ($homeDir in @($userHomes))', ps1)  # 封禁/恢复按受管 home 遍历
+        self.assertIn('Join-Path $homeDir.FullName $rel', ps1)     # skill 根按 home 解析
+        self.assertNotIn('Join-Path $env:USERPROFILE $rel', ps1)   # 不得只看服务账户 profile
+
     def test_pf_rules_text_and_nonroot_skip(self):
         txt=self.agent._pf_rules_text({'bad-mcp':['1.2.3.4']})
         self.assertIn('block drop out quick proto tcp from any to 1.2.3.4',txt)
