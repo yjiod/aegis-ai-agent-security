@@ -10,6 +10,7 @@
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useRole } from '@/components/role-context';
 import { Pagination, paginate } from '@/components/pagination';
 import type { CSSProperties } from 'react';
@@ -191,6 +192,7 @@ export default function DevicesPage() {
   const [source, setSource] = useState<DataSource>('loading');
   const [notice, setNotice] = useState('');
   const { role } = useRole();
+  const searchParams = useSearchParams();
   const canMutate = role === 'admin';
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
@@ -255,6 +257,18 @@ export default function DevicesPage() {
       controller.abort();
     };
   }, [applyFallback, loadDevices]);
+
+  // 深链接：/devices?focus=<device_id> 自动展开该设备并加载其发现/回执（风险中心工单跳转用），
+  // 让"从工单跳到具体设备看发现与封禁回执"一步到位，不必手动找设备再展开。
+  useEffect(() => {
+    const focus = searchParams.get('focus');
+    if (focus) {
+      setExpandedId(focus);
+      void toggleFindings(focus);
+    }
+    // toggleFindings 为组件内函数声明（hoisted），此处仅依赖 searchParams。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   /** 写操作失败时的提示。 */
   const failureCopy = useCallback(

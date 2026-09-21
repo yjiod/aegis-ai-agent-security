@@ -581,7 +581,18 @@ export default function RisksPage() {
                       {ticket.assignee ? ` · ${ticket.assignee}` : ''}
                     </span>
                   </div>
-                  <span className="device">{ticket.device_id || '未关联'}</span>
+                  <span className="device">
+                    {ticket.device_id || '未关联'}
+                    {ticket.device_id && (
+                      <Link
+                        href={`/devices?focus=${encodeURIComponent(ticket.device_id)}`}
+                        title="跳到该设备并展开其发现/封禁回执"
+                        style={{ marginLeft: 6, fontSize: 11, color: 'var(--ring)' }}
+                      >
+                        查看发现
+                      </Link>
+                    )}
+                  </span>
                   <span className="time" title={`更新于 ${formatRelativeTime(ticket.updated_at)}`}>
                     {formatRelativeTime(ticket.updated_at)}
                   </span>
