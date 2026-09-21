@@ -115,39 +115,65 @@ def post_webhook(webhook, fmt, alerts, now):
         return r.status
 
 
+def fetch_console_config(collector_token, console_base):
+    """从控制台拉告警配置（Collector bearer 只读）。失败返回 None（回落 env/默认）。"""
+    if not console_base or not collector_token:
+        return None
+    try:
+        req = urllib.request.Request(
+            console_base.rstrip("/") + "/api/settings/alerting",
+            headers={"Authorization": "Bearer " + collector_token})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return (json.loads(r.read().decode()) or {}).get("config")
+    except Exception:
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--collector", default=os.environ.get("AEGIS_COLLECTOR_URL", "http://127.0.0.1:8931"))
     ap.add_argument("--token", default=os.environ.get("AEGIS_COLLECTOR_TOKEN", ""))
-    ap.add_argument("--webhook", default=os.environ.get("AEGIS_ALERT_WEBHOOK", ""))
-    ap.add_argument("--format", default=os.environ.get("AEGIS_ALERT_FORMAT", "generic"), choices=["generic", "dingtalk"])
-    ap.add_argument("--offline-hours", type=float, default=2.0)
-    ap.add_argument("--min-interval-hours", type=float, default=6.0)
+    ap.add_argument("--console", default=os.environ.get("AEGIS_CONSOLE", "https://aegis.example.com"),
+                    help="console base for reading alert config (collector-bearer read-only)")
+    ap.add_argument("--webhook", default=None, help="override console config webhook")
+    ap.add_argument("--format", default=None, choices=["generic", "dingtalk"])
+    ap.add_argument("--offline-hours", type=float, default=None)
+    ap.add_argument("--min-interval-hours", type=float, default=None)
     ap.add_argument("--state", default=os.environ.get("AEGIS_ALERT_STATE", "/var/lib/aegis/alert-state.json"))
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     if not args.token:
         log("no collector token; provide --token or AEGIS_COLLECTOR_TOKEN")
         return 1
+    # 配置优先级：CLI 显式 > 控制台 alert_config（PG）> 环境变量 > 内置默认。
+    cc = fetch_console_config(args.token, args.console) or {}
+    enabled = cc.get("enabled", True)
+    webhook = args.webhook if args.webhook is not None else (cc.get("webhook") or os.environ.get("AEGIS_ALERT_WEBHOOK", ""))
+    fmt = args.format or cc.get("format") or os.environ.get("AEGIS_ALERT_FORMAT", "generic")
+    offline_hours = args.offline_hours if args.offline_hours is not None else float(cc.get("offline_hours", 2.0))
+    min_interval = args.min_interval_hours if args.min_interval_hours is not None else float(cc.get("min_interval_hours", 6.0))
+    if not enabled:
+        log("alerting disabled in console config; skip")
+        return 0
     now = int(time.time())
     try:
         devices = fetch_devices(args.collector, args.token)
     except Exception as e:
         log("fetch devices failed: %s" % e)
         return 1
-    alerts = evaluate(devices, now, args.offline_hours)
+    alerts = evaluate(devices, now, offline_hours)
     state = load_state(args.state)
-    pending = dedup(alerts, state, now, args.min_interval_hours)
+    pending = dedup(alerts, state, now, min_interval)
     if not pending:
         log("no new alerts (evaluated %d devices, %d raw alerts, all deduped/none)" % (len(devices), len(alerts)))
         return 0
     for a in pending:
         log("ALERT %s %s %s: %s" % (a["severity"], a["type"], a["hostname"], a["detail"]))
-    if args.dry_run or not args.webhook:
+    if args.dry_run or not webhook:
         log("dry-run (no webhook configured or --dry-run): not sending, state unchanged")
         return 0
     try:
-        st = post_webhook(args.webhook, args.format, pending, now)
+        st = post_webhook(webhook, fmt, pending, now)
         log("webhook posted status=%s" % st)
         for a in pending:
             state[a["_key"]] = now

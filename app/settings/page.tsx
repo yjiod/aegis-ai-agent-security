@@ -1,7 +1,10 @@
 'use client';
-import { Settings } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Settings, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useCollector } from '@/components/collector-context';
+import { useRole } from '@/components/role-context';
 
 /**
  * 系统设置。诚实原则：只有真正接了后端的项才呈现为"可管理/实时"，其余项
@@ -97,7 +100,171 @@ export default function SettingsPage() {
           );
         })}
       </div>
+
+      <AlertingPanel />
     </>
+  );
+}
+
+interface AlertCfg {
+  enabled: boolean;
+  webhook: string;
+  format: 'generic' | 'dingtalk';
+  offline_hours: number;
+  min_interval_hours: number;
+}
+
+/** 告警推送配置（真实可写，admin）：存 PG settings；服务器 aegis_alert_check.py 用 Collector 令牌只读拉取。 */
+function AlertingPanel() {
+  const { role } = useRole();
+  const isAdmin = role === 'admin';
+  const [cfg, setCfg] = useState<AlertCfg | null>(null);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/settings/alerting', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ config?: AlertCfg }>) : null))
+      .then((d) => setCfg(d?.config ?? null))
+      .catch(() => setCfg(null));
+  }, []);
+
+  async function save() {
+    if (!isAdmin || !cfg) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = await fetch('/api/settings/alerting', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+      });
+      if (r.ok) setMsg('已保存。服务器告警评估器下次运行即按新配置生效。');
+      else {
+        const j = (await r.json().catch(() => ({}))) as { details?: string[]; error?: string };
+        setMsg(`保存失败：${(j.details ?? []).join('；') || j.error || r.status}`);
+      }
+    } catch {
+      setMsg('保存失败：网络错误');
+    }
+    setBusy(false);
+  }
+
+  async function test() {
+    if (!isAdmin) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = await fetch('/api/settings/alerting', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ test: true }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { sent?: boolean; status?: number; error?: string };
+      setMsg(j.sent ? `测试告警已发送（webhook 返回 ${j.status}）` : `测试发送失败：${j.error ?? r.status}`);
+    } catch {
+      setMsg('测试发送失败：网络错误');
+    }
+    setBusy(false);
+  }
+
+  if (!cfg) return null;
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <div className="panel-head">
+        <div>
+          <h2>告警推送（Fleet Alerting）</h2>
+          <p>服务器告警评估器（systemd timer 每 5 分钟）按此配置推送离线/坏自更/critical 告警；webhook 为空=不推送（dry-run）。</p>
+        </div>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>启用推送</strong>
+          <span>关闭后评估器跳过（不评估不推送）</span>
+        </div>
+        <button
+          className={`switch ${cfg.enabled ? 'on' : ''}`}
+          disabled={!isAdmin}
+          aria-label="启用告警推送"
+          onClick={() => setCfg({ ...cfg, enabled: !cfg.enabled })}
+        >
+          <span />
+        </button>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>Webhook URL</strong>
+          <span>https://…（generic JSON 或钉钉机器人）；留空=不推送</span>
+        </div>
+        <Input
+          value={cfg.webhook}
+          disabled={!isAdmin}
+          placeholder="https://example.com/webhook"
+          onChange={(e) => setCfg({ ...cfg, webhook: e.target.value })}
+          style={{ maxWidth: 360 }}
+        />
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>格式</strong>
+          <span>generic=aegis.alert/v1 JSON；dingtalk=机器人 text</span>
+        </div>
+        <select
+          value={cfg.format}
+          disabled={!isAdmin}
+          onChange={(e) => setCfg({ ...cfg, format: e.target.value === 'dingtalk' ? 'dingtalk' : 'generic' })}
+          style={{ background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px' }}
+        >
+          <option value="generic">generic</option>
+          <option value="dingtalk">dingtalk</option>
+        </select>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>离线判定阈值（小时）</strong>
+          <span>last_seen 超过该值且曾在线 → device_offline 告警</span>
+        </div>
+        <Input
+          type="number"
+          min={0.1}
+          max={168}
+          step={0.5}
+          value={cfg.offline_hours}
+          disabled={!isAdmin}
+          onChange={(e) => setCfg({ ...cfg, offline_hours: Number(e.target.value) })}
+          style={{ maxWidth: 120 }}
+        />
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>同类告警最小间隔（小时）</strong>
+          <span>去重节流：同类告警在该间隔内不重发</span>
+        </div>
+        <Input
+          type="number"
+          min={0.1}
+          max={168}
+          step={0.5}
+          value={cfg.min_interval_hours}
+          disabled={!isAdmin}
+          onChange={(e) => setCfg({ ...cfg, min_interval_hours: Number(e.target.value) })}
+          style={{ maxWidth: 120 }}
+        />
+      </div>
+      {msg && <p style={{ fontSize: 12, color: 'var(--muted-foreground)', padding: '0 16px 12px' }}>{msg}</p>}
+      {isAdmin && (
+        <div style={{ display: 'flex', gap: 8, padding: '0 16px 16px' }}>
+          <Button onClick={() => void save()} disabled={busy}>
+            <Settings size={15} />
+            保存告警配置
+          </Button>
+          <Button variant="outline" onClick={() => void test()} disabled={busy || !cfg.webhook} title="向当前 webhook 发一条测试告警">
+            <Send size={15} />
+            测试发送
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
