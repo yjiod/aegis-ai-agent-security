@@ -76,6 +76,9 @@
 [CmdletBinding()]
 param(
   [switch]$Uninstall,
+  # -SelfTest：只做安装前体检（环境/权限/依赖/连通性/既有安装），不安装不改动任何状态，
+  # 供运维/排障在装机前确认前置条件；exit 0=全部通过，非 0=有失败项。
+  [switch]$SelfTest,
   # D9：装机时注入的控制台 origin。由 AegisServiceHost.exe --install AEGIS_SERVER_URL=<origin>
   # 透传，而后者来自 MSI 公共属性（msiexec /i aegis-agent-windows.msi AEGIS_SERVER_URL=...）。
   # 公开仓库的包烘的是 RFC2606 占位域，靠这个参数指向真实控制台，域名不入库。
@@ -88,6 +91,39 @@ $Base = $PSScriptRoot                                   # 安装目录（Program
 # 从别处(如 C:\Windows\Temp)调用时 $PSScriptRoot 没有 exe → 回退到规范安装目录,
 # 避免"缺少 AegisServiceHost.exe"误报(2026-09-17 现场实测踩到)。
 if (-not (Test-Path (Join-Path $Base 'AegisServiceHost.exe'))) { $Base = Join-Path $env:ProgramFiles 'AegisAgent' }
+
+if ($SelfTest) {
+  # 安装前体检：只读/临时探测，不安装不改动状态。逐项 PASS/FAIL，末行汇总，exit 码=失败项数(0=全过)。
+  $fails = 0
+  function St([string]$name, [bool]$ok, [string]$detail = '') {
+    if ($ok) { Write-Host ("PASS  {0}  {1}" -f $name, $detail) }
+    else { Write-Host ("FAIL  {0}  {1}" -f $name, $detail); $script:fails += 1 }
+  }
+  St 'powershell-version' ($PSVersionTable.PSVersion.Major -ge 5) ("PS " + $PSVersionTable.PSVersion)
+  St 'arch-supported' ($env:PROCESSOR_ARCHITECTURE -in @('AMD64','ARM64')) $env:PROCESSOR_ARCHITECTURE
+  # 目录可写性：临时建/删文件探测，不留下残留
+  foreach ($dir in @($env:ProgramData, $env:ProgramFiles)) {
+    $probe = Join-Path $dir ("aegis-selftest-" + [Guid]::NewGuid().ToString('N'))
+    $ok = $false
+    try { New-Item -ItemType Directory -Path $probe -Force | Out-Null; $ok = $true } catch { }
+    if ($ok) { Remove-Item -Recurse -Force $probe -ErrorAction SilentlyContinue }
+    St ("writable:" + (Split-Path $dir -Leaf)) $ok $dir
+  }
+  $pd = $false
+  try { if (-not ('Security.Cryptography.ProtectedData' -as [type])) { Add-Type -AssemblyName System.Security }; $pd = $true } catch { }
+  St 'dpapi-available' $pd
+  if ($ServerUrl) {
+    $reach = $false
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $r = Invoke-WebRequest -Uri ($ServerUrl.TrimEnd('/') + '/downloads/update-manifest.json') -UseBasicParsing -TimeoutSec 15; $reach = ($r.StatusCode -eq 200) } catch { }
+    St 'server-reachable' $reach $ServerUrl
+  } else { St 'server-reachable' $true 'skipped (no -ServerUrl)' }
+  $svc = Get-Service -Name 'AegisAgent' -ErrorAction SilentlyContinue
+  St 'existing-service' $true ($(if ($svc) { 'present:' + $svc.Status } else { 'not-installed' }))
+  $disk = Get-PSDrive -Name C -ErrorAction SilentlyContinue
+  St 'disk-space' (($disk -and $disk.Free -gt 200MB) -or (-not $disk)) $(if ($disk) { [math]::Round($disk.Free / 1MB) , 'MB free' } else { 'unknown' })
+  Write-Host ("SELFTEST {0}" -f $(if ($fails -eq 0) { 'OK' } else { "FAILED($fails)" }))
+  exit $(if ($fails -eq 0) { 0 } else { 1 })
+}
 # D4 修复：$env:ProgramData 可能为 NULL（裁剪环境/沙箱继承），Join-Path $null 会在
 # 第一条日志之前抛 ArgumentNullException。三级兜底，与 host 的 DataDir 解析方式对齐。
 $ProgramDataRoot = $env:ProgramData
