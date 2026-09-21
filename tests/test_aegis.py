@@ -1223,6 +1223,17 @@ class AegisTests(unittest.TestCase):
         self.assertIn('Join-Path $homeDir.FullName $rel', ps1)     # skill 根按 home 解析
         self.assertNotIn('Join-Path $env:USERPROFILE $rel', ps1)   # 不得只看服务账户 profile
 
+    def test_secret_path_aware_severity(self):
+        # 测试/夹具路径的 hardcoded_secret 降为 medium（仍上报），生产代码路径保持 critical。
+        pol=dict(self.policy); pol["secret_patterns"]=["AKIA[0-9A-Z]{16}"]
+        secret_text='const key = "AKIAABCDEFGHIJKLMNOP";'
+        crit=self.agent.scan_text("/repo/src/service.ts", secret_text, pol)
+        self.assertEqual([f["severity"] for f in crit if f["kind"]=="hardcoded_secret"], ["critical"])
+        for tp in ("/repo/tests/helper.ts", "/repo/src/service.test.ts", "/repo/specs/x.ts", "/repo/fixtures/y.ts", "/repo/src/_test_util.ts"):
+            fs=self.agent.scan_text(tp, secret_text, pol)
+            self.assertEqual([f["severity"] for f in fs if f["kind"]=="hardcoded_secret"], ["medium"], tp)
+            self.assertIn("降级", fs[0]["message"])
+
     def test_pf_rules_text_and_nonroot_skip(self):
         txt=self.agent._pf_rules_text({'bad-mcp':['1.2.3.4']})
         self.assertIn('block drop out quick proto tcp from any to 1.2.3.4',txt)

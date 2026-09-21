@@ -258,6 +258,9 @@ def discover_agent_tools(homes=None,system_markers=None):
             path=Path(raw)
             if path.exists(): add(name,path,"system"); break
     return found
+# 测试/夹具路径特征：tests/specs/fixtures/__tests__/testing 目录，或 .test./.spec./_test. 文件名。
+# 这些路径里的"硬编码凭据"多为 dummy fixture，hardcoded_secret 降为 medium（仍上报）。
+_TEST_PATH_RE = re.compile(r"(?i)([\\/])(tests?|specs?|fixtures?|__tests__|testing)([\\/])|\.test\.|\.spec\.|_test[_.]|(^|[\\/])test_")
 def scan_text(path,text,policy):
     out=[]; low=text.lower(); checks=[("prompt_override","high",r"ignore (all |any )?(previous|prior) instructions"),("credential_access","high",r"(?:~/|\$home/)(?:\.ssh|\.aws)|security\s+find-(?:generic|internet)-password"),("unbounded_shell","high",r"shell\s*=\s*true|subprocess\..*shell\s*=\s*true"),("dynamic_eval","medium",r"\beval\s*\(|\bexec\s*\(")]
     for kind,sev,pat in checks:
@@ -293,7 +296,12 @@ def scan_text(path,text,policy):
         try: hit=re.search(pat,text)
         except re.error:
             out.append(finding("invalid_policy_regex","high",path,"策略包含无效的敏感信息正则",hashlib.sha256(str(pat).encode()).hexdigest()[:12])); continue
-        if hit: out.append(finding("hardcoded_secret","critical",path,"疑似硬编码凭据",hit.group(0)[:8]+"…"))
+        if hit:
+            # 路径感知严重度：测试/夹具路径里的"凭据"多为 dummy（test fixture），降为 medium
+            # 仍上报但不淹 critical；生产代码路径保持 critical。降低风险中心 critical 噪声而不掩真秘密。
+            sev = "medium" if _TEST_PATH_RE.search(str(path) if path else "") else "critical"
+            note = "疑似硬编码凭据" + ("（测试/夹具路径，降级）" if sev == "medium" else "")
+            out.append(finding("hardcoded_secret", sev, path, note, hit.group(0)[:8] + "…"))
     return out
 def scan_mcp_server(path,name,cfg,policy):
     out=[]; allowed=set(policy.get("allowed_mcp_servers",[])); allowed_commands=set(policy.get("allowed_mcp_commands",[])); allowed_paths={os.path.normcase(os.path.normpath(str(x))) for x in policy.get("allowed_mcp_command_paths",[])}; allowed_domains={x.lower().rstrip(".") for x in policy.get("allowed_mcp_domains",[])}; allowed_transports=set(policy.get("allowed_mcp_transports",[]))
@@ -1476,7 +1484,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.36.5"
+AGENT_VERSION = "0.36.6"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用

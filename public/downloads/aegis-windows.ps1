@@ -66,6 +66,11 @@ $patterns = @(
   @{ Kind='debug_mode_enabled'; Severity='medium'; Regex='(?is)\b(app|application)\.run\s*\([^)]{0,300}\bdebug\s*=\s*true' },
   @{ Kind='empty_exception_handler'; Severity='medium'; Regex='(?m)^\s*except(\s+[^:]+)?:\s*(#.*\r?\n\s*)?pass\s*$|\bcatch\s*\{\s*\}' }
 )
+# 测试/夹具路径特征（与 mac agent _TEST_PATH_RE 同口径）：tests/specs/fixtures/__tests__/testing
+# 目录或 .test./.spec./_test. 文件名。用于 hardcoded_secret 路径感知降级。
+function Test-AegisTestPath([string]$p) {
+  return ($p -match '(?i)[\\/](tests?|specs?|fixtures?|__tests__|testing)[\\/]') -or ($p -match '(?i)\.test\.|\.spec\.|_test[_.]|(^|[\\/])test_')
+}
 $findings = @(); $inventory = @()
 if($policyInvalid){$findings += @{kind='policy_load_failed';severity='high';path=$policyPath;message='安全策略缺失或契约无效；MCP 策略检查采用失败关闭状态'}}
 if($reportConfigInvalid){$findings += @{kind='reporting_config_invalid';severity='high';path='reporting.dpapi';message='受保护上报配置无法解密或契约无效；本轮拒绝上报'}}
@@ -435,7 +440,13 @@ foreach ($root in $roots) {
     $candidates|Select-Object -First $projectFileLimit | ForEach-Object {
       $text = Get-Content -Encoding UTF8 $_.FullName -Raw
       foreach ($rule in $patterns) {
-        if ($text -match $rule.Regex) { $findings += @{ kind=$rule.Kind; severity=$rule.Severity; path=(Protect-AegisPath $_.FullName); message='Policy match' } }
+        if ($text -match $rule.Regex) {
+          # 路径感知严重度（与 mac agent 同口径）：测试/夹具路径的"凭据"多为 dummy，
+          # hardcoded_secret 降为 medium（仍上报），生产代码路径保持 critical。
+          $sev = $rule.Severity
+          if ($rule.Kind -eq 'hardcoded_secret' -and (Test-AegisTestPath $_.FullName)) { $sev = 'medium' }
+          $findings += @{ kind=$rule.Kind; severity=$sev; path=(Protect-AegisPath $_.FullName); message='Policy match' }
+        }
       }
       if ($_.Name -in @('mcp.json','mcp_config.json')) { Inspect-AegisMcpJson $_ $text }
       if ($_.Name -eq 'config.toml' -and $_.FullName -match '\\\.codex\\') { Inspect-AegisMcpToml $_ $text }
@@ -482,7 +493,7 @@ if ($identitySn) { $deviceMaterial = "aegis-hw:" + $identitySn } else { $deviceM
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $sn = $serialDisplay
-$agentVersion = '0.36.5'
+$agentVersion = '0.36.6'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
