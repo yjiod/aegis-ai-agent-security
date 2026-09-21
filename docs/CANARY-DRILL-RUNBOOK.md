@@ -112,3 +112,19 @@ python3 scripts/run_canary_release.py --rollback     # rollout=0 冻结自更通
 - **演练超时/瞬态**：脚本已带 API 重试与轮询容错；仍失败看 `--status` 与终端 `install.log`/服务日志。
 - **设备不在线**：`--status` 里该设备 `last_seen` 旧；先恢复端点再演练/放量。
 - **privacy/CI**：仓库脚本只留占位（console 域名、guest home）；改 `public/downloads/DEPLOYMENT-GUIDE.md`（在 release bundle 内）后必须重跑 `aegis_release_build.py` 重生 bundle，否则 CI verify 报 `bundle_content_mismatch`。
+
+## 周期条件演练（OPT-IN，默认不启用）
+
+把演练做成定时任务会让"封禁/恢复闭环"持续被验证，但它会**自动发布 scoped deny→un-deny 策略**并在目标
+guest 上放/删夹具，属会改动生产策略的自动化，故**默认不安装**，由 owner 显式启用：
+
+1. 复制模板并填占位：`scripts/com.aegis.enforce-drill.plist.example` →
+   `~/Library/LaunchAgents/com.aegis.enforce-drill.plist`（`__REPO__/__CONSOLE__/__EXEC__/__GUEST_HOME__/__EXPECT_DEVICE__`）。
+2. 凭据经 EnvironmentVariables 或 wrapper 从 keychain 读 `AEGIS_DRILL_USER/AEGIS_DRILL_PASSWORD`，勿明文入 plist。
+3. `launchctl load …` 启用；`launchctl unload …` 停用。日志 `/tmp/aegis-enforce-drill.log`。
+
+**条件守卫**：`--expect-device <id>` 使脚本先查该设备在线与否；不在线则跳过本次（exit 0），
+不对离线端点空跑、不产生误告警/误发布。每 6 小时一次（StartInterval 21600）。
+
+**启用前检查**：目标端点为非豁免测试机；其 agent 版本支持自更回执；告警推送已配置（否则演练失败无人知）。
+演练失败（DRILL FAILED）时应停止放量（`run_canary_release.py --rollback`）并排查，勿继续推进。

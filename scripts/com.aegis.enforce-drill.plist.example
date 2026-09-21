@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  com.aegis.enforce-drill.plist — 周期条件 enforce 演练（OPT-IN，默认不安装/不启用）。
+
+  每 6 小时跑一次 run_enforce_drill.py，带 --expect-device 守卫：目标端点不在线则跳过
+  （exit 0），不会对离线端点空跑。演练会在目标 guest 上放/删夹具 skill 并发布 scoped
+  deny→un-deny 策略，属"会改动生产策略"的自动化，故默认不启用，由 owner 显式安装：
+
+    cp scripts/com.aegis.enforce-drill.plist.example ~/Library/LaunchAgents/com.aegis.enforce-drill.plist
+    # 编辑占位：__CONSOLE__ / __USER__ / __EXEC__ / __GUEST_HOME__ / __EXPECT_DEVICE__
+    # 凭据经环境变量或 keychain，勿明文写入 plist；可用 LaunchAgents 的 EnvironmentVariables
+    # 或改为 wrapper 脚本从 keychain 读取 AEGIS_DRILL_USER / AEGIS_DRILL_PASSWORD。
+    launchctl load ~/Library/LaunchAgents/com.aegis.enforce-drill.plist
+
+  卸载：launchctl unload ~/Library/LaunchAgents/com.aegis.enforce-drill.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.aegis.enforce-drill</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>__REPO__/scripts/run_enforce_drill.py</string>
+    <string>--console</string>
+    <string>__CONSOLE__</string>
+    <string>--exec</string>
+    <string>__EXEC__</string>
+    <string>--guest-home</string>
+    <string>__GUEST_HOME__</string>
+    <string>--service</string>
+    <string>AegisAgent</string>
+    <string>--expect-device</string>
+    <string>__EXPECT_DEVICE__</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>21600</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/tmp/aegis-enforce-drill.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/aegis-enforce-drill.log</string>
+</dict>
+</plist>

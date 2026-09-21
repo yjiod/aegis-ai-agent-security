@@ -111,6 +111,8 @@ def main():
                     help="guest user home holding the skill roots; pass the real test-endpoint home")
     ap.add_argument("--service", default="AegisAgent")
     ap.add_argument("--fillers", type=int, default=10)
+    ap.add_argument("--expect-device", default="",
+                    help="optional device_id of the drill target; if set and not online, skip this run (exit 0)")
     args = ap.parse_args()
     if not args.user or not args.password:
         raise SystemExit("provide --user/--password or AEGIS_DRILL_USER/AEGIS_DRILL_PASSWORD")
@@ -119,6 +121,16 @@ def main():
     skills_dir = args.guest_home + "\\.claude\\skills"
     c = Console(args.console, args.user, args.password)
     c.login()
+    # 条件演练守卫（供定时任务用）：目标端点不在线则跳过本次（exit 0），避免对离线端点空跑。
+    if args.expect_device:
+        st, d = c.api("GET", "/api/devices?limit=500")
+        if st != 200:
+            log("cannot verify target online (devices fetch %s); skip" % st)
+            return 0
+        tgt = next((x for x in (d.get("devices") or []) if x.get("device_id") == args.expect_device), None)
+        if tgt is None or tgt.get("status") != "online":
+            log("target %s not online (status=%s); skip this run" % (args.expect_device, (tgt or {}).get("status")))
+            return 0
     log("logged in; fixture=" + fixture)
 
     device_id = None
