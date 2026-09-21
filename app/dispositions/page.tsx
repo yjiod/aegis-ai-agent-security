@@ -7,7 +7,7 @@
  * "策略预览" 展示若按当前处置发布，策略的 allowed / monitor / blocked 列表将变成什么
  * （实际发布走发行级联，由管理员执行）。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Tags, ShieldCheck, ShieldAlert, Eye, Plus, Trash2, Download, Upload } from 'lucide-react';
@@ -81,6 +81,11 @@ export default function DispositionsPage() {
   // 封禁爆炸半径闸(PM 评审 #1): 发布被 409 拦截时展示精确影响清单 + typed override 输入。
   const [blast, setBlast] = useState<{ hint: string; impact: { device_id: string; skills: string[]; mcp: string[]; count: number; pct: number }[]; override: string } | null>(null);
   const [blastInput, setBlastInput] = useState('');
+  // 发布前爆炸半径预览：客户端用 /api/devices 的 skills/mcp_assets 与当前 deny 集合预测影响，
+  // 让运维在点"发布"前就看到影响面与闸判定（此前只有被 409 拦下后才看到）。
+  const [devAssets, setDevAssets] = useState<
+    { device_id: string; skills: string[]; mcp_assets: string[]; exempt: boolean }[]
+  >([]);
   // 系统默认放行（原生自带）默认折叠，避免"加白"列表被非用户决策项刷屏（用户反馈）。
   const [showDefaults, setShowDefaults] = useState(false);
 
@@ -118,11 +123,54 @@ export default function DispositionsPage() {
       .then((r) => (r.ok ? (r.json() as Promise<CurrentRelease>) : null))
       .then((d) => setCurrent(d && d.published ? d : null))
       .catch(() => setCurrent(null));
+    // 设备可封禁资产面（skills/mcp_assets）用于发布前爆炸半径预览；失败不阻塞主流程。
+    fetch('/api/devices', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<Record<string, unknown>>) : null))
+      .then((d) => {
+        const list = Array.isArray((d as { devices?: unknown[] } | null)?.devices)
+          ? ((d as { devices: Array<Record<string, unknown>> }).devices)
+          : [];
+        setDevAssets(
+          list.map((x) => ({
+            device_id: String(x.device_id ?? ''),
+            skills: Array.isArray(x.skills) ? (x.skills as string[]) : [],
+            mcp_assets: Array.isArray(x.mcp_assets) ? (x.mcp_assets as string[]) : [],
+            exempt: x.exempt === true,
+          })),
+        );
+      })
+      .catch(() => setDevAssets([]));
   }, [isAdmin]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 发布前爆炸半径预测（与服务端发布闸同口径：豁免设备排除；pct=该设备被 deny 的 skill 数/其 skill 总数）。
+  const predicted = useMemo(() => {
+    const all = labels ?? [];
+    const denySkills = new Set(
+      all.filter((l) => l.disposition === 'deny' && l.asset_type === 'skill').map((l) => l.asset_key),
+    );
+    const denyMcp = new Set(
+      all.filter((l) => l.disposition === 'deny' && l.asset_type === 'mcp').map((l) => l.asset_key),
+    );
+    const impact = devAssets
+      .filter((d) => !d.exempt)
+      .map((d) => {
+        const s = d.skills.filter((x) => denySkills.has(x));
+        const m = d.mcp_assets.filter((x) => denyMcp.has(x));
+        const denom = d.skills.length;
+        return { device_id: d.device_id, skills: s, mcp: m, count: s.length + m.length, pct: denom ? Math.round((100 * s.length) / denom) : 0 };
+      })
+      .filter((x) => x.count > 0);
+    const total = impact.reduce((a, b) => a + b.count, 0);
+    const maxPct = impact.reduce((a, b) => Math.max(a, b.pct), 0);
+    const bulkNames = denySkills.size + denyMcp.size;
+    const absExceeded = total > 20 || impact.some((x) => x.pct > 50) || bulkNames > 20;
+    const exceeded = total > 5 || impact.some((x) => x.pct > 10) || bulkNames > 5;
+    return { impact, total, maxPct, bulkNames, absExceeded, exceeded };
+  }, [labels, devAssets]);
 
   async function save(asset: Label, patch: Partial<Label>) {
     setBusy(true);
@@ -458,6 +506,46 @@ export default function DispositionsPage() {
             </Button>
           )}
         </div>
+
+        {/* 发布前爆炸半径预览：点发布前就能看到影响面与闸判定（豁免设备已排除） */}
+        {isAdmin && predicted.bulkNames > 0 && (
+          <div
+            style={{
+              border: `1px solid ${predicted.absExceeded ? '#7a2020' : predicted.exceeded ? '#7a4b00' : 'var(--border)'}`,
+              background: predicted.absExceeded ? 'rgba(122,32,32,0.08)' : predicted.exceeded ? 'rgba(122,75,0,0.08)' : 'var(--accent)',
+              borderRadius: 10,
+              padding: 12,
+              marginTop: 10,
+            }}
+          >
+            <strong style={{ fontSize: 13 }}>发布前爆炸半径预览</strong>
+            <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '6px 0' }}>
+              deny 名单 {predicted.bulkNames} 项；预计影响 {predicted.total} 资产 / {predicted.impact.length} 台设备
+              {predicted.impact.length > 0 ? `（单设备最高 ${predicted.maxPct}%）` : ''}。
+              {predicted.absExceeded
+                ? ' 超绝对上限（20 资产 / 单设备 50%），不可 override，必须拆批。'
+                : predicted.exceeded
+                  ? ' 超闸（5 资产 / 单设备 10%），需 typed override 才能发布。'
+                  : ' 在闸内，可直接发布。'}
+            </p>
+            {predicted.impact.length > 0 && (
+              <div className="data-table" style={{ marginBottom: 0 }}>
+                <div className="data-head" style={{ gridTemplateColumns: '1.2fr 2fr 1.4fr 0.6fr 0.6fr' }}>
+                  <span>设备</span><span>将隔离的 Skill</span><span>将移除的 MCP</span><span>数量</span><span>占比</span>
+                </div>
+                {predicted.impact.map((x) => (
+                  <div className="data-row" key={x.device_id} style={{ gridTemplateColumns: '1.2fr 2fr 1.4fr 0.6fr 0.6fr' }}>
+                    <span style={{ fontSize: 11, fontFamily: 'monospace' }}>{x.device_id.slice(0, 12)}</span>
+                    <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{x.skills.join(', ') || '—'}</span>
+                    <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{x.mcp.join(', ') || '—'}</span>
+                    <span style={{ fontSize: 11 }}>{x.count}</span>
+                    <span style={{ fontSize: 11 }}>{x.pct}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {blast && (
           <div style={{ border: '1px solid #7a4b00', background: 'rgba(122,75,0,0.08)', borderRadius: 10, padding: 12, marginTop: 10 }}>
