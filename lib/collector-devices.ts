@@ -70,7 +70,7 @@ export type VersionPosture = {
  * 计为漂移），仅**低于** required 才算 mismatch。这让发版提升 required 后，已升级
  * 终端仍计 current，未升级终端如实计 drift。
  */
-function semverGte(a: string, b: string): boolean {
+export function semverGte(a: string, b: string): boolean {
   const pa = a.split('.').map((n) => Number.parseInt(n, 10) || 0);
   const pb = b.split('.').map((n) => Number.parseInt(n, 10) || 0);
   for (let i = 0; i < 3; i += 1) {

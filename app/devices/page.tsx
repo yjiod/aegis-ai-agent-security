@@ -54,6 +54,7 @@ import DeviceForm, {
   type DeviceFormData,
   type DeviceStatus,
 } from '@/components/device-form';
+import { semverGte } from '@/lib/collector-devices';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -480,15 +481,18 @@ export default function DevicesPage() {
   }).length;
 
   /**
-   * 版本漂移：已上报但 agent_version ≠ 要求版本的设备数。这是"某台机器悄悄掉队/
-   * 自更失败"的核心信号——之前离线 13h 无人察觉即因缺少此类聚合告警。
+   * 版本漂移：已上报且 agent_version **低于**要求版本的设备数（semver 比较，与仪表盘
+   * computeVersionPosture 同源）。这是"某台机器悄悄掉队/自更失败"的核心信号——之前离线
+   * 13h 无人察觉即因缺少此类聚合告警。
+   * 注意：高于 required 属正常升级（不应计漂移）。旧实现用 `!==` 精确不等，把"领先于
+   * required"的终端也标成漂移（required 为陈旧下限 0.33.0 时全员误报），已修正为 semver 低于。
    */
   const driftDevices = useMemo(() => {
     const required = fleet?.required_agent_version;
     if (!required) return [] as Device[];
     return devices.filter((device) => {
       const v = agentVersionLabel(device.agent_version);
-      return v !== '未上报' && v !== required;
+      return v !== '未上报' && !semverGte(v, required);
     });
   }, [devices, fleet?.required_agent_version]);
 
@@ -823,11 +827,12 @@ export default function DevicesPage() {
                     {(() => {
                       const v = agentVersionLabel(device.agent_version);
                       const required = fleet?.required_agent_version;
-                      const drift = !!required && v !== '未上报' && v !== required;
+                      // 漂移 = 低于要求版本（semver，与仪表盘同源）；高于 required 属正常升级不标漂移。
+                      const drift = !!required && v !== '未上报' && !semverGte(v, required);
                       if (!drift) return null;
                       return (
                         <span
-                          title={`要求版本 ${required}，当前 ${v}`}
+                          title={`低于要求版本 ${required}，当前 ${v}（掉队/自更失败信号）`}
                           style={{
                             marginLeft: 6,
                             padding: '0 5px',
