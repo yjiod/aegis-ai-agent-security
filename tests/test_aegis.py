@@ -425,6 +425,18 @@ class AegisTests(unittest.TestCase):
                     self.assertTrue(done2); self.assertEqual(sorted(x['finding']['kind'] for x in tf),['ka','kb','kc','kd','ke'])   # 截断翻页后全量不丢
                 finally: self.collector.MAX_AGGREGATE_FINDINGS=old
             finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
+    def test_console_findings_use_aggregate_not_per_device_fanout(self):
+        # P1-1 扇出回归守卫（架构不变量，跨语言源码契约）：控制台发现路径必须走
+        # /v1/findings/aggregate 游标翻页，不得复活「对每台设备各发一个 /v1/findings」的 N+1
+        # （30k 下单页最多 1 万并发打垮 ThreadingHTTPServer 采集器 + 控制台 worker OOM）。
+        root=Path(__file__).resolve().parent.parent
+        findings=(root/'app/api/findings/route.ts').read_text(encoding='utf-8')
+        evidence=(root/'lib/evidence.ts').read_text(encoding='utf-8')
+        self.assertIn('/v1/findings/aggregate',findings)
+        self.assertNotIn('fetchDeviceFindings',findings)          # findings 路由已彻底移除单设备扇出原语
+        self.assertNotIn('Promise.all',findings)                   # 不再并发 per-device 拉取
+        self.assertIn('/v1/findings/aggregate',evidence)
+        self.assertNotIn('targets.map',evidence)                   # 全舰队取证不再 per-device 扇出
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

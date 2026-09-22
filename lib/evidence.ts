@@ -547,12 +547,38 @@ export async function buildEvidenceBundle(opts: EvidenceOptions): Promise<Eviden
   if (want.has('inventory')) { const v = mapInventory(devices, level, deviceId); rawSections.inventory = v; counts.inventory = v.length; }
   if (want.has('enforcement')) { const v = mapEnforcement(devices, level, deviceId, since, until); rawSections.enforcement = v; counts.enforcement = v.length; }
   if (want.has('findings')) {
-    const targets = devices.filter((d) => (deviceId ? d.device_id === deviceId : true));
-    const per = await Promise.all(targets.map(async (d) => ({ device_id: d.device_id, res: await fetchDeviceFindings(d.device_id) })));
     const raw: Array<{ device_id: string; scanned_at: number; f: RawFinding }> = [];
-    for (const { device_id, res } of per) {
-      if (!res) continue;
-      for (const f of res.findings) raw.push({ device_id, scanned_at: res.scanned_at, f });
+    if (deviceId) {
+      // 单设备取证：一次 /v1/findings 即可（本就无扇出）。
+      const res = await fetchDeviceFindings(deviceId);
+      if (res) for (const f of res.findings) raw.push({ device_id: deviceId, scanned_at: res.scanned_at, f });
+    } else {
+      // P1-1：全舰队取证改游标翻页聚合端点，取代对每台设备各发一个 /v1/findings 的 N+1 扇出
+      // （30k 下旧写法一次导出最多 1 万并发）。since/until/level 仍由 mapFindings 单一裁决，
+      // 不下推服务端，保证取证语义与既有完全一致；任一页失败即停止累积（诚实反映已取部分）。
+      const c = collectorCreds();
+      if (c) {
+        let cursor = '';
+        for (let page = 0; page < 200; page += 1) {
+          const qs = new URLSearchParams({ limit: '1000' });
+          if (cursor) qs.set('cursor', cursor);
+          let data: { complete?: boolean; next_cursor?: string; findings?: Array<{ device_id: string; scanned_at: number; finding: RawFinding }> };
+          try {
+            const res = await fetch(`${c.url}/v1/findings/aggregate?${qs.toString()}`, {
+              headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json' },
+              cache: 'no-store',
+              signal: AbortSignal.timeout(8000),
+            });
+            if (!res.ok) break;
+            data = (await res.json()) as typeof data;
+          } catch {
+            break;
+          }
+          for (const item of data.findings ?? []) raw.push({ device_id: item.device_id, scanned_at: item.scanned_at, f: item.finding });
+          cursor = typeof data.next_cursor === 'string' ? data.next_cursor : '';
+          if (data.complete !== false || !cursor) break;
+        }
+      }
     }
     const v = mapFindings(raw, level, since, until); rawSections.findings = v; counts.findings = v.length;
   }

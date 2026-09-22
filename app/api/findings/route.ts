@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { fetchCollectorDevices } from '@/lib/collector-devices';
 import { BASE_POLICY } from '@/lib/policy';
 import { ensureLabelsLoaded, allowedAssetKeys, findingAsset, isFindingAllowed } from '@/lib/labels';
 
@@ -38,33 +37,6 @@ interface RawFinding {
   asset_key?: unknown;
 }
 
-/** 拉取单台设备最新报告的发现（沿用 /api/devices/[id]/findings 的 Collector 代理方式）。 */
-async function fetchDeviceFindings(
-  deviceId: string,
-): Promise<{ scanned_at: number; findings: RawFinding[] } | null> {
-  const collector = process.env.AEGIS_COLLECTOR_URL;
-  const token = process.env.AEGIS_COLLECTOR_TOKEN;
-  if (!collector || !token) return null;
-  try {
-    const res = await fetch(
-      `${collector.replace(/\/$/, '')}/v1/findings?device_id=${encodeURIComponent(deviceId)}&limit=1000`,
-      {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-        cache: 'no-store',
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as { scanned_at?: unknown; findings?: unknown };
-    return {
-      scanned_at: typeof data.scanned_at === 'number' ? data.scanned_at : 0,
-      findings: Array.isArray(data.findings) ? (data.findings as RawFinding[]) : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
 /**
  * GET /api/findings?category=skill|mcp|code|all&limit=N
  * 跨设备聚合 Collector 真实上报的发现，按类目过滤、严重度+时间排序。
@@ -83,9 +55,10 @@ export async function GET(request: Request) {
     : 'all';
   const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 200) || 200, 1), 1000);
 
-  const devices = await fetchCollectorDevices();
   const empty = { connected: false as const, category, devices: 0, devices_with_findings: 0, suppressed: 0, counts: { total: 0, critical: 0, high: 0, medium: 0, low: 0 }, findings: [] as unknown[] };
-  if (devices === null) return NextResponse.json(empty, { headers: NO_STORE });
+  const collector = process.env.AEGIS_COLLECTOR_URL;
+  const token = process.env.AEGIS_COLLECTOR_TOKEN;
+  if (!collector || !token) return NextResponse.json(empty, { headers: NO_STORE });
 
   // 加白抑制：已处置为 allow 的资产，其发现不再作为告警出现（"已加白不再告警"），
   // 且既有告警随本次查询即时消失（"加白后同源告警自动消除"）。抑制是查询期过滤，
@@ -94,39 +67,61 @@ export async function GET(request: Request) {
   await ensureLabelsLoaded().catch(() => {});
   const allowed = allowedAssetKeys();
 
-  // 并发拉取各设备发现（机队规模有界；Collector 侧另有速率限制兜底）。
-  const perDevice = await Promise.all(
-    devices.map(async (d) => ({ device: d, res: await fetchDeviceFindings(d.device_id) })),
-  );
+  // P1-1：游标翻页拉取跨设备聚合发现，取代对每台设备各发一个 /v1/findings 的 N+1 扇出
+  // （30k 下旧写法单页最多 1 万并发打垮 ThreadingHTTPServer 采集器 + 控制台 worker OOM）。
+  // category 过滤与加白抑制仍在本地做（categorize 规则单一可信源，不与采集器双写）；任一页
+  // 失败即诚实降级为 connected:false 空态，绝不拿半量冒充全量、绝不伪造发现。
+  const base = collector.replace(/\/$/, '');
+  const agg: Array<{ device_id: string; scanned_at: number; finding: RawFinding }> = [];
+  let devicesScanned = 0;
+  let cursor = '';
+  for (let page = 0; page < 200; page += 1) {
+    const qs = new URLSearchParams({ limit: '1000' });
+    if (cursor) qs.set('cursor', cursor);
+    let data: { complete?: boolean; next_cursor?: string; devices_scanned?: number; findings?: Array<{ device_id: string; scanned_at: number; finding: RawFinding }> };
+    try {
+      const res = await fetch(`${base}/v1/findings/aggregate?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return NextResponse.json(empty, { headers: NO_STORE });
+      data = (await res.json()) as typeof data;
+    } catch {
+      return NextResponse.json(empty, { headers: NO_STORE });
+    }
+    devicesScanned += typeof data.devices_scanned === 'number' ? data.devices_scanned : 0;
+    if (Array.isArray(data.findings)) agg.push(...data.findings);
+    cursor = typeof data.next_cursor === 'string' ? data.next_cursor : '';
+    if (data.complete !== false || !cursor) break;
+  }
 
   const all: Array<Record<string, unknown>> = [];
-  let devicesWithFindings = 0;
+  const devicesWithFindingsSet = new Set<string>();
   let suppressed = 0;
-  for (const { device, res } of perDevice) {
-    if (!res) continue;
-    let matched = 0;
-    for (const f of res.findings) {
-      const kind = typeof f.kind === 'string' ? f.kind : '';
-      const c = categorize(kind);
-      if (category !== 'all' && c !== category) continue;
-      // 命中加白资产 → 抑制（不计入告警/计数），仅累计 suppressed 供透明展示。
-      if (isFindingAllowed(f, allowed)) { suppressed += 1; continue; }
-      const asset = findingAsset(f);
-      matched += 1;
-      all.push({
-        device_id: device.device_id,
-        kind,
-        category: c,
-        severity: typeof f.severity === 'string' ? f.severity : 'low',
-        path: typeof f.path === 'string' ? f.path : '',
-        message: typeof f.message === 'string' ? f.message : '',
-        ...(asset ? { asset_type: asset.asset_type, asset_key: asset.asset_key } : {}),
-        ...(f.signal_matches !== undefined ? { signal_matches: f.signal_matches } : {}),
-        scanned_at: res.scanned_at || device.last_seen || 0,
-      });
-    }
-    if (matched > 0) devicesWithFindings += 1;
+  for (const item of agg) {
+    const f = item.finding ?? {};
+    const deviceId = String(item.device_id ?? '');
+    const kind = typeof f.kind === 'string' ? f.kind : '';
+    const c = categorize(kind);
+    if (category !== 'all' && c !== category) continue;
+    // 命中加白资产 → 抑制（不计入告警/计数），仅累计 suppressed 供透明展示。
+    if (isFindingAllowed(f, allowed)) { suppressed += 1; continue; }
+    const asset = findingAsset(f);
+    if (deviceId) devicesWithFindingsSet.add(deviceId);
+    all.push({
+      device_id: deviceId,
+      kind,
+      category: c,
+      severity: typeof f.severity === 'string' ? f.severity : 'low',
+      path: typeof f.path === 'string' ? f.path : '',
+      message: typeof f.message === 'string' ? f.message : '',
+      ...(asset ? { asset_type: asset.asset_type, asset_key: asset.asset_key } : {}),
+      ...(f.signal_matches !== undefined ? { signal_matches: f.signal_matches } : {}),
+      scanned_at: item.scanned_at || 0,
+    });
   }
+  const devicesWithFindings = devicesWithFindingsSet.size;
 
   all.sort(
     (a, b) =>
@@ -144,7 +139,7 @@ export async function GET(request: Request) {
     {
       connected: true,
       category,
-      devices: devices.length,
+      devices: devicesScanned,
       devices_with_findings: devicesWithFindings,
       suppressed,
       counts,
