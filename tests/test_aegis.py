@@ -384,6 +384,47 @@ class AegisTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as e: urllib.request.urlopen(bad,timeout=3)
                 self.assertEqual(e.exception.code,400); self.assertIn('invalid_cursor',e.exception.read().decode()); e.exception.close()
             finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
+    def test_collector_findings_aggregate_paginates_filters_and_never_drops(self):
+        # P1-1：/v1/findings/aggregate 游标翻页 + severity/since 服务端过滤，取代控制台 N+1 扇出。
+        # 验证：全量遍历不漏、过滤正确、非法参数 400、单页硬上限截断后翻页仍全量不丢。
+        def mk(did,findings,scanned_at):
+            crit=sum(1 for f in findings if f.get('severity')=='critical'); high=sum(1 for f in findings if f.get('severity')=='high')
+            return {'device_id':did,'agent_version':'0.30.0','policy_version':'4.8.0','scanned_at':scanned_at,'summary':{'critical':crit,'high':high},'findings':findings}
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'AEGIS_COLLECTOR_TOKEN':'bearer'}):
+            db_path=Path(d)/'reports.db'
+            self.collector.store_report(db_path,b'{}',mk('00000000000a',[{'kind':'ka','severity':'critical','path':'/a'},{'kind':'kb','severity':'low','path':'/b'}],1000),now=1000)
+            self.collector.store_report(db_path,b'{}',mk('00000000000b',[{'kind':'kc','severity':'high','path':'/c'}],2000),now=2000)
+            self.collector.store_report(db_path,b'{}',mk('00000000000c',[{'kind':'kd','severity':'critical','path':'/d'},{'kind':'ke','severity':'medium','path':'/e'}],3000),now=3000)
+            server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(db_path); server.rate_limiter=self.collector.RateLimiter(limit=1000)
+            thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+            try:
+                base=f'http://127.0.0.1:{server.server_port}/v1/findings/aggregate'
+                def get(qs=""):
+                    req=urllib.request.Request(base+qs,headers={'Authorization':'Bearer bearer'})
+                    with urllib.request.urlopen(req,timeout=3) as r: return json.load(r)
+                def traverse(qs_base,guard=12):
+                    acc=[];cur='';n=0;done=False
+                    while n<guard:
+                        n+=1;pg=get(qs_base+('&cursor='+cur if cur else ''));acc+=pg['findings'];cur=pg.get('next_cursor') or ''
+                        if pg['complete']: done=True;break
+                    return acc,done
+                allf,done=traverse('?limit=2')
+                self.assertTrue(done); self.assertEqual(sorted(x['finding']['kind'] for x in allf),['ka','kb','kc','kd','ke']); self.assertEqual(len({x['device_id'] for x in allf}),3)
+                crit=get('?severity=critical&limit=100')
+                self.assertEqual(sorted(x['finding']['kind'] for x in crit['findings']),['ka','kd']); self.assertEqual(crit['counts'],{'total':2,'critical':2,'high':0,'medium':0,'low':0})
+                sinc=get('?since=2000&limit=100')
+                self.assertEqual(sorted(x['finding']['kind'] for x in sinc['findings']),['kc','kd','ke'])
+                for bad in ('?cursor=ZZZ','?severity=nope','?limit=1001','?limit=0','?since=-1','?foo=1'):
+                    req=urllib.request.Request(base+bad,headers={'Authorization':'Bearer bearer'})
+                    with self.assertRaises(urllib.error.HTTPError) as e: urllib.request.urlopen(req,timeout=3)
+                    self.assertEqual(e.exception.code,400); e.exception.close()
+                old=self.collector.MAX_AGGREGATE_FINDINGS
+                try:
+                    self.collector.MAX_AGGREGATE_FINDINGS=2                       # 逼出单页截断
+                    tf,done2=traverse('?limit=10')
+                    self.assertTrue(done2); self.assertEqual(sorted(x['finding']['kind'] for x in tf),['ka','kb','kc','kd','ke'])   # 截断翻页后全量不丢
+                finally: self.collector.MAX_AGGREGATE_FINDINGS=old
+            finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

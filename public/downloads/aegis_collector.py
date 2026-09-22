@@ -255,6 +255,9 @@ def audit_prune_interval(value=None):
     raw=os.getenv("AEGIS_AUDIT_PRUNE_INTERVAL_SECONDS","3600") if value is None else value
     try: return min(max(int(raw),1),86400)
     except (TypeError,ValueError): return 3600
+# P1-1：/v1/findings/aggregate 单页发现条数硬上限（按设备原子纳入，超限则停在上一台并给游标）。
+# 与 limit(每页设备数≤1000) 双重设防，杜绝单页巨响应打爆控制台 worker 内存。
+MAX_AGGREGATE_FINDINGS=20000
 def required_version(name,default,env=None):
     env=os.environ if env is None else env; value=env.get(name,default)
     return value if isinstance(value,str) and 1<=len(value)<=64 else default
@@ -537,6 +540,59 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(findings,list): findings=[]
             audit_event(self.server.db_path,"findings_read",detail=device_id+":"+str(len(findings)))
             return self.reply(200,{"device_id":device_id,"scanned_at":body.get("scanned_at") if isinstance(body,dict) else None,"total":len(findings),"findings":findings[:limit]})
+        if parsed.path=="/v1/findings/aggregate":
+            # P1-1：跨设备发现聚合端点（keyset 游标翻页）。取代控制台对每台设备各发一个
+            # /v1/findings 的 N+1 扇出（30k 下单页最多 1 万并发打垮 ThreadingHTTPServer + 控制台
+            # worker OOM）。服务端走 device_state keyset 翻页 → 一次 IN 查询取本页各设备最新 body →
+            # 解析 → 按 severity/since 过滤 → 扁平化返回。category 过滤与加白抑制仍留控制台
+            # （避免与前端 categorize 规则双写发散）。设备原子纳入 + 单页发现硬上限双重设防巨响应。
+            query=parse_qs(parsed.query,keep_blank_values=True)
+            if set(query)-{"severity","since","cursor","limit"} or any(len(v)!=1 for v in query.values()): return self.reply(400,{"error":"invalid_query"})
+            severity=(query.get("severity",["all"])[0] or "all").strip().lower()
+            if severity not in {"all","critical","high","medium","low"}: return self.reply(400,{"error":"invalid_severity"})
+            try: since=int(query.get("since",["0"])[0] or 0)
+            except ValueError: return self.reply(400,{"error":"invalid_since"})
+            if since<0: return self.reply(400,{"error":"invalid_since"})
+            cursor=(query.get("cursor",[""])[0] or "").strip()
+            if cursor and not re.fullmatch(r"[0-9a-f]{12}",cursor): return self.reply(400,{"error":"invalid_cursor"})
+            try: limit=int(query.get("limit",["500"])[0])
+            except ValueError: return self.reply(400,{"error":"invalid_limit"})
+            if not 1<=limit<=1000: return self.reply(400,{"error":"invalid_limit"})
+            try:
+                generated_at=int(time.time())
+                with db_open(self.server.db_path) as db:
+                    ensure_device_state(db)
+                    fetched=db.execute("SELECT device_id,latest_id FROM device_state WHERE device_id > ? ORDER BY device_id LIMIT ?",(cursor,limit+1)).fetchall()
+                    has_more=len(fetched)>limit; page=fetched[:limit]
+                    ids=[lid for _,lid in page]
+                    bodies={row[0]:row[1] for row in db.execute("SELECT id,body FROM reports WHERE id IN ("+(",".join("?"*len(ids)) if ids else "NULL")+")",ids)} if ids else {}
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            out=[]; counts={"total":0,"critical":0,"high":0,"medium":0,"low":0}; devices_with=0; scanned=0; last=cursor; truncated=False
+            for did,lid in page:
+                raw=bodies.get(lid)
+                if raw is None: last=did; continue          # 悬挂(最新报告被保留清理)→跳过但游标越过
+                try: body=json.loads(raw) if raw else {}
+                except (ValueError,TypeError): body={}
+                if not isinstance(body,dict): body={}
+                sat=body.get("scanned_at"); sat=sat if isinstance(sat,int) and not isinstance(sat,bool) else None
+                scanned+=1
+                if since and (sat is None or sat<since): last=did; continue   # since 过滤→跳过但游标越过
+                fs=body.get("findings"); fs=fs if isinstance(fs,list) else []
+                matched=[f for f in fs if isinstance(f,dict) and (severity=="all" or (f.get("severity") if isinstance(f.get("severity"),str) else "low")==severity)]
+                # 设备原子纳入：若纳入本设备会超单页硬上限则停在**上一台**（不推进 last），
+                # 下一页从本设备重新处理，绝不丢发现。out 为空时不截断（单设备受 agent schema 上限约束）。
+                if out and len(out)+len(matched)>MAX_AGGREGATE_FINDINGS: truncated=True; break
+                for f in matched:
+                    sev=f.get("severity") if isinstance(f.get("severity"),str) else "low"
+                    out.append({"device_id":did,"scanned_at":sat,"finding":f}); counts["total"]+=1
+                    if sev in counts: counts[sev]+=1
+                if matched: devices_with+=1
+                last=did
+            complete=(not has_more) and (not truncated)
+            page_out={"generated_at":generated_at,"complete":complete,"devices_scanned":scanned,"devices_with_findings":devices_with,"counts":counts,"findings":out}
+            if not complete and last and last!=cursor: page_out["next_cursor"]=last
+            audit_event(self.server.db_path,"findings_aggregate_read",detail=str(scanned)+":"+str(len(out))+":"+("complete" if complete else "partial"))
+            return self.reply(200,page_out)
         if parsed.path=="/v1/summary" and not parsed.query:
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
