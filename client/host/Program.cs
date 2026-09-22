@@ -208,7 +208,10 @@ internal static class Program
             if (exitCode == 2 && HasConfigFailureFinding(healthPath)) { state = "degraded"; error = (error ?? "") + "+config_unreadable"; }
             await WriteHealth(healthPath, state, scanStarted, exitCode, startedAt, error);
             if (once || stop.IsCancellationRequested) break;
-            try { await Task.Delay(TimeSpan.FromSeconds(interval), stop); } catch (OperationCanceledException) { break; }
+            // P1-3(30k 防惊群): 每周期加 ±10% 抖动，避免批量装机终端长期对齐到同一分钟齐发上报
+            // (无抖动时 30k 台窄窗口齐发 → 瞬时数百写/秒压垮单写采集器)。仅影响计时。
+            var jitteredSeconds = interval * (0.9 + Random.Shared.NextDouble() * 0.2);
+            try { await Task.Delay(TimeSpan.FromSeconds(jitteredSeconds), stop); } catch (OperationCanceledException) { break; }
         } while (!stop.IsCancellationRequested);
         return 0;
     }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Aegis endpoint scanner prototype. Standard-library only; read-only by default."""
 from __future__ import annotations
-import argparse, base64, hashlib, hmac, json, os, platform, re, shutil, signal, socket, stat, subprocess, sys, tempfile, time, urllib.request
+import argparse, base64, hashlib, hmac, json, os, platform, random, re, shutil, signal, socket, stat, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 # 冻结(PyInstaller/Nuitka --onefile)后 __file__ 指向临时解压目录(_MEIPASS)，agent 的 sibling
@@ -498,6 +498,14 @@ MCP_SERVER_KEYS=("mcpServers","servers","mcp_servers")
 # 故另设高频 tick 只做轻量封禁对账, 把"复发窗口"从一小时压到秒级。
 ENFORCE_TICK_SECONDS=30
 ENFORCE_RECEIPTS=[]
+def scan_sleep_seconds(interval,rng=None):
+    """P1-3(30k 防惊群)：周期扫描睡眠加 ±10% 抖动。批量装机的终端若都用固定 interval，
+    会长期对齐到同一分钟集中上报（30k 台窄窗口齐发 → 瞬时数百写/秒压垮单写采集器）。
+    每周期乘 uniform(0.9,1.1) 让各终端逐周期漂移去相关，把尖峰摊平成稳态。
+    仅用于计时，与令牌/会话/密钥生成无关（rng 可注入以便测试；默认 random.uniform）。"""
+    base=max(int(interval),60)
+    rand=rng if rng is not None else random.uniform
+    return base*rand(0.9,1.1)
 def quarantine_dir():
     return Path(os.path.expanduser("~"))/QUARANTINE_DIRNAME
 def _atomic_write_json(path,obj,mode=None):
@@ -1484,7 +1492,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.36.6"
+AGENT_VERSION = "0.36.7"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -1718,7 +1726,7 @@ def main():
                 subprocess.run(child_argv,timeout=budget,check=False)
             except subprocess.TimeoutExpired:
                 print(f"aegis scan cycle exceeded budget {budget}s; child killed (scan_timeout); will retry next interval",file=sys.stderr)
-            time.sleep(max(args.interval,60))
+            time.sleep(scan_sleep_seconds(args.interval))
     host_device_id=hardware_device_id()
     # 每设备入网凭据优先：显式 --enrollment-config > --enrollment-dir/<本机device_id>.json > 全网 reporting.json(向后兼容)。
     enroll_path=args.enrollment_config

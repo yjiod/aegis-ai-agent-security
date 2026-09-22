@@ -437,6 +437,15 @@ class AegisTests(unittest.TestCase):
         self.assertNotIn('Promise.all',findings)                   # 不再并发 per-device 拉取
         self.assertIn('/v1/findings/aggregate',evidence)
         self.assertNotIn('targets.map',evidence)                   # 全舰队取证不再 per-device 扇出
+    def test_agent_scan_sleep_jitter_bounds_and_variance(self):
+        # P1-3：周期睡眠 ±10% 抖动，防批量装机终端长期对齐到同一分钟齐发上报（惊群）。
+        s=self.agent.scan_sleep_seconds
+        self.assertEqual(s(3600,rng=lambda a,b:1.0),3600.0)        # 注入 rng 确定化
+        self.assertEqual(s(30,rng=lambda a,b:1.0),60.0)            # interval 下限 60s
+        self.assertEqual(s(3600,rng=lambda a,b:0.9),3600*0.9); self.assertEqual(s(3600,rng=lambda a,b:1.1),3600*1.1)
+        for _ in range(200):
+            v=s(3600); self.assertGreaterEqual(v,3600*0.9-1e-9); self.assertLessEqual(v,3600*1.1+1e-9)
+        self.assertGreater(len({round(s(3600),3) for _ in range(50)}),10)   # 确实在抖动(非定值)
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
