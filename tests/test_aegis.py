@@ -446,6 +446,32 @@ class AegisTests(unittest.TestCase):
         for _ in range(200):
             v=s(3600); self.assertGreaterEqual(v,3600*0.9-1e-9); self.assertLessEqual(v,3600*1.1+1e-9)
         self.assertGreater(len({round(s(3600),3) for _ in range(50)}),10)   # 确实在抖动(非定值)
+    def test_collector_rate_limits_per_device_not_per_ip_for_nat_fleets(self):
+        # P2(30k/NAT)：企业 NAT 下多台合法终端共用一个出口 IP。限流须按已认证 device_id 独立桶
+        # （同 IP 不同设备互不挤占），同一设备超频才被限；预鉴权 per-IP 仅作宽档防洪兜底。
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d); credentials_path=root/'devices.json'
+            d1='aaaaaaaaaaaa'; d2='bbbbbbbbbbbb'; t1='t'*32; t2='q'*32; s1='s'*32; s2='w'*32; admin='a'*32
+            credentials_path.write_text(json.dumps({'schema':'aegis.device-credentials/v1','devices':{d1:{'tokens':[t1],'signing_secrets':[s1]},d2:{'tokens':[t2],'signing_secrets':[s2]}}})); credentials_path.chmod(0o600)
+            env={'AEGIS_COLLECTOR_TOKEN':admin,'AEGIS_DEVICE_CREDENTIALS_FILE':str(credentials_path)}
+            with patch.dict(os.environ,env,clear=True):
+                server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'reports.db')
+                server.rate_limiter=self.collector.RateLimiter(limit=1000)   # 宽 per-IP 防洪兜底
+                server.device_limiter=self.collector.RateLimiter(limit=1)   # 窄 per-device 公平性
+                thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+                try:
+                    url=f'http://127.0.0.1:{server.server_port}/v1/reports'; now=int(time.time())
+                    def post(did,tok,sec):
+                        report={'schema':'aegis.report/v1','agent_version':'0.30.0','policy_version':'4.8.0','device_id':did,'scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}
+                        body=json.dumps(report).encode()
+                        headers=self.agent.report_headers(body,tok,sec,now=now,device_id=did)
+                        try:
+                            with urllib.request.urlopen(urllib.request.Request(url,data=body,headers=headers,method='POST'),timeout=3) as r: return r.status
+                        except urllib.error.HTTPError as e: return e.code
+                    self.assertEqual(post(d1,t1,s1),202)   # 设备1 首报 ok
+                    self.assertEqual(post(d2,t2,s2),202)   # 同 IP 不同设备：独立桶 → ok（NAT 友好）
+                    self.assertEqual(post(d1,t1,s1),429)   # 同设备超 per-device 上限 → 429
+                finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

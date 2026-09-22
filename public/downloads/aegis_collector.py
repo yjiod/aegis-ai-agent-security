@@ -242,6 +242,13 @@ def requests_per_minute(value=None):
     raw=os.getenv("AEGIS_REQUESTS_PER_MINUTE","120") if value is None else value
     try: return min(max(int(raw),1),10000)
     except (TypeError,ValueError): return 120
+def ip_requests_per_minute(value=None):
+    """P2(30k/NAT)：预鉴权 per-IP DoS 兜底上限。企业 NAT 下成千上万台合法终端共用少数出口
+    IP，若用 per-device 同档上限会误伤整片舰队；故 IP 档只作"防洪"兜底(默认宽)，per-device
+    公平性由鉴权后的 device_limiter 负责(见 do_POST)。可调低以收紧 DoS。"""
+    raw=os.getenv("AEGIS_IP_REQUESTS_PER_MINUTE","1000") if value is None else value
+    try: return min(max(int(raw),1),100000)
+    except (TypeError,ValueError): return 1000
 def audit_retention_days(value=None):
     raw=os.getenv("AEGIS_AUDIT_RETENTION_DAYS","90") if value is None else value
     try: return min(max(int(raw),1),3650)
@@ -657,6 +664,14 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error: info="db_error"
             audit_event(self.server.db_path,"report_auth_failed",device_id=did_h,detail=info[:200])
             return self.reply(401,{"error":"unauthorized"})
+        # P2(30k/NAT)：鉴权后 per-device 公平限流。键=已认证 device_id（binding 优先，回落
+        # X-Aegis-Device-ID 头且校验 hex12），不可 spoof；企业 NAT 下各终端独立桶、互不挤占。
+        # 预鉴权 per-IP 防洪兜底已在 rate_limited() 完成（宽档，不 throttle 合法舰队）。
+        dev_key=(binding[0] if binding else (self.headers.get("X-Aegis-Device-ID","") or "")).strip()
+        device_limiter=getattr(self.server,"device_limiter",None)
+        if device_limiter is not None and re.fullmatch(r"[0-9a-f]{12}",dev_key):
+            allowed,dev_retry=device_limiter.check(dev_key)
+            if not allowed: return self.reply(429,{"error":"rate_limited"},{"Retry-After":dev_retry})
         try: length=int(self.headers.get("Content-Length","0"))
         except ValueError: return self.reply(400,{"error":"invalid_size"})
         if length<2 or length>2_000_000: return self.reply(413,{"error":"invalid_size"})
@@ -712,5 +727,9 @@ def main():
     try:
         with db_open(args.db) as _db: ensure_device_state(_db)
     except sqlite3.Error as _exc: print(f"device_state backfill skipped: {_exc}",file=sys.stderr)
-    server=ThreadingHTTPServer((args.listen,args.port),Handler); server.db_path=args.db; server.rate_limiter=RateLimiter(); server.serve_forever()
+    server=ThreadingHTTPServer((args.listen,args.port),Handler); server.db_path=args.db
+    # P2(30k/NAT) 双层限流：rate_limiter=预鉴权 per-IP 防洪兜底(宽)；device_limiter=鉴权后
+    # per-device 公平性(窄)，键为已认证 device_id(不可 spoof)，企业 NAT 舰队互不挤占。
+    server.rate_limiter=RateLimiter(limit=ip_requests_per_minute()); server.device_limiter=RateLimiter(limit=requests_per_minute())
+    server.serve_forever()
 if __name__=="__main__": main()
