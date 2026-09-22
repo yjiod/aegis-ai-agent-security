@@ -24,6 +24,15 @@ SSH_OPTS="-i $SSH_KEY -p $SSH_PORT"
 SCP_OPTS="-i $SSH_KEY -P $SSH_PORT"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+# 失败前置守卫：缺关键 env 立即退出，绝不进入 build/upload 留下"半部署态"。
+# (真事故：AEGIS_PUBLIC_ORIGIN 未设 → set -u 在 client 已原子换、wrangler.json 已被构建产物
+#  空 vars 覆盖、但 vars 回注与 restart 尚未执行时才报错 → 控制台载入空配置/卡 activating，
+#  需手工从 /tmp/aegis-wrangler-vars.bak 恢复。守卫把这些校验提到任何写操作之前。)
+if [ -z "${AEGIS_PUBLIC_ORIGIN:-}" ]; then echo "✗ 缺少 AEGIS_PUBLIC_ORIGIN（oneclick 脚本注入真实 origin 用），拒绝部署" >&2; exit 2; fi
+case "$AEGIS_PUBLIC_ORIGIN" in *aegis.example.com*) echo "✗ AEGIS_PUBLIC_ORIGIN 仍为占位域，拒绝部署（应设为真实控制台 origin）" >&2; exit 2;; esac
+if [ "$SERVER" = "root@aegis.example.com" ]; then echo "✗ 未指定部署主机（AEGIS_DEPLOY_SERVER 或参数1），拒绝部署" >&2; exit 2; fi
+echo "  ✓ 前置守卫通过（origin/host 已设置）"
+
 echo "═══ 构建控制台 ═══"
 cd "$ROOT"
 # vinext build 不清理 dist/，反复本地构建会累积陈旧的 hash 命名 chunk（旧页面代码，
