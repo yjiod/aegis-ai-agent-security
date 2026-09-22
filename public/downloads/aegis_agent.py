@@ -261,6 +261,17 @@ def discover_agent_tools(homes=None,system_markers=None):
 # 测试/夹具路径特征：tests/specs/fixtures/__tests__/testing 目录，或 .test./.spec./_test. 文件名。
 # 这些路径里的"硬编码凭据"多为 dummy fixture，hardcoded_secret 降为 medium（仍上报）。
 _TEST_PATH_RE = re.compile(r"(?i)([\\/])(tests?|specs?|fixtures?|__tests__|testing)([\\/])|\.test\.|\.spec\.|_test[_.]|(^|[\\/])test_")
+_PROHIBIT_RE=re.compile(r"(禁止|不得|严禁|勿|never|prohibit|forbid|❌)",re.I)
+def _in_prohibition_context(text,match):
+    """命中是否落在同一行、且位于"禁止/不得/never…"否定语境之后。
+
+    安全基线文档(AGENTS.md/CLAUDE.md 等)常以"禁止关闭 TLS 校验（verify=False, …）"的
+    **禁用示例**形式引用坏写法；scanner 若按字面匹配会把"在禁止该写法"的文档误报成
+    "真的用了该写法"(critical)。真实不安全代码行不会在同一行带禁止/never 前缀，故按
+    同行动词前缀排除可消除这类系统性误报而不放过真代码。返回 True=属禁止语境(误报,跳过)。"""
+    start=match.start()
+    line_start=text.rfind("\n",0,start)+1
+    return bool(_PROHIBIT_RE.search(text[line_start:start]))
 def scan_text(path,text,policy):
     out=[]; low=text.lower(); checks=[("prompt_override","high",r"ignore (all |any )?(previous|prior) instructions"),("credential_access","high",r"(?:~/|\$home/)(?:\.ssh|\.aws)|security\s+find-(?:generic|internet)-password"),("unbounded_shell","high",r"shell\s*=\s*true|subprocess\..*shell\s*=\s*true"),("dynamic_eval","medium",r"\beval\s*\(|\bexec\s*\(")]
     for kind,sev,pat in checks:
@@ -282,7 +293,12 @@ def scan_text(path,text,policy):
         enabled = set(policy.get("code_rules", []))
     for kind,sev,pat in quality_checks:
         if kind not in enabled: continue
-        hit=re.search(pat,text)
+        if kind=="insecure_tls_verification":
+            # 安全基线文档以"禁止…(verify=False, NODE_TLS_…=0)"禁用示例引用坏写法，字面匹配会
+            # 系统性误报。取第一个**非**同行动词禁止语境的命中（真实不安全代码行不带禁止前缀）。
+            hit=next((m for m in re.finditer(pat,text) if not _in_prohibition_context(text,m)),None)
+        else:
+            hit=re.search(pat,text)
         if hit: out.append(finding(kind,sev,path,f"安全代码质量规则命中: {kind}",hit.group(0).strip()[:80]))
     hidden=re.search(r"[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]",text)
     if hidden: out.append(finding("hidden_instruction","high",path,"包含可隐藏或改变显示方向的 Unicode 控制字符",f"U+{ord(hidden.group(0)):04X}"))
@@ -1492,7 +1508,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.36.7"
+AGENT_VERSION = "0.36.8"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用

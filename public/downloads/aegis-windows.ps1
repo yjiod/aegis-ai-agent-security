@@ -440,7 +440,20 @@ foreach ($root in $roots) {
     $candidates|Select-Object -First $projectFileLimit | ForEach-Object {
       $text = Get-Content -Encoding UTF8 $_.FullName -Raw
       foreach ($rule in $patterns) {
-        if ($text -match $rule.Regex) {
+        $matched = $false
+        if ($rule.Kind -eq 'insecure_tls_verification') {
+          # 与 mac agent 同口径：安全基线文档以"禁止…(verify=False, NODE_TLS_…=0)"禁用示例
+          # 引用坏写法，字面匹配会系统性误报；取第一个同行动词前缀**非**禁止语境的命中
+          # （真实不安全代码行不带 禁止/never 前缀）。
+          foreach ($m in [regex]::Matches($text, $rule.Regex)) {
+            $ls = $text.LastIndexOf([char]10, [Math]::Max(0, $m.Index - 1)) + 1
+            $prefix = if ($m.Index -gt $ls) { $text.Substring($ls, $m.Index - $ls) } else { '' }
+            if ($prefix -notmatch '(?i)禁止|不得|严禁|勿|never|prohibit|forbid') { $matched = $true; break }
+          }
+        } else {
+          $matched = ($text -match $rule.Regex)
+        }
+        if ($matched) {
           # 路径感知严重度（与 mac agent 同口径）：测试/夹具路径的"凭据"多为 dummy，
           # hardcoded_secret 降为 medium（仍上报），生产代码路径保持 critical。
           $sev = $rule.Severity
@@ -493,7 +506,7 @@ if ($identitySn) { $deviceMaterial = "aegis-hw:" + $identitySn } else { $deviceM
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $sn = $serialDisplay
-$agentVersion = '0.36.7'
+$agentVersion = '0.36.8'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null

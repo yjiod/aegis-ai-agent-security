@@ -472,6 +472,19 @@ class AegisTests(unittest.TestCase):
                     self.assertEqual(post(d2,t2,s2),202)   # 同 IP 不同设备：独立桶 → ok（NAT 友好）
                     self.assertEqual(post(d1,t1,s1),429)   # 同设备超 per-device 上限 → 429
                 finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
+    def test_agent_insecure_tls_prohibition_context_not_flagged(self):
+        # 安全基线文档(AGENTS.md/CLAUDE.md)以"禁止…(verify=False, NODE_TLS_…=0)"禁用示例引用
+        # 坏写法，字面匹配会系统性误报 critical。同行动词禁止语境应排除；真实代码行(无禁止前缀)
+        # 仍须报。drill VM 的 CLAUDE.md 即因此被误报（且 enforcement 会还原对文档的手改）。
+        policy={**self.policy,'code_rules':list({*self.policy.get('code_rules',[]),'insecure_tls_verification'})}
+        doc="- 禁止关闭 TLS 证书校验（verify=False, NODE_TLS_REJECT_UNAUTHORIZED=0）。\n"
+        self.assertNotIn('insecure_tls_verification',{f['kind'] for f in self.agent.scan_text('CLAUDE.md',doc,policy)})
+        doc2="# never set NODE_TLS_REJECT_UNAUTHORIZED=0 in production\n"
+        self.assertNotIn('insecure_tls_verification',{f['kind'] for f in self.agent.scan_text('NOTES.md',doc2,policy)})
+        code="resp=requests.get(url, verify=False)\n"
+        self.assertIn('insecure_tls_verification',{f['kind'] for f in self.agent.scan_text('app.py',code,policy)})
+        code2="process.env.NODE_TLS_REJECT_UNAUTHORIZED=0\n"
+        self.assertIn('insecure_tls_verification',{f['kind'] for f in self.agent.scan_text('server.js',code2,policy)})
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
