@@ -166,14 +166,24 @@ async function fetchRawDevices(): Promise<RawDevice[] | null> {
   const c = collectorCreds();
   if (!c) return null;
   try {
-    const res = await fetch(`${c.url}/v1/devices?limit=10000`, {
-      headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(6000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { devices?: RawDevice[] };
-    return Array.isArray(data.devices) ? data.devices : null;
+    // P1-4：游标翻页遍历全量舰队（旧实现单页 limit=10000 封顶 → 30k 证据只覆盖前 1 万台）。
+    const all: RawDevice[] = [];
+    let cursor = '';
+    for (let page = 0; page < 200; page += 1) {
+      const qs = new URLSearchParams({ limit: '10000' });
+      if (cursor) qs.set('cursor', cursor);
+      const res = await fetch(`${c.url}/v1/devices?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { devices?: RawDevice[]; complete?: boolean; next_cursor?: string };
+      if (Array.isArray(data.devices)) all.push(...data.devices);
+      cursor = typeof data.next_cursor === 'string' ? data.next_cursor : '';
+      if (data.complete !== false || !cursor) break;
+    }
+    return all;
   } catch {
     return null;
   }

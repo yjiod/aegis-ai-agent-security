@@ -452,10 +452,15 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
         if parsed.path=="/v1/devices":
             query=parse_qs(parsed.query,keep_blank_values=True)
-            if set(query)-{"limit"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})
+            if set(query)-{"limit","cursor"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})
             try: limit=int(query.get("limit",["500"])[0])
             except ValueError: return self.reply(400,{"error":"invalid_limit"})
             if not 1<=limit<=10000: return self.reply(400,{"error":"invalid_limit"})
+            # P1-4：keyset 游标（= 上一页最后一个 device_id）。去 limit 截断——消费端携 cursor 循环
+            # 翻页即可遍历**全量**舰队（30k 不再只见前 1 万台）。cursor 即 device_id([0-9a-f]{12})，
+            # URL 安全、作绑定参数无注入面；空/缺省=从头。非法格式拒绝（不静默吞）。
+            cursor=(query.get("cursor",[""])[0] or "").strip()
+            if cursor and not re.fullmatch(r"[0-9a-f]{12}",cursor): return self.reply(400,{"error":"invalid_cursor"})
             try:
                 generated_at=int(time.time())
                 with db_open(self.server.db_path) as db:
@@ -463,7 +468,9 @@ class Handler(BaseHTTPRequestHandler):
                     # P0-3：fleet 从 device_state 物化表取(每设备最新报告 id + report_count)，取代对
                     # reports 全表 `MAX(id)/COUNT(*) GROUP BY device_id`。保留 WITH fleet AS / COALESCE /
                     # device_auth_state 身份边界与响应列形状完全不变，仅把全表聚合换成 O(设备数) 物化读。
-                    rows=db.execute("WITH fleet AS (SELECT device_id,latest_id AS id,report_count FROM device_state) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.body,r.egress_ip FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
+                    # P1-4：CTE 内 `WHERE device_id > ?` 走 device_state PK 区间扫实现 keyset 翻页；
+                    # 悬挂行(最新报告被保留清理)由 INNER JOIN reports 天然跳过，游标按实际返回行推进，不漏不重。
+                    rows=db.execute("WITH fleet AS (SELECT device_id,latest_id AS id,report_count FROM device_state WHERE device_id > ?) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.body,r.egress_ip FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(cursor,limit+1)).fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             complete=len(rows)<=limit; rows=rows[:limit]; audit_event(self.server.db_path,"devices_read",detail=str(len(rows))+":"+("complete" if complete else "partial"))
             devices_out=[]
@@ -508,7 +515,10 @@ class Handler(BaseHTTPRequestHandler):
                 eg=r[5]
                 if isinstance(eg,str) and eg: dev.setdefault("network",{})["egress_ip"]=eg
                 devices_out.append(dev)
-            return self.reply(200,{"generated_at":generated_at,"complete":complete,"devices":devices_out})
+            # P1-4：未 complete 时回传 keyset 游标（本页最后一个 device_id），供消费端翻页遍历全量。
+            page={"generated_at":generated_at,"complete":complete,"devices":devices_out}
+            if not complete and devices_out: page["next_cursor"]=devices_out[-1]["device_id"]
+            return self.reply(200,page)
         if parsed.path=="/v1/findings":
             query=parse_qs(parsed.query,keep_blank_values=True)
             if set(query)-{"device_id","limit"} or any(len(values)!=1 for values in query.values()): return self.reply(400,{"error":"invalid_query"})

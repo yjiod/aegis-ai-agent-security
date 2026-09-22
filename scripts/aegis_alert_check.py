@@ -59,10 +59,21 @@ def save_state(path, state):
 
 
 def fetch_devices(collector, token):
-    req = urllib.request.Request(collector.rstrip("/") + "/v1/devices?limit=1000",
-                                 headers={"Authorization": "Bearer " + token})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode()).get("devices", [])
+    """P1-4：游标翻页遍历**全量**舰队。旧实现 `limit=1000` 单页封顶 → 30k 下告警只覆盖前
+    1000 台（2.9 万台静默无告警，正确性红线）。cursor 即 device_id(hex12, URL 安全)。"""
+    base = collector.rstrip("/") + "/v1/devices"
+    devices, cursor = [], ""
+    for _ in range(1000):                      # 有界翻页护栏：1000 页 × 1000 = 100 万台，远超 30k
+        qs = "limit=1000" + ("&cursor=" + cursor if cursor else "")
+        req = urllib.request.Request(base + "?" + qs,
+                                     headers={"Authorization": "Bearer " + token})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode())
+        devices.extend(data.get("devices", []))
+        cursor = data.get("next_cursor") or ""
+        if data.get("complete") or not cursor:
+            break
+    return devices
 
 
 def evaluate(devices, now, offline_hours):

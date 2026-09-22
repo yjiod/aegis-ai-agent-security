@@ -18,6 +18,8 @@ export interface CollectorDeviceLite {
 
 let cache: { at: number; devices: CollectorDeviceLite[] | null } = { at: 0, devices: null };
 const TTL_MS = 30_000;
+// P1-4：有界翻页护栏。200 页 × 10000 = 200 万台，远超 30k 目标，防御游标异常导致死循环。
+const MAX_PAGES = 200;
 
 export async function fetchCollectorDevices(bypassCache = false): Promise<CollectorDeviceLite[] | null> {
   const now = Date.now();
@@ -25,17 +27,28 @@ export async function fetchCollectorDevices(bypassCache = false): Promise<Collec
   const url = process.env.AEGIS_COLLECTOR_URL;
   const token = process.env.AEGIS_COLLECTOR_TOKEN;
   if (!url || !token) return null;
+  const base = url.replace(/\/$/, '');
   try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/v1/devices?limit=10000`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { devices?: CollectorDeviceLite[] };
-    const devices = Array.isArray(data.devices) ? data.devices : null;
-    if (devices) cache = { at: now, devices };
-    return devices;
+    // P1-4：携 cursor 翻页遍历**全量**舰队（旧实现单页 limit=10000 封顶 → 30k 下只见前 1 万台）。
+    // complete===false 且有 next_cursor 才续页；任一页失败即整体返回 null（诚实降级，绝不半量伪装全量）。
+    const all: CollectorDeviceLite[] = [];
+    let cursor = '';
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const qs = new URLSearchParams({ limit: '10000' });
+      if (cursor) qs.set('cursor', cursor);
+      const res = await fetch(`${base}/v1/devices?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { devices?: CollectorDeviceLite[]; complete?: boolean; next_cursor?: string };
+      if (Array.isArray(data.devices)) all.push(...data.devices);
+      cursor = typeof data.next_cursor === 'string' ? data.next_cursor : '';
+      if (data.complete !== false || !cursor) break;
+    }
+    cache = { at: now, devices: all };
+    return all;
   } catch {
     return null;
   }

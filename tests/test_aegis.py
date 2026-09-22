@@ -359,6 +359,31 @@ class AegisTests(unittest.TestCase):
                 db.execute("DELETE FROM reports WHERE device_id='device-c'"); db.commit()
                 visible={r[0] for r in db.execute("WITH fleet AS (SELECT device_id,latest_id AS id FROM device_state) SELECT r.device_id FROM fleet JOIN reports r ON r.id=fleet.id")}
                 self.assertNotIn('device-c',visible); self.assertIn('device-a',visible)
+    def test_collector_devices_cursor_paginates_full_fleet(self):
+        # P1-4：/v1/devices keyset 游标翻页遍历全量舰队，去 limit 截断（有序、不漏不重）；
+        # complete 页无 next_cursor；非法 cursor 拒绝为 400 invalid_cursor（不静默吞）。
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'AEGIS_COLLECTOR_TOKEN':'bearer'}):
+            db_path=Path(d)/'reports.db'; ids=['000000000001','000000000002','000000000003','000000000004','000000000005']
+            for i,did in enumerate(ids):
+                self.collector.store_report(db_path,b'{}',{'device_id':did,'agent_version':'0.30.0','policy_version':'4.8.0','summary':{'critical':0,'high':0},'scanned_at':i},now=1000+i)
+            server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(db_path); server.rate_limiter=self.collector.RateLimiter(limit=1000)
+            thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+            try:
+                def get(qs=""):
+                    req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices{qs}',headers={'Authorization':'Bearer bearer'})
+                    with urllib.request.urlopen(req,timeout=3) as r: return json.load(r)
+                p1=get("?limit=2")
+                self.assertFalse(p1['complete']); self.assertEqual([x['device_id'] for x in p1['devices']],['000000000001','000000000002']); self.assertEqual(p1['next_cursor'],'000000000002')
+                seen=[x['device_id'] for x in p1['devices']]; cursor=p1.get('next_cursor'); guard=0
+                while cursor and guard<10:
+                    guard+=1; pg=get(f"?limit=2&cursor={cursor}"); seen+=[x['device_id'] for x in pg['devices']]; cursor=pg.get('next_cursor')
+                self.assertEqual(seen,ids); self.assertEqual(len(set(seen)),len(ids))   # 全量、有序、不漏不重
+                last=get("?limit=10&cursor=000000000004")
+                self.assertTrue(last['complete']); self.assertNotIn('next_cursor',last); self.assertEqual([x['device_id'] for x in last['devices']],['000000000005'])
+                bad=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?cursor=ZZZ',headers={'Authorization':'Bearer bearer'})
+                with self.assertRaises(urllib.error.HTTPError) as e: urllib.request.urlopen(bad,timeout=3)
+                self.assertEqual(e.exception.code,400); self.assertIn('invalid_cursor',e.exception.read().decode()); e.exception.close()
+            finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

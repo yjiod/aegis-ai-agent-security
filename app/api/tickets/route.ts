@@ -100,15 +100,26 @@ async function syncTicketsFromCollector(): Promise<void> {
   await ensureLabelsLoaded().catch(() => {});
   const allowed = allowedAssetKeys();
   try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/v1/devices?limit=500`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return;
-    const data = (await res.json()) as { devices?: Array<Record<string, unknown>> };
+    // P1-4：游标翻页遍历全量舰队（旧实现 limit=500 单页 → 30k 下自动工单只覆盖前 500 台，
+    // 2.95 万台无工单，正确性红线）。任一页失败即放弃本轮同步（绝不用半量误判/误闭环工单）。
+    const devices: Array<Record<string, unknown>> = [];
+    let cursor = '';
+    for (let page = 0; page < 200; page += 1) {
+      const qs = new URLSearchParams({ limit: '10000' });
+      if (cursor) qs.set('cursor', cursor);
+      const res = await fetch(`${url.replace(/\/$/, '')}/v1/devices?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { devices?: Array<Record<string, unknown>>; complete?: boolean; next_cursor?: string };
+      if (Array.isArray(data.devices)) devices.push(...data.devices);
+      cursor = typeof data.next_cursor === 'string' ? data.next_cursor : '';
+      if (data.complete !== false || !cursor) break;
+    }
     const store = getTicketStore();
-    for (const d of data.devices ?? []) {
+    for (const d of devices) {
       const deviceId = String(d.device_id ?? '');
       if (!deviceId) continue;
       const sev = (d.latest_severity ?? {}) as Record<string, number>;
