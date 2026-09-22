@@ -299,6 +299,24 @@ class AegisTests(unittest.TestCase):
             result=self.collector.store_report(path,body,report,now=now,days=2); self.assertFalse(result['duplicate'])
             with self.collector.db_open(path) as db: self.assertEqual(db.execute("SELECT COUNT(*) FROM reports").fetchone()[0],1)
         self.assertEqual(self.collector.retention_days('invalid'),30); self.assertEqual(self.collector.retention_days(99999),3650)
+    def test_collector_retention_prune_uses_received_index_not_full_scan(self):
+        # P0-1(30k)：保留期 DELETE 必须走 received_at 索引，而非全表扫描（否则每写随表增大雪崩）。
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'
+            with self.collector.db_open(path) as db:
+                names={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='reports'")}
+                self.assertIn('idx_reports_received',names)
+                plan=" ".join(str(row) for row in db.execute("EXPLAIN QUERY PLAN DELETE FROM reports WHERE received_at < ?",(1,)))
+                self.assertIn('idx_reports_received',plan)
+    def test_collector_audit_prune_is_time_gated_off_hot_path(self):
+        # P0-1(30k)：审计封顶子查询不再每次写都跑；force 无条件执行并重置计时，随后限频窗口内被抑制。
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'
+            with self.collector.db_open(path) as db:
+                db.execute("INSERT INTO audit_events(event,occurred_at) VALUES(?,?)",('x',1))
+                self.assertTrue(self.collector.maybe_prune_audit(db,now=1,force=True))
+                self.assertFalse(self.collector.maybe_prune_audit(db,now=1))
+        self.assertEqual(self.collector.audit_prune_interval('bad'),3600); self.assertEqual(self.collector.audit_prune_interval(0),1); self.assertEqual(self.collector.audit_prune_interval(999999),86400)
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

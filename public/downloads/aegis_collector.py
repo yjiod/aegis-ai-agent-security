@@ -23,7 +23,12 @@ def db_open(path):
         # 签名一致性, 也会让 report_hash(去重键)随出口 IP 漂移。
         if "egress_ip" not in columns: db.execute("ALTER TABLE reports ADD COLUMN egress_ip TEXT")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_hash ON reports(report_hash) WHERE report_hash IS NOT NULL")
-        db.execute("CREATE INDEX IF NOT EXISTS idx_reports_device_time ON reports(device_id, received_at DESC)"); db.commit()
+        db.execute("CREATE INDEX IF NOT EXISTS idx_reports_device_time ON reports(device_id, received_at DESC)")
+        # 30k 规模修复(P0-1)：保留期清理 `DELETE FROM reports WHERE received_at < ?` 若无
+        # received_at 前导索引即全表扫描，且在**每次上报**的写事务内执行——表越大写延迟越高，
+        # 单写 sqlite 下会雪崩到 busy_timeout→503。加此索引后稳态下每次只删「刚跨过保留窗口」的
+        # 极少行(O(log n + matched))，把清理留在写路径但使其廉价，语义完全不变。
+        db.execute("CREATE INDEX IF NOT EXISTS idx_reports_received ON reports(received_at)"); db.commit()
         db.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY,event TEXT NOT NULL,occurred_at INTEGER NOT NULL,device_id TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
         db.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(occurred_at DESC)"); db.commit()
         db.execute("CREATE TABLE IF NOT EXISTS device_auth_state(device_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,generation INTEGER NOT NULL)"); db.commit()
@@ -239,6 +244,11 @@ def audit_max_events(value=None):
     raw=os.getenv("AEGIS_AUDIT_MAX_EVENTS","100000") if value is None else value
     try: return min(max(int(raw),1000),1000000)
     except (TypeError,ValueError): return 100000
+def audit_prune_interval(value=None):
+    """30k 规模修复(P0-1)：审计封顶子查询的最小执行间隔(秒)。默认 3600。"""
+    raw=os.getenv("AEGIS_AUDIT_PRUNE_INTERVAL_SECONDS","3600") if value is None else value
+    try: return min(max(int(raw),1),86400)
+    except (TypeError,ValueError): return 3600
 def required_version(name,default,env=None):
     env=os.environ if env is None else env; value=env.get(name,default)
     return value if isinstance(value,str) and 1<=len(value)<=64 else default
@@ -274,17 +284,29 @@ def store_report(db_path,body,report,now=None,days=None,credential_generation=No
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
         cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version,egress_ip) VALUES(?,?,?,?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode(),report.get("agent_version"),report.get("policy_version"),egress_ip)); duplicate=cursor.rowcount==0
         if credential_generation is not None: db.execute("INSERT INTO device_auth_state(device_id,last_seen,generation) VALUES(?,?,?) ON CONFLICT(device_id) DO UPDATE SET last_seen=excluded.last_seen,generation=excluded.generation",(report["device_id"],now,int(credential_generation)))
-        generation="legacy" if credential_generation is None else "g"+str(int(credential_generation)); db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity+":"+generation)); prune_audit(db,now); db.commit()
+        generation="legacy" if credential_generation is None else "g"+str(int(credential_generation)); db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity+":"+generation)); maybe_prune_audit(db,now); db.commit()
     return {"accepted":True,"duplicate":duplicate,"report_id":receipt_id,"severity":severity}
 def prune_audit(db,now=None,days=None,max_events=None):
     now=int(time.time()) if now is None else int(now); days=audit_retention_days(days); max_events=audit_max_events(max_events)
     db.execute("DELETE FROM audit_events WHERE occurred_at < ?",(now-days*86400,))
     db.execute("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY id DESC LIMIT ?)",(max_events,))
+# 30k 规模修复(P0-1)：审计封顶 DELETE 含 `id NOT IN (SELECT id ... ORDER BY id DESC LIMIT 100000)`
+# 子查询，成本随审计表增大而上升；此前每次 store_report / audit_event 都跑一遍 → 8.3 上报/秒时
+# 每秒数十万行读。改为按单调时钟限频(默认每小时一次)，把封顶维护移出写热路径。审计仍持续 INSERT，
+# 只是封顶/保留清理不再每写触发；显式 prune_audit()（备份/测试/维护路径）语义不变。
+_AUDIT_PRUNE_LOCK=threading.Lock(); _LAST_AUDIT_PRUNE=[0.0]
+def maybe_prune_audit(db,now=None,interval=None,force=False):
+    """限频执行 prune_audit；返回是否真正执行了清理。force=True 无条件执行并重置计时。"""
+    mono=time.monotonic(); iv=audit_prune_interval(interval)
+    with _AUDIT_PRUNE_LOCK:
+        if not force and (mono-_LAST_AUDIT_PRUNE[0])<iv: return False
+        _LAST_AUDIT_PRUNE[0]=mono
+    prune_audit(db,now); return True
 def audit_event(db_path,event,device_id="",detail="",now=None):
     now=int(time.time()) if now is None else int(now)
     if not event or len(event)>64 or len(device_id)>128 or len(detail)>256: raise ValueError("invalid_audit_event")
     with db_open(db_path) as db:
-        db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",(event,now,device_id,detail)); prune_audit(db,now); db.commit()
+        db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",(event,now,device_id,detail)); maybe_prune_audit(db,now); db.commit()
 def recent_audit(db_path,limit=200):
     limit=min(max(int(limit),1),500)
     with db_open(db_path) as db: rows=db.execute("SELECT event,occurred_at,device_id,detail FROM audit_events ORDER BY id DESC LIMIT ?",(limit,)).fetchall()
