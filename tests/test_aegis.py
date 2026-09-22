@@ -317,6 +317,48 @@ class AegisTests(unittest.TestCase):
                 self.assertTrue(self.collector.maybe_prune_audit(db,now=1,force=True))
                 self.assertFalse(self.collector.maybe_prune_audit(db,now=1))
         self.assertEqual(self.collector.audit_prune_interval('bad'),3600); self.assertEqual(self.collector.audit_prune_interval(0),1); self.assertEqual(self.collector.audit_prune_interval(999999),86400)
+    def test_collector_device_state_materializes_latest_per_device(self):
+        # P0-3：store_report 在同事务增量维护 device_state（每设备最新报告 + report_count）。
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'
+            self.collector.store_report(path,b'{}',{'device_id':'device-a','summary':{'critical':1,'high':0},'agent_version':'0.25.0','policy_version':'4.8.0','scanned_at':1},now=100)
+            self.collector.store_report(path,b'{}',{'device_id':'device-a','summary':{'critical':0,'high':0},'agent_version':'0.26.0','policy_version':'4.9.0','scanned_at':2},now=200)
+            self.collector.store_report(path,b'{}',{'device_id':'device-b','summary':{'critical':0,'high':1},'scanned_at':3},now=300)
+            with self.collector.db_open(path) as db:
+                ds={row[0]:row for row in db.execute("SELECT device_id,latest_id,received_at,severity,agent_version,report_count FROM device_state")}
+                self.assertEqual(set(ds),{'device-a','device-b'})
+                self.assertEqual(ds['device-a'][2],200); self.assertEqual(ds['device-a'][3],'normal'); self.assertEqual(ds['device-a'][4],'0.26.0'); self.assertEqual(ds['device-a'][5],2)
+                self.assertEqual(ds['device-b'][3],'high'); self.assertEqual(ds['device-b'][5],1)
+                self.assertEqual(db.execute("SELECT device_id FROM reports WHERE id=?",(ds['device-a'][1],)).fetchone()[0],'device-a')
+                self.assertEqual(self.collector.ensure_device_state(db),0)   # 水位线已追平 → 增量回填 no-op
+    def test_collector_device_state_backfills_direct_inserts_via_watermark(self):
+        # P0-3：直插/迁移缺口由高水位线增量回填；仅补齐 id>水位线 的增量设备，可重入幂等。
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'
+            with self.collector.db_open(path) as db:
+                db.executemany("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",[('h1','device-a',10,'critical','{}'),('h2','device-a',20,'normal','{}'),('h3','device-b',15,'high','{}')]); db.commit()
+                self.assertEqual(self.collector.ensure_device_state(db),2)
+                rows={r[0]:r[1] for r in db.execute("SELECT device_id,received_at FROM device_state")}
+                self.assertEqual(rows,{'device-a':20,'device-b':15})
+                self.assertEqual(self.collector.ensure_device_state(db),0)   # 再次调用 no-op
+                db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES('h4','device-b',99,'critical','{}')"); db.commit()
+                self.collector.ensure_device_state(db)                        # 仅增量刷新 device-b
+                rows2={r[0]:r[1] for r in db.execute("SELECT device_id,received_at FROM device_state")}
+                self.assertEqual(rows2,{'device-a':20,'device-b':99})
+    def test_collector_device_state_matches_group_by_semantics(self):
+        # P0-3：物化表读数与旧「全表 GROUP BY 每设备最新报告」语义等价，且悬挂行(最新报告被保留
+        # 清理删除)被读路径的 INNER JOIN 排除——与旧 GROUP BY 行为一致。
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'
+            for i,dev in enumerate(['device-a','device-a','device-b','device-c']):
+                self.collector.store_report(path,json.dumps({'i':i}).encode(),{'device_id':dev,'summary':{'critical':i%2,'high':0},'agent_version':'0.25.0','policy_version':'4.8.0','scanned_at':i},now=100+i)
+            with self.collector.db_open(path) as db:
+                materialized={r[0]:(r[1],r[2]) for r in db.execute("SELECT device_id,latest_id,report_count FROM device_state")}
+                legacy={r[0]:(r[1],r[2]) for r in db.execute("SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id")}
+                self.assertEqual(materialized,legacy)
+                db.execute("DELETE FROM reports WHERE device_id='device-c'"); db.commit()
+                visible={r[0] for r in db.execute("WITH fleet AS (SELECT device_id,latest_id AS id FROM device_state) SELECT r.device_id FROM fleet JOIN reports r ON r.id=fleet.id")}
+                self.assertNotIn('device-c',visible); self.assertIn('device-a',visible)
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

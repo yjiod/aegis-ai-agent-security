@@ -32,6 +32,12 @@ def db_open(path):
         db.execute("CREATE TABLE IF NOT EXISTS audit_events(id INTEGER PRIMARY KEY,event TEXT NOT NULL,occurred_at INTEGER NOT NULL,device_id TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
         db.execute("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(occurred_at DESC)"); db.commit()
         db.execute("CREATE TABLE IF NOT EXISTS device_auth_state(device_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,generation INTEGER NOT NULL)"); db.commit()
+        # 30k 规模修复(P0-3)：device_state = 「每设备最新报告」物化表，由 store_report 在同一写
+        # 事务内增量维护(latest_id/report_count 及最新报告的关键列)。舰队视图(/v1/devices)与首页
+        # 汇总(collector_summary)据此定位每设备最新报告(PK join)，**不再**对 reports 全表
+        # `GROUP BY device_id`(2160 万行上是秒级全表聚合，且被首页/角标(60s)/告警(5m)反复触发)。
+        # ensure_device_state() 用高水位线增量回填历史/直插/迁移缺口，读路径始终 O(设备数)。
+        db.execute("CREATE TABLE IF NOT EXISTS device_state(device_id TEXT PRIMARY KEY,latest_id INTEGER NOT NULL,received_at INTEGER NOT NULL,severity TEXT NOT NULL,agent_version TEXT,policy_version TEXT,report_count INTEGER NOT NULL DEFAULT 0)"); db.commit()
         # 每设备上报令牌（批4）：token 以 sha256 哈希存储（不落明文），signing_secret 与
         # 凭据文件同待遇（服务端受控存储）。report_authentication 双接受：全局令牌 ∪ 每设备令牌。
         db.execute("CREATE TABLE IF NOT EXISTS device_tokens(device_id TEXT NOT NULL,token_hash TEXT NOT NULL,signing_secret TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(device_id,token_hash))"); db.commit()
@@ -283,6 +289,12 @@ def store_report(db_path,body,report,now=None,days=None,credential_generation=No
     with db_open(db_path) as db:
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
         cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version,egress_ip) VALUES(?,?,?,?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode(),report.get("agent_version"),report.get("policy_version"),egress_ip)); duplicate=cursor.rowcount==0
+        if not duplicate:
+            # P0-3：同事务增量维护 device_state 物化表(每设备最新报告)。report_count 用设备级
+            # 索引 COUNT(idx_reports_device_time)在保留清理之后重算，故为「本次写入时刻的精确值」；
+            # 只扫该设备自己的行(稳态 ~每天24×保留天)，绝非全表 GROUP BY。
+            cnt=db.execute("SELECT COUNT(*) FROM reports WHERE device_id=?",(report["device_id"],)).fetchone()[0]
+            db.execute("INSERT INTO device_state(device_id,latest_id,received_at,severity,agent_version,policy_version,report_count) VALUES(?,?,?,?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET latest_id=excluded.latest_id,received_at=excluded.received_at,severity=excluded.severity,agent_version=excluded.agent_version,policy_version=excluded.policy_version,report_count=excluded.report_count",(report["device_id"],cursor.lastrowid,now,severity,report.get("agent_version"),report.get("policy_version"),cnt))
         if credential_generation is not None: db.execute("INSERT INTO device_auth_state(device_id,last_seen,generation) VALUES(?,?,?) ON CONFLICT(device_id) DO UPDATE SET last_seen=excluded.last_seen,generation=excluded.generation",(report["device_id"],now,int(credential_generation)))
         generation="legacy" if credential_generation is None else "g"+str(int(credential_generation)); db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity+":"+generation)); maybe_prune_audit(db,now); db.commit()
     return {"accepted":True,"duplicate":duplicate,"report_id":receipt_id,"severity":severity}
@@ -311,11 +323,27 @@ def recent_audit(db_path,limit=200):
     limit=min(max(int(limit),1),500)
     with db_open(db_path) as db: rows=db.execute("SELECT event,occurred_at,device_id,detail FROM audit_events ORDER BY id DESC LIMIT ?",(limit,)).fetchall()
     return [{"event":event,"occurred_at":occurred,"device_id":device,"detail":detail} for event,occurred,device,detail in rows]
+def ensure_device_state(db):
+    """增量回填 device_state 物化表（高水位线契约，幂等可重入）。
+
+    水位线 wm = 已物化进 device_state 的最大 report id（= MAX(latest_id)）。仅当 reports 出现
+    比 wm 更新的行时才回填这批增量：正常写路径下 store_report 已在同一事务维护 device_state，
+    故此处退化为两次单值 MAX 查找的廉价 no-op。直插 DB（测试）、旧库首次读、迁移缺口则触发
+    一次性增量回填，使 /v1/devices 与 collector_summary 无需再对 reports 全表 GROUP BY。
+    report_count 以设备级索引 COUNT 重算，语义与旧 `COUNT(*) ... GROUP BY device_id` 一致。"""
+    wm=db.execute("SELECT COALESCE(MAX(latest_id),0) FROM device_state").fetchone()[0]
+    rmax=db.execute("SELECT COALESCE(MAX(id),0) FROM reports").fetchone()[0]
+    if rmax<=wm: return 0
+    cur=db.execute("INSERT INTO device_state(device_id,latest_id,received_at,severity,agent_version,policy_version,report_count) SELECT r.device_id,r.id,r.received_at,r.severity,r.agent_version,r.policy_version,(SELECT COUNT(*) FROM reports x WHERE x.device_id=r.device_id) FROM reports r JOIN (SELECT device_id,MAX(id) AS mid FROM reports WHERE id>? GROUP BY device_id) d ON d.device_id=r.device_id AND d.mid=r.id ON CONFLICT(device_id) DO UPDATE SET latest_id=excluded.latest_id,received_at=excluded.received_at,severity=excluded.severity,agent_version=excluded.agent_version,policy_version=excluded.policy_version,report_count=excluded.report_count",(wm,))
+    db.commit(); return max(int(cur.rowcount or 0),0)
 def collector_summary(db_path,now=None,active_window=86400,required_agent=None,required_policy=None):
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
     with db_open(db_path) as db:
-        rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation FROM reports r JOIN (SELECT device_id,MAX(id) AS id FROM reports GROUP BY device_id) latest ON latest.id=r.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id").fetchall()
+        ensure_device_state(db)
+        # P0-3：从 device_state 定位每设备最新报告(PK join)，取代对 reports 全表 `MAX(id) GROUP BY
+        # device_id`；INNER JOIN reports 天然排除最新报告已被保留清理的悬挂设备(与旧语义一致)。
+        rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation FROM device_state ds JOIN reports r ON r.id=ds.latest_id LEFT JOIN device_auth_state a ON a.device_id=ds.device_id").fetchall()
     by_severity={"critical":0,"high":0,"normal":0}
     versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("AEGIS_REQUIRED_AGENT_VERSION","0.33.0"); required_policy=required_policy or required_version("AEGIS_REQUIRED_POLICY_VERSION","4.8.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
@@ -430,7 +458,12 @@ class Handler(BaseHTTPRequestHandler):
             if not 1<=limit<=10000: return self.reply(400,{"error":"invalid_limit"})
             try:
                 generated_at=int(time.time())
-                with db_open(self.server.db_path) as db: rows=db.execute("WITH fleet AS (SELECT device_id,MAX(id) AS id,COUNT(*) AS report_count FROM reports GROUP BY device_id) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.body,r.egress_ip FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
+                with db_open(self.server.db_path) as db:
+                    ensure_device_state(db)
+                    # P0-3：fleet 从 device_state 物化表取(每设备最新报告 id + report_count)，取代对
+                    # reports 全表 `MAX(id)/COUNT(*) GROUP BY device_id`。保留 WITH fleet AS / COALESCE /
+                    # device_auth_state 身份边界与响应列形状完全不变，仅把全表聚合换成 O(设备数) 物化读。
+                    rows=db.execute("WITH fleet AS (SELECT device_id,latest_id AS id,report_count FROM device_state) SELECT r.device_id,COALESCE(a.last_seen,r.received_at),fleet.report_count,a.generation,r.body,r.egress_ip FROM fleet JOIN reports r ON r.id=fleet.id LEFT JOIN device_auth_state a ON a.device_id=r.device_id ORDER BY r.device_id LIMIT ?",(limit+1,)).fetchall()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             complete=len(rows)<=limit; rows=rows[:limit]; audit_event(self.server.db_path,"devices_read",detail=str(len(rows))+":"+("complete" if complete else "partial"))
             devices_out=[]
@@ -608,5 +641,10 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--listen",default="127.0.0.1"); ap.add_argument("--port",type=int,default=8788); ap.add_argument("--db",default="aegis.db"); args=ap.parse_args()
     errors=runtime_secret_errors()
     if errors: raise SystemExit("invalid secret configuration: "+",".join(errors))
+    # P0-3：启动时一次性增量回填 device_state（迁移旧库 / 补齐直插缺口）。全量回填仅在旧库首启
+    # 发生一次；此后由 store_report 增量维护，读路径的 ensure_device_state 退化为廉价 no-op。
+    try:
+        with db_open(args.db) as _db: ensure_device_state(_db)
+    except sqlite3.Error as _exc: print(f"device_state backfill skipped: {_exc}",file=sys.stderr)
     server=ThreadingHTTPServer((args.listen,args.port),Handler); server.db_path=args.db; server.rate_limiter=RateLimiter(); server.serve_forever()
 if __name__=="__main__": main()
