@@ -88,7 +88,7 @@ OK=""
 i=0
 while [ "$i" -lt 30 ]; do
   i=$((i+1))
-  if ssh $SSH_OPTS "$SERVER" "systemctl is-active --quiet $SERVICE && curl -fsS --max-time 5 'http://127.0.0.1:$PORT/health'" 2>/dev/null | grep -q '"status":"ok"'; then
+  if ssh $SSH_OPTS "$SERVER" "systemctl is-active --quiet $SERVICE && curl -fsS --max-time 5 'http://127.0.0.1:$PORT/health'" 2>/dev/null | grep -Eq '"status":[[:space:]]*"ok"'; then
     OK="1"; break
   fi
   sleep 2
