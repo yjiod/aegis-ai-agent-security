@@ -69,6 +69,11 @@ for f in aegis-install-windows-oneclick.ps1 aegis-install-macos-oneclick.sh inst
 done
 echo "  ✓ oneclick 脚本服务器副本已注入真实 origin"
 
+# 修复(2026-09-23 真事故): push 包(aegis-push-*.zip)此前**不**随发布重建(build-lite-push 不在
+# build/deploy 链), 推送包内 agent 停留旧版本(0.36.2)——终端 apply 后"在线但版本错"。
+# 部署时先按当前 downloads 重建 push 包再上传, 杜绝陈旧推送包。
+sh "$ROOT/scripts/build-lite-push.sh" >/dev/null 2>&1 && echo "  ✓ lite push 包已按当前版本重建" || echo "  ! lite push 重建失败(沿用现有包)"
+
 # 桌管轻量推送包(native-dist/push/): 上传 + 确保 nginx location 存在(幂等) + reload
 if [ -d native-dist/push ]; then
   ssh $SSH_OPTS "$SERVER" "mkdir -p /opt/aegis/native-dist/push"
