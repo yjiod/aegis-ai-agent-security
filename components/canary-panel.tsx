@@ -351,7 +351,7 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
       <div
         style={{
           display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12,
-          padding: '10px 12px', borderRadius: 8, background: 'var(--accent)', border: '1px solid var(--border)',
+          padding: '10px 12px', borderRadius: 8, background: 'rgba(40, 230, 160, 0.08)', border: '1px solid var(--border)',
         }}
       >
         <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>推进门禁：</span>

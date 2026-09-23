@@ -694,13 +694,12 @@ button {
 }
 
 .nav-item.active {
-  /* 改版：去横向渐变+内发光，改平整实底 + 左侧 3px 主色条（AIDR 侧栏活动态）。 */
-  background: var(--accent);
-  color: #6cf2b8;
-  border-color: rgba(73, 232, 165, 0.16);
-  box-shadow:
-    inset 3px 0 0 var(--primary),
-    0 4px 16px rgba(0, 0, 0, 0.3);
+  /*  harmonize：选中态不再整块实底绿（与深色主题冲突的"绿块"），改为
+     低饱和主色微染 + 左侧 2px 能量条 + 可读前景色（handoff：不用整块高亮填充）。 */
+  background: linear-gradient(90deg, rgba(40, 230, 160, 0.14), rgba(40, 230, 160, 0.03));
+  color: var(--sentinel-text, var(--foreground));
+  border-color: rgba(40, 230, 160, 0.26);
+  box-shadow: inset 2px 0 0 var(--sentinel-accent, var(--primary));
   font-weight: 600;
 }
 
@@ -1614,9 +1613,10 @@ button.risk-row {
   transition: all var(--dur-fast) ease;
 }
 .icon-action:hover {
-  background: var(--accent);
-  border-color: var(--line-base);
-  color: var(--foreground);
+  /* harmonize：hover 用主色微染而非实心绿块。 */
+  background: rgba(40, 230, 160, 0.14);
+  border-color: rgba(40, 230, 160, 0.4);
+  color: var(--sentinel-accent, var(--foreground));
 }
 .icon-action.danger:hover {
   background: #2a1515;
@@ -1639,9 +1639,10 @@ button.risk-row {
 }
 .filter-btn:hover { border-color: var(--line-strong); color: var(--foreground); }
 .filter-btn.active {
-  background: var(--accent);
-  border-color: var(--primary);
-  color: var(--primary);
+  /* harmonize：选中筛选项用主色微染 + 主色文字，不再实心绿块（绿底绿字对比差）。 */
+  background: rgba(40, 230, 160, 0.12);
+  border-color: rgba(40, 230, 160, 0.42);
+  color: var(--sentinel-accent, var(--primary));
   font-weight: 600;
 }
 .filter-btn b {

@@ -216,7 +216,7 @@ export function EvidenceDialog({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {verifyResult && (
-            <div style={{ padding: 12, borderRadius: 8, background: 'var(--accent)', border: '1px solid var(--border)', fontSize: 12, lineHeight: 1.7 }}>
+            <div style={{ padding: 12, borderRadius: 8, background: 'var(--sentinel-surface-2, var(--surface-2))', border: '1px solid var(--border)', fontSize: 12, lineHeight: 1.7 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, color: verifyResult.ok ? 'var(--ring)' : 'var(--destructive)' }}>
                 {verifyResult.ok ? <CircleCheck size={15} /> : <AlertTriangle size={15} />}
                 {verifyResult.ok ? '完整可信，未被篡改' : '验证未通过'}

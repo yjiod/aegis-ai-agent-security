@@ -888,22 +888,22 @@ export default function Home() {
           <div className="score-body">
             <div className="score-list" style={{ width: '100%' }}>
               <p>
-                <span className="score-dot" style={{ background: '#49e8a5' }} />
+                <span className="score-dot" style={{ background: 'var(--sentinel-accent)' }} />
                 <span>当前版本</span>
                 <b>{posture?.current ?? 0}</b>
               </p>
               <p>
-                <span className="score-dot" style={{ background: '#ffb454' }} />
+                <span className="score-dot" style={{ background: 'var(--sentinel-warning)' }} />
                 <span>Agent 版本不一致</span>
                 <b>{posture?.agent_mismatch ?? 0}</b>
               </p>
               <p>
-                <span className="score-dot" style={{ background: '#ff8f6b' }} />
+                <span className="score-dot" style={{ background: 'var(--sentinel-danger-2)' }} />
                 <span>策略版本不一致</span>
                 <b>{posture?.policy_mismatch ?? 0}</b>
               </p>
               <p>
-                <span className="score-dot" style={{ background: '#ff685f' }} />
+                <span className="score-dot" style={{ background: 'var(--sentinel-danger)' }} />
                 <span>两者均不一致</span>
                 <b>{posture?.both_mismatch ?? 0}</b>
               </p>

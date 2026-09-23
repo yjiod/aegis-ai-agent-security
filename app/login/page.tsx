@@ -106,8 +106,8 @@ export default function LoginPage() {
       <div className="animate-entrance" style={{ width: '100%', maxWidth: 380 }}>
         {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: '#49e8a5', display: 'grid', placeItems: 'center', boxShadow: '0 0 40px #49e8a533' }}>
-            <ShieldCheck size={28} color="#04100c" />
+          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: 'rgba(40, 230, 160, 0.12)', border: '1px solid rgba(40, 230, 160, 0.4)', display: 'grid', placeItems: 'center', boxShadow: '0 0 40px rgba(40, 230, 160, 0.18)' }}>
+            <ShieldCheck size={28} color="#28e6a0" />
           </div>
           <h1 style={{ fontSize: 22, color: '#eaf7f2', letterSpacing: '-0.02em', margin: '0 0 6px' }}>Aegis 安全控制台</h1>
           <p style={{ fontSize: 13, color: '#78968c', margin: 0 }}>企业 AI Agent 安全治理平台</p>

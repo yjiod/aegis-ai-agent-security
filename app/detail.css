@@ -261,10 +261,11 @@
 }
 
 .pass {
-  color: #5de1a9;
-  background: #163a2d;
-  border: 1px solid #1f5c42;
-  box-shadow: 0 0 8px #49e8a515;
+  /* harmonize：pass 徽章改主色微染（原 #163a2d 实底绿块与深色主题冲突）。 */
+  color: var(--sentinel-accent, #5de1a9);
+  background: rgba(40, 230, 160, 0.12);
+  border: 1px solid rgba(40, 230, 160, 0.32);
+  box-shadow: none;
 }
 
 .fail {
@@ -455,8 +456,9 @@
 }
 
 .switch.on {
-  background: #3bc98e;
-  box-shadow: 0 0 16px #49e8a535, inset 0 1px 2px #00000020;
+  /* 语义色对齐 Sentinel token（on=主色），替换硬编码绿。 */
+  background: var(--sentinel-accent, #3bc98e);
+  box-shadow: 0 0 16px rgba(40, 230, 160, 0.2), inset 0 1px 2px #00000020;
 }
 
 .switch.on span {
