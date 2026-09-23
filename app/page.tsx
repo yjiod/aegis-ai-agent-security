@@ -45,6 +45,7 @@ import {
 } from 'recharts';
 
 import { useCollector } from '@/components/collector-context';
+import { ObservabilityPanel } from '@/components/observability-panel';
 
 /* ─── Animated number ──────────────────────────────────────────────────── */
 function useAnimatedNumber(target: number) {
@@ -164,7 +165,7 @@ async function getJson<T>(url: string): Promise<T | null> {
 
 /* ─── Overview Page ────────────────────────────────────────────────────── */
 export default function Home() {
-  const { fleet, collectorState } = useCollector();
+  const { fleet } = useCollector();
 
   const [devices, setDevices] = useState<DeviceLite[] | null>(null);
   const [tickets, setTickets] = useState<TicketLite[] | null>(null);
@@ -229,15 +230,6 @@ export default function Home() {
   const deltaPct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0);
   const chartData = buckets24.map((b) => ({ ...b, label: `${new Date(b.t * 1000).getHours()}:00` }));
 
-  /* 系统健康度（handoff 4.2）：五项真实检查 + 环形摘要分；无真实数据不渲染假分数 */
-  const healthChecks = [
-    { label: 'Collector 连接', ok: collectorState === 'live' },
-    { label: 'Agent 在线率', ok: totalDevices > 0 && activeDevices / totalDevices >= 0.5 },
-    { label: '版本覆盖', ok: totalDevices > 0 && currentDevices / totalDevices >= 0.5 },
-    { label: '上报趋势', ok: trend !== null },
-    { label: '审计链路', ok: audit !== null },
-  ];
-  const healthScore = Math.round((healthChecks.filter((c) => c.ok).length / healthChecks.length) * 100);
 
   /* 风险资产表：版本漂移 / 上报过期(offline/stale) / 未闭环工单 优先（handoff 4.2） */
   const openTicketDevices = new Set(
@@ -500,6 +492,8 @@ export default function Home() {
         )}
       </section>
 
+      <ObservabilityPanel />
+
       {/* P2 态势视图切换（聚焦透镜，handoff P2）：运营概览 / 终端覆盖 / 规则风险 / 处置效率 */}
       <div role="tablist" aria-label="态势视图" style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
         {([['overview', '运营概览'], ['coverage', '终端覆盖'], ['rules', '规则风险'], ['efficiency', '处置效率']] as const).map(([k, label]) => (
@@ -608,47 +602,8 @@ export default function Home() {
         </section>
       )}
 
-      {/* ─── 态势三区：系统健康度 / 风险资产 / 处置进度（handoff 4.2）────── */}
+      {/* ─── 态势两区：风险资产 / 处置进度（健康度已并入统一可观测组件）────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, marginBottom: 16 }}>
-        <section className="panel" style={{ padding: 16 }}>
-          <div className="panel-head">
-            <div>
-              <h2>系统健康度</h2>
-              <p>Collector / Agent 在线 / 版本覆盖 / 趋势 / 审计 五项真实检查</p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            <div style={{ position: 'relative', width: 92, height: 92, flex: '0 0 92px' }}>
-              <svg viewBox="0 0 42 42" width="92" height="92" role="img" aria-label={`健康度 ${healthScore} 分`}>
-                <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--border)" strokeWidth="3.6" />
-                <circle
-                  cx="21"
-                  cy="21"
-                  r="15.9"
-                  fill="none"
-                  stroke={healthScore >= 80 ? 'var(--sentinel-accent)' : healthScore >= 50 ? 'var(--sentinel-warning)' : 'var(--sentinel-danger)'}
-                  strokeWidth="3.6"
-                  strokeDasharray={`${healthScore} ${100 - healthScore}`}
-                  strokeDashoffset="25"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
-                <strong className="sentinel-metric-value" style={{ fontSize: 22 }}>
-                  {trend || fleet ? healthScore : '—'}
-                </strong>
-              </div>
-            </div>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6, flex: 1 }}>
-              {healthChecks.map((c) => (
-                <li key={c.label} className="sentinel-status" data-state={c.ok ? 'normal' : 'stale'} style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <span>{c.label}</span>
-                  <span>{c.ok ? '正常' : '异常'}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
 
         <section className="panel" style={{ padding: 16 }}>
           <div className="panel-head">
