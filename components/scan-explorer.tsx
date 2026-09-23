@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { RefreshCw, ShieldAlert, Inbox, WifiOff, ArrowRight } from 'lucide-react';
+import { findingAsset } from '@/lib/labels';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
@@ -253,14 +254,22 @@ export function ScanExplorer({
                         {/* inline-flex：全局 reset 令 svg 为 display:block，行内布局时箭头会
                             独自成行、在"去处置"药丸下方拖出一条错位钩线（用户反馈"歪"，
                             skill/mcp/代码质量三页同源）。flex 让文字与箭头同行居中。 */}
-                        <Link
-                          className="handle"
-                          href={`/dispositions?type=${f.asset_type === 'mcp' || f.category === 'mcp' ? 'mcp' : 'skill'}&asset=${encodeURIComponent(f.asset_key || f.path)}`}
-                          style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        >
-                          去处置
-                          <ArrowRight size={10} />
-                        </Link>
+                        {(() => {
+                          // 去处置深链接的 type/asset 由 findingAsset 归一化得出：skill/mcp 发现→对应
+                          // 资产名；代码质量类(无 skill/mcp 身份)→path 类型+文件路径。此前硬编码
+                          // "skill"+f.path 导致路径被当 skill 资产提交→/api/labels 400(重大bug)。
+                          const fa = findingAsset(f) ?? { asset_type: 'path' as const, asset_key: String(f.path ?? '') };
+                          return (
+                            <Link
+                              className="handle"
+                              href={`/dispositions?type=${fa.asset_type}&asset=${encodeURIComponent(fa.asset_key)}`}
+                              style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            >
+                              去处置
+                              <ArrowRight size={10} />
+                            </Link>
+                          );
+                        })()}
                       </>
                     ) : null}
                   </span>

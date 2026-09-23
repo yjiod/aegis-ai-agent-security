@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
 
 function isAssetType(v: unknown): v is AssetType {
-  return v === 'skill' || v === 'mcp';
+  return v === 'skill' || v === 'mcp' || v === 'path';
 }
 
 /** GET /api/labels — 列出资产标签/处置（登录即可读）。 */
@@ -41,12 +41,20 @@ export async function POST(request: Request) {
   const assetType = body.asset_type;
   const assetKey = String(body.asset_key ?? '').trim();
   if (!isAssetType(assetType)) return NextResponse.json({ error: 'invalid_asset_type' }, { status: 400, headers: NO_STORE });
-  if (!assetKey || assetKey.length > 128) return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
-  // asset_key 是资产「名字」(skill 名 / MCP server 名)，不是文件路径。拒绝路径型 key
-  // （含 / \ 或以 ~ 开头）——历史上处置中心曾按 finding 的文件 path 建标签，污染出
+  if (!assetKey || (assetType === 'path' ? assetKey.length > 256 : assetKey.length > 128)) {
+    return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
+  }
+  // skill/mcp 的 asset_key 是资产「名字」(skill 名 / MCP server 名)，不是文件路径。拒绝路径型
+  // key（含 / \ 或以 ~ 开头）——历史上处置中心曾按 finding 的文件 path 建标签，污染出
   // "mcp:~/.codex/config.toml" 这类永不命中的垃圾白名单项。skill 名允许含 ':'(如
   // product-design:frame)，故只拦路径分隔符与 '~' 前缀。
-  if (/[/\\]/.test(assetKey) || assetKey.startsWith('~')) {
+  // path 类型则**专门**承载文件路径（代码质量发现 hardcoded_secret/insecure_tls 的 FP 处置
+  // 通道）：key 必须是归一化路径(~ / 或盘符开头)，与 skill/mcp 的名字空间隔离(mapKey 带类型前缀)。
+  if (assetType === 'path') {
+    if (!assetKey.startsWith('~') && !assetKey.startsWith('/') && !/^[A-Za-z]:/.test(assetKey)) {
+      return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
+    }
+  } else if (/[/\\]/.test(assetKey) || assetKey.startsWith('~')) {
     return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
   }
 

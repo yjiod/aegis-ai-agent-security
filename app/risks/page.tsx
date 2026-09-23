@@ -13,6 +13,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { CSSProperties, FormEvent } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { findingAsset } from '@/lib/labels';
 import {
   AlertTriangle,
   ChevronDown,
@@ -987,13 +988,20 @@ function LinkedFindings({ deviceId }: { deviceId: string }) {
                 {f.path ? (
                   <>
                     <br />
-                    <Link
-                      className="handle"
-                      href={`/dispositions?type=${String(f.kind ?? '').toLowerCase().includes('mcp') ? 'mcp' : 'skill'}&asset=${encodeURIComponent(String(f.path))}`}
-                      style={{ fontSize: 11 }}
-                    >
-                      去处置 →
-                    </Link>
+                    {(() => {
+                      // 去处置深链接 type/asset 由 findingAsset 归一化：skill/mcp→资产名；代码质量类→
+                      // path 类型+文件路径。此前硬编码 skill/mcp + f.path → /api/labels 400(重大bug)。
+                      const fa = findingAsset(f) ?? { asset_type: 'path' as const, asset_key: String(f.path ?? '') };
+                      return (
+                        <Link
+                          className="handle"
+                          href={`/dispositions?type=${fa.asset_type}&asset=${encodeURIComponent(fa.asset_key)}`}
+                          style={{ fontSize: 11 }}
+                        >
+                          去处置 →
+                        </Link>
+                      );
+                    })()}
                   </>
                 ) : null}
               </span>

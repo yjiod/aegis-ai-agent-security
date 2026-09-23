@@ -18,7 +18,7 @@ import {
   type AssetLabelRow,
 } from './pg-store';
 
-export type AssetType = 'skill' | 'mcp';
+export type AssetType = 'skill' | 'mcp' | 'path';
 export type Disposition = '' | 'allow' | 'monitor' | 'deny';
 
 export const DISPOSITIONS: Disposition[] = ['', 'allow', 'monitor', 'deny'];
@@ -124,6 +124,12 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
     const nm = msg.match(/MCP\s+Server[:：]\s*([^\s]+)/) || msg.match(/MCP\s+([^\s]+)\s/);
     if (nm && nm[1]) return { asset_type: 'mcp', asset_key: nm[1].trim() };
   }
+  // path(代码路径)：非 skill/mcp 的文件路径类发现（hardcoded_secret / insecure_tls 等代码质量项）。
+  // 此前这类发现 findingAsset 返回 null → 既无法加白抑制，"去处置"深链接又把路径当 skill 资产
+  // 提交、被 /api/labels 以"路径型 key"拒绝(HTTP 400)——处置链路对代码质量发现是断的(重大bug)。
+  // 引入 path 资产类型后，可按路径加白/观察/拉黑以抑制该路径上的发现（FP 处置通道）。
+  // 注意：path 仅在 skill/mcp 均判不出时回落，绝不抢占显式/派生的 skill·mcp 身份。
+  if (path) return { asset_type: 'path', asset_key: path.trim() };
   return null;
 }
 

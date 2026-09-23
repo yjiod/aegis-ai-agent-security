@@ -19,7 +19,7 @@ import { Pagination, paginate } from '@/components/pagination';
 import { RiskSignalHelp } from '@/components/risk-signal-help';
 
 interface Label {
-  asset_type: 'skill' | 'mcp';
+  asset_type: 'skill' | 'mcp' | 'path';
   asset_key: string;
   tags: string[];
   disposition: '' | 'allow' | 'monitor' | 'deny';
@@ -90,7 +90,7 @@ export default function DispositionsPage() {
   const [showDefaults, setShowDefaults] = useState(false);
 
   // add form
-  const [newType, setNewType] = useState<'skill' | 'mcp'>('skill');
+  const [newType, setNewType] = useState<'skill' | 'mcp' | 'path'>('skill');
   const [newKey, setNewKey] = useState('');
   const searchParams = useSearchParams();
 
@@ -98,7 +98,7 @@ export default function DispositionsPage() {
   useEffect(() => {
     const type = searchParams.get('type');
     const asset = searchParams.get('asset');
-    if (type === 'skill' || type === 'mcp') setNewType(type);
+    if (type === 'skill' || type === 'mcp' || type === 'path') setNewType(type);
     if (asset) setNewKey(asset);
   }, [searchParams]);
 
@@ -357,11 +357,12 @@ export default function DispositionsPage() {
       {/* add asset */}
       {isAdmin && (
         <div className="panel animate-entrance animate-entrance-2" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={newType} onChange={(e) => setNewType(e.target.value as 'skill' | 'mcp')} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }}>
+          <select value={newType} onChange={(e) => setNewType(e.target.value as 'skill' | 'mcp' | 'path')} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }}>
             <option value="skill">Skill</option>
             <option value="mcp">MCP</option>
+            <option value="path">代码路径</option>
           </select>
-          <Input placeholder="资产标识（如 skill 名 / MCP server 或命令）" value={newKey} onChange={(e) => setNewKey(e.target.value)} style={{ maxWidth: 360 }} />
+          <Input placeholder={newType === 'path' ? '文件路径（如 ~/docker-compose-langfuse.yml）' : '资产标识（如 skill 名 / MCP server 或命令）'} value={newKey} onChange={(e) => setNewKey(e.target.value)} style={{ maxWidth: 360 }} />
           <Button onClick={() => void addAsset()} disabled={busy || !newKey.trim()}>
             <Plus size={15} />
             添加资产
