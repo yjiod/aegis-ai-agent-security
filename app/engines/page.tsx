@@ -1,6 +1,7 @@
 'use client';
 
 import { Check, Cpu, Inbox, RefreshCw, Zap } from 'lucide-react';
+import { ObservabilityPanel } from '@/components/observability-panel';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
@@ -67,6 +68,8 @@ export default function EnginesPage() {
       </div>
 
       {/* Engine Grid */}
+      <ObservabilityPanel />
+
       <div className="panel animate-entrance animate-entrance-3" style={{ marginBottom: 14 }}>
         <div className="panel-head">
           <div>

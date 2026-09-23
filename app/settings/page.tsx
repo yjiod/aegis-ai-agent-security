@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { ObservabilityPanel } from '@/components/observability-panel';
 import { Settings, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -49,6 +50,8 @@ export default function SettingsPage() {
           </Button>
         </div>
       </div>
+
+      <ObservabilityPanel />
 
       <div className="panel">
         <div className="panel-head">
