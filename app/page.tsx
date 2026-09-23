@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import Link from 'next/link';
+import { TECHNIQUES, type RuleSet } from '@/lib/detection-coverage';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -269,6 +270,28 @@ export default function Home() {
       m.set(k, (m.get(k) ?? 0) + 1);
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [findingsAll]);
+
+  /**
+   * 技战法活跃态势（AIDR Detection 活动侧）：把已加载发现样本按 category+kind 映射到
+   * 技战法，聚合命中数与严重/高危数。口径如实标注为「最近 ≤1000 条发现样本」。
+   */
+  const techniqueActivity = useMemo(() => {
+    const m = new Map<string, { count: number; critHigh: number }>();
+    for (const f of findingsAll ?? []) {
+      const kind = String(f.kind ?? '');
+      const cat = String(f.category ?? '') as RuleSet;
+      const sev = String(f.severity ?? '');
+      for (const t of TECHNIQUES) {
+        const hit = t.rules.some((r) => r.set === cat && r.ids.includes(kind));
+        if (!hit) continue;
+        const cur = m.get(t.id) ?? { count: 0, critHigh: 0 };
+        cur.count += 1;
+        if (sev === 'critical' || sev === 'high') cur.critHigh += 1;
+        m.set(t.id, cur);
+      }
+    }
+    return [...m.entries()].sort((a, b) => b[1].count - a[1].count);
   }, [findingsAll]);
   const egressRank = useMemo(() => {
     const m = new Map<string, number>();
@@ -667,7 +690,7 @@ export default function Home() {
             <div className="panel-head">
               <div>
                 <h2>规则风险排行</h2>
-                <p>按规则类型统计发现数（无真实地理数据时的可解释降级视图）</p>
+                <p>按规则类型统计发现数（基于最近 ≤1000 条发现样本；无真实地理数据时的可解释降级视图）</p>
               </div>
             </div>
             <table className="sentinel-table">
@@ -697,6 +720,33 @@ export default function Home() {
                 {egressRank.length === 0 && <tr><td colSpan={2} style={{ color: 'var(--muted-foreground)' }}>暂无出口数据</td></tr>}
                 {egressRank.map(([ip, n]) => (
                   <tr key={ip}><td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{ip}</td><td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{n}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+          <section className="panel" style={{ padding: 16 }}>
+            <div className="panel-head">
+              <div>
+                <h2>技战法活跃态势</h2>
+                <p>已加载发现样本映射到 OWASP 技战法的命中分布（Detection 活动侧）</p>
+              </div>
+            </div>
+            <table className="sentinel-table">
+              <thead>
+                <tr><th>技战法</th><th>命中</th><th>严重/高危</th></tr>
+              </thead>
+              <tbody>
+                {techniqueActivity.length === 0 && (
+                  <tr><td colSpan={3} style={{ color: 'var(--muted-foreground)' }}>暂无发现样本，无法推导技战法活跃</td></tr>
+                )}
+                {techniqueActivity.map(([id, v]) => (
+                  <tr key={id}>
+                    <td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{id}</td>
+                    <td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{v.count}</td>
+                    <td style={{ fontFamily: 'var(--sentinel-font-mono)', color: v.critHigh > 0 ? 'var(--sentinel-danger)' : undefined }}>
+                      {v.critHigh}
+                    </td>
+                  </tr>
                 ))}
               </tbody>
             </table>
