@@ -83,6 +83,8 @@ export function ScanExplorer({
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [status, setStatus] = useState(0);
+  // 2026-09 搜索：本页发现按 kind/path/message/终端 本地过滤（数据为单类聚合全量，客户端过滤完整）。
+  const [q, setQ] = useState('');
 
   const load = useCallback(
     async (isRefresh: boolean) => {
@@ -121,6 +123,13 @@ export function ScanExplorer({
           <p>{description}</p>
         </div>
         <div className="head-actions" style={{ flexWrap: 'wrap' }}>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="搜索 类型 / 路径 / 说明 / 终端…"
+            aria-label="搜索本页发现"
+            style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--input)', background: 'var(--surface-2)', color: 'var(--foreground)', fontSize: 12, minWidth: 200 }}
+          />
           <Button variant="outline" onClick={() => void load(true)} disabled={loading || refreshing}>
             {refreshing ? <Spinner /> : <RefreshCw />}
             刷新
@@ -232,7 +241,18 @@ export function ScanExplorer({
               <span>说明</span>
               <span>时间</span>
             </div>
-            {data!.findings.slice(0, 100).map((f, i) => {
+            {data!.findings
+              .filter((f) => {
+                const qq = q.trim().toLowerCase();
+                if (!qq) return true;
+                const hay = [f.kind, f.path, f.message, f.device_id]
+                  .filter((x): x is string => typeof x === 'string')
+                  .join(' ')
+                  .toLowerCase();
+                return hay.includes(qq);
+              })
+              .slice(0, 100)
+              .map((f, i) => {
               const sev = asSeverity(f.severity);
               return (
                 <div className="data-row animate-row-entrance" key={`${f.device_id}-${f.kind}-${f.path}-${i}`} style={{ animationDelay: `${i * 20 + 150}ms` }}>

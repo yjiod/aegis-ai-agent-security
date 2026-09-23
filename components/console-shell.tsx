@@ -122,6 +122,32 @@ export default function ConsoleShell({
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // 2026-09 全局搜索（AIDR 式顶栏搜索）：debounce 调 /api/search，下拉分组结果快速跳转。
+  const [searchQ, setSearchQ] = useState('');
+  const [searchRes, setSearchRes] = useState<{
+    devices: Array<Record<string, unknown>>;
+    tickets: Array<Record<string, unknown>>;
+    assets: Array<Record<string, unknown>>;
+  } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  useEffect(() => {
+    const q = searchQ.trim();
+    if (!q) {
+      setSearchRes(null);
+      setSearchOpen(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      fetch(`/api/search?q=${encodeURIComponent(q)}`, { cache: 'no-store' })
+        .then((r) => (r.ok ? (r.json() as Promise<typeof searchRes>) : null))
+        .then((d) => {
+          setSearchRes(d);
+          setSearchOpen(true);
+        })
+        .catch(() => setSearchRes(null));
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [searchQ]);
 
   // 移动端抽屉导航：路由变化后自动收起。
   useEffect(() => {
@@ -198,6 +224,59 @@ export default function ConsoleShell({
             <span>
               Aegis<span className="brand-muted"> / Agent Security</span>
             </span>
+          </div>
+          {/* 全局搜索（AIDR 式）：资产/终端、工单、打标资产三源下拉跳转 */}
+          <div style={{ position: 'relative', flex: '1 1 300px', maxWidth: 420, margin: '0 12px' }}>
+            <input
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder="搜索资产 / IP / 工单 / 资产标识…"
+              aria-label="全局搜索"
+              style={{ width: '100%', padding: '7px 12px', borderRadius: 8, border: '1px solid var(--input)', background: 'var(--surface-2)', color: 'var(--foreground)', fontSize: 13 }}
+            />
+            {searchOpen && searchRes && (
+              <div style={{ position: 'absolute', top: '110%', left: 0, right: 0, background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: 'var(--shadow-overlay)', zIndex: 50, maxHeight: 380, overflow: 'auto', padding: 6 }}>
+                {searchRes.devices.length === 0 && searchRes.tickets.length === 0 && searchRes.assets.length === 0 && (
+                  <p style={{ fontSize: 12, color: 'var(--muted-foreground)', padding: 8, margin: 0 }}>无匹配结果</p>
+                )}
+                {searchRes.devices.length > 0 && <div style={{ fontSize: 11, color: 'var(--muted-foreground)', padding: '4px 8px' }}>资产 / 终端</div>}
+                {searchRes.devices.map((d) => (
+                  <Link
+                    key={String(d.device_id)}
+                    href={`/devices?focus=${encodeURIComponent(String(d.device_id))}`}
+                    onClick={() => { setSearchOpen(false); setSearchQ(''); }}
+                    style={{ display: 'block', padding: '6px 8px', borderRadius: 6, color: 'var(--foreground)', fontSize: 12, textDecoration: 'none' }}
+                  >
+                    <b>{String(d.hostname || d.device_id)}</b>{' '}
+                    <span style={{ color: 'var(--muted-foreground)' }}>{String(d.device_id)} · {String(d.agent_version ?? '')}</span>
+                  </Link>
+                ))}
+                {searchRes.tickets.length > 0 && <div style={{ fontSize: 11, color: 'var(--muted-foreground)', padding: '4px 8px' }}>工单</div>}
+                {searchRes.tickets.map((t) => (
+                  <Link
+                    key={String(t.id)}
+                    href="/risks"
+                    onClick={() => { setSearchOpen(false); setSearchQ(''); }}
+                    style={{ display: 'block', padding: '6px 8px', borderRadius: 6, color: 'var(--foreground)', fontSize: 12, textDecoration: 'none' }}
+                  >
+                    <b>{String(t.title || t.id)}</b>{' '}
+                    <span style={{ color: 'var(--muted-foreground)' }}>{String(t.device_id ?? '')} · {String(t.status ?? '')}</span>
+                  </Link>
+                ))}
+                {searchRes.assets.length > 0 && <div style={{ fontSize: 11, color: 'var(--muted-foreground)', padding: '4px 8px' }}>打标资产</div>}
+                {searchRes.assets.map((a) => (
+                  <Link
+                    key={`${String(a.asset_type)}:${String(a.asset_key)}`}
+                    href="/dispositions"
+                    onClick={() => { setSearchOpen(false); setSearchQ(''); }}
+                    style={{ display: 'block', padding: '6px 8px', borderRadius: 6, color: 'var(--foreground)', fontSize: 12, textDecoration: 'none' }}
+                  >
+                    <b>{String(a.asset_key)}</b>{' '}
+                    <span style={{ color: 'var(--muted-foreground)' }}>{String(a.asset_type)} · {String(a.disposition ?? '')}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
           <div className="header-actions">
             <span className="system-ok">

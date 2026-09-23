@@ -109,7 +109,9 @@ export async function pgLoadAll(): Promise<{
     const d = await c.query('SELECT * FROM devices');
     const t = await c.query('SELECT * FROM tickets ORDER BY created_at');
     const h = await c.query('SELECT * FROM ticket_history ORDER BY id');
-    const a = await c.query('SELECT * FROM audit_log ORDER BY id');
+    // P2(30k)：审计有界加载——旧版 SELECT * 整表入内存，规模上来后 hydrate 即爆内存。
+    // 只取最近 5000 条（DESC 取再反转为升序，保持既有顺序语义）；更旧审计仍在 PG，可按需分页查。
+    const a = await c.query('SELECT * FROM audit_log ORDER BY id DESC LIMIT 5000');
     const ad = await c.query('SELECT employee_no FROM admins');
     const au = await c.query('SELECT employee_no FROM auditors');
 
@@ -140,7 +142,7 @@ export async function pgLoadAll(): Promise<{
         history: histByTicket.get(row.ticket_id) ?? [],
       } as Ticket,
     ]);
-    const audit: AuditEntry[] = a.rows.map((row) => ({
+    const audit: AuditEntry[] = a.rows.slice().reverse().map((row) => ({
       id: Number(row.id), timestamp: Number(row.ts ?? 0), actor: row.actor ?? '',
       action: row.action, resource_type: row.resource_type,
       ...(row.resource_id ? { resource_id: row.resource_id } : {}),
