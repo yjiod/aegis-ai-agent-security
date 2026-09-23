@@ -32,6 +32,17 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import Link from 'next/link';
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+} from 'recharts';
 
 import { useCollector } from '@/components/collector-context';
 
@@ -123,6 +134,12 @@ interface AuditLite {
 }
 
 /* ─── 防护能力(功能描述, 非指标) ──────────────────────────────────────── */
+interface TrendBucketLite {
+  t: number;
+  reports: number;
+  critical: number;
+  high: number;
+}
 const modules = [
   { icon: ScanLine, title: '终端 Agent 发现', desc: '清点已安装的 AI 编码工具', status: '已启用', tone: 'green' },
   { icon: Sparkles, title: 'Skill 扫描器', desc: '权限、指令与依赖', status: '已启用', tone: 'green' },
@@ -148,6 +165,8 @@ export default function Home() {
   const [devices, setDevices] = useState<DeviceLite[] | null>(null);
   const [tickets, setTickets] = useState<TicketLite[] | null>(null);
   const [audit, setAudit] = useState<AuditLite[] | null>(null);
+  // 2026-09 改版：首页趋势图 + KPI 环比数据源（/api/trend → Collector /v1/trend，小时桶）。
+  const [trend, setTrend] = useState<{ hours: number; buckets: TrendBucketLite[] } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -159,6 +178,9 @@ export default function Home() {
     });
     getJson<{ entries?: AuditLite[] }>('/api/audit?limit=6').then((d) => {
       if (alive) setAudit(Array.isArray(d?.entries) ? (d.entries as AuditLite[]) : []);
+    });
+    getJson<{ hours?: number; buckets?: TrendBucketLite[] }>('/api/trend?hours=48').then((d) => {
+      if (alive && d && Array.isArray(d.buckets)) setTrend({ hours: d.hours ?? 48, buckets: d.buckets });
     });
     return () => {
       alive = false;
@@ -178,6 +200,19 @@ export default function Home() {
   const animCoverage = useAnimatedNumber(Math.round(coverage * 10));
   const animRisk = useAnimatedNumber(highRiskDevices);
   const animDrift = useAnimatedNumber(driftDevices);
+
+  /* 趋势 KPI：近24h vs 前24h 环比（真实 Collector 数据；未连接为 0/—，不造假） */
+  const buckets24 = trend ? trend.buckets.slice(-24) : [];
+  const prior24 = trend ? trend.buckets.slice(-48, -24) : [];
+  const sumBy = (bs: TrendBucketLite[], k: 'reports' | 'critical' | 'high') => bs.reduce((a, b) => a + (b[k] || 0), 0);
+  const reports24 = sumBy(buckets24, 'reports');
+  const reportsPrior = sumBy(prior24, 'reports');
+  const crit24 = sumBy(buckets24, 'critical');
+  const critPrior = sumBy(prior24, 'critical');
+  const high24 = sumBy(buckets24, 'high');
+  const highPrior = sumBy(prior24, 'high');
+  const deltaPct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0);
+  const chartData = buckets24.map((b) => ({ ...b, label: `${new Date(b.t * 1000).getHours()}:00` }));
 
   /* 真实分工具覆盖: 由 /api/devices 按 agent_type 聚合 */
   const toolCoverage = useMemo(() => {
@@ -284,7 +319,91 @@ export default function Home() {
           <strong>{fleet ? animDrift : '—'}</strong>
           <p>Agent 或策略版本不一致</p>
         </article>
+        {/* 2026-09 改版 KPI：近24h 上报量 / 近24h 严重+高危上报，带环比 delta（AIDR 式） */}
+        <article className="metric animate-entrance animate-entrance-5">
+          <div className="metric-top">
+            <span>近24h 上报</span>
+            <Activity size={18} />
+          </div>
+          <strong>{trend ? reports24 : '—'}</strong>
+          <p>
+            环比前24h{' '}
+            {trend ? (
+              <em style={{ color: deltaPct(reports24, reportsPrior) >= 0 ? 'var(--destructive)' : 'var(--primary)' }}>
+                {deltaPct(reports24, reportsPrior) >= 0 ? '↑' : '↓'} {Math.abs(deltaPct(reports24, reportsPrior))}%
+              </em>
+            ) : (
+              '—'
+            )}
+          </p>
+        </article>
+        <article className="metric danger animate-entrance animate-entrance-6">
+          <div className="metric-top">
+            <span>近24h 严重/高危上报</span>
+            <TrendingUp size={18} />
+          </div>
+          <strong>{trend ? crit24 + high24 : '—'}</strong>
+          <p>
+            <i>{crit24} 严重</i> · {high24} 高危 · 环比{' '}
+            {trend ? (
+              <em>{deltaPct(crit24 + high24, critPrior + highPrior) >= 0 ? '↑' : '↓'} {Math.abs(deltaPct(crit24 + high24, critPrior + highPrior))}%</em>
+            ) : (
+              '—'
+            )}
+          </p>
+        </article>
       </div>
+
+      {/* ─── 上报趋势（近24小时，AIDR 式趋势图）────────────────────────── */}
+      <section className="panel animate-entrance animate-entrance-5" style={{ padding: 16, marginBottom: 16 }}>
+        <div className="panel-head">
+          <div>
+            <h2>上报趋势（近24小时）</h2>
+            <p>按小时分桶的终端上报 / 严重 / 高危设备上报数（Collector 真实数据）</p>
+          </div>
+          <Badge variant="outline">
+            <span className="live-dot" />
+            {trend ? '实时' : '未连接'}
+          </Badge>
+        </div>
+        {trend ? (
+          <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 480px', height: 220, minWidth: 300 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} stroke="var(--border)" interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }} stroke="var(--border)" allowDecimals={false} />
+                  <RechartsTooltip
+                    contentStyle={{ background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: 'var(--muted-foreground)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Area type="monotone" dataKey="reports" name="上报数" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.12} strokeWidth={2} />
+                  <Line type="monotone" dataKey="critical" name="严重" stroke="var(--destructive)" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="high" name="高危" stroke="#e8a33d" strokeWidth={2} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ flex: '0 0 180px', display: 'grid', gap: 10, alignContent: 'start' }}>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>总上报（24h）</div>
+                <strong style={{ fontSize: 22 }}>{reports24}</strong>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>严重（24h）</div>
+                <strong style={{ fontSize: 22, color: 'var(--destructive)' }}>{crit24}</strong>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>高危（24h）</div>
+                <strong style={{ fontSize: 22, color: '#e8a33d' }}>{high24}</strong>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="empty-hint">接收器未连接，暂无趋势数据。</p>
+        )}
+      </section>
 
       {/* ─── Content Grid ─────────────────────────────────────────── */}
       <div className="content-grid">

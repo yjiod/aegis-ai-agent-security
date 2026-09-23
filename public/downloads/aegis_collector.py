@@ -367,6 +367,25 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
         credential_posture["legacy" if generation is None else "current" if generation==0 else "previous"]+=1
     active=sum(received>=now-active_window for received,_,_,_,_ in rows)
     return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture}
+def collector_trend(db_path, hours=24, now=None):
+    """按小时分桶的上报趋势（首页趋势图数据源）。
+
+    走 idx_reports_received 区间扫 + GROUP BY 小时桶，只扫窗口内行（非全表），30k 规模下
+    24h 窗口约数十万行、毫秒~百毫秒级。返回补齐空桶的连续序列，前端可直接画连续折线。
+    severity 为设备级（该次上报含 critical/high 即计），对应"严重/高危设备上报数"。"""
+    now=int(time.time()) if now is None else int(now)
+    hours=min(max(int(hours),1),168)
+    start=now-hours*3600
+    with db_open(db_path) as db:
+        rows=db.execute("SELECT (received_at/3600)*3600 AS b, COUNT(*), SUM(severity='critical'), SUM(severity='high') FROM reports WHERE received_at>=? GROUP BY b ORDER BY b",(start,)).fetchall()
+    by_bucket={r[0]:(r[1],r[2],r[3]) for r in rows}
+    buckets=[]
+    t=(start//3600)*3600
+    while t<=now:
+        c=by_bucket.get(t,(0,0,0))
+        buckets.append({"t":t,"reports":c[0],"critical":c[1],"high":c[2]})
+        t+=3600
+    return {"generated_at":now,"hours":hours,"buckets":buckets}
 class Handler(BaseHTTPRequestHandler):
     server_version="AegisCollector/0.15"
     def reply(self,status,data,headers=None):
@@ -603,6 +622,15 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path=="/v1/summary" and not parsed.query:
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+        if parsed.path=="/v1/trend":
+            query=parse_qs(parsed.query,keep_blank_values=True)
+            if set(query)-{"hours"} or any(len(v)!=1 for v in query.values()): return self.reply(400,{"error":"invalid_query"})
+            try: hours=int(query.get("hours",["24"])[0])
+            except ValueError: return self.reply(400,{"error":"invalid_hours"})
+            if not 1<=hours<=168: return self.reply(400,{"error":"invalid_hours"})
+            try:
+                return self.reply(200,collector_trend(self.server.db_path,hours))
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         if parsed.path=="/v1/audit" and not parsed.query:
             try:

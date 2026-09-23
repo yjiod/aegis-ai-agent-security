@@ -485,6 +485,22 @@ class AegisTests(unittest.TestCase):
         self.assertIn('insecure_tls_verification',{f['kind'] for f in self.agent.scan_text('app.py',code,policy)})
         code2="process.env.NODE_TLS_REJECT_UNAUTHORIZED=0\n"
         self.assertIn('insecure_tls_verification',{f['kind'] for f in self.agent.scan_text('server.js',code2,policy)})
+    def test_collector_trend_buckets_hourly_fills_gaps_and_clamps(self):
+        # 首页趋势图数据源：按小时分桶、补齐空桶、severity 设备级计数、hours 钳制。
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=3600*1000+1800
+            self.collector.store_report(path,b'{}',{'device_id':'aaaaaaaaaaaa','summary':{'critical':0,'high':0},'scanned_at':now-3600*2},now=now-3600*2)
+            self.collector.store_report(path,b'{}',{'device_id':'bbbbbbbbbbbb','summary':{'critical':1,'high':0},'scanned_at':now-3600*2+60},now=now-3600*2+60)
+            self.collector.store_report(path,b'{}',{'device_id':'cccccccccccc','summary':{'critical':0,'high':1},'scanned_at':now-100},now=now-100)
+            tr=self.collector.collector_trend(path,24,now=now)
+            self.assertEqual(tr['hours'],24); self.assertEqual(len(tr['buckets']),25)
+            self.assertEqual(sum(b['reports'] for b in tr['buckets']),3)
+            self.assertEqual(sum(b['critical'] for b in tr['buckets']),1)
+            self.assertEqual(sum(b['high'] for b in tr['buckets']),1)
+            ts=[b['t'] for b in tr['buckets']]
+            self.assertEqual(ts,sorted(ts)); self.assertEqual(len(set(ts)),len(ts))   # 连续无缺桶
+            self.assertEqual(self.collector.collector_trend(path,0,now=now)['hours'],1)
+            self.assertEqual(self.collector.collector_trend(path,999,now=now)['hours'],168)
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
