@@ -109,8 +109,10 @@
 
 .detail-kpis article,
 .baseline-banner {
-  background: linear-gradient(145deg, #123226, #0c1d18);
-  border: 1px solid #24503f;
+  /* harmonize：KPI 卡不再用实心绿渐变块（与深色主题冲突的"绿块"），改中性
+     Sentinel 表面；语义色由 globals 的左侧 accent 边条承担。 */
+  background: linear-gradient(160deg, rgba(13, 32, 44, 0.9), rgba(8, 24, 34, 0.92));
+  border: 1px solid var(--sentinel-line, rgba(111, 173, 204, 0.22));
   border-radius: 11px;
   padding: 20px;
   position: relative;
@@ -125,8 +127,8 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, #49e8a5, transparent);
-  opacity: 0.6;
+  background: transparent;
+  opacity: 0;
 }
 
 .detail-kpis article:hover {

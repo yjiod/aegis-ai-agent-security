@@ -501,7 +501,9 @@ export default function Home() {
             当前版本设备 <em>{currentDevices}</em> 台
           </p>
         </article>
-        <article className="metric danger animate-entrance animate-entrance-3">
+        <article
+          className={`metric${fleet && (fleet.latest_severity.critical + fleet.latest_severity.high) > 0 ? ' danger' : ''} animate-entrance animate-entrance-3`}
+        >
           <div className="metric-top">
             <span>高风险设备</span>
             <AlertTriangle size={18} />
@@ -537,7 +539,9 @@ export default function Home() {
             )}
           </p>
         </article>
-        <article className="metric danger animate-entrance animate-entrance-6">
+        <article
+          className={`metric${trend && crit24 + high24 > 0 ? ' danger' : ''} animate-entrance animate-entrance-6`}
+        >
           <div className="metric-top">
             <span>近24h 严重/高危上报</span>
             <TrendingUp size={18} />
@@ -555,14 +559,13 @@ export default function Home() {
       </div>
 
       {/* ─── 上报趋势（近24小时，AIDR 式趋势图）────────────────────────── */}
+      {/* 不再叠加装饰性"威胁曲线"背景图：无数据时它会被误读成伪造的趋势线，
+          有数据时又与真实折线重叠（handoff 原则5：不渲染假图表）。 */}
       <section
         className="panel animate-entrance animate-entrance-5"
         style={{
           padding: 16,
           marginBottom: 16,
-          backgroundImage: 'url(/sentinel-threat-grid.svg)',
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
         }}
       >
         <div className="panel-head">

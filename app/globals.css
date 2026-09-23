@@ -255,12 +255,17 @@
   background: #e3ece8;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
 }
-[data-theme="light"] .metric [data-slot="progress"] div,
-[data-theme="light"] .coverage-row [data-slot="progress"] div {
+[data-theme="light"] .metric [data-slot="progress-track"],
+[data-theme="light"] .coverage-row [data-slot="progress-track"] {
+  background: #e3ece8;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+[data-theme="light"] .metric [data-slot="progress-indicator"],
+[data-theme="light"] .coverage-row [data-slot="progress-indicator"] {
   background: linear-gradient(90deg, #1a9d6e, #127a54);
   box-shadow: none;
 }
-[data-theme="light"] .metric.danger [data-slot="progress"] div {
+[data-theme="light"] .metric.danger [data-slot="progress-indicator"] {
   background: linear-gradient(90deg, #d9564e, #c0392b);
   box-shadow: none;
 }
@@ -1007,15 +1012,22 @@ button {
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
-.metric [data-slot="progress"] div,
-.coverage-row [data-slot="progress"] div {
+.metric [data-slot="progress-track"],
+.coverage-row [data-slot="progress-track"] {
+  background: rgba(27, 51, 44, 0.85);
+  border-radius: 99px;
+}
+
+/* 指示器（真实数值宽度）才着色；轨道保持中性，避免"永远满格绿"的误读 */
+.metric [data-slot="progress-indicator"],
+.coverage-row [data-slot="progress-indicator"] {
   background: linear-gradient(90deg, #2fbf81, var(--primary));
   border-radius: 99px;
   box-shadow: 0 0 10px rgba(73, 232, 165, 0.4);
   transition: width 0.8s var(--ease-out);
 }
 
-.metric.danger [data-slot="progress"] div {
+.metric.danger [data-slot="progress-indicator"] {
   background: linear-gradient(90deg, #d9564e, #ff8a80);
   box-shadow: 0 0 10px rgba(255, 104, 95, 0.4);
 }
