@@ -46,6 +46,7 @@ import {
 
 import { useCollector } from '@/components/collector-context';
 import { ObservabilityPanel } from '@/components/observability-panel';
+import { SourceAttributionPanel } from '@/components/source-attribution-panel';
 
 /* ─── Animated number ──────────────────────────────────────────────────── */
 function useAnimatedNumber(target: number) {
@@ -173,7 +174,7 @@ export default function Home() {
   // 2026-09 总览重构(handoff 4.2)：处置进度需全量工单状态分布（有界 500）。
   const [ticketsAll, setTicketsAll] = useState<TicketLite[] | null>(null);
   // P2 态势视图切换 + 规则/来源排行（真实数据；无真实地理数据→降级为排行表，handoff P2/原则5）。
-  const [view, setView] = useState<'overview' | 'coverage' | 'rules' | 'efficiency'>('overview');
+  const [view, setView] = useState<'overview' | 'coverage' | 'rules' | 'efficiency' | 'sources'>('overview');
   const [findingsAll, setFindingsAll] = useState<Array<Record<string, unknown>> | null>(null);
   // 2026-09 改版：首页趋势图 + KPI 环比数据源（/api/trend → Collector /v1/trend，小时桶）。
   const [trend, setTrend] = useState<{ hours: number; buckets: TrendBucketLite[] } | null>(null);
@@ -662,6 +663,13 @@ export default function Home() {
             已完成 {dispCounts.resolved} · 处理中 {dispCounts.processing} · 待处理 {dispCounts.pending} · 已关闭 {dispCounts.closed}
           </p>
         </section>
+      )}
+
+      {view === 'sources' && (
+        <SourceAttributionPanel
+          devices={(devices ?? []) as unknown as Array<{ device_id: string; hostname?: string; os?: string; network?: { egress_ip?: string } }>}
+          findings={(findingsAll ?? []) as unknown as Array<{ device_id: string; kind: string; severity: string }>}
+        />
       )}
 
       {/* ─── 态势两区：风险资产 / 处置进度（健康度已并入统一可观测组件）────── */}
