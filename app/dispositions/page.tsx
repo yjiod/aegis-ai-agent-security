@@ -10,12 +10,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Tags, ShieldCheck, ShieldAlert, Eye, Plus, Trash2, Download, Upload } from 'lucide-react';
+import { Tags, ShieldCheck, ShieldAlert, Eye, Plus, Trash2, Download, Upload, ChevronDown, Library, UserCog } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
-import { Pagination, paginate } from '@/components/pagination';
 import { RiskSignalHelp } from '@/components/risk-signal-help';
 
 interface Label {
@@ -69,8 +68,6 @@ export default function DispositionsPage() {
   const isAdmin = role === 'admin';
   const [labels, setLabels] = useState<Label[] | null>(null);
   // 规模化分页（几千处置项）：列表分页渲染。
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 50;
   const [error, setError] = useState('');
   const [seedMsg, setSeedMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -88,6 +85,15 @@ export default function DispositionsPage() {
   >([]);
   // 系统默认放行（原生自带）默认折叠，避免"加白"列表被非用户决策项刷屏（用户反馈）。
   const [showDefaults, setShowDefaults] = useState(false);
+
+  // 2026-09 改版（处置中心 IA）：自定义库按资产类型分组折叠 + 搜索/筛选 + 组内增量加载，
+  // 应对几百上千条加白时的可读性与性能（旧版为单一平铺分页列表）。
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'skill' | 'mcp' | 'path'>('all');
+  const [dispFilter, setDispFilter] = useState<'all' | 'allow' | 'monitor' | 'deny'>('all');
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [groupLimit, setGroupLimit] = useState<Record<string, number>>({});
+  const GROUP_PAGE = 20;
 
   // add form
   const [newType, setNewType] = useState<'skill' | 'mcp' | 'path'>('skill');
@@ -322,6 +328,20 @@ export default function DispositionsPage() {
   const defaultLabels = allLabels.filter(isSystemDefault);
   const userLabels = allLabels.filter((l) => !isSystemDefault(l));
 
+  // 自定义库：搜索 + 类型/处置筛选 → 按资产类型分组（折叠），组内增量加载。
+  const q = query.trim().toLowerCase();
+  const filteredUser = userLabels.filter(
+    (l) =>
+      (typeFilter === 'all' || l.asset_type === typeFilter) &&
+      (dispFilter === 'all' || l.disposition === dispFilter) &&
+      (!q || l.asset_key.toLowerCase().includes(q) || l.tags.some((t) => t.toLowerCase().includes(q))),
+  );
+  const GROUP_ORDER: Array<'skill' | 'mcp' | 'path'> = ['skill', 'mcp', 'path'];
+  const GROUP_NAME: Record<'skill' | 'mcp' | 'path', string> = { skill: 'Skill 库', mcp: 'MCP 库', path: '代码路径库' };
+  const groups = GROUP_ORDER.map((t) => ({ type: t, items: filteredUser.filter((l) => l.asset_type === t) })).filter(
+    (g) => g.items.length > 0,
+  );
+
   return (
     <>
       <div className="page-head animate-entrance animate-entrance-1">
@@ -370,16 +390,30 @@ export default function DispositionsPage() {
         </div>
       )}
 
-      {/* 系统默认放行（默认折叠）：原生自带、自动加白，不作为用户"加白"决策展示 */}
+      {/* 双库概览：AI Agent 预制库 + 自定义库（2026-09 改版 IA） */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <div className="metric" style={{ minHeight: 92 }}>
+          <div className="metric-top"><span><Library size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: -2 }} />AI Agent 预制库</span></div>
+          <strong style={{ fontSize: 26 }}>{defaultLabels.length}</strong>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>原生自带 skill/MCP，自动加白并参与抑制与策略编译</p>
+        </div>
+        <div className="metric" style={{ minHeight: 92 }}>
+          <div className="metric-top"><span><UserCog size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: -2 }} />自定义库</span></div>
+          <strong style={{ fontSize: 26 }}>{userLabels.length}</strong>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>我的加白 / 观察 / 拉黑决策，按类型分组折叠管理</p>
+        </div>
+      </div>
+
+      {/* AI Agent 预制库（默认折叠）：原生自带、自动加白，不作为用户"加白"决策展示 */}
       {defaultLabels.length > 0 && (
         <div className="panel animate-entrance animate-entrance-2" style={{ padding: 12, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Badge variant="outline">
               <ShieldCheck size={12} />
-              系统默认放行 {defaultLabels.length} 项
+              AI Agent 预制库 · 系统默认放行 {defaultLabels.length} 项
             </Badge>
             <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
-              AI Agent 原生自带的 skill / MCP，自动加白并参与告警抑制与策略编译；不计入你的处置决策、不在下方加白列表显示。
+              AI Agent 原生自带的 skill / MCP，自动加白并参与告警抑制与策略编译；不计入你的处置决策、不在下方自定义库显示。
             </span>
             <Button variant="outline" size="sm" onClick={() => setShowDefaults((v) => !v)} style={{ marginLeft: 'auto' }}>
               {showDefaults ? '收起' : '展开查看 / 单独覆盖'}
@@ -412,77 +446,118 @@ export default function DispositionsPage() {
         </div>
       )}
 
-      {/* labels list（仅用户决策项；系统默认放行见上方折叠组） */}
-      <div className="panel animate-entrance animate-entrance-3" style={{ padding: 8 }}>
+      {/* 自定义库（我的处置）：搜索/筛选 + 按资产类型分组折叠 + 组内增量加载（应对数百上千条） */}
+      <div className="panel animate-entrance animate-entrance-3" style={{ padding: 12 }}>
+        <div className="panel-head" style={{ marginBottom: 10 }}>
+          <h2><UserCog size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: -2 }} />自定义库（我的处置）</h2>
+          <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>共 {userLabels.length} 项 · 筛选后 {filteredUser.length} 项</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <Input placeholder="搜索资产标识 / 标签…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ maxWidth: 260, fontSize: 12 }} />
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}>
+            <option value="all">全部类型</option><option value="skill">Skill</option><option value="mcp">MCP</option><option value="path">代码路径</option>
+          </select>
+          <select value={dispFilter} onChange={(e) => setDispFilter(e.target.value as typeof dispFilter)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}>
+            <option value="all">全部处置</option><option value="allow">加白</option><option value="monitor">观察</option><option value="deny">拉黑</option>
+          </select>
+        </div>
         {labels === null ? (
           <p className="empty-hint">加载处置注册表…</p>
-        ) : userLabels.length === 0 ? (
-          <p className="empty-hint">暂无你的处置决策。可手动添加资产并加白 / 观察 / 拉黑；系统默认放行项见上方折叠组。</p>
+        ) : groups.length === 0 ? (
+          <p className="empty-hint">{userLabels.length === 0 ? '暂无你的处置决策。可手动添加资产并加白 / 观察 / 拉黑；AI Agent 预制库见上方折叠组。' : '无匹配项，请调整搜索 / 筛选。'}</p>
         ) : (
-          paginate(userLabels, page, PAGE_SIZE).rows.map((l) => {
-            const meta = DISP_META[l.disposition];
-            const Icon = meta.icon;
-            return (
-              <div key={`${l.asset_type}:${l.asset_key}`} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 10px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
-                <Badge variant="outline">{l.asset_type}</Badge>
-                <strong style={{ minWidth: 180 }}>{l.asset_key}</strong>
-                <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  {l.tags.map((t) => (
-                    <Badge key={t} variant="outline">
-                      <Tags size={11} />
-                      {t}
-                    </Badge>
-                  ))}
-                </span>
-                <Badge variant="outline">
-                  <Icon size={12} />
-                  {meta.label}
-                </Badge>
-                <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
-                  {l.updated_by} · {relTime(l.updated_at)}
-                </span>
-                {isAdmin && (
-                  <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <select
-                      value={l.disposition}
-                      disabled={busy}
-                      onChange={(e) => void save(l, { disposition: e.target.value as Label['disposition'] })}
-                      style={{ padding: '4px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}
-                    >
-                      <option value="">未处置</option>
-                      <option value="allow">加白</option>
-                      <option value="monitor">观察</option>
-                      <option value="deny">拉黑</option>
-                    </select>
-                    <Input
-                      placeholder="标签,逗号分隔"
-                      defaultValue={l.tags.join(',')}
-                      disabled={busy}
-                      onBlur={(e) => {
-                        const tags = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
-                        if (tags.join(',') !== l.tags.join(',')) void save(l, { tags });
-                      }}
-                      style={{ width: 150, fontSize: 12 }}
-                    />
-                    <Button variant="outline" onClick={() => void removeAsset(l)} disabled={busy} aria-label="删除">
-                      <Trash2 size={14} />
-                    </Button>
-                  </span>
-                )}
-              </div>
-            );
-          })
-        )}
-        {userLabels.length > 0 && (
-          <Pagination
-            page={page}
-            pageCount={Math.max(1, Math.ceil(userLabels.length / PAGE_SIZE))}
-            onPage={setPage}
-            total={userLabels.length}
-            pageSize={PAGE_SIZE}
-          />
+          <div style={{ display: 'grid', gap: 10 }}>
+            {groups.map((g) => {
+              const open = !collapsed[g.type];
+              const limit = groupLimit[g.type] ?? GROUP_PAGE;
+              const shown = g.items.slice(0, limit);
+              return (
+                <section key={g.type} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  <button
+                    type="button"
+                    onClick={() => setCollapsed((c) => ({ ...c, [g.type]: open }))}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: 'var(--surface-2)', border: 'none', borderBottom: open ? '1px solid var(--border)' : 'none', color: 'var(--foreground)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                  >
+                    <ChevronDown size={14} style={{ transform: open ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }} />
+                    {GROUP_NAME[g.type]}
+                    <Badge variant="outline">{g.items.length}</Badge>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted-foreground)', fontWeight: 400 }}>
+                      加白 {g.items.filter((x) => x.disposition === 'allow').length} · 观察 {g.items.filter((x) => x.disposition === 'monitor').length} · 拉黑 {g.items.filter((x) => x.disposition === 'deny').length}
+                    </span>
+                  </button>
+                  {open && (
+                    <div>
+                      {shown.map((l) => {
+                      const meta = DISP_META[l.disposition];
+                      const Icon = meta.icon;
+                      return (
+                        <div key={`${l.asset_type}:${l.asset_key}`} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '9px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                          <Badge variant="outline">{l.asset_type}</Badge>
+                          <strong style={{ minWidth: 180, fontSize: 13 }}>{l.asset_key}</strong>
+                          <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                            {l.tags.map((t) => (
+                              <Badge key={t} variant="outline">
+                                <Tags size={11} />
+                                {t}
+                              </Badge>
+                            ))}
+                          </span>
+                          <Badge variant="outline">
+                            <Icon size={12} />
+                            {meta.label}
+                          </Badge>
+                          <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
+                            {l.updated_by} · {relTime(l.updated_at)}
+                          </span>
+                          {isAdmin && (
+                            <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <select
+                                value={l.disposition}
+                                disabled={busy}
+                                onChange={(e) => void save(l, { disposition: e.target.value as Label['disposition'] })}
+                                style={{ padding: '4px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}
+                              >
+                                <option value="">未处置</option>
+                                <option value="allow">加白</option>
+                                <option value="monitor">观察</option>
+                                <option value="deny">拉黑</option>
+                              </select>
+                              <Input
+                                placeholder="标签,逗号分隔"
+                                defaultValue={l.tags.join(',')}
+                                disabled={busy}
+                                onBlur={(e) => {
+                                  const tags = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+                                  if (tags.join(',') !== l.tags.join(',')) void save(l, { tags });
+                                }}
+                                style={{ width: 150, fontSize: 12 }}
+                              />
+                              <Button variant="outline" onClick={() => void removeAsset(l)} disabled={busy} aria-label="删除">
+                                <Trash2 size={14} />
+                              </Button>
+                            </span>
+                          )}
+                        </div>
+                      );
+                      })}
+                      {g.items.length > limit && (
+                        <button
+                          type="button"
+                          onClick={() => setGroupLimit((m) => ({ ...m, [g.type]: limit + GROUP_PAGE }))}
+                          style={{ width: '100%', padding: '7px', background: 'none', border: 'none', borderTop: '1px solid var(--border)', color: 'var(--primary)', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          加载更多（还有 {g.items.length - limit} 项）
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
         )}
       </div>
+
 
       {/* policy publish (server-authoritative) */}
       <div className="panel animate-entrance animate-entrance-4" style={{ padding: 16, marginTop: 16 }}>

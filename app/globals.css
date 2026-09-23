@@ -391,10 +391,9 @@ html {
 body {
   margin: 0;
   color: var(--foreground);
-  background:
-    radial-gradient(1100px 420px at 78% -12%, rgba(28, 84, 64, 0.42) 0%, transparent 62%),
-    radial-gradient(760px 380px at 8% 104%, rgba(19, 58, 46, 0.28) 0%, transparent 58%),
-    var(--surface-0);
+  /* 2026-09 改版：去掉双层 radial 渐变背景（"AI 味"来源之一），改为平整单色底，
+     贴近专业安全运营台（AIDR 参考）的克制底色；层次靠面板边框/分隔线而非发光。 */
+  background: var(--surface-0);
   background-attachment: fixed;
   font-family: var(--font-geist-sans), "PingFang SC", "Microsoft YaHei", sans-serif;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
@@ -695,12 +694,12 @@ button {
 }
 
 .nav-item.active {
-  background: linear-gradient(90deg, #153c30 0%, #10271f 70%, rgba(16, 39, 31, 0.6) 100%);
+  /* 改版：去横向渐变+内发光，改平整实底 + 左侧 3px 主色条（AIDR 侧栏活动态）。 */
+  background: var(--accent);
   color: #6cf2b8;
   border-color: rgba(73, 232, 165, 0.16);
   box-shadow:
     inset 3px 0 0 var(--primary),
-    inset 0 0 24px rgba(73, 232, 165, 0.06),
     0 4px 16px rgba(0, 0, 0, 0.3);
   font-weight: 600;
 }
@@ -795,10 +794,12 @@ button {
   margin: 6px 0 7px;
   letter-spacing: -0.035em;
   font-weight: 700;
-  background: linear-gradient(180deg, #f4fffa 20%, #b9d8cc 130%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  /* 改版：去渐变文字填充（"AI 味"），改实色前景，清晰专业。 */
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  -webkit-text-fill-color: var(--foreground);
+  color: var(--foreground);
 }
 
 .page-head p,
@@ -878,11 +879,8 @@ button {
 .metric,
 .panel {
   border: 1px solid var(--line-base);
-  background:
-    linear-gradient(158deg, rgba(17, 36, 31, 0.55) 0%, rgba(11, 23, 20, 0.85) 46%, rgba(9, 19, 16, 0.92) 100%),
-    var(--surface-glass);
-  backdrop-filter: blur(12px) saturate(1.25);
-  -webkit-backdrop-filter: blur(12px) saturate(1.25);
+  /* 改版：去玻璃拟态(backdrop-blur+多层渐变)，改平整实底面板；层次靠 1px 边框与轻投影。 */
+  background: var(--surface-1);
   box-shadow: var(--shadow-card);
   transition:
     border-color var(--dur) ease,
@@ -898,22 +896,23 @@ button {
   overflow: hidden;
 }
 
-/* top-border accent — default green, per-card-type variants below */
+/* top-border accent — 改版：平整实线顶条（去渐变淡出），贴近 AIDR 指标卡的克制强调 */
 .metric::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 14px;
-  right: 14px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(73, 232, 165, 0.55), transparent);
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(73, 232, 165, 0.5);
   pointer-events: none;
   transition: opacity var(--dur) ease;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .metric:hover {
-  transform: translateY(-2px);
+  /* 改版：去 translateY 浮动（"AI 味"动效），仅边框/顶条微调 */
+  transform: none;
   border-color: rgba(73, 232, 165, 0.22);
   box-shadow: var(--shadow-card-hover);
 }
@@ -1066,6 +1065,9 @@ button {
   margin: 0 0 5px;
   font-weight: 650;
   letter-spacing: -0.015em;
+  /* 改版：AIDR 式「｜标题」左侧主色竖条，强化分区识别、降通用感 */
+  padding-left: 10px;
+  border-left: 3px solid var(--primary);
 }
 
 .panel-head [data-slot="badge"] {
