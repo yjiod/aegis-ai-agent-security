@@ -16,6 +16,8 @@ export type FleetSummary = {
     unknown: number;
   };
   credential_posture?: { current: number; previous: number; legacy: number };
+  /** 计数层(stage-1)：fleet 发现总数（device_state 计数列 SUM，零 body 解析）。旧 collector 无此字段 → optional。 */
+  finding_totals?: { critical: number; high: number; medium: number; low: number };
 };
 
 export type CollectorState = 'checking' | 'live' | 'demo';

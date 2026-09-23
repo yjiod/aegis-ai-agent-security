@@ -398,6 +398,15 @@ export default function Home() {
                 <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>高危（24h）</div>
                 <strong style={{ fontSize: 22, color: '#e8a33d' }}>{high24}</strong>
               </div>
+              {/* 计数层(stage-1)：舰队累计发现总数，读 summary.finding_totals（O(设备数)，零 body 解析） */}
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>舰队累计 严重 / 高危</div>
+                <strong style={{ fontSize: 18, fontVariantNumeric: 'tabular-nums' }}>
+                  <span style={{ color: 'var(--destructive)' }}>{fleet?.finding_totals?.critical ?? 0}</span>
+                  {' / '}
+                  <span style={{ color: '#e8a33d' }}>{fleet?.finding_totals?.high ?? 0}</span>
+                </strong>
+              </div>
             </div>
           </div>
         ) : (

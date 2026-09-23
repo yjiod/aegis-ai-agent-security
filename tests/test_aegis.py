@@ -501,6 +501,14 @@ class AegisTests(unittest.TestCase):
             self.assertEqual(ts,sorted(ts)); self.assertEqual(len(set(ts)),len(ts))   # 连续无缺桶
             self.assertEqual(self.collector.collector_trend(path,0,now=now)['hours'],1)
             self.assertEqual(self.collector.collector_trend(path,999,now=now)['hours'],168)
+    def test_collector_summary_finding_totals_from_materialized_counts(self):
+        # 计数层(stage-1)：finding_totals = device_state 计数列 SUM（零 body 解析、O(设备数)）。
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=200000
+            self.collector.store_report(path,b'{}',{'device_id':'aaaaaaaaaaaa','summary':{'critical':2,'high':3,'medium':4,'low':5},'scanned_at':now},now=now)
+            self.collector.store_report(path,b'{}',{'device_id':'bbbbbbbbbbbb','summary':{'critical':1,'high':0,'medium':0,'low':0},'scanned_at':now},now=now)
+            s=self.collector.collector_summary(path,now=now)
+            self.assertEqual(s['finding_totals'],{'critical':3,'high':3,'medium':4,'low':5})
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

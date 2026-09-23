@@ -37,7 +37,12 @@ def db_open(path):
         # 汇总(collector_summary)据此定位每设备最新报告(PK join)，**不再**对 reports 全表
         # `GROUP BY device_id`(2160 万行上是秒级全表聚合，且被首页/角标(60s)/告警(5m)反复触发)。
         # ensure_device_state() 用高水位线增量回填历史/直插/迁移缺口，读路径始终 O(设备数)。
-        db.execute("CREATE TABLE IF NOT EXISTS device_state(device_id TEXT PRIMARY KEY,latest_id INTEGER NOT NULL,received_at INTEGER NOT NULL,severity TEXT NOT NULL,agent_version TEXT,policy_version TEXT,report_count INTEGER NOT NULL DEFAULT 0)"); db.commit()
+        db.execute("CREATE TABLE IF NOT EXISTS device_state(device_id TEXT PRIMARY KEY,latest_id INTEGER NOT NULL,received_at INTEGER NOT NULL,severity TEXT NOT NULL,agent_version TEXT,policy_version TEXT,report_count INTEGER NOT NULL DEFAULT 0,crit_count INTEGER NOT NULL DEFAULT 0,high_count INTEGER NOT NULL DEFAULT 0,med_count INTEGER NOT NULL DEFAULT 0,low_count INTEGER NOT NULL DEFAULT 0)"); db.commit()
+        # 计数层(stage-1)：存量 device_state 补严重度计数列（ingest 写、summary 读，零 body 解析）。
+        _ds_cols={row[1] for row in db.execute("PRAGMA table_info(device_state)")}
+        for _c in ("crit_count","high_count","med_count","low_count"):
+            if _c not in _ds_cols: db.execute(f"ALTER TABLE device_state ADD COLUMN {_c} INTEGER NOT NULL DEFAULT 0")
+        if _ds_cols and not {"crit_count"} & _ds_cols: db.commit()
         # 每设备上报令牌（批4）：token 以 sha256 哈希存储（不落明文），signing_secret 与
         # 凭据文件同待遇（服务端受控存储）。report_authentication 双接受：全局令牌 ∪ 每设备令牌。
         db.execute("CREATE TABLE IF NOT EXISTS device_tokens(device_id TEXT NOT NULL,token_hash TEXT NOT NULL,signing_secret TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(device_id,token_hash))"); db.commit()
@@ -304,7 +309,11 @@ def store_report(db_path,body,report,now=None,days=None,credential_generation=No
             # 索引 COUNT(idx_reports_device_time)在保留清理之后重算，故为「本次写入时刻的精确值」；
             # 只扫该设备自己的行(稳态 ~每天24×保留天)，绝非全表 GROUP BY。
             cnt=db.execute("SELECT COUNT(*) FROM reports WHERE device_id=?",(report["device_id"],)).fetchone()[0]
-            db.execute("INSERT INTO device_state(device_id,latest_id,received_at,severity,agent_version,policy_version,report_count) VALUES(?,?,?,?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET latest_id=excluded.latest_id,received_at=excluded.received_at,severity=excluded.severity,agent_version=excluded.agent_version,policy_version=excluded.policy_version,report_count=excluded.report_count",(report["device_id"],cursor.lastrowid,now,severity,report.get("agent_version"),report.get("policy_version"),cnt))
+            # 计数层(stage-1)：严重度发现计数随 ingest 物化（summary 已含 critical/high/medium/low，
+            # 直接取用、零 body 解析）。summary 缺字段时按 0，绝不猜测。
+            _sm=report.get("summary") if isinstance(report.get("summary"),dict) else {}
+            _cc=int(_sm.get("critical",0) or 0); _hc=int(_sm.get("high",0) or 0); _mc=int(_sm.get("medium",0) or 0); _lc=int(_sm.get("low",0) or 0)
+            db.execute("INSERT INTO device_state(device_id,latest_id,received_at,severity,agent_version,policy_version,report_count,crit_count,high_count,med_count,low_count) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(device_id) DO UPDATE SET latest_id=excluded.latest_id,received_at=excluded.received_at,severity=excluded.severity,agent_version=excluded.agent_version,policy_version=excluded.policy_version,report_count=excluded.report_count,crit_count=excluded.crit_count,high_count=excluded.high_count,med_count=excluded.med_count,low_count=excluded.low_count",(report["device_id"],cursor.lastrowid,now,severity,report.get("agent_version"),report.get("policy_version"),cnt,_cc,_hc,_mc,_lc))
         if credential_generation is not None: db.execute("INSERT INTO device_auth_state(device_id,last_seen,generation) VALUES(?,?,?) ON CONFLICT(device_id) DO UPDATE SET last_seen=excluded.last_seen,generation=excluded.generation",(report["device_id"],now,int(credential_generation)))
         generation="legacy" if credential_generation is None else "g"+str(int(credential_generation)); db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity+":"+generation)); maybe_prune_audit(db,now); db.commit()
     return {"accepted":True,"duplicate":duplicate,"report_id":receipt_id,"severity":severity}
@@ -344,7 +353,7 @@ def ensure_device_state(db):
     wm=db.execute("SELECT COALESCE(MAX(latest_id),0) FROM device_state").fetchone()[0]
     rmax=db.execute("SELECT COALESCE(MAX(id),0) FROM reports").fetchone()[0]
     if rmax<=wm: return 0
-    cur=db.execute("INSERT INTO device_state(device_id,latest_id,received_at,severity,agent_version,policy_version,report_count) SELECT r.device_id,r.id,r.received_at,r.severity,r.agent_version,r.policy_version,(SELECT COUNT(*) FROM reports x WHERE x.device_id=r.device_id) FROM reports r JOIN (SELECT device_id,MAX(id) AS mid FROM reports WHERE id>? GROUP BY device_id) d ON d.device_id=r.device_id AND d.mid=r.id ON CONFLICT(device_id) DO UPDATE SET latest_id=excluded.latest_id,received_at=excluded.received_at,severity=excluded.severity,agent_version=excluded.agent_version,policy_version=excluded.policy_version,report_count=excluded.report_count",(wm,))
+    cur=db.execute("INSERT INTO device_state(device_id,latest_id,received_at,severity,agent_version,policy_version,report_count,crit_count,high_count,med_count,low_count) SELECT r.device_id,r.id,r.received_at,r.severity,r.agent_version,r.policy_version,(SELECT COUNT(*) FROM reports x WHERE x.device_id=r.device_id),COALESCE(json_extract(r.body,'$.summary.critical'),0),COALESCE(json_extract(r.body,'$.summary.high'),0),COALESCE(json_extract(r.body,'$.summary.medium'),0),COALESCE(json_extract(r.body,'$.summary.low'),0) FROM reports r JOIN (SELECT device_id,MAX(id) AS mid FROM reports WHERE id>? GROUP BY device_id) d ON d.device_id=r.device_id AND d.mid=r.id ON CONFLICT(device_id) DO UPDATE SET latest_id=excluded.latest_id,received_at=excluded.received_at,severity=excluded.severity,agent_version=excluded.agent_version,policy_version=excluded.policy_version,report_count=excluded.report_count,crit_count=excluded.crit_count,high_count=excluded.high_count,med_count=excluded.med_count,low_count=excluded.low_count",(wm,))
     db.commit(); return max(int(cur.rowcount or 0),0)
 def collector_summary(db_path,now=None,active_window=86400,required_agent=None,required_policy=None):
     """Return fleet posture from only the newest accepted report per device."""
@@ -354,6 +363,10 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
         # P0-3：从 device_state 定位每设备最新报告(PK join)，取代对 reports 全表 `MAX(id) GROUP BY
         # device_id`；INNER JOIN reports 天然排除最新报告已被保留清理的悬挂设备(与旧语义一致)。
         rows=db.execute("SELECT r.received_at,r.severity,r.agent_version,r.policy_version,a.generation FROM device_state ds JOIN reports r ON r.id=ds.latest_id LEFT JOIN device_auth_state a ON a.device_id=ds.device_id").fetchall()
+        # 计数层(stage-1)：fleet 发现总数 = device_state 计数列 SUM，O(设备数)、零 body 解析。
+        # 控制台头部/质量页据此显示严重/高危总数，无需全量拉 /v1/findings 再累加。
+        _ft=db.execute("SELECT COALESCE(SUM(crit_count),0),COALESCE(SUM(high_count),0),COALESCE(SUM(med_count),0),COALESCE(SUM(low_count),0) FROM device_state").fetchone()
+        finding_totals={"critical":_ft[0],"high":_ft[1],"medium":_ft[2],"low":_ft[3]}
     by_severity={"critical":0,"high":0,"normal":0}
     versions={"current":0,"agent_mismatch":0,"policy_mismatch":0,"both_mismatch":0,"unknown":0}; required_agent=required_agent or required_version("AEGIS_REQUIRED_AGENT_VERSION","0.33.0"); required_policy=required_policy or required_version("AEGIS_REQUIRED_POLICY_VERSION","4.8.0")
     credential_posture={"current":0,"previous":0,"legacy":0}
@@ -366,7 +379,7 @@ def collector_summary(db_path,now=None,active_window=86400,required_agent=None,r
         else: versions["current"]+=1
         credential_posture["legacy" if generation is None else "current" if generation==0 else "previous"]+=1
     active=sum(received>=now-active_window for received,_,_,_,_ in rows)
-    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture}
+    return {"generated_at":now,"active_window_seconds":active_window,"required_agent_version":required_agent,"required_policy_version":required_policy,"total_devices":len(rows),"active_devices":active,"stale_devices":len(rows)-active,"latest_severity":by_severity,"version_posture":versions,"credential_posture":credential_posture,"finding_totals":finding_totals}
 def collector_trend(db_path, hours=24, now=None):
     """按小时分桶的上报趋势（首页趋势图数据源）。
 
