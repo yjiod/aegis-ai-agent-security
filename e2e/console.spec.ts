@@ -134,11 +134,11 @@ test.describe('overview dashboard', () => {
     await page.goto('/');
   });
 
-  test('shows four metric cards and an honest collector status (no demo banner)', async ({
+  test('shows six KPI metric cards and an honest collector status (no demo banner)', async ({
     page,
   }) => {
-    // 四张指标卡始终渲染（值在断连时为「—」/0，连接时为真实数字）。
-    await expect(page.locator('.metrics .metric')).toHaveCount(4);
+    // 六张 KPI 卡始终渲染（值在断连时为「—」/0，连接时为真实数字）。2026-09 改版增至 6。
+    await expect(page.locator('.metrics .metric')).toHaveCount(6);
 
     // 顶栏接收器状态如实反映模式：demo=未连接，live=已连接。
     const status = page.locator('.topbar .system-ok').first();
@@ -164,7 +164,7 @@ test.describe('overview dashboard', () => {
     page,
   }) => {
     const values = page.locator('.metrics .metric strong');
-    await expect(values).toHaveCount(4);
+    await expect(values).toHaveCount(6);
     const texts = await values.allTextContents();
     for (const text of texts) {
       const t = text.trim();
@@ -318,7 +318,7 @@ test.describe('policies page', () => {
 });
 
 test.describe('responsive layout', () => {
-  test('metric grid collapses to two columns at 768px, four on desktop', async ({ page }) => {
+  test('metric grid collapses to two columns at 768px, three on desktop', async ({ page }) => {
     // app/globals.css @media (max-width:1050px) -> .metrics { 1fr 1fr }
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto('/');
@@ -326,8 +326,8 @@ test.describe('responsive layout', () => {
     expect(await gridTrackCount(page, '.metrics')).toBe(2);
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await expect(page.locator('.metrics .metric')).toHaveCount(4);
-    expect(await gridTrackCount(page, '.metrics')).toBe(4);
+    await expect(page.locator('.metrics .metric')).toHaveCount(6);
+    expect(await gridTrackCount(page, '.metrics')).toBe(3);
   });
 
   test('sidebar goes off-canvas (not display:none) at the 760px breakpoint', async ({
