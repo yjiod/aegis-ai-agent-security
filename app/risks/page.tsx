@@ -247,6 +247,18 @@ function buildResponsePlaybook(ticket: Ticket): string[] {
   return steps;
 }
 
+/**
+ * 分诊 SLA（AIDR triage 压力）：未闭环工单超过响应时限即"超 SLA"。
+ * 阈值为产品内置标准（严重 1h / 高危 4h / 其余 24h），已闭环不计。
+ */
+const SLA_HOURS: Record<string, number> = { critical: 1, high: 4, medium: 24, low: 24, info: 24 };
+function isSlaBreached(t: Ticket): boolean {
+  if (t.status === 'resolved' || t.status === 'dismissed') return false;
+  if (typeof t.created_at !== 'number') return false;
+  const limit = SLA_HOURS[t.severity] ?? 24;
+  return Date.now() / 1000 - t.created_at > limit * 3600;
+}
+
 export default function RisksPage() {
   const { fleet } = useCollector();
   const { role, subject } = useRole();
@@ -282,6 +294,7 @@ export default function RisksPage() {
   const [sourceFilter, setSourceFilter] = useState('all');
   const [deviceFilter, setDeviceFilter] = useState('');
   const [timeFilter, setTimeFilter] = useState<'all' | '24h' | '7d' | '30d'>('all');
+  const [slaOnly, setSlaOnly] = useState(false);
   const localSearchRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
 
@@ -470,6 +483,7 @@ export default function RisksPage() {
       const cutoff = Date.now() / 1000 - hours * 3600;
       list = list.filter((t) => Number(t.created_at ?? 0) >= cutoff);
     }
+    if (slaOnly) list = list.filter(isSlaBreached);
     const q = query.trim().toLowerCase();
     if (!q) return list;
     return list.filter((t) =>
@@ -479,7 +493,7 @@ export default function RisksPage() {
         .toLowerCase()
         .includes(q),
     );
-  }, [filter, tickets, query, sevFilter, sourceFilter, deviceFilter, timeFilter]);
+  }, [filter, tickets, query, sevFilter, sourceFilter, deviceFilter, timeFilter, slaOnly]);
 
   /** 来源选项由真实工单派生（不硬编码）。 */
   const sourceOptions = useMemo(() => {
@@ -489,7 +503,7 @@ export default function RisksPage() {
   }, [tickets]);
 
   const hasActiveFilter =
-    sevFilter !== 'all' || sourceFilter !== 'all' || deviceFilter.trim() !== '' || timeFilter !== 'all';
+    sevFilter !== 'all' || sourceFilter !== 'all' || deviceFilter.trim() !== '' || timeFilter !== 'all' || slaOnly;
 
   const filterCounts = useMemo(() => {
     const counts: Record<FilterKey, number> = {
@@ -870,6 +884,18 @@ export default function RisksPage() {
             <option value="7d">近 7 天</option>
             <option value="30d">近 30 天</option>
           </select>
+          <Button
+            variant={slaOnly ? 'default' : 'outline'}
+            size="sm"
+            aria-pressed={slaOnly}
+            onClick={() => {
+              setSlaOnly((v) => !v);
+              setPage(1);
+            }}
+            title="仅看超过分诊 SLA 仍未闭环的工单"
+          >
+            超 SLA
+          </Button>
           {hasActiveFilter && (
             <Button
               variant="outline"
@@ -879,6 +905,7 @@ export default function RisksPage() {
                 setSourceFilter('all');
                 setDeviceFilter('');
                 setTimeFilter('all');
+                setSlaOnly(false);
                 setPage(1);
               }}
             >
@@ -972,6 +999,11 @@ export default function RisksPage() {
                       {statusLabel(ticket.status)}
                       {ticket.assignee ? ` · ${ticket.assignee}` : ''}
                     </span>
+                    {isSlaBreached(ticket) && (
+                      <i className="warn" style={{ fontSize: 10, marginLeft: 6 }} title="超过分诊 SLA 仍未闭环">
+                        超SLA
+                      </i>
+                    )}
                   </div>
                   <span className="device">
                     {ticket.device_id || '未关联'}

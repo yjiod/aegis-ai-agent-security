@@ -285,6 +285,22 @@ export default function Home() {
     return (sum / rs.length / 3600000).toFixed(1);
   }, [ticketsAll]);
 
+  /** MTTR 按严重度细分（AIDR efficacy）：严重/高危 与 中/低 的平均闭环小时数。 */
+  const mttrBySev = useMemo(() => {
+    const bucket = (pred: (s: string) => boolean) => {
+      const rs = (ticketsAll ?? []).filter(
+        (t) => t.status === 'resolved' && typeof t.resolved_at === 'number' && t.created_at && pred(t.severity),
+      );
+      if (rs.length === 0) return null;
+      const sum = rs.reduce((a, t) => a + (Number(t.resolved_at) - Number(t.created_at)), 0);
+      return (sum / rs.length / 3600000).toFixed(1);
+    };
+    return {
+      critHigh: bucket((s) => s === 'critical' || s === 'high'),
+      medLow: bucket((s) => s !== 'critical' && s !== 'high'),
+    };
+  }, [ticketsAll]);
+
   /**
    * MTTA（平均响应时长，AIDR Response 侧 efficacy）：工单创建 → 首次脱离 open
    * （认领/调查/处理）的平均小时数。由真实工单 history 时间戳派生，无数据返回 null。
@@ -704,6 +720,9 @@ export default function Home() {
             <p style={{ fontSize: 13, margin: 0 }}>
               平均闭环 MTTR：<strong className="sentinel-metric-value" style={{ fontSize: 20 }}>{avgResolveHours ?? '—'}</strong>
               {avgResolveHours ? ' 小时' : '（暂无已闭环工单）'}
+            </p>
+            <p style={{ fontSize: 12, margin: 0, color: 'var(--muted-foreground)' }}>
+              其中 严重/高危 {mttrBySev.critHigh ?? '—'}h · 中/低 {mttrBySev.medLow ?? '—'}h
             </p>
           </div>
           <div style={{ display: 'flex', height: 10, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', marginBottom: 10 }}>
