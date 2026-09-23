@@ -43,9 +43,13 @@ def db_open(path):
         _ds_missing=[c for c in ("crit_count","high_count","med_count","low_count") if c not in _ds_cols]
         if _ds_missing:
             for _c in _ds_missing: db.execute(f"ALTER TABLE device_state ADD COLUMN {_c} INTEGER NOT NULL DEFAULT 0")
-            # 一次性回填存量行计数：从各设备**最新报告** body 的 summary 取（SQLite JSON1）。
-            # 仅在加列迁移时跑一次；此后由 store_report 增量维护、ensure_device_state 增量回填。
+        # 一次性回填存量行计数：以 PRAGMA user_version 作 schema 标记（v2=计数层），仅当 <2 或刚加列
+        # 时跑一次 UPDATE...FROM（从各设备最新报告 body 的 summary 取，SQLite JSON1），随后置 v2 不再跑。
+        # 此前用"列缺失"作触发会在"列已加但回填未跑"的库上永久跳过（真机踩过），user_version 持久可靠。
+        _uv=db.execute("PRAGMA user_version").fetchone()[0]
+        if _uv < 2 or _ds_missing:
             db.execute("UPDATE device_state SET crit_count=COALESCE(json_extract(r.body,'$.summary.critical'),0),high_count=COALESCE(json_extract(r.body,'$.summary.high'),0),med_count=COALESCE(json_extract(r.body,'$.summary.medium'),0),low_count=COALESCE(json_extract(r.body,'$.summary.low'),0) FROM reports r WHERE r.id=device_state.latest_id")
+            db.execute("PRAGMA user_version=2")
             db.commit()
         # 每设备上报令牌（批4）：token 以 sha256 哈希存储（不落明文），signing_secret 与
         # 凭据文件同待遇（服务端受控存储）。report_authentication 双接受：全局令牌 ∪ 每设备令牌。

@@ -509,6 +509,19 @@ class AegisTests(unittest.TestCase):
             self.collector.store_report(path,b'{}',{'device_id':'bbbbbbbbbbbb','summary':{'critical':1,'high':0,'medium':0,'low':0},'scanned_at':now},now=now)
             s=self.collector.collector_summary(path,now=now)
             self.assertEqual(s['finding_totals'],{'critical':3,'high':3,'medium':4,'low':5})
+    def test_device_state_count_migration_backfills_via_user_version(self):
+        # 计数层迁移：列已存在但计数为0且 user_version<2 的库（真机踩过的状态），db_open 须
+        # 一次性 UPDATE...FROM 回填并置 user_version=2；之后不再重复跑。
+        with tempfile.TemporaryDirectory() as d:
+            path=Path(d)/'reports.db'; now=200000
+            with self.collector.db_open(path) as db:
+                db.execute("INSERT INTO reports(device_id,received_at,severity,body) VALUES('aaaaaaaaaaaa',?,'critical',?)",(now,json.dumps({'summary':{'critical':2,'high':1,'medium':0,'low':0}})))
+                db.execute("INSERT INTO device_state(device_id,latest_id,received_at,severity,report_count) VALUES('aaaaaaaaaaaa',1,?,'critical',1)",(now,))
+                db.execute("PRAGMA user_version=1"); db.commit()   # 模拟:列在、计数0、未回填
+            with self.collector.db_open(path) as db:
+                uv=db.execute("PRAGMA user_version").fetchone()[0]
+                row=db.execute("SELECT crit_count,high_count,med_count,low_count FROM device_state WHERE device_id='aaaaaaaaaaaa'").fetchone()
+            self.assertEqual(uv,2); self.assertEqual(tuple(row),(2,1,0,0))
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000
