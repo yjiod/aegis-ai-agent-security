@@ -522,6 +522,25 @@ class AegisTests(unittest.TestCase):
                 uv=db.execute("PRAGMA user_version").fetchone()[0]
                 row=db.execute("SELECT crit_count,high_count,med_count,low_count FROM device_state WHERE device_id='aaaaaaaaaaaa'").fetchone()
             self.assertEqual(uv,2); self.assertEqual(tuple(row),(2,1,0,0))
+    def test_collector_purge_removes_device_state_and_counts(self):
+        # 删除设备须连 device_state 物化行一起清, 否则孤儿行继续参与 finding_totals/设备计数
+        # (真机反馈: 删除一台后很多地方仍显示旧台数)。
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'AEGIS_COLLECTOR_TOKEN':'a'*32}):
+            root=Path(d)
+            server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler); server.db_path=str(root/'r.db'); server.rate_limiter=self.collector.RateLimiter(limit=1000)
+            thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+            try:
+                now=int(time.time())
+                self.collector.store_report(server.db_path,b'{}',{'device_id':'aaaaaaaaaaaa','summary':{'critical':1,'high':0,'medium':0,'low':0},'scanned_at':now},now=now)
+                self.collector.store_report(server.db_path,b'{}',{'device_id':'bbbbbbbbbbbb','summary':{'critical':0,'high':0,'medium':0,'low':0},'scanned_at':now},now=now)
+                req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/v1/devices?device_id=aaaaaaaaaaaa',method='DELETE',headers={'Authorization':'Bearer '+'a'*32})
+                with urllib.request.urlopen(req,timeout=3) as r: self.assertEqual(r.status,200)
+                with self.collector.db_open(server.db_path) as db:
+                    self.assertEqual(db.execute("SELECT COUNT(*) FROM device_state WHERE device_id='aaaaaaaaaaaa'").fetchone()[0],0)
+                    self.assertEqual(db.execute("SELECT COUNT(*) FROM reports WHERE device_id='aaaaaaaaaaaa'").fetchone()[0],0)
+                s=self.collector.collector_summary(server.db_path,now=now)
+                self.assertEqual(s['total_devices'],1); self.assertEqual(s['finding_totals']['critical'],0)
+            finally: server.shutdown(); server.server_close(); thread.join(timeout=3)
     def test_collector_summary_uses_latest_report_per_device(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; now=200000

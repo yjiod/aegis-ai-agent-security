@@ -753,6 +753,9 @@ class Handler(BaseHTTPRequestHandler):
                     db.execute("DELETE FROM reports WHERE device_id=?",(did,))
                     db.execute("DELETE FROM device_tokens WHERE device_id=?",(did,))
                     db.execute("DELETE FROM device_auth_state WHERE device_id=?",(did,))
+                    # 计数层(P0-3)物化行也必须清：否则孤儿 device_state 行继续参与 finding_totals
+                    # SUM 与设备计数，删除后"很多地方仍显示旧台数"(真机反馈)。
+                    db.execute("DELETE FROM device_state WHERE device_id=?",(did,))
                     db.commit()
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             return self.reply(200,{"ok":True,"purged":did})
