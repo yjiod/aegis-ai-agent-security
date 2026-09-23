@@ -102,7 +102,8 @@
 /* ─── KPI Cards ─────────────────────────────────────────── */
 .detail-kpis {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* 与 globals 一致：auto-fit 单行排满，避免 4 卡时 3+1 换行孤儿 */
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
