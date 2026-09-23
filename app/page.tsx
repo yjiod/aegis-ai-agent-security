@@ -504,9 +504,9 @@ export default function Home() {
                     labelStyle={{ color: 'var(--muted-foreground)' }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Area type="monotone" dataKey="reports" name="上报数" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.12} strokeWidth={2} />
-                  <Line type="monotone" dataKey="critical" name="严重" stroke="var(--destructive)" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="high" name="高危" stroke="#e8a33d" strokeWidth={2} dot={false} />
+                  <Area type="linear" dataKey="reports" name="上报数" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.12} strokeWidth={2} />
+                  <Line type="linear" dataKey="critical" name="严重" stroke="var(--destructive)" strokeWidth={2} dot={false} />
+                  <Line type="linear" dataKey="high" name="高危" stroke="#e8a33d" strokeWidth={2} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -549,9 +549,6 @@ export default function Home() {
                   b.critical > 0 ? 'var(--sentinel-danger)' : b.high > 0 ? 'var(--sentinel-warning)' : b.reports > 0 ? 'var(--sentinel-accent)' : 'var(--sentinel-blue)';
                 return <i key={b.t} style={{ height: `${h}%`, background: color }} />;
               })}
-            </div>
-            <div className="progress" style={{ marginTop: 10 }}>
-              <i style={{ width: `${Math.min(100, Math.round(((crit24 + high24) / Math.max(1, reports24)) * 100))}%`, background: 'var(--sentinel-warning)' }} />
             </div>
           </>
         )}

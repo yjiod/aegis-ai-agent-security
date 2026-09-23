@@ -84,6 +84,16 @@ function sanitizedSummary(value: unknown) {
   const severity = data.latest_severity as Record<string, number>;
   const posture = data.version_posture as Record<string, number>;
   const credentials = data.credential_posture as Record<string, number> | undefined;
+  const ft = data.finding_totals as Record<string, number> | undefined;
+  const findingTotals =
+    ft && typeof ft === 'object'
+      ? {
+          critical: Number(ft.critical ?? 0),
+          high: Number(ft.high ?? 0),
+          medium: Number(ft.medium ?? 0),
+          low: Number(ft.low ?? 0),
+        }
+      : undefined;
   return {
     total_devices: data.total_devices,
     active_devices: data.active_devices,
@@ -95,6 +105,8 @@ function sanitizedSummary(value: unknown) {
     ...(credentials
       ? { credential_posture: Object.fromEntries(credentialPostures.map((key) => [key, credentials[key]])) }
       : {}),
+    // 计数层(stage-1)：透传舰队累计发现计数（O(设备数)），供总览/趋势显示，避免全量拉 findings。
+    ...(findingTotals ? { finding_totals: findingTotals } : {}),
   };
 }
 
