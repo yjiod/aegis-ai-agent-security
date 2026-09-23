@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   Activity,
   AlertTriangle,
+  Bell,
   Bot,
   Check,
   Code2,
@@ -122,6 +123,9 @@ export default function ConsoleShell({
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // 视觉迭代：顶栏通知铃铛（真实未闭环工单下拉，非装饰）。
+  const [bellOpen, setBellOpen] = useState(false);
+  const [recentTickets, setRecentTickets] = useState<Array<{ ticket_id: string; title: string; severity: string; device_id?: string }>>([]);
   // 2026-09 全局搜索（AIDR 式顶栏搜索）：debounce 调 /api/search，下拉分组结果快速跳转。
   const [searchQ, setSearchQ] = useState('');
   const [searchRes, setSearchRes] = useState<{
@@ -170,6 +174,15 @@ export default function ConsoleShell({
         })
         .catch(() => {
           if (alive) setTicketCount(null);
+        });
+      // 铃铛下拉：最近未闭环工单（真实数据，与角标同源同过滤）。
+      fetch('/api/tickets?status=open,acknowledged,investigating&limit=6', { cache: 'no-store' })
+        .then((r) => (r.ok ? (r.json() as Promise<{ tickets?: Array<{ ticket_id: string; title: string; severity: string; device_id?: string }> }>) : null))
+        .then((d) => {
+          if (alive) setRecentTickets(d?.tickets ?? []);
+        })
+        .catch(() => {
+          if (alive) setRecentTickets([]);
         });
     };
     load();
@@ -281,6 +294,76 @@ export default function ConsoleShell({
             )}
           </div>
           <div className="header-actions">
+            {/* 通知铃铛：真实未闭环工单下拉（与角标同源同过滤），非装饰 */}
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="通知"
+                aria-expanded={bellOpen}
+                onClick={() => setBellOpen((v) => !v)}
+                style={{ position: 'relative' }}
+              >
+                <Bell size={16} />
+                {ticketCount !== null && ticketCount > 0 && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: -4,
+                      right: -4,
+                      minWidth: 16,
+                      height: 16,
+                      borderRadius: 99,
+                      background: 'var(--sentinel-danger)',
+                      color: '#fff',
+                      font: '10px var(--sentinel-font-mono)',
+                      display: 'grid',
+                      placeItems: 'center',
+                      padding: '0 3px',
+                    }}
+                  >
+                    {ticketCount > 99 ? '99+' : ticketCount}
+                  </span>
+                )}
+              </button>
+              {bellOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '110%',
+                    right: 0,
+                    width: 300,
+                    background: 'var(--popover)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    boxShadow: 'var(--shadow-overlay)',
+                    zIndex: 70,
+                    padding: 6,
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: 'var(--muted-foreground)', padding: '4px 8px' }}>未闭环工单（最近 6 条）</div>
+                  {recentTickets.length === 0 && (
+                    <p style={{ fontSize: 12, color: 'var(--muted-foreground)', padding: 8, margin: 0 }}>暂无未闭环工单</p>
+                  )}
+                  {recentTickets.map((t) => (
+                    <Link
+                      key={t.ticket_id}
+                      href={`/risks?ticket=${encodeURIComponent(t.ticket_id)}`}
+                      onClick={() => setBellOpen(false)}
+                      style={{ display: 'block', padding: '6px 8px', borderRadius: 6, color: 'var(--foreground)', fontSize: 12, textDecoration: 'none' }}
+                    >
+                      <b style={{ color: t.severity === 'critical' ? 'var(--sentinel-danger)' : t.severity === 'high' ? 'var(--sentinel-warning)' : undefined }}>
+                        {t.severity}
+                      </b>{' '}
+                      {t.title}
+                      <span style={{ display: 'block', fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'var(--sentinel-font-mono)' }}>
+                        {t.device_id ?? ''}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
             <span className="system-ok">
               <span className={collectorState === 'live' ? 'live-dot' : 'demo-dot'} />
               {collectorState === 'live'

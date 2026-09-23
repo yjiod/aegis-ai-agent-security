@@ -20,6 +20,7 @@ import {
   ChevronDown,
   CircleCheck,
   CircleDot,
+  Eye,
   Laptop,
   Pencil,
   Plus,
@@ -29,6 +30,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { DetailDrawer, type DrawerSection } from '@/components/detail-drawer';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -200,6 +202,8 @@ export default function DevicesPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Device | null>(null);
+  // 视觉迭代：设备详情抽屉（与风险/扫描页一致），数据来自行内 Device 对象，无额外请求。
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // 规模化分页（几千台设备）：列表与覆盖矩阵各自分页，避免一次性渲染全部行。
@@ -906,6 +910,17 @@ export default function DevicesPage() {
                         }}
                       />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label={`详情 ${device.device_id}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedDevice(device);
+                      }}
+                    >
+                      <Eye />
+                    </Button>
                     {canMutate && (
                       <>
                         <Button
@@ -1275,6 +1290,64 @@ export default function DevicesPage() {
           </table>
         </section>
       )}
+
+      {/* 视觉迭代：设备详情抽屉（数据来自行内 Device 对象，无额外请求） */}
+      <DetailDrawer
+        open={selectedDevice !== null}
+        onClose={() => setSelectedDevice(null)}
+        title={selectedDevice ? selectedDevice.hostname || selectedDevice.device_id : ''}
+        subtitle={selectedDevice ? `${selectedDevice.device_id} · ${selectedDevice.status}` : undefined}
+        sections={
+          selectedDevice
+            ? ([
+                {
+                  label: '基本信息',
+                  content: (
+                    <div>
+                      <div className="kv"><span>负责人</span><span>{selectedDevice.owner || '未指派'}</span></div>
+                      <div className="kv"><span>系统 / 用户</span><span>{selectedDevice.os ?? '—'} / {selectedDevice.os_user ?? '—'}</span></div>
+                      <div className="kv"><span>序列号</span><span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{selectedDevice.serial ?? '—'}</span></div>
+                      <div className="kv"><span>运行态</span><span>{selectedDevice.run_mode ?? '—'}{selectedDevice.run_mode_inferred ? '（推断）' : ''}</span></div>
+                      <div className="kv"><span>扫描根</span><span style={{ wordBreak: 'break-all' }}>{selectedDevice.scan_root ?? '—'}</span></div>
+                    </div>
+                  ),
+                },
+                {
+                  label: '版本与漂移',
+                  content: (
+                    <div>
+                      <div className="kv"><span>Agent</span><span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{selectedDevice.agent_version}</span></div>
+                      <div className="kv"><span>策略</span><span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{selectedDevice.policy_version}</span></div>
+                      <div className="kv"><span>要求版本</span><span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{fleet?.required_agent_version ?? '—'}</span></div>
+                      <div className="kv"><span>自更保护 / 封禁豁免</span><span>{selectedDevice.pinned ? '已 pin' : '否'} / {selectedDevice.exempt ? '是' : '否'}</span></div>
+                    </div>
+                  ),
+                },
+                {
+                  label: '网络',
+                  content: (
+                    <div>
+                      <div className="kv"><span>MAC</span><span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{(selectedDevice.network?.macs ?? []).join(', ') || '—'}</span></div>
+                      <div className="kv"><span>本机 IP</span><span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{(selectedDevice.network?.local_ips ?? []).join(', ') || '—'}</span></div>
+                      <div className="kv"><span>出口 IP</span><span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{selectedDevice.network?.egress_ip ?? '—'}</span></div>
+                    </div>
+                  ),
+                },
+                {
+                  label: '发现摘要 / 工具',
+                  content: (
+                    <div>
+                      <div className="kv"><span>严重 / 高危</span><span>{selectedDevice.findings_summary?.critical ?? 0} / {selectedDevice.findings_summary?.high ?? 0}</span></div>
+                      <div className="kv"><span>中危 / 低危</span><span>{selectedDevice.findings_summary?.medium ?? 0} / {selectedDevice.findings_summary?.low ?? 0}</span></div>
+                      <div className="kv"><span>AI 工具</span><span>{(selectedDevice.tools ?? []).join(', ') || '—'}</span></div>
+                      <div className="kv"><span>封禁能力</span><span>pf={selectedDevice.capabilities?.pf ? '是' : '否'} es={selectedDevice.capabilities?.es ? '是' : '否'}</span></div>
+                    </div>
+                  ),
+                },
+              ] as DrawerSection[])
+            : []
+        }
+      />
 
       <AlertDialog
         open={pendingDelete !== null}
