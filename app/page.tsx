@@ -280,6 +280,19 @@ export default function Home() {
     return (sum / rs.length / 3600000).toFixed(1);
   }, [ticketsAll]);
 
+  /* 视觉迭代：实时态势 hero 派生（真实数据，不造假） */
+  const critTotal = fleet?.finding_totals?.critical ?? fleet?.latest_severity?.critical ?? 0;
+  const highTotal = fleet?.finding_totals?.high ?? fleet?.latest_severity?.high ?? 0;
+  const statusValue = critTotal > 0 ? '需处置' : highTotal > 0 ? '需关注' : '风险可控';
+  const statusTone = critTotal > 0 ? 'var(--sentinel-danger)' : highTotal > 0 ? 'var(--sentinel-warning)' : 'var(--sentinel-accent)';
+  const todayStart = (() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return Math.floor(d.getTime() / 1000);
+  })();
+  const ticketsToday = (ticketsAll ?? []).filter((t) => (t.created_at ?? 0) >= todayStart).length;
+  const resolveRate = Math.round((dispCounts.resolved / dispTotal) * 100);
+
   /* 真实分工具覆盖: 由 /api/devices 按 agent_type 聚合 */
   const toolCoverage = useMemo(() => {
     const map = new Map<string, { total: number; online: number }>();
@@ -342,6 +355,40 @@ export default function Home() {
       )}
 
       {/* ─── Metric Cards (real fleet summary; — when disconnected) ─── */}
+      {/* 实时态势 hero（reference 视觉迭代）：shield 状态环 + mini 指标，全部真实数据 */}
+      <section className="panel" style={{ padding: 18, marginBottom: 14, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="shield-circle" aria-hidden="true">
+          <ShieldCheck size={26} />
+        </div>
+        <div style={{ minWidth: 150 }}>
+          <div style={{ color: 'var(--sentinel-text-3)', fontSize: 12 }}>安全状态</div>
+          <div style={{ marginTop: 3, color: statusTone, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>{statusValue}</div>
+          <div style={{ color: 'var(--sentinel-text-3)', fontSize: 11, marginTop: 4 }}>持续监测 · 主动防御 · 业务安全稳定</div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, flex: 1 }}>
+          <div className="mini">
+            <label>今日告警</label>
+            <b>{ticketsToday}</b>
+          </div>
+          <div className="mini">
+            <label>严重发现</label>
+            <b style={{ color: 'var(--sentinel-danger)' }}>{critTotal}</b>
+          </div>
+          <div className="mini">
+            <label>高危发现</label>
+            <b style={{ color: 'var(--sentinel-warning)' }}>{highTotal}</b>
+          </div>
+          <div className="mini">
+            <label>受影响资产</label>
+            <b>{fleet ? fleet.latest_severity.critical + fleet.latest_severity.high : 0}</b>
+          </div>
+          <div className="mini">
+            <label>已处置</label>
+            <b style={{ color: 'var(--sentinel-accent)' }}>{dispCounts.resolved}</b>
+          </div>
+        </div>
+      </section>
+
       <div className="metrics">
         <article className="metric animate-entrance animate-entrance-1">
           <div className="metric-top">
@@ -489,6 +536,24 @@ export default function Home() {
           </div>
         ) : (
           <p className="empty-hint">接收器未连接，暂无趋势数据。</p>
+        )}
+
+        {/* 视觉迭代：24h 按小时严重度着色柱状 sparkline + 严重/高危占比 progress（真实数据） */}
+        {trend && (
+          <>
+            <div className="bar-spark" aria-hidden="true" style={{ marginTop: 12 }}>
+              {chartData.map((b) => {
+                const max = Math.max(1, ...chartData.map((x) => x.reports));
+                const h = Math.max(2, Math.round((b.reports / max) * 100));
+                const color =
+                  b.critical > 0 ? 'var(--sentinel-danger)' : b.high > 0 ? 'var(--sentinel-warning)' : b.reports > 0 ? 'var(--sentinel-accent)' : 'var(--sentinel-blue)';
+                return <i key={b.t} style={{ height: `${h}%`, background: color }} />;
+              })}
+            </div>
+            <div className="progress" style={{ marginTop: 10 }}>
+              <i style={{ width: `${Math.min(100, Math.round(((crit24 + high24) / Math.max(1, reports24)) * 100))}%`, background: 'var(--sentinel-warning)' }} />
+            </div>
+          </>
         )}
       </section>
 
@@ -658,6 +723,15 @@ export default function Home() {
             <Link href="/risks" style={{ fontSize: 12, color: 'var(--sentinel-cyan)' }}>
               查看全部
             </Link>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <strong className="sentinel-metric-value" style={{ fontSize: 26 }}>{resolveRate}%</strong>
+            <span style={{ color: 'var(--sentinel-text-2)', fontSize: 12 }}>
+              本周期处置完成率{avgResolveHours ? ` · 平均 ${avgResolveHours}h` : ''}
+            </span>
+          </div>
+          <div className="progress" style={{ marginBottom: 12 }}>
+            <i style={{ width: `${resolveRate}%` }} />
           </div>
           <div style={{ display: 'flex', height: 10, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', marginBottom: 12 }}>
             <div style={{ width: `${(dispCounts.resolved / dispTotal) * 100}%`, background: 'var(--sentinel-accent)' }} />

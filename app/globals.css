@@ -2105,3 +2105,55 @@ button.risk-row {
 @media (prefers-reduced-motion: reduce) {
   :root:not([data-theme='light']) .live-dot { animation: none; }
 }
+
+/* ---------- 视觉迭代 2026-09-23：对齐 aegis-dashboard-reference 密度与组件 ---------- */
+.shield-circle {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid rgba(40, 230, 160, 0.55);
+  border-radius: 50%;
+  color: var(--sentinel-accent);
+  box-shadow: var(--sentinel-glow-accent), inset 0 0 24px rgba(40, 230, 160, 0.1);
+  font-size: 26px;
+}
+.mini {
+  padding: 10px;
+  border: 1px solid rgba(111, 173, 204, 0.12);
+  border-radius: 6px;
+  background: rgba(5, 17, 26, 0.5);
+}
+.mini label { display: block; color: var(--sentinel-text-3); font-size: 11px; }
+.mini b { font: 600 18px var(--sentinel-font-mono); }
+.bar-spark {
+  display: grid;
+  align-items: end;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 4px;
+  height: 110px;
+  padding: 8px 4px 0;
+  background: linear-gradient(180deg, transparent, rgba(39, 184, 243, 0.04));
+}
+.bar-spark i { display: block; border-radius: 2px 2px 0 0; min-height: 2px; }
+.progress { height: 6px; border-radius: 99px; background: var(--sentinel-surface-3); overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--sentinel-accent); }
+.nav-label { letter-spacing: 0.16em; }
+.nav-item { min-height: 38px; }
+.nav-item b {
+  min-width: 20px;
+  padding: 3px 5px;
+  border-radius: 99px;
+  color: var(--sentinel-danger);
+  background: rgba(240, 82, 93, 0.12);
+  font: 11px var(--sentinel-font-mono);
+  text-align: center;
+}
+.metric { min-height: 112px; padding: 14px 16px; }
+.top-meta { display: flex; align-items: center; gap: 14px; color: var(--sentinel-text-2); font-size: 12px; }
+
+[data-theme='light'] .shield-circle { border-color: rgba(15, 157, 118, 0.5); color: #0f9d76; box-shadow: none; }
+[data-theme='light'] .mini { background: #ffffff; border-color: #d7e3ea; }
+[data-theme='light'] .mini label { color: #5b7280; }
+[data-theme='light'] .bar-spark { background: linear-gradient(180deg, transparent, rgba(15, 157, 118, 0.05)); }
+[data-theme='light'] .progress { background: #e1e9ee; }
