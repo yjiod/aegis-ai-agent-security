@@ -500,6 +500,45 @@ export default function DevicesPage() {
     });
   }, [devices, fleet?.required_agent_version]);
 
+  /** 策略版本与要求不一致的终端（与 Agent 漂移并列的第二维漂移）。 */
+  const policyDriftDevices = useMemo(() => {
+    const required = fleet?.required_policy_version;
+    if (!required) return [] as Device[];
+    return devices.filter((device) => {
+      const p = (device.policy_version ?? '').trim();
+      return p !== '' && p !== required;
+    });
+  }, [devices, fleet?.required_policy_version]);
+
+  /** 漂移影响面 = Agent 漂移 ∪ 策略漂移（去重），handoff P1 的"影响面"视图数据源。 */
+  const impactDevices = useMemo(() => {
+    const seen = new Set<string>();
+    const out: Device[] = [];
+    for (const d of [...driftDevices, ...policyDriftDevices]) {
+      if (seen.has(d.device_id)) continue;
+      seen.add(d.device_id);
+      out.push(d);
+    }
+    return out;
+  }, [driftDevices, policyDriftDevices]);
+
+  /** 预计修复动作：区分 Agent 漂移 / 策略漂移 / 两者，并考虑 pinned 与在线状态。 */
+  function repairAction(d: Device): string {
+    const requiredAgent = fleet?.required_agent_version;
+    const requiredPolicy = fleet?.required_policy_version;
+    const v = agentVersionLabel(d.agent_version);
+    const agentDrift = Boolean(requiredAgent) && v !== '未上报' && !semverGte(v, requiredAgent ?? '');
+    const policyDrift = Boolean(requiredPolicy) && (d.policy_version ?? '').trim() !== '' && (d.policy_version ?? '').trim() !== requiredPolicy;
+    const parts: string[] = [];
+    if (agentDrift) {
+      if (d.pinned) parts.push('Agent 已 pin：人工 / 桌管更新（不自更）');
+      else if (d.status === 'online') parts.push(`Agent 在线：自更新至 ${requiredAgent}（未收敛请查 rollout / 自更保护）`);
+      else parts.push('Agent 离线 / 陈旧：上线后自更收敛；若旧二进制启动即崩溃需一次性安装器解锁');
+    }
+    if (policyDrift) parts.push(`策略不一致：重新下发签名策略 v${requiredPolicy}，终端下次拉取生效`);
+    return parts.join('；') || '—';
+  }
+
   /** 离线/过期设备里最久未上报的一台，用于告警横幅点名（"XX 已 N 小时未上报"）。 */
   const longestUnseen = useMemo(() => {
     const candidates = devices.filter(
@@ -1248,44 +1287,59 @@ export default function DevicesPage() {
       </div>
 
       {/* P1 版本漂移影响面：设备 / Agent 版本 / 状态 / 预计修复动作 / 更新时间 */}
-      {driftDevices.length > 0 && (
+      {impactDevices.length > 0 && (
         <section className="panel" style={{ padding: 16, margin: '16px 0' }}>
           <div className="panel-head">
             <div>
               <h2>版本漂移影响面</h2>
-              <p>低于要求版本 {fleet?.required_agent_version ?? '—'} 的终端及预计修复动作</p>
+              <p>
+                Agent 低于要求 {fleet?.required_agent_version ?? '—'} 或策略不等于要求 {fleet?.required_policy_version ?? '—'} 的终端及预计修复动作
+              </p>
             </div>
-            <Badge variant="outline">{driftDevices.length} 台</Badge>
+            <Badge variant="outline">{impactDevices.length} 台</Badge>
           </div>
           <table className="sentinel-table">
             <thead>
               <tr>
                 <th>设备</th>
                 <th>Agent</th>
+                <th>策略</th>
                 <th>状态</th>
                 <th>预计修复动作</th>
                 <th>更新</th>
               </tr>
             </thead>
             <tbody>
-              {driftDevices.map((d) => (
-                <tr key={d.device_id}>
-                  <td>
-                    <b>{d.hostname || d.device_id}</b>
-                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'var(--sentinel-font-mono)' }}>{d.device_id}</div>
-                  </td>
-                  <td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{d.agent_version ?? '—'}</td>
-                  <td>
-                    <span className="sentinel-status" data-state={d.status === 'online' ? 'normal' : d.status === 'stale' ? 'warning' : 'offline'}>
-                      {d.status ?? '—'}
-                    </span>
-                  </td>
-                  <td>{d.pinned ? '人工/桌管更新（已 pin，不自更）' : d.status === 'online' ? `自更新至 ${fleet?.required_agent_version ?? '—'}` : '上线后自更'}</td>
-                  <td style={{ color: 'var(--muted-foreground)' }}>
-                    {d.last_seen ? new Date(d.last_seen * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
-                  </td>
-                </tr>
-              ))}
+              {impactDevices.map((d) => {
+                const policyMismatch =
+                  Boolean(fleet?.required_policy_version) &&
+                  (d.policy_version ?? '').trim() !== '' &&
+                  (d.policy_version ?? '').trim() !== fleet?.required_policy_version;
+                return (
+                  <tr key={d.device_id}>
+                    <td>
+                      <b>{d.hostname || d.device_id}</b>
+                      <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'var(--sentinel-font-mono)' }}>{d.device_id}</div>
+                    </td>
+                    <td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{d.agent_version ?? '—'}</td>
+                    <td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>
+                      {d.policy_version ?? '—'}
+                      {policyMismatch && (
+                        <i className="warn" style={{ fontSize: 10, marginLeft: 6 }}>≠要求</i>
+                      )}
+                    </td>
+                    <td>
+                      <span className="sentinel-status" data-state={d.status === 'online' ? 'normal' : d.status === 'stale' ? 'warning' : 'offline'}>
+                        {d.status ?? '—'}
+                      </span>
+                    </td>
+                    <td>{repairAction(d)}</td>
+                    <td style={{ color: 'var(--muted-foreground)' }}>
+                      {d.last_seen ? new Date(d.last_seen * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </section>
