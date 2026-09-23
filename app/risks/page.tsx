@@ -217,6 +217,36 @@ function pickRecord(payload: unknown, key: string): unknown {
 
 /* ─── 页面 ───────────────────────────────────────────────── */
 
+/**
+ * 响应 Playbook（AIDR「Response」侧）：按工单严重度 + 来源/描述类别，给出有序的
+ * 推荐处置步骤。步骤全部指向控制台真实能力（处置打标 / 签名策略下发 / 凭据轮换 /
+ * 白名单收紧 / 终态闭环），是产品内置的 runbook 知识，不含任何虚构数据。
+ */
+function buildResponsePlaybook(ticket: Ticket): string[] {
+  const steps: string[] = ['认领工单并确认影响面：终端、关联资产、规则信号与首次 / 最近出现时间'];
+  const blob = `${ticket.source ?? ''} ${ticket.description ?? ''} ${ticket.title ?? ''}`.toLowerCase();
+  if (ticket.severity === 'critical' || ticket.severity === 'high') {
+    steps.push('高危 / 严重：在处置中心对关联资产执行【拉黑】，编译进签名策略下发终端（需 admin；超爆炸半径需 typed override）');
+    steps.push('发布策略后核对终端回执与版本姿态，确认封禁已在网生效');
+  } else {
+    steps.push('中 / 低危：优先【观察】留存证据，复核后再决定加白或拉黑');
+  }
+  if (/secret|credential|凭据|密钥|token|akia|ghp_/.test(blob)) {
+    steps.push('凭据类：立即轮换泄露凭据，并审计该凭据近期调用记录');
+  }
+  if (/depend|lockfile|supply|依赖|供应链|unpinned|untrusted/.test(blob)) {
+    steps.push('供应链类：锁定 / 移除不受信依赖，补齐 lockfile 后重新扫描');
+  }
+  if (/domain|egress|network|url|出站|网络|tls|transport/.test(blob)) {
+    steps.push('网络 / 出站类：收紧 allowed_mcp_domains 与传输白名单，复核异常外联');
+  }
+  if (/eval|shell|deserial|exec|命令|注入|prompt|override/.test(blob)) {
+    steps.push('代码执行 / 注入类：隔离相关 Skill / MCP，禁用动态执行路径并复扫');
+  }
+  steps.push('处置完成后流转至「已解决」闭环（终态需二次确认），全程留审计');
+  return steps;
+}
+
 export default function RisksPage() {
   const { fleet } = useCollector();
   const { role, subject } = useRole();
@@ -1016,6 +1046,16 @@ export default function RisksPage() {
                         </button>
                       ))}
                     </div>
+                  ),
+                },
+                {
+                  label: '响应 Playbook',
+                  content: (
+                    <ol style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6, fontSize: 12, color: 'var(--muted-foreground)' }}>
+                      {buildResponsePlaybook(drawerTicket).map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ol>
                   ),
                 },
                 {

@@ -129,6 +129,8 @@ interface TicketLite {
   device_id?: string;
   created_at: number;
   resolved_at?: number | null;
+  /** /api/tickets 返回完整工单（含 history）；此处窄视图仅取 MTTA 所需字段。 */
+  history?: Array<{ at?: number | string; to_status?: string }>;
 }
 interface AuditLite {
   id: number;
@@ -279,6 +281,23 @@ export default function Home() {
     if (rs.length === 0) return null;
     const sum = rs.reduce((a, t) => a + (Number(t.resolved_at) - Number(t.created_at)), 0);
     return (sum / rs.length / 3600000).toFixed(1);
+  }, [ticketsAll]);
+
+  /**
+   * MTTA（平均响应时长，AIDR Response 侧 efficacy）：工单创建 → 首次脱离 open
+   * （认领/调查/处理）的平均小时数。由真实工单 history 时间戳派生，无数据返回 null。
+   */
+  const mttaHours = useMemo(() => {
+    const samples: number[] = [];
+    for (const t of ticketsAll ?? []) {
+      if (typeof t.created_at !== 'number') continue;
+      const first = (t.history ?? [])
+        .filter((h) => h.to_status && h.to_status !== 'open' && typeof h.at === 'number')
+        .sort((a, b) => Number(a.at) - Number(b.at))[0];
+      if (first && Number(first.at) >= Number(t.created_at)) samples.push(Number(first.at) - Number(t.created_at));
+    }
+    if (samples.length === 0) return null;
+    return (samples.reduce((a, b) => a + b, 0) / samples.length / 3600000).toFixed(1);
   }, [ticketsAll]);
 
   /* 视觉迭代：实时态势 hero 派生（真实数据，不造假） */
@@ -649,10 +668,16 @@ export default function Home() {
               <p>工单闭环耗时与状态分布</p>
             </div>
           </div>
-          <p style={{ fontSize: 13, marginBottom: 12 }}>
-            平均处置耗时：<strong className="sentinel-metric-value" style={{ fontSize: 20 }}>{avgResolveHours ?? '—'}</strong>
-            {avgResolveHours ? ' 小时' : '（暂无已闭环工单）'}
-          </p>
+          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 12 }}>
+            <p style={{ fontSize: 13, margin: 0 }}>
+              平均响应 MTTA：<strong className="sentinel-metric-value" style={{ fontSize: 20 }}>{mttaHours ?? '—'}</strong>
+              {mttaHours ? ' 小时' : '（暂无已响应工单）'}
+            </p>
+            <p style={{ fontSize: 13, margin: 0 }}>
+              平均闭环 MTTR：<strong className="sentinel-metric-value" style={{ fontSize: 20 }}>{avgResolveHours ?? '—'}</strong>
+              {avgResolveHours ? ' 小时' : '（暂无已闭环工单）'}
+            </p>
+          </div>
           <div style={{ display: 'flex', height: 10, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', marginBottom: 10 }}>
             <div style={{ width: `${(dispCounts.resolved / dispTotal) * 100}%`, background: 'var(--sentinel-accent)' }} />
             <div style={{ width: `${(dispCounts.processing / dispTotal) * 100}%`, background: 'var(--sentinel-cyan)' }} />

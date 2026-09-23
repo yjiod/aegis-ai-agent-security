@@ -2,6 +2,7 @@
 
 import { Check, Cpu, Inbox, RefreshCw, Zap } from 'lucide-react';
 import { ObservabilityPanel } from '@/components/observability-panel';
+import { DetectionCoveragePanel } from '@/components/detection-coverage-panel';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
@@ -69,6 +70,9 @@ export default function EnginesPage() {
 
       {/* Engine Grid */}
       <ObservabilityPanel />
+
+      {/* AIDR Detection 侧：技战法覆盖矩阵 */}
+      <DetectionCoveragePanel />
 
       <div className="panel animate-entrance animate-entrance-3" style={{ marginBottom: 14 }}>
         <div className="panel-head">
