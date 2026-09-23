@@ -9,7 +9,7 @@
  * 处置动作引导到「处置中心」（真正编译进签名策略下发的闭环），不再放"同步规则库"
  * 这类点了只弹"未接入"提示的假按钮。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { RefreshCw, ShieldAlert, Inbox, WifiOff, ArrowRight } from 'lucide-react';
 import { findingAsset } from '@/lib/labels';
@@ -41,6 +41,9 @@ type Finding = {
 
 type FindingsResponse = {
   connected: boolean;
+  next_cursor?: string;
+  complete?: boolean;
+  finding_totals?: { critical: number; high: number; medium: number; low: number };
   category: string;
   devices: number;
   devices_with_findings: number;
@@ -91,6 +94,11 @@ export function ScanExplorer({
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [disposing, setDisposing] = useState(false);
   const { role } = useRole();
+  // 扫描页分页：服务端游标；"加载更多"追加下一页，避免每请求拉全量（30k 规模）。
+  const [extra, setExtra] = useState<Finding[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
+  const [complete, setComplete] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   async function disposeFinding(f: Finding, disposition: 'allow' | 'monitor' | 'deny') {
     const a = findingAsset(f);
@@ -120,6 +128,9 @@ export function ScanExplorer({
         if (!res.ok) throw new Error(`接口返回 ${res.status}`);
         const json = (await res.json()) as FindingsResponse;
         setData(json);
+        setExtra([]);
+        setNextCursor(json.next_cursor);
+        setComplete(json.complete ?? true);
         setError('');
       } catch (e) {
         setError(e instanceof Error ? e.message : '未知错误');
@@ -131,11 +142,38 @@ export function ScanExplorer({
     [category],
   );
 
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/findings?category=${category}&limit=200&cursor=${encodeURIComponent(nextCursor)}`, { cache: 'no-store' });
+      setStatus(res.status);
+      if (!res.ok) throw new Error(`接口返回 ${res.status}`);
+      const json = (await res.json()) as FindingsResponse;
+      setExtra((prev) => [...prev, ...(json.findings ?? [])]);
+      setNextCursor(json.next_cursor);
+      setComplete(json.complete ?? true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '未知错误');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [category, nextCursor, loadingMore]);
+
   useEffect(() => {
     void load(false);
   }, [load]);
 
-  const counts = data?.counts ?? { total: 0, critical: 0, high: 0, medium: 0, low: 0 };
+  const loaded = useMemo(() => [...(data?.findings ?? []), ...extra], [data, extra]);
+  const counts = useMemo(() => {
+    const c = { total: 0, critical: 0, high: 0, medium: 0, low: 0 };
+    for (const f of loaded) {
+      c.total += 1;
+      const sv = f.severity as keyof typeof c;
+      if (sv === 'critical' || sv === 'high' || sv === 'medium' || sv === 'low') c[sv] += 1;
+    }
+    return c;
+  }, [loaded]);
   const connected = data?.connected ?? false;
 
   return (
@@ -265,7 +303,7 @@ export function ScanExplorer({
               <span>说明</span>
               <span>时间</span>
             </div>
-            {data!.findings
+            {loaded
               .filter((f) => {
                 const qq = q.trim().toLowerCase();
                 if (!qq) return true;
@@ -275,7 +313,7 @@ export function ScanExplorer({
                   .toLowerCase();
                 return hay.includes(qq);
               })
-              .slice(0, 100)
+              .slice(0, 500)
               .map((f, i) => {
               const sev = asSeverity(f.severity);
               return (
@@ -335,6 +373,11 @@ export function ScanExplorer({
                 </div>
               );
             })}
+            {nextCursor && !complete && (
+              <button type="button" className="sentinel-button" style={{ margin: '10px auto', display: 'inline-flex' }} disabled={loadingMore} onClick={() => void loadMore()}>
+                {loadingMore ? '加载中…' : `加载更多（已载 ${loaded.length} 条）`}
+              </button>
+            )}
           </div>
         )}
       </div>

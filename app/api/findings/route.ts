@@ -67,18 +67,26 @@ export async function GET(request: Request) {
   await ensureLabelsLoaded().catch(() => {});
   const allowed = allowedAssetKeys();
 
-  // P1-1：游标翻页拉取跨设备聚合发现，取代对每台设备各发一个 /v1/findings 的 N+1 扇出
-  // （30k 下旧写法单页最多 1 万并发打垮 ThreadingHTTPServer 采集器 + 控制台 worker OOM）。
-  // category 过滤与加白抑制仍在本地做（categorize 规则单一可信源，不与采集器双写）；任一页
-  // 失败即诚实降级为 connected:false 空态，绝不拿半量冒充全量、绝不伪造发现。
+  // P1-1/扫描页分页：游标翻页拉取跨设备聚合发现（单请求、服务端停在本页 limit），
+  // 取代逐设备 N+1 扇出与"每请求拉全量"。category 过滤与加白抑制在本地做（categorize 单一
+  // 可信源）；返回 next_cursor/complete 供前端"加载更多"追加；任一页失败诚实降级 connected:false。
   const base = collector.replace(/\/$/, '');
-  const agg: Array<{ device_id: string; scanned_at: number; finding: RawFinding }> = [];
+  const cursor0 = url.searchParams.get('cursor') ?? '';
+  const all: Array<Record<string, unknown>> = [];
+  const devicesWithFindingsSet = new Set<string>();
+  let suppressed = 0;
   let devicesScanned = 0;
-  let cursor = '';
-  for (let page = 0; page < 200; page += 1) {
+  let cursor = cursor0;
+  let complete = false;
+  for (let page = 0; page < 200 && all.length < limit; page += 1) {
     const qs = new URLSearchParams({ limit: '1000' });
     if (cursor) qs.set('cursor', cursor);
-    let data: { complete?: boolean; next_cursor?: string; devices_scanned?: number; findings?: Array<{ device_id: string; scanned_at: number; finding: RawFinding }> };
+    let data: {
+      complete?: boolean;
+      next_cursor?: string;
+      devices_scanned?: number;
+      findings?: Array<{ device_id: string; scanned_at: number; finding: RawFinding }>;
+    };
     try {
       const res = await fetch(`${base}/v1/findings/aggregate?${qs.toString()}`, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
@@ -91,35 +99,36 @@ export async function GET(request: Request) {
       return NextResponse.json(empty, { headers: NO_STORE });
     }
     devicesScanned += typeof data.devices_scanned === 'number' ? data.devices_scanned : 0;
-    if (Array.isArray(data.findings)) agg.push(...data.findings);
+    for (const item of data.findings ?? []) {
+      const f = item.finding ?? {};
+      const deviceId = String(item.device_id ?? '');
+      const kind = typeof f.kind === 'string' ? f.kind : '';
+      const c = categorize(kind);
+      if (category !== 'all' && c !== category) continue;
+      if (isFindingAllowed(f, allowed)) {
+        suppressed += 1;
+        continue;
+      }
+      const asset = findingAsset(f);
+      if (deviceId) devicesWithFindingsSet.add(deviceId);
+      all.push({
+        device_id: deviceId,
+        kind,
+        category: c,
+        severity: typeof f.severity === 'string' ? f.severity : 'low',
+        path: typeof f.path === 'string' ? f.path : '',
+        message: typeof f.message === 'string' ? f.message : '',
+        ...(asset ? { asset_type: asset.asset_type, asset_key: asset.asset_key } : {}),
+        ...(f.signal_matches !== undefined ? { signal_matches: f.signal_matches } : {}),
+        scanned_at: item.scanned_at || 0,
+      });
+      if (all.length >= limit) break;
+    }
     cursor = typeof data.next_cursor === 'string' ? data.next_cursor : '';
-    if (data.complete !== false || !cursor) break;
-  }
-
-  const all: Array<Record<string, unknown>> = [];
-  const devicesWithFindingsSet = new Set<string>();
-  let suppressed = 0;
-  for (const item of agg) {
-    const f = item.finding ?? {};
-    const deviceId = String(item.device_id ?? '');
-    const kind = typeof f.kind === 'string' ? f.kind : '';
-    const c = categorize(kind);
-    if (category !== 'all' && c !== category) continue;
-    // 命中加白资产 → 抑制（不计入告警/计数），仅累计 suppressed 供透明展示。
-    if (isFindingAllowed(f, allowed)) { suppressed += 1; continue; }
-    const asset = findingAsset(f);
-    if (deviceId) devicesWithFindingsSet.add(deviceId);
-    all.push({
-      device_id: deviceId,
-      kind,
-      category: c,
-      severity: typeof f.severity === 'string' ? f.severity : 'low',
-      path: typeof f.path === 'string' ? f.path : '',
-      message: typeof f.message === 'string' ? f.message : '',
-      ...(asset ? { asset_type: asset.asset_type, asset_key: asset.asset_key } : {}),
-      ...(f.signal_matches !== undefined ? { signal_matches: f.signal_matches } : {}),
-      scanned_at: item.scanned_at || 0,
-    });
+    if (data.complete !== false || !cursor) {
+      complete = true;
+      break;
+    }
   }
   const devicesWithFindings = devicesWithFindingsSet.size;
 
@@ -135,6 +144,22 @@ export async function GET(request: Request) {
     if (SEVERITIES.includes(s)) counts[s] += 1;
   }
 
+  // 全舰队累计严重/高危走 summary.finding_totals（O(设备数)，零 body 解析），供扫描页 KPI。
+  let findingTotals: { critical: number; high: number; medium: number; low: number } | undefined;
+  try {
+    const sr = await fetch(`${base}/v1/summary`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (sr.ok) {
+      const sd = (await sr.json()) as { finding_totals?: typeof findingTotals };
+      findingTotals = sd.finding_totals;
+    }
+  } catch {
+    findingTotals = undefined;
+  }
+
   return NextResponse.json(
     {
       connected: true,
@@ -143,7 +168,10 @@ export async function GET(request: Request) {
       devices_with_findings: devicesWithFindings,
       suppressed,
       counts,
-      findings: all.slice(0, limit),
+      findings: all,
+      next_cursor: complete ? undefined : cursor || undefined,
+      complete,
+      finding_totals: findingTotals,
     },
     { headers: NO_STORE },
   );
