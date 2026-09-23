@@ -5,6 +5,7 @@ import { SlidersHorizontal, ShieldCheck, KeyRound, Download } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
+import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
 import { MODULE_LABELS, MODULE_HINTS, type ModuleKey } from '@/lib/modules';
 
 /** 模块开关出厂默认（与 public/downloads/aegis-policy.json 的 modules 一致）。
@@ -116,13 +117,14 @@ interface KeysResponse {
 }
 
 export default function PoliciesPage() {
-  const { role } = useRole();
+  const { role, subject } = useRole();
   const isAdmin = role === 'admin';
   const [current, setCurrent] = useState<CurrentRelease | null>(null);
   const [posture, setPosture] = useState<Posture | null>(null);
   const [keys, setKeys] = useState<KeysResponse | null>(null);
   const [keysMsg, setKeysMsg] = useState('');
   const [busyKey, setBusyKey] = useState('');
+  const [pendingRetire, setPendingRetire] = useState<string | null>(null);
 
   const reloadKeys = useCallback(() => {
     fetch('/api/policy/keys', { cache: 'no-store' })
@@ -171,7 +173,6 @@ export default function PoliciesPage() {
 
   async function retireKey(keyId: string) {
     if (!isAdmin || busyKey) return;
-    if (!window.confirm(`确认退役签名密钥「${keyId}」？退役后终端将无法再用它验签（请先确认无生效策略依赖）。`)) return;
     setBusyKey(keyId);
     setKeysMsg('');
     try {
@@ -183,6 +184,14 @@ export default function PoliciesPage() {
     } finally {
       setBusyKey('');
     }
+  }
+
+  /** 退役签名密钥 = 不可逆动作，统一经确认弹窗（影响范围 + 回滚）后执行。 */
+  async function confirmRetire() {
+    if (!pendingRetire || busyKey) return;
+    const keyId = pendingRetire;
+    await retireKey(keyId);
+    setPendingRetire(null);
   }
 
   return (
@@ -299,7 +308,7 @@ export default function PoliciesPage() {
                       <button className="handle" disabled={busyKey === k.key_id} onClick={() => void rotateKey(k.key_id)}>设为活跃</button>
                     )}
                     {isAdmin && k.status === 'retiring' && (
-                      <button className="handle" disabled={busyKey === k.key_id} onClick={() => void retireKey(k.key_id)}>退役</button>
+                      <button className="handle" disabled={busyKey === k.key_id} onClick={() => setPendingRetire(k.key_id)}>退役</button>
                     )}
                   </span>
                 </div>
@@ -318,6 +327,26 @@ export default function PoliciesPage() {
         </div>
         <ModuleToggles isAdmin={isAdmin} />
       </div>
+
+      <ActionConfirmDialog
+        open={pendingRetire !== null}
+        onOpenChange={(open) => {
+          if (!open && !busyKey) setPendingRetire(null);
+        }}
+        title="退役签名密钥"
+        description={pendingRetire ? `确认退役签名密钥「${pendingRetire}」？` : undefined}
+        impact={[
+          '终端将无法再用该密钥验签由它签发的策略',
+          '服务端会拦截「当前生效策略仍依赖该密钥」的退役，需先用新活跃密钥发布一版',
+          '退役后该密钥转为 retired 状态，不再参与新策略签发',
+        ]}
+        rollback="退役不可撤销；如需继续使用，请在签名密钥配置中重新预置该密钥并设为活跃。"
+        operator={subject || '当前登录用户'}
+        variant="danger"
+        confirmLabel="确认退役"
+        busy={Boolean(busyKey)}
+        onConfirm={() => void confirmRetire()}
+      />
     </>
   );
 }

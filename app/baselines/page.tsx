@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
+import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
 
 interface Baseline {
   name: string;
@@ -35,7 +36,7 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 export default function BaselinesPage() {
-  const { role } = useRole();
+  const { role, subject } = useRole();
   const isAdmin = role === 'admin';
   const [items, setItems] = useState<Baseline[] | null>(null);
   const [mode, setMode] = useState('standard');
@@ -47,6 +48,9 @@ export default function BaselinesPage() {
   const [syncUrl, setSyncUrl] = useState('');
   const [upUrl, setUpUrl] = useState('');
   const [upMsg, setUpMsg] = useState('');
+  // 删除基线 = 不可逆动作，统一确认弹窗（影响范围 + 回滚）。
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -81,11 +85,22 @@ export default function BaselinesPage() {
 
   async function doDelete(n: string) {
     setError(''); setNotice('');
-    if (!window.confirm(`确认删除基线「${n}」？此操作不可撤销。`)) return;
     const r = await fetch(`/api/baselines?name=${encodeURIComponent(n)}`, { method: 'DELETE' });
     if (!r.ok) { setError(`删除失败 HTTP ${r.status}`); return; }
     setNotice(`已删除 ${n}`);
     void load();
+  }
+
+  /** 删除基线经统一确认弹窗后执行（不可逆动作，人在回路）。 */
+  async function confirmDelete() {
+    if (!pendingDelete || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      await doDelete(pendingDelete);
+      setPendingDelete(null);
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   async function saveUpUrl() {
@@ -187,7 +202,7 @@ export default function BaselinesPage() {
                   {b.updated_by} · {new Date(b.updated_at).toLocaleString()}
                 </span>
                 {isAdmin && b.source === 'custom' && (
-                  <Button variant="outline" onClick={() => void doDelete(b.name)} aria-label="删除基线">
+                  <Button variant="outline" onClick={() => setPendingDelete(b.name)} aria-label="删除基线">
                     <Trash2 size={14} />
                   </Button>
                 )}
@@ -212,6 +227,26 @@ export default function BaselinesPage() {
         )}
       </div>
       <EnterpriseMdPanel />
+
+      <ActionConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleteBusy) setPendingDelete(null);
+        }}
+        title="删除基线"
+        description={pendingDelete ? `确认删除基线「${pendingDelete}」？此操作不可撤销。` : undefined}
+        impact={[
+          '该自定义基线将从受管基线列表中移除，终端不再加载它',
+          '上游同步基线（upstream-baseline）不受影响，仍会正常下发',
+          '删除会记入审计日志，作为变更追溯依据',
+        ]}
+        rollback="如需恢复，重新导入同名基线（粘贴规则 JSON）即可；删除本身不可撤销。"
+        operator={subject || '当前登录用户'}
+        variant="danger"
+        confirmLabel="确认删除"
+        busy={deleteBusy}
+        onConfirm={() => void confirmDelete()}
+      />
     </>
   );
 }

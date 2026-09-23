@@ -54,6 +54,7 @@ import TicketDetail, {
   type TicketStatus,
 } from '@/components/ticket-detail';
 import { DetailDrawer, type DrawerSection } from '@/components/detail-drawer';
+import { ActionConfirmDialog, type ActionConfirmVariant } from '@/components/action-confirm-dialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui-states';
 
 /* ─── 展示层常量 ─────────────────────────────────────────── */
@@ -61,6 +62,64 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui-states';
 type TicketSource = 'loading' | 'api' | 'error';
 type ToastTone = 'info' | 'success' | 'error';
 type FilterKey = 'all' | 'pending' | 'investigating' | 'resolved';
+
+/** 风险中心需二次确认的动作（批量终态 / 批量拉黑 / 单工单终态）。 */
+type RiskConfirm =
+  | { kind: 'batchTransition'; status: TicketStatus }
+  | { kind: 'batchDeny' }
+  | { kind: 'singleTransition'; ticket: Ticket; status: TicketStatus };
+
+/** 为每类待确认动作生成「影响范围 + 回滚方式」文案（handoff P0：动作前展示影响与回滚）。 */
+function buildRiskConfirmCopy(
+  confirm: RiskConfirm | null,
+  selectedCount: number,
+): {
+  title: string;
+  description: string;
+  impact: string[];
+  rollback: string;
+  variant: ActionConfirmVariant;
+  confirmLabel: string;
+} | null {
+  if (!confirm) return null;
+  if (confirm.kind === 'batchDeny') {
+    return {
+      title: '批量拉黑（封禁）',
+      description: `确认对所选 ${selectedCount} 个工单的关联资产执行【拉黑】？`,
+      impact: [
+        '被拉黑的 Skill / MCP / 路径将编译进签名策略并下发终端强制执行',
+        '终端命中拉黑项时会阻断该资产，可能影响相关业务',
+        '仅管理员可执行；动作会记入审计日志',
+      ],
+      rollback: '可在「处置中心」把对应资产改回加白 / 观察，再发布一版策略即可撤销封禁。',
+      variant: 'danger',
+      confirmLabel: '确认拉黑',
+    };
+  }
+  if (confirm.kind === 'batchTransition') {
+    const label = statusLabel(confirm.status);
+    return {
+      title: `批量转为「${label}」`,
+      description: `确认将所选 ${selectedCount} 个工单批量转为「${label}」？`,
+      impact: [
+        `这 ${selectedCount} 个工单的状态将变为「${label}」`,
+        '终态流转会写入审计日志，作为处置闭环依据',
+      ],
+      rollback: '如需撤销，重新打开对应工单流转到「处理中」即可。',
+      variant: 'warning',
+      confirmLabel: '确认流转',
+    };
+  }
+  const label = confirm.status === 'resolved' ? '标记为已解决' : '驳回';
+  return {
+    title: `${label}工单`,
+    description: `确认将工单「${confirm.ticket.title}」${label}？`,
+    impact: ['该工单将进入终态，从待处理队列移出', '流转结果会记入审计日志'],
+    rollback: '如需撤销，重新打开该工单流转到「处理中」即可。',
+    variant: 'warning',
+    confirmLabel: '确认',
+  };
+}
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
 
@@ -160,7 +219,7 @@ function pickRecord(payload: unknown, key: string): unknown {
 
 export default function RisksPage() {
   const { fleet } = useCollector();
-  const { role } = useRole();
+  const { role, subject } = useRole();
   const canMutate = role === 'admin';
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -179,6 +238,9 @@ export default function RisksPage() {
     id: string;
     status: TicketStatus;
   } | null>(null);
+  // 不可逆 / 高影响动作（批量终态流转、批量拉黑、单工单终态流转）统一确认弹窗。
+  const [riskConfirm, setRiskConfirm] = useState<RiskConfirm | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
   // P1：批量选择 / 详情抽屉 / 列表光标 / 本地搜索 / 快捷键（/ r f j/k Enter）
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -409,8 +471,15 @@ export default function RisksPage() {
     });
 
   async function batchTransition(status: TicketStatus) {
-    const label = statusLabel(status);
-    if ((status === 'resolved' || status === 'dismissed') && !window.confirm(`确认将 ${selected.size} 个工单批量转为「${label}」？`)) return;
+    // 终态流转（解决 / 驳回）不可逆，先经统一确认弹窗；其余状态直接执行。
+    if (status === 'resolved' || status === 'dismissed') {
+      setRiskConfirm({ kind: 'batchTransition', status });
+      return;
+    }
+    await runBatchTransition(status);
+  }
+
+  async function runBatchTransition(status: TicketStatus) {
     for (const id of selected) {
       const t = tickets.find((x) => x.ticket_id === id);
       if (t) await transition(t, status);
@@ -425,8 +494,14 @@ export default function RisksPage() {
         notify('仅管理员可执行封禁/拉黑。', 'error');
         return;
       }
-      if (!window.confirm(`确认对 ${selected.size} 个工单的关联资产执行【拉黑】？将编译进签名策略下发终端；可在处置中心改回以回滚。`)) return;
+      // 拉黑会编译进签名策略下发终端 = 高影响动作，先经统一确认弹窗。
+      setRiskConfirm({ kind: 'batchDeny' });
+      return;
     }
+    await runBatchLabel(disposition);
+  }
+
+  async function runBatchLabel(disposition: 'allow' | 'monitor' | 'deny') {
     const deviceIds = [...new Set(Array.from(selected, (id) => tickets.find((t) => t.ticket_id === id)?.device_id).filter((x): x is string => Boolean(x)))];
     const assets = new Map<string, { asset_type: 'skill' | 'mcp' | 'path'; asset_key: string }>();
     for (const did of deviceIds) {
@@ -452,6 +527,25 @@ export default function RisksPage() {
     notify(`已对 ${assets.size} 个资产执行${disposition === 'allow' ? '加白' : disposition === 'monitor' ? '观察' : '拉黑'}。`, 'success');
     setSelected(new Set());
     void refresh();
+  }
+
+  /** 统一确认弹窗执行入口：批量终态 / 批量拉黑 / 单工单终态都在人工确认后由此分发。 */
+  async function confirmRisk() {
+    if (!riskConfirm || confirmBusy) return;
+    setConfirmBusy(true);
+    try {
+      switch (riskConfirm.kind) {
+        case 'batchTransition': await runBatchTransition(riskConfirm.status); break;
+        case 'batchDeny': await runBatchLabel('deny'); break;
+        case 'singleTransition':
+          await transition(riskConfirm.ticket, riskConfirm.status);
+          setDrawerTicket(null);
+          break;
+      }
+      setRiskConfirm(null);
+    } finally {
+      setConfirmBusy(false);
+    }
   }
 
   // 快捷键：/ 全局搜索、r 刷新、f 本页搜索、j/k 移动、Enter 开详情（handoff P1，含无障碍替代：均有可见按钮/输入框）。
@@ -487,6 +581,8 @@ export default function RisksPage() {
   }, [visibleTickets, page, cursorIdx]);
 
   /* ── 渲染 ─────────────────────────────────────────────── */
+
+  const riskConfirmCopy = buildRiskConfirmCopy(riskConfirm, selected.size);
 
   return (
     <>
@@ -907,8 +1003,13 @@ export default function RisksPage() {
                           className="sentinel-button"
                           style={{ marginRight: 6, marginBottom: 6 }}
                           onClick={() => {
-                            void transition(drawerTicket, tr.status);
-                            setDrawerTicket(null);
+                            if (tr.status === 'resolved' || tr.status === 'dismissed') {
+                              // 终态不可逆：打开统一确认弹窗，保留抽屉上下文，确认后再流转。
+                              setRiskConfirm({ kind: 'singleTransition', ticket: drawerTicket, status: tr.status });
+                            } else {
+                              void transition(drawerTicket, tr.status);
+                              setDrawerTicket(null);
+                            }
                           }}
                         >
                           {tr.label}
@@ -936,15 +1037,30 @@ export default function RisksPage() {
             : []
         }
       />
+
+      <ActionConfirmDialog
+        open={riskConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open && !confirmBusy) setRiskConfirm(null);
+        }}
+        title={riskConfirmCopy?.title ?? ''}
+        description={riskConfirmCopy?.description}
+        impact={riskConfirmCopy?.impact}
+        rollback={riskConfirmCopy?.rollback}
+        operator={subject || '当前登录用户'}
+        variant={riskConfirmCopy?.variant ?? 'default'}
+        confirmLabel={riskConfirmCopy?.confirmLabel ?? '确认执行'}
+        busy={confirmBusy}
+        onConfirm={() => void confirmRisk()}
+      />
     </>
   );
 
-  /** 行内动作与详情面板共用同一个流转入口。终态流转(解决/驳回)需二次确认。 */
+  /** 行内动作与详情面板共用同一个流转入口。终态流转(解决/驳回)不可逆，先经统一确认弹窗。 */
   function runTransition(ticket: Ticket, status: TicketStatus) {
     if (status === 'resolved' || status === 'dismissed') {
-      const label = status === 'resolved' ? '标记为已解决' : '驳回';
-      const ok = window.confirm(`确认将工单「${ticket.title}」${label}？`);
-      if (!ok) return Promise.resolve();
+      setRiskConfirm({ kind: 'singleTransition', ticket, status });
+      return Promise.resolve();
     }
     return transition(ticket, status);
   }

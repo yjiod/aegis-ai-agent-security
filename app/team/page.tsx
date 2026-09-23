@@ -4,6 +4,56 @@ import { ShieldCheck, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Toast } from '@/components/toast';
 import { MfaPanel } from '@/components/mfa-panel';
+import { ActionConfirmDialog, type ActionConfirmVariant } from '@/components/action-confirm-dialog';
+import { useRole } from '@/components/role-context';
+
+/** 团队页所有不可逆动作（移除角色 / 吊销会话）统一走确认弹窗。 */
+type TeamActionKind = 'revoke' | 'delAdmin' | 'delAuditor' | 'delOperator' | 'delDeveloper';
+type PendingTeamAction = { kind: TeamActionKind; emp: string } | null;
+
+const ROLE_LABEL: Record<Exclude<TeamActionKind, 'revoke'>, string> = {
+  delAdmin: '管理员',
+  delAuditor: '审计员',
+  delOperator: '运维工程师',
+  delDeveloper: '开发者',
+};
+
+function teamActionCopy(pending: PendingTeamAction): {
+  title: string;
+  description: string;
+  impact: string[];
+  rollback: string;
+  variant: ActionConfirmVariant;
+  confirmLabel: string;
+} | null {
+  if (!pending) return null;
+  const { kind, emp } = pending;
+  if (kind === 'revoke') {
+    return {
+      title: '吊销既有会话',
+      description: `强制下线工号「${emp}」当前所有已登录会话。`,
+      impact: [
+        '该工号已签发的登录会话立即失效，需重新登录',
+        '不改动其白名单 / 角色，权限本身保持不变',
+      ],
+      rollback: '无需回滚：该用户重新登录即可获得新会话。',
+      variant: 'warning',
+      confirmLabel: '确认吊销',
+    };
+  }
+  const label = ROLE_LABEL[kind];
+  return {
+    title: `移除${label}`,
+    description: `把工号「${emp}」从${label}白名单中移除。`,
+    impact: [
+      `该工号将立即失去${label}对应的权限与登录准入`,
+      '其名下已执行的处置 / 发布 / 变更记录仍保留在审计日志中',
+    ],
+    rollback: `如需恢复，重新在上方输入该工号并点击“添加${label}”即可。`,
+    variant: 'danger',
+    confirmLabel: '确认移除',
+  };
+}
 
 const plannedRoles: Array<[string, string, string, string]> = [
   ['安全管理员', '全部权限', '策略发布、事件处置、设备管理、审计导出', '已启用'],
@@ -24,6 +74,9 @@ export default function TeamPage() {
   const [envDevelopers, setEnvDevelopers] = useState<string[]>([]);
   const [newDeveloper, setNewDeveloper] = useState('');
   const [newOperator, setNewOperator] = useState('');
+  const { subject } = useRole();
+  const [pending, setPending] = useState<PendingTeamAction>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   async function loadAdmins() {
     try {
@@ -107,10 +160,29 @@ export default function TeamPage() {
 
   /** 4A · 会话生命周期：强制下线某工号的全部既有会话（不改白名单/角色）。 */
   async function revokeSessionsFor(emp: string) {
-    if (!window.confirm(`确认吊销工号「${emp}」的全部既有会话？其需重新登录。`)) return;
     const r = await fetch('/api/auth/revoke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: emp }) });
     setToast(r.ok ? `已吊销 ${emp} 的既有会话` : '吊销失败（可能无权限或凭据存储不可用）');
   }
+
+  /** 统一确认弹窗的执行入口：所有不可逆动作都在人工确认后由此分发。 */
+  async function confirmRun() {
+    if (!pending || confirmBusy) return;
+    setConfirmBusy(true);
+    try {
+      switch (pending.kind) {
+        case 'revoke': await revokeSessionsFor(pending.emp); break;
+        case 'delAdmin': await delAdmin(pending.emp); break;
+        case 'delAuditor': await delAuditor(pending.emp); break;
+        case 'delOperator': await delOperator(pending.emp); break;
+        case 'delDeveloper': await delDeveloper(pending.emp); break;
+      }
+      setPending(null);
+    } finally {
+      setConfirmBusy(false);
+    }
+  }
+
+  const confirmCopy = teamActionCopy(pending);
 
   return (
     <>
@@ -148,7 +220,7 @@ export default function TeamPage() {
               <strong>{a}</strong>
               <span>{a === 'admin' ? '本地' : '白名单'}</span>
               <span>{a === 'admin' ? '恒为管理员' : '管理员'}</span>
-              <span>{a !== 'admin' && <><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <button className="handle" onClick={() => void delAdmin(a)}>移除</button></>}</span>
+              <span>{a !== 'admin' && <><button className="handle" onClick={() => setPending({ kind: 'revoke', emp: a })}>吊销会话</button> <button className="handle" onClick={() => setPending({ kind: 'delAdmin', emp: a })}>移除</button></>}</span>
             </div>
           ))}
         </div>
@@ -171,7 +243,7 @@ export default function TeamPage() {
               <strong>{a}</strong>
               <span>白名单</span>
               <span>只读审计</span>
-              <span><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <button className="handle" onClick={() => void delAuditor(a)}>移除</button></span>
+              <span><button className="handle" onClick={() => setPending({ kind: 'revoke', emp: a })}>吊销会话</button> <button className="handle" onClick={() => setPending({ kind: 'delAuditor', emp: a })}>移除</button></span>
             </div>
           ))}
         </div>
@@ -192,7 +264,7 @@ export default function TeamPage() {
           ) : (
             <>
               {developers.map((a) => (
-                <div className="data-row" key={a}><strong>{a}</strong><span>手动添加</span><span><button className="handle" onClick={() => void delDeveloper(a)}>移除</button></span></div>
+                <div className="data-row" key={a}><strong>{a}</strong><span>手动添加</span><span><button className="handle" onClick={() => setPending({ kind: 'delDeveloper', emp: a })}>移除</button></span></div>
               ))}
               {envDevelopers.map((a) => (
                 <div className="data-row" key={`env-${a}`}><strong>{a}</strong><span>系统预置</span><span><span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>系统预置，不可在此移除</span></span></div>
@@ -221,7 +293,7 @@ export default function TeamPage() {
                   <strong>{a}</strong>
                   <span>手动添加</span>
                   <span>终端管理</span>
-                  <span><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <button className="handle" onClick={() => void delOperator(a)}>移除</button></span>
+                  <span><button className="handle" onClick={() => setPending({ kind: 'revoke', emp: a })}>吊销会话</button> <button className="handle" onClick={() => setPending({ kind: 'delOperator', emp: a })}>移除</button></span>
                 </div>
               ))}
               {envOperators.map((a) => (
@@ -229,7 +301,7 @@ export default function TeamPage() {
                   <strong>{a}</strong>
                   <span>系统预置</span>
                   <span>终端管理</span>
-                  <span><button className="handle" onClick={() => void revokeSessionsFor(a)}>吊销会话</button> <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>系统预置，不可在此移除</span></span>
+                  <span><button className="handle" onClick={() => setPending({ kind: 'revoke', emp: a })}>吊销会话</button> <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>系统预置，不可在此移除</span></span>
                 </div>
               ))}
             </>
@@ -273,6 +345,22 @@ export default function TeamPage() {
       </div>
 
       <MfaPanel />
+
+      <ActionConfirmDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open && !confirmBusy) setPending(null);
+        }}
+        title={confirmCopy?.title ?? ''}
+        description={confirmCopy?.description}
+        impact={confirmCopy?.impact}
+        rollback={confirmCopy?.rollback}
+        operator={subject || '当前登录用户'}
+        variant={confirmCopy?.variant ?? 'default'}
+        confirmLabel={confirmCopy?.confirmLabel ?? '确认执行'}
+        busy={confirmBusy}
+        onConfirm={() => void confirmRun()}
+      />
     </>
   );
 }

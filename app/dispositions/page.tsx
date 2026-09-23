@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
 import { RiskSignalHelp } from '@/components/risk-signal-help';
+import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
 
 interface Label {
   asset_type: 'skill' | 'mcp' | 'path';
@@ -64,13 +65,14 @@ function relTime(ts: number): string {
 }
 
 export default function DispositionsPage() {
-  const { role } = useRole();
+  const { role, subject } = useRole();
   const isAdmin = role === 'admin';
   const [labels, setLabels] = useState<Label[] | null>(null);
   // 规模化分页（几千处置项）：列表分页渲染。
   const [error, setError] = useState('');
   const [seedMsg, setSeedMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pendingRemove, setPendingRemove] = useState<Label | null>(null);
   const [preview, setPreview] = useState<PolicyPreview | null>(null);
   const [current, setCurrent] = useState<CurrentRelease | null>(null);
   const [publishing, setPublishing] = useState(false);
@@ -218,10 +220,6 @@ export default function DispositionsPage() {
   }
 
   async function removeAsset(asset: Label) {
-    const ok = window.confirm(
-      `确认删除对「${asset.asset_key}」(${asset.asset_type}) 的处置打标？删除后该资产将回到"未处置"状态。`,
-    );
-    if (!ok) return;
     setBusy(true);
     setError('');
     try {
@@ -233,6 +231,13 @@ export default function DispositionsPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /** 删除处置打标 = 不可逆动作，统一经确认弹窗（影响范围 + 回滚）后执行。 */
+  async function confirmRemove() {
+    if (!pendingRemove || busy) return;
+    await removeAsset(pendingRemove);
+    setPendingRemove(null);
   }
 
   async function seedDefaults() {
@@ -532,7 +537,7 @@ export default function DispositionsPage() {
                                 }}
                                 style={{ width: 150, fontSize: 12 }}
                               />
-                              <Button variant="outline" onClick={() => void removeAsset(l)} disabled={busy} aria-label="删除">
+                              <Button variant="outline" onClick={() => setPendingRemove(l)} disabled={busy} aria-label="删除">
                                 <Trash2 size={14} />
                               </Button>
                             </span>
@@ -693,6 +698,30 @@ export default function DispositionsPage() {
           <p className="empty-hint">{isAdmin ? '加载发布预览…' : '仅管理员可查看发布预览。'}</p>
         )}
       </div>
+
+      <ActionConfirmDialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setPendingRemove(null);
+        }}
+        title="删除处置打标"
+        description={
+          pendingRemove
+            ? `确认删除对「${pendingRemove.asset_key}」(${pendingRemove.asset_type}) 的处置打标？`
+            : undefined
+        }
+        impact={[
+          '该资产将回到“未处置”状态，不再参与加白 / 观察 / 拉黑抑制',
+          '下次发布策略时，该资产不再出现在对应清单中',
+          '已产生的历史发现与工单不受影响，仍保留在审计日志',
+        ]}
+        rollback="如需恢复，重新对该资产打标（加白 / 观察 / 拉黑）后再发布策略即可。"
+        operator={subject || '当前登录用户'}
+        variant="danger"
+        confirmLabel="确认删除"
+        busy={busy && pendingRemove !== null}
+        onConfirm={() => void confirmRemove()}
+      />
     </>
   );
 }
