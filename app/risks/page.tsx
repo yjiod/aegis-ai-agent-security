@@ -277,6 +277,11 @@ export default function RisksPage() {
   const [drawerTicket, setDrawerTicket] = useState<Ticket | null>(null);
   const [cursorIdx, setCursorIdx] = useState(0);
   const [query, setQuery] = useState('');
+  // 统一筛选条（handoff P0）：等级 / 来源 / 终端 / 时间窗，与状态筛选 + 搜索叠加。
+  const [sevFilter, setSevFilter] = useState<'all' | TicketSeverity>('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [deviceFilter, setDeviceFilter] = useState('');
+  const [timeFilter, setTimeFilter] = useState<'all' | '24h' | '7d' | '30d'>('all');
   const localSearchRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
 
@@ -455,17 +460,36 @@ export default function RisksPage() {
 
   const visibleTickets = useMemo(() => {
     const match = FILTERS.find((entry) => entry.key === filter)?.match ?? null;
-    const byStatus = match ? tickets.filter((ticket) => match.includes(ticket.status)) : tickets;
+    let list = match ? tickets.filter((ticket) => match.includes(ticket.status)) : tickets;
+    if (sevFilter !== 'all') list = list.filter((t) => t.severity === sevFilter);
+    if (sourceFilter !== 'all') list = list.filter((t) => (t.source ?? '') === sourceFilter);
+    const dq = deviceFilter.trim().toLowerCase();
+    if (dq) list = list.filter((t) => (t.device_id ?? '').toLowerCase().includes(dq));
+    if (timeFilter !== 'all') {
+      const hours = timeFilter === '24h' ? 24 : timeFilter === '7d' ? 168 : 720;
+      const cutoff = Date.now() / 1000 - hours * 3600;
+      list = list.filter((t) => Number(t.created_at ?? 0) >= cutoff);
+    }
     const q = query.trim().toLowerCase();
-    if (!q) return byStatus;
-    return byStatus.filter((t) =>
+    if (!q) return list;
+    return list.filter((t) =>
       [t.title, t.device_id, t.ticket_id, t.severity]
         .filter((x): x is string => typeof x === 'string')
         .join(' ')
         .toLowerCase()
         .includes(q),
     );
-  }, [filter, tickets, query]);
+  }, [filter, tickets, query, sevFilter, sourceFilter, deviceFilter, timeFilter]);
+
+  /** 来源选项由真实工单派生（不硬编码）。 */
+  const sourceOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tickets) if (t.source) set.add(t.source);
+    return Array.from(set).sort();
+  }, [tickets]);
+
+  const hasActiveFilter =
+    sevFilter !== 'all' || sourceFilter !== 'all' || deviceFilter.trim() !== '' || timeFilter !== 'all';
 
   const filterCounts = useMemo(() => {
     const counts: Record<FilterKey, number> = {
@@ -778,6 +802,92 @@ export default function RisksPage() {
             {refreshing ? <Spinner /> : <RefreshCw />}
             刷新
           </Button>
+        </div>
+
+        {/* 统一筛选条（handoff P0）：等级 / 来源 / 终端 / 时间窗，与状态 + 搜索叠加 */}
+        <div
+          role="toolbar"
+          aria-label="工单统一筛选"
+          style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}
+        >
+          <select
+            className="form-input"
+            style={{ width: 120, padding: '6px 8px', fontSize: 12 }}
+            value={sevFilter}
+            onChange={(e) => {
+              setSevFilter(e.target.value as typeof sevFilter);
+              setPage(1);
+            }}
+            aria-label="按严重度筛选"
+          >
+            <option value="all">全部等级</option>
+            <option value="critical">严重</option>
+            <option value="high">高危</option>
+            <option value="medium">中危</option>
+            <option value="low">低危</option>
+            <option value="info">信息</option>
+          </select>
+          <select
+            className="form-input"
+            style={{ width: 150, padding: '6px 8px', fontSize: 12 }}
+            value={sourceFilter}
+            onChange={(e) => {
+              setSourceFilter(e.target.value);
+              setPage(1);
+            }}
+            aria-label="按来源筛选"
+          >
+            <option value="all">全部来源</option>
+            {sourceOptions.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <input
+            className="form-input"
+            style={{ width: 160, padding: '6px 8px', fontSize: 12 }}
+            value={deviceFilter}
+            onChange={(e) => {
+              setDeviceFilter(e.target.value);
+              setPage(1);
+            }}
+            placeholder="终端 ID 片段…"
+            aria-label="按终端筛选"
+          />
+          <select
+            className="form-input"
+            style={{ width: 120, padding: '6px 8px', fontSize: 12 }}
+            value={timeFilter}
+            onChange={(e) => {
+              setTimeFilter(e.target.value as typeof timeFilter);
+              setPage(1);
+            }}
+            aria-label="按时间窗筛选"
+          >
+            <option value="all">全部时间</option>
+            <option value="24h">近 24 小时</option>
+            <option value="7d">近 7 天</option>
+            <option value="30d">近 30 天</option>
+          </select>
+          {hasActiveFilter && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSevFilter('all');
+                setSourceFilter('all');
+                setDeviceFilter('');
+                setTimeFilter('all');
+                setPage(1);
+              }}
+            >
+              清除筛选
+            </Button>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+            命中 {visibleTickets.length} / {tickets.length} 工单
+          </span>
         </div>
 
         {selected.size > 0 && (
