@@ -120,6 +120,8 @@ interface DeviceLite {
   hostname?: string;
   agent_version?: string;
   owner?: string;
+  /** 秒级 epoch；用于推导 fleet 最近上报时间（数据新鲜度）。 */
+  last_seen?: number;
 }
 interface TicketLite {
   ticket_id: string;
@@ -305,6 +307,20 @@ export default function Home() {
   const highTotal = fleet?.finding_totals?.high ?? fleet?.latest_severity?.high ?? 0;
   const statusValue = critTotal > 0 ? '需处置' : highTotal > 0 ? '需关注' : '风险可控';
   const statusTone = critTotal > 0 ? 'var(--sentinel-danger)' : highTotal > 0 ? 'var(--sentinel-warning)' : 'var(--sentinel-accent)';
+
+  /**
+   * 数据新鲜度（handoff P0）：以 fleet 最近一次上报（max last_seen）推导数据年龄；
+   * 超过 3× 上报间隔（15 分钟）即视为 stale，UI 不得再宣称"实时"。无设备/未连接返回 null。
+   */
+  const freshness = useMemo(() => {
+    const ts = (devices ?? [])
+      .map((d) => (typeof d.last_seen === 'number' ? d.last_seen : 0))
+      .filter((x) => x > 0);
+    if (ts.length === 0) return null;
+    const lastSec = Math.max(...ts);
+    const ageSec = Math.floor(Date.now() / 1000) - lastSec;
+    return { lastSec, ageSec, stale: ageSec > 15 * 60 };
+  }, [devices]);
   const todayStart = (() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -384,6 +400,18 @@ export default function Home() {
           <div style={{ color: 'var(--sentinel-text-3)', fontSize: 12 }}>安全状态</div>
           <div style={{ marginTop: 3, color: statusTone, fontSize: 24, fontWeight: 800, letterSpacing: '-0.02em' }}>{statusValue}</div>
           <div style={{ color: 'var(--sentinel-text-3)', fontSize: 11, marginTop: 4 }}>持续监测 · 主动防御 · 业务安全稳定</div>
+          <div
+            className="sentinel-status"
+            data-state={freshness ? (freshness.stale ? 'stale' : 'normal') : 'stale'}
+            style={{ marginTop: 6 }}
+            title="数据新鲜度：以 fleet 最近一次上报推导；超过 15 分钟视为陈旧"
+          >
+            {freshness
+              ? freshness.stale
+                ? `数据陈旧 · 最近上报 ${relTime(freshness.lastSec * 1000)}`
+                : `实时 · 最近上报 ${relTime(freshness.lastSec * 1000)}`
+              : '未连接 Collector · 无实时数据'}
+          </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, flex: 1 }}>
           <div className="mini">
