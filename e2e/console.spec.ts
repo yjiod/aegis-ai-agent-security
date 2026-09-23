@@ -125,7 +125,7 @@ test.describe('navigation', () => {
     const brand = page.locator('.topbar .brand');
     await expect(brand).toBeVisible();
     await expect(brand).toContainText('Aegis');
-    await expect(brand.locator('.brand-muted')).toContainText('Agent Security');
+    await expect(brand.locator('.brand-muted')).toContainText('Sentinel');
   });
 });
 

@@ -17,7 +17,7 @@ export function LoadingState({ label = '加载中…' }: { label?: string }) {
 
 export function EmptyState({ label = '暂无数据', hint }: { label?: string; hint?: string }) {
   return (
-    <div className="state-block" role="status">
+    <div className="state-block empty-detail" role="status">
       <Inbox size={18} />
       <span>{label}</span>
       {hint ? <small>{hint}</small> : null}
@@ -27,7 +27,7 @@ export function EmptyState({ label = '暂无数据', hint }: { label?: string; h
 
 export function ErrorState({ label = '加载失败', onRetry }: { label?: string; onRetry?: () => void }) {
   return (
-    <div className="state-block" role="alert">
+    <div className="state-block empty-detail" role="alert">
       <AlertTriangle size={18} style={{ color: 'var(--sentinel-warning)' }} />
       <span>{label}</span>
       <small>请稍后重试；若持续失败请联系管理员（详情见审计日志）。</small>
