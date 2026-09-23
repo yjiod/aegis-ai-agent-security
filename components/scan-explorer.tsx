@@ -13,6 +13,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { RefreshCw, ShieldAlert, Inbox, WifiOff, ArrowRight } from 'lucide-react';
 import { findingAsset } from '@/lib/labels';
+import { DetailDrawer, type DrawerSection } from '@/components/detail-drawer';
+import { useRole } from '@/components/role-context';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
@@ -85,6 +87,28 @@ export function ScanExplorer({
   const [status, setStatus] = useState(0);
   // 2026-09 搜索：本页发现按 kind/path/message/终端 本地过滤（数据为单类聚合全量，客户端过滤完整）。
   const [q, setQ] = useState('');
+  // P1 抽屉扩展到扫描页：选中发现 → 右侧抽屉（发现/资产/规则信号/建议动作/来源）。
+  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
+  const [disposing, setDisposing] = useState(false);
+  const { role } = useRole();
+
+  async function disposeFinding(f: Finding, disposition: 'allow' | 'monitor' | 'deny') {
+    const a = findingAsset(f);
+    if (!a) return;
+    if (disposition === 'deny' && role !== 'admin') return; // 封禁仅 admin
+    setDisposing(true);
+    try {
+      await fetch('/api/labels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asset_type: a.asset_type, asset_key: a.asset_key, disposition }),
+      });
+      setSelectedFinding(null);
+      void load(true);
+    } finally {
+      setDisposing(false);
+    }
+  }
 
   const load = useCallback(
     async (isRefresh: boolean) => {
@@ -255,7 +279,21 @@ export function ScanExplorer({
               .map((f, i) => {
               const sev = asSeverity(f.severity);
               return (
-                <div className="data-row animate-row-entrance" key={`${f.device_id}-${f.kind}-${f.path}-${i}`} style={{ animationDelay: `${i * 20 + 150}ms` }}>
+                <div
+                  className="data-row animate-row-entrance"
+                  key={`${f.device_id}-${f.kind}-${f.path}-${i}`}
+                  style={{ animationDelay: `${i * 20 + 150}ms`, cursor: 'pointer' }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`打开发现详情：${f.kind} ${f.path}`}
+                  onClick={() => setSelectedFinding(f)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedFinding(f);
+                    }
+                  }}
+                >
                   <i className={severityMeta(sev).tone === 'red' ? 'fail' : severityMeta(sev).tone === 'orange' ? 'warn' : ''}>
                     {severityMeta(sev).label}
                   </i>
@@ -300,6 +338,83 @@ export function ScanExplorer({
           </div>
         )}
       </div>
+      {/* P1 抽屉扩展到扫描页：发现 → 资产 → 规则信号 → 建议动作 → 来源/时间 */}
+      <DetailDrawer
+        open={selectedFinding !== null}
+        onClose={() => setSelectedFinding(null)}
+        title={selectedFinding ? selectedFinding.kind : ''}
+        subtitle={selectedFinding ? `${selectedFinding.severity} · ${selectedFinding.category}` : undefined}
+        sections={
+          selectedFinding
+            ? ([
+                {
+                  label: '发现',
+                  content: (
+                    <div>
+                      <div className="kv">
+                        <span>严重度</span>
+                        <span>{selectedFinding.severity}</span>
+                      </div>
+                      <div className="kv">
+                        <span>类型</span>
+                        <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{selectedFinding.kind}</span>
+                      </div>
+                      <p style={{ marginTop: 6, color: 'var(--muted-foreground)' }}>{selectedFinding.message}</p>
+                      <div className="kv" style={{ marginTop: 6 }}>
+                        <span>路径</span>
+                        <span style={{ wordBreak: 'break-all' }}>{selectedFinding.path || '—'}</span>
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  label: '资产',
+                  content: (
+                    <div>
+                      <div className="kv">
+                        <span>终端</span>
+                        <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{selectedFinding.device_id}</span>
+                      </div>
+                      <div className="kv">
+                        <span>资产</span>
+                        <span>{selectedFinding.asset_key || findingAsset(selectedFinding)?.asset_key || '—'}</span>
+                      </div>
+                    </div>
+                  ),
+                },
+                { label: '规则信号', content: <SignalDetails matches={selectedFinding.signal_matches} /> },
+                {
+                  label: '建议动作',
+                  content: (
+                    <div>
+                      {(['allow', 'monitor', 'deny'] as const).map((d) => (
+                        <button
+                          key={d}
+                          type="button"
+                          className="sentinel-button"
+                          disabled={disposing || (d === 'deny' && role !== 'admin')}
+                          style={{ marginRight: 6, marginBottom: 6, ...(d === 'deny' ? { color: 'var(--sentinel-danger)', borderColor: 'rgba(240,82,93,.5)' } : {}) }}
+                          onClick={() => void disposeFinding(selectedFinding, d)}
+                        >
+                          {d === 'allow' ? '加白' : d === 'monitor' ? '观察' : '拉黑（需 admin）'}
+                        </button>
+                      ))}
+                    </div>
+                  ),
+                },
+                {
+                  label: '来源 / 时间',
+                  content: (
+                    <div className="kv">
+                      <span>扫描时间</span>
+                      <span>{formatRelativeTime(selectedFinding.scanned_at)}</span>
+                    </div>
+                  ),
+                },
+              ] as DrawerSection[])
+            : []
+        }
+      />
     </section>
   );
 }
