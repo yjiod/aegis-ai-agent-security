@@ -1232,6 +1232,50 @@ export default function DevicesPage() {
         )}
       </div>
 
+      {/* P1 版本漂移影响面：设备 / Agent 版本 / 状态 / 预计修复动作 / 更新时间 */}
+      {driftDevices.length > 0 && (
+        <section className="panel" style={{ padding: 16, margin: '16px 0' }}>
+          <div className="panel-head">
+            <div>
+              <h2>版本漂移影响面</h2>
+              <p>低于要求版本 {fleet?.required_agent_version ?? '—'} 的终端及预计修复动作</p>
+            </div>
+            <Badge variant="outline">{driftDevices.length} 台</Badge>
+          </div>
+          <table className="sentinel-table">
+            <thead>
+              <tr>
+                <th>设备</th>
+                <th>Agent</th>
+                <th>状态</th>
+                <th>预计修复动作</th>
+                <th>更新</th>
+              </tr>
+            </thead>
+            <tbody>
+              {driftDevices.map((d) => (
+                <tr key={d.device_id}>
+                  <td>
+                    <b>{d.hostname || d.device_id}</b>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'var(--sentinel-font-mono)' }}>{d.device_id}</div>
+                  </td>
+                  <td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{d.agent_version ?? '—'}</td>
+                  <td>
+                    <span className="sentinel-status" data-state={d.status === 'online' ? 'normal' : d.status === 'stale' ? 'warning' : 'offline'}>
+                      {d.status ?? '—'}
+                    </span>
+                  </td>
+                  <td>{d.pinned ? '人工/桌管更新（已 pin，不自更）' : d.status === 'online' ? `自更新至 ${fleet?.required_agent_version ?? '—'}` : '上线后自更'}</td>
+                  <td style={{ color: 'var(--muted-foreground)' }}>
+                    {d.last_seen ? new Date(d.last_seen * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
       <AlertDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {

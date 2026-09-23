@@ -53,6 +53,8 @@ import TicketDetail, {
   type TicketSeverity,
   type TicketStatus,
 } from '@/components/ticket-detail';
+import { DetailDrawer, type DrawerSection } from '@/components/detail-drawer';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui-states';
 
 /* ─── 展示层常量 ─────────────────────────────────────────── */
 
@@ -177,6 +179,12 @@ export default function RisksPage() {
     status: TicketStatus;
   } | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: ToastTone } | null>(null);
+  // P1：批量选择 / 详情抽屉 / 列表光标 / 本地搜索 / 快捷键（/ r f j/k Enter）
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [drawerTicket, setDrawerTicket] = useState<Ticket | null>(null);
+  const [cursorIdx, setCursorIdx] = useState(0);
+  const [query, setQuery] = useState('');
+  const localSearchRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
 
   const notify = useCallback((text: string, tone: ToastTone = 'info') => {
@@ -354,9 +362,17 @@ export default function RisksPage() {
 
   const visibleTickets = useMemo(() => {
     const match = FILTERS.find((entry) => entry.key === filter)?.match ?? null;
-    if (!match) return tickets;
-    return tickets.filter((ticket) => match.includes(ticket.status));
-  }, [filter, tickets]);
+    const byStatus = match ? tickets.filter((ticket) => match.includes(ticket.status)) : tickets;
+    const q = query.trim().toLowerCase();
+    if (!q) return byStatus;
+    return byStatus.filter((t) =>
+      [t.title, t.device_id, t.ticket_id, t.severity]
+        .filter((x): x is string => typeof x === 'string')
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [filter, tickets, query]);
 
   const filterCounts = useMemo(() => {
     const counts: Record<FilterKey, number> = {
@@ -381,6 +397,93 @@ export default function RisksPage() {
       ticket.status !== 'dismissed',
   ).length;
 
+
+  /* ── P1 批量操作 + 快捷键 ───────────────────────────────── */
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  async function batchTransition(status: TicketStatus) {
+    const label = statusLabel(status);
+    if ((status === 'resolved' || status === 'dismissed') && !window.confirm(`确认将 ${selected.size} 个工单批量转为「${label}」？`)) return;
+    for (const id of selected) {
+      const t = tickets.find((x) => x.ticket_id === id);
+      if (t) await transition(t, status);
+    }
+    setSelected(new Set());
+  }
+
+  /** 批量加白/观察/拉黑：对所选工单关联资产打处置标签；封禁需 admin + 二次确认（handoff P1）。 */
+  async function batchLabel(disposition: 'allow' | 'monitor' | 'deny') {
+    if (disposition === 'deny') {
+      if (role !== 'admin') {
+        notify('仅管理员可执行封禁/拉黑。', 'error');
+        return;
+      }
+      if (!window.confirm(`确认对 ${selected.size} 个工单的关联资产执行【拉黑】？将编译进签名策略下发终端；可在处置中心改回以回滚。`)) return;
+    }
+    const deviceIds = [...new Set(Array.from(selected, (id) => tickets.find((t) => t.ticket_id === id)?.device_id).filter((x): x is string => Boolean(x)))];
+    const assets = new Map<string, { asset_type: 'skill' | 'mcp' | 'path'; asset_key: string }>();
+    for (const did of deviceIds) {
+      try {
+        const r = await fetch(`/api/findings?device_id=${encodeURIComponent(did)}&limit=200`, { cache: 'no-store' });
+        if (!r.ok) continue;
+        const d = (await r.json()) as { findings?: Array<Record<string, unknown>> };
+        for (const f of d.findings ?? []) {
+          const a = findingAsset(f as never);
+          if (a) assets.set(`${a.asset_type}:${a.asset_key}`, a);
+        }
+      } catch {
+        /* 单设备拉取失败跳过，不伪造 */
+      }
+    }
+    for (const a of assets.values()) {
+      await fetch('/api/labels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asset_type: a.asset_type, asset_key: a.asset_key, disposition }),
+      });
+    }
+    notify(`已对 ${assets.size} 个资产执行${disposition === 'allow' ? '加白' : disposition === 'monitor' ? '观察' : '拉黑'}。`, 'success');
+    setSelected(new Set());
+    void refresh();
+  }
+
+  // 快捷键：/ 全局搜索、r 刷新、f 本页搜索、j/k 移动、Enter 开详情（handoff P1，含无障碍替代：均有可见按钮/输入框）。
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+      const rows = paginate(visibleTickets, page, PAGE_SIZE).rows;
+      if (e.key === '/') {
+        e.preventDefault();
+        (document.getElementById('global-search') as HTMLInputElement | null)?.focus();
+      } else if (e.key === 'r') {
+        e.preventDefault();
+        void refreshRef.current();
+      } else if (e.key === 'f') {
+        e.preventDefault();
+        localSearchRef.current?.focus();
+      } else if (e.key === 'j') {
+        e.preventDefault();
+        setCursorIdx((c) => Math.min(c + 1, Math.max(rows.length - 1, 0)));
+      } else if (e.key === 'k') {
+        e.preventDefault();
+        setCursorIdx((c) => Math.max(c - 1, 0));
+      } else if (e.key === 'Enter') {
+        const t = rows[cursorIdx];
+        if (t) setDrawerTicket(t);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visibleTickets, page, cursorIdx]);
 
   /* ── 渲染 ─────────────────────────────────────────────── */
 
@@ -510,6 +613,17 @@ export default function RisksPage() {
           }}
         >
           <Filter size={14} aria-hidden style={{ color: 'var(--muted-foreground)' }} />
+          <input
+            ref={localSearchRef}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+            placeholder="搜索 标题 / 设备 / 工单号… (f)"
+            aria-label="搜索工单"
+            style={{ maxWidth: 220, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--input)', background: 'var(--surface-2)', color: 'var(--foreground)', fontSize: 12 }}
+          />
           {FILTERS.map((entry) => (
             <Button
               key={entry.key}
@@ -536,11 +650,37 @@ export default function RisksPage() {
           </Button>
         </div>
 
+        {selected.size > 0 && (
+          <div className="batch-bar" role="toolbar" aria-label="批量操作">
+            <span>已选 {selected.size} 项</span>
+            <Button size="sm" variant="outline" onClick={() => void batchTransition('acknowledged')}>
+              批量认领
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void batchTransition('investigating')}>
+              批量观察
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void batchLabel('allow')}>
+              批量加白
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => void batchLabel('monitor')}>
+              资产观察
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              style={{ color: 'var(--sentinel-danger)', borderColor: 'rgba(240,82,93,.5)' }}
+              onClick={() => void batchLabel('deny')}
+            >
+              批量封禁（需确认）
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setSelected(new Set())}>
+              清除选择
+            </Button>
+          </div>
+        )}
+
         <div className="risk-table">
-          {source === 'loading' &&
-            [0, 1, 2, 3].map((index) => (
-              <div className="skeleton-row" key={index} />
-            ))}
+          {source === 'loading' && <LoadingState label="加载工单…" />}
 
           {paginate(visibleTickets, page, PAGE_SIZE).rows.map((ticket, index) => {
             const severity = severityMeta(ticket.severity);
@@ -558,9 +698,20 @@ export default function RisksPage() {
                     animationDelay: `${index * 30 + 200}ms`,
                     gridTemplateColumns: TICKET_ROW_GRID,
                     cursor: 'pointer',
+                    outline: index === cursorIdx ? '1px solid var(--sentinel-cyan)' : undefined,
+                    outlineOffset: -1,
                   }}
-                  onClick={() => setExpandedId(expanded ? null : ticket.ticket_id)}
+                  onClick={() => setDrawerTicket(ticket)}
                 >
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(ticket.ticket_id)}
+                      onChange={() => toggleSelect(ticket.ticket_id)}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`选择工单 ${ticket.ticket_id}`}
+                    />
+                  </label>
                   <span
                     className={`severity ${closed ? 'closed' : severity.tone}`}
                     style={closed ? undefined : severityStyle(ticket.severity)}
@@ -668,30 +819,18 @@ export default function RisksPage() {
         />
 
         {source === 'error' && visibleTickets.length === 0 && (
-          <div className="empty-detail" style={{ minHeight: 180 }}>
-            <AlertTriangle size={36} />
-            <h2>工单接口不可用</h2>
-            <p>
-              {notice || '无法从 /api/tickets 读取工单队列。'}
-              <br />
-              未展示工单不代表没有风险——请重试或检查后端连接。
-            </p>
-            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={refreshing}>
-              重试
-            </Button>
-          </div>
+          <ErrorState label={notice || '工单接口不可用'} onRetry={() => void refresh()} />
         )}
 
         {source !== 'loading' && source !== 'error' && visibleTickets.length === 0 && (
-          <div className="empty-detail" style={{ minHeight: 180 }}>
-            <ShieldCheck size={36} />
-            <h2>{filter === 'all' ? '队列已清空' : '当前筛选下没有工单'}</h2>
-            <p>
-              {filter === 'all'
+          <EmptyState
+            label={filter === 'all' ? '队列已清空' : '当前筛选下没有工单'}
+            hint={
+              filter === 'all'
                 ? '没有待研判的风险事件；新的上报会自动进入该队列。'
-                : '切换其他状态标签，或点击右上角「新建工单」手工登记一起事件。'}
-            </p>
-          </div>
+                : '切换其他状态标签，或点击右上角「新建工单」手工登记一起事件。'
+            }
+          />
         )}
 
         <div className="flow">
@@ -709,6 +848,90 @@ export default function RisksPage() {
           </span>
         </div>
       </div>
+
+      {/* P1 右侧详情抽屉：发现 → 资产 → 规则信号 → 建议动作 → 审计记录 */}
+      <DetailDrawer
+        open={drawerTicket !== null}
+        onClose={() => setDrawerTicket(null)}
+        title={drawerTicket?.title ?? ''}
+        subtitle={drawerTicket ? `${drawerTicket.ticket_id} · ${statusLabel(drawerTicket.status)}` : undefined}
+        sections={
+          drawerTicket
+            ? ([
+                {
+                  label: '发现',
+                  content: (
+                    <div>
+                      <div className="kv">
+                        <span>严重度</span>
+                        <span>{drawerTicket.severity}</span>
+                      </div>
+                      <div className="kv">
+                        <span>状态</span>
+                        <span>{statusLabel(drawerTicket.status)}</span>
+                      </div>
+                      <p style={{ marginTop: 6, color: 'var(--muted-foreground)' }}>{drawerTicket.description}</p>
+                    </div>
+                  ),
+                },
+                {
+                  label: '资产',
+                  content: (
+                    <div className="kv">
+                      <span>终端</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{drawerTicket.device_id}</span>
+                    </div>
+                  ),
+                },
+                {
+                  label: '规则信号',
+                  content: (
+                    <div className="kv">
+                      <span>发现引用</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{drawerTicket.finding_ref || '—'}</span>
+                    </div>
+                  ),
+                },
+                {
+                  label: '建议动作',
+                  content: (
+                    <div>
+                      {ticketTransitions(drawerTicket.status).map((tr) => (
+                        <button
+                          key={tr.status}
+                          type="button"
+                          className="sentinel-button"
+                          style={{ marginRight: 6, marginBottom: 6 }}
+                          onClick={() => {
+                            void transition(drawerTicket, tr.status);
+                            setDrawerTicket(null);
+                          }}
+                        >
+                          {tr.label}
+                        </button>
+                      ))}
+                    </div>
+                  ),
+                },
+                {
+                  label: '审计记录',
+                  content: (
+                    <div>
+                      {(drawerTicket.history ?? []).slice(-6).map((h, i) => (
+                        <div key={i} className="kv">
+                          <span>{h.action}</span>
+                          <span>
+                            {h.actor ?? ''} {formatRelativeTime(h.at as never)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ),
+                },
+              ] as DrawerSection[])
+            : []
+        }
+      />
     </>
   );
 

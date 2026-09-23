@@ -229,6 +229,7 @@ export default function ConsoleShell({
           {/* 全局搜索（AIDR 式）：资产/终端、工单、打标资产三源下拉跳转 */}
           <div style={{ position: 'relative', flex: '1 1 300px', maxWidth: 420, margin: '0 12px' }}>
             <input
+              id="global-search"
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               placeholder="搜索资产 / IP / 工单 / 资产标识…"

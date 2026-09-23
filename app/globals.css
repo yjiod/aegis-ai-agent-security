@@ -2026,3 +2026,70 @@ button.risk-row {
 :root:not([data-theme='light']) .sentinel-metric-value {
   font-family: var(--sentinel-font-mono);
 }
+
+/* ---------- 统一状态块 + 右侧详情抽屉 (handoff P1) ---------- */
+.state-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 28px 16px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  text-align: center;
+}
+.state-block small { color: var(--muted-foreground); opacity: 0.8; font-size: 12px; }
+.state-block[data-tone='stale'] { color: var(--sentinel-warning); }
+.spin { animation: state-spin 1s linear infinite; }
+@keyframes state-spin { to { transform: rotate(360deg); } }
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 11, 18, 0.55);
+  z-index: 60;
+}
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 92vw);
+  background: var(--sentinel-surface);
+  border-left: 1px solid var(--sentinel-line);
+  box-shadow: var(--sentinel-shadow-panel);
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+.drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--sentinel-line);
+}
+.drawer-head h3 { margin: 0; font-size: 15px; font-weight: 650; color: var(--foreground); }
+.drawer-head p { margin: 3px 0 0; font-size: 12px; color: var(--muted-foreground); }
+.drawer-body { flex: 1; overflow: auto; padding: 14px 16px; }
+.drawer-section { margin-bottom: 16px; }
+.drawer-section-body { margin-top: 8px; font-size: 12px; color: var(--foreground); }
+.drawer-section-body .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+.drawer-section-body .kv span:first-child { color: var(--muted-foreground); }
+
+/* 批量操作条 */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--sentinel-line);
+  border-radius: 8px;
+  background: var(--sentinel-surface-2);
+  font-size: 12px;
+}
