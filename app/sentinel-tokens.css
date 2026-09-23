@@ -1,0 +1,256 @@
+/* Aegis Sentinel UI tokens
+ * Portable, dependency-free theme layer for the existing console.
+ * Do not place credentials, internal IDs, or live metrics in this file.
+ */
+
+:root {
+  color-scheme: dark;
+
+  --sentinel-bg: #06111a;
+  --sentinel-bg-deep: #040b12;
+  --sentinel-surface: #0a1822;
+  --sentinel-surface-2: #0d202c;
+  --sentinel-surface-3: #102a37;
+  --sentinel-line: rgba(111, 173, 204, 0.22);
+  --sentinel-line-strong: rgba(111, 221, 239, 0.44);
+  --sentinel-text: #edf7fb;
+  --sentinel-text-2: #a5bdc9;
+  --sentinel-text-3: #6c8796;
+
+  --sentinel-accent: #28e6a0;
+  --sentinel-accent-2: #16c98a;
+  --sentinel-cyan: #27b8f3;
+  --sentinel-blue: #4d86e8;
+  --sentinel-violet: #9674ef;
+  --sentinel-warning: #ffb84b;
+  --sentinel-danger: #f0525d;
+  --sentinel-danger-2: #ff6e65;
+
+  --sentinel-glow-accent: 0 0 24px rgba(40, 230, 160, 0.2);
+  --sentinel-glow-danger: 0 0 24px rgba(240, 82, 93, 0.2);
+  --sentinel-shadow-panel: 0 12px 36px rgba(0, 0, 0, 0.24);
+
+  --sentinel-radius-sm: 4px;
+  --sentinel-radius-md: 8px;
+  --sentinel-radius-lg: 12px;
+
+  --sentinel-space-1: 4px;
+  --sentinel-space-2: 8px;
+  --sentinel-space-3: 12px;
+  --sentinel-space-4: 16px;
+  --sentinel-space-5: 20px;
+  --sentinel-space-6: 24px;
+  --sentinel-space-8: 32px;
+
+  --sentinel-font-sans: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --sentinel-font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+body.sentinel-theme {
+  background:
+    radial-gradient(circle at 78% 0%, rgba(18, 81, 92, 0.16), transparent 28rem),
+    linear-gradient(180deg, var(--sentinel-bg-deep), var(--sentinel-bg));
+  color: var(--sentinel-text);
+  font-family: var(--sentinel-font-sans);
+}
+
+.sentinel-panel {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(14, 35, 46, 0.94), rgba(8, 24, 34, 0.94));
+  border: 1px solid var(--sentinel-line);
+  border-radius: var(--sentinel-radius-md);
+  box-shadow: var(--sentinel-shadow-panel), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.sentinel-panel::after {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+  opacity: 0.26;
+  background-image:
+    linear-gradient(rgba(80, 155, 183, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(80, 155, 183, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(180deg, black, transparent 90%);
+}
+
+.sentinel-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.sentinel-section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sentinel-space-2);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.sentinel-section-title::before {
+  width: 3px;
+  height: 20px;
+  border-radius: 99px;
+  background: var(--sentinel-accent);
+  box-shadow: var(--sentinel-glow-accent);
+  content: "";
+}
+
+.sentinel-metric-value {
+  font-family: var(--sentinel-font-mono);
+  font-size: clamp(26px, 3vw, 40px);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+}
+
+.sentinel-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--sentinel-text-2);
+  font-size: 12px;
+}
+
+.sentinel-status::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 10px currentColor;
+  content: "";
+}
+
+.sentinel-status[data-state="normal"],
+.sentinel-status[data-state="resolved"] { color: var(--sentinel-accent); }
+.sentinel-status[data-state="processing"],
+.sentinel-status[data-state="medium"],
+.sentinel-status[data-state="warning"] { color: var(--sentinel-warning); }
+.sentinel-status[data-state="high"],
+.sentinel-status[data-state="critical"] { color: var(--sentinel-danger); }
+.sentinel-status[data-state="stale"],
+.sentinel-status[data-state="offline"] { color: var(--sentinel-text-3); }
+
+.sentinel-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--sentinel-radius-sm);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.sentinel-badge[data-severity="critical"],
+.sentinel-badge[data-severity="high"] {
+  color: var(--sentinel-danger);
+  background: rgba(240, 82, 93, 0.11);
+}
+
+.sentinel-badge[data-severity="medium"] {
+  color: var(--sentinel-warning);
+  background: rgba(255, 184, 75, 0.11);
+}
+
+.sentinel-badge[data-severity="low"],
+.sentinel-badge[data-severity="normal"] {
+  color: var(--sentinel-accent);
+  background: rgba(40, 230, 160, 0.1);
+}
+
+.sentinel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--sentinel-line-strong);
+  border-radius: var(--sentinel-radius-sm);
+  background: rgba(17, 57, 70, 0.5);
+  color: var(--sentinel-text);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.sentinel-button:hover,
+.sentinel-button:focus-visible {
+  border-color: var(--sentinel-accent);
+  background: rgba(40, 230, 160, 0.12);
+  box-shadow: var(--sentinel-glow-accent);
+  outline: none;
+}
+
+.sentinel-button[data-variant="danger"] {
+  border-color: rgba(240, 82, 93, 0.58);
+  color: #ffb5b8;
+  background: rgba(240, 82, 93, 0.1);
+}
+
+.sentinel-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.sentinel-table th,
+.sentinel-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid rgba(111, 173, 204, 0.12);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.sentinel-table th {
+  color: var(--sentinel-text-3);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sentinel-table tbody tr:hover {
+  background: rgba(39, 184, 243, 0.06);
+}
+
+.sentinel-grid-bg {
+  background-image:
+    linear-gradient(rgba(62, 143, 167, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(62, 143, 167, 0.09) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+@media (max-width: 1100px) {
+  .sentinel-panel::after { opacity: 0.16; }
+  .sentinel-table { min-width: 720px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sentinel-button { transition: none; }
+}
+
+
+/* ---- light-theme fallbacks (keep the light toggle usable; sentinel is dark-first) ---- */
+[data-theme='light'] body.sentinel-theme {
+  background: #f4f8fa;
+  color: #0c1a22;
+}
+[data-theme='light'] .sentinel-panel {
+  background: #ffffff;
+  border-color: #d7e3ea;
+  box-shadow: 0 1px 2px rgba(16, 42, 56, 0.08);
+}
+[data-theme='light'] .sentinel-panel::after { display: none; }
+[data-theme='light'] .sentinel-section-title { color: #0c1a22; }
+[data-theme='light'] .sentinel-section-title::before { background: #0f9d76; box-shadow: none; }
+[data-theme='light'] .sentinel-metric-value { color: #0c1a22; }
+[data-theme='light'] .sentinel-status { color: #5b7280; }
+[data-theme='light'] .sentinel-table th,
+[data-theme='light'] .sentinel-table td { border-color: #e1e9ee; }
+[data-theme='light'] .sentinel-table th { color: #5b7280; }
+[data-theme='light'] .sentinel-table tbody tr:hover { background: rgba(15, 157, 118, 0.06); }
+[data-theme='light'] .sentinel-button { background: #ffffff; border-color: #bcd2dc; color: #0c1a22; }

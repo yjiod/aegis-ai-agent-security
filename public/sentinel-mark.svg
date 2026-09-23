@@ -1,0 +1,22 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Aegis Sentinel mark">
+  <defs>
+    <linearGradient id="sentinel-fill" x1="18" y1="12" x2="78" y2="86" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1A5668"/>
+      <stop offset="0.58" stop-color="#0B2A38"/>
+      <stop offset="1" stop-color="#07151F"/>
+    </linearGradient>
+    <linearGradient id="sentinel-stroke" x1="16" y1="10" x2="80" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#42F2B6"/>
+      <stop offset="0.5" stop-color="#1CB8DD"/>
+      <stop offset="1" stop-color="#3D78E9"/>
+    </linearGradient>
+    <filter id="sentinel-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <path d="M48 7L81 25.5V62L48 89L15 62V25.5L48 7Z" fill="url(#sentinel-fill)" stroke="url(#sentinel-stroke)" stroke-width="2" filter="url(#sentinel-glow)"/>
+  <path d="M48 17L70 29.5V55.5L48 73L26 55.5V29.5L48 17Z" stroke="#31E8AA" stroke-opacity="0.52"/>
+  <path d="M35 47L43 55L61 36" stroke="#42F2B6" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48 19V12M26 30L20 26M70 30L76 26M26 56L20 60M70 56L76 60" stroke="#28B9DD" stroke-width="2" stroke-linecap="round" stroke-opacity="0.8"/>
+</svg>

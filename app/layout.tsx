@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import ConsoleShell from '@/components/console-shell';
 import './globals.css';
+import './sentinel-tokens.css';
 import './detail.css';
 import './onboarding.css';
 import './integrations.css';
@@ -30,7 +31,7 @@ export default function RootLayout({
   return (
     <html lang="zh-CN">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased sentinel-theme`}
       >
         <ConsoleShell>{children}</ConsoleShell>
       </body>

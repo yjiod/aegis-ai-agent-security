@@ -1968,3 +1968,61 @@ button.risk-row {
 :root:not([data-theme='light']) .live-dot { background: var(--primary); box-shadow: none; }
 :root:not([data-theme='light']) .avatar { background: #182230; border: 1px solid #2a3a4d; }
 :root:not([data-theme='light']) .workspace { background: var(--background); }
+
+/* ============================================================
+   Sentinel token remap (2026-09, per aegis-ui-handoff.md step 1)
+   把既有语义变量映射到 aegis-ui-tokens.css 的 sentinel 令牌（深海蓝黑 + 青绿能量线），
+   使全部现有组件自动切换到参考图配色；置于文件末尾覆盖早前 AIDR 层。dark 限定，light 不受影响。
+   ============================================================ */
+:root:not([data-theme='light']) {
+  --background: var(--sentinel-bg);
+  --foreground: var(--sentinel-text);
+  --card: var(--sentinel-surface);
+  --card-foreground: var(--sentinel-text);
+  --popover: var(--sentinel-surface-2);
+  --popover-foreground: var(--sentinel-text);
+  --primary: var(--sentinel-accent);
+  --primary-foreground: #06100d;
+  --secondary: var(--sentinel-surface-2);
+  --secondary-foreground: var(--sentinel-text);
+  --muted: var(--sentinel-surface-2);
+  --muted-foreground: var(--sentinel-text-2);
+  --accent: var(--sentinel-surface-3);
+  --accent-foreground: var(--sentinel-text);
+  --destructive: var(--sentinel-danger);
+  --border: var(--sentinel-line);
+  --input: var(--sentinel-line-strong);
+  --ring: var(--sentinel-cyan);
+  --surface-0: var(--sentinel-bg);
+  --surface-1: var(--sentinel-surface);
+  --surface-2: var(--sentinel-surface-2);
+  --surface-glass: var(--sentinel-surface);
+  --surface-glass-strong: var(--sentinel-surface-2);
+  --line-soft: rgba(111, 173, 204, 0.12);
+  --line-base: var(--sentinel-line);
+  --line-strong: var(--sentinel-line-strong);
+  --shadow-card: var(--sentinel-shadow-panel);
+  --shadow-card-hover: 0 16px 44px rgba(0, 0, 0, 0.32);
+  --shadow-overlay: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+/* 顶栏/侧栏用更深的底，建立指挥中心层级 */
+:root:not([data-theme='light']) .topbar,
+:root:not([data-theme='light']) .sidebar {
+  background: var(--sentinel-bg-deep);
+}
+/* 面板叠加细网格微光（sentinel-panel 语义），现有 .panel 复用 */
+:root:not([data-theme='light']) .panel {
+  background: linear-gradient(180deg, rgba(14, 35, 46, 0.94), rgba(8, 24, 34, 0.94));
+  border-color: var(--sentinel-line);
+}
+/* 导航选中：左 2px 青绿能量条（handoff 3），不整块填充 */
+:root:not([data-theme='light']) .nav-item.active {
+  background: transparent;
+  color: var(--sentinel-accent);
+  box-shadow: inset 2px 0 0 var(--sentinel-accent);
+}
+/* 数字等宽（handoff P2） */
+:root:not([data-theme='light']) .metric strong,
+:root:not([data-theme='light']) .sentinel-metric-value {
+  font-family: var(--sentinel-font-mono);
+}

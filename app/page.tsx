@@ -115,6 +115,9 @@ interface DeviceLite {
   device_id: string;
   agent_type?: string;
   status?: string;
+  hostname?: string;
+  agent_version?: string;
+  owner?: string;
 }
 interface TicketLite {
   ticket_id: string;
@@ -160,11 +163,13 @@ async function getJson<T>(url: string): Promise<T | null> {
 
 /* ─── Overview Page ────────────────────────────────────────────────────── */
 export default function Home() {
-  const { fleet } = useCollector();
+  const { fleet, collectorState } = useCollector();
 
   const [devices, setDevices] = useState<DeviceLite[] | null>(null);
   const [tickets, setTickets] = useState<TicketLite[] | null>(null);
   const [audit, setAudit] = useState<AuditLite[] | null>(null);
+  // 2026-09 总览重构(handoff 4.2)：处置进度需全量工单状态分布（有界 500）。
+  const [ticketsAll, setTicketsAll] = useState<TicketLite[] | null>(null);
   // 2026-09 改版：首页趋势图 + KPI 环比数据源（/api/trend → Collector /v1/trend，小时桶）。
   const [trend, setTrend] = useState<{ hours: number; buckets: TrendBucketLite[] } | null>(null);
 
@@ -175,6 +180,9 @@ export default function Home() {
     });
     getJson<{ tickets?: TicketLite[] }>('/api/tickets?limit=6').then((d) => {
       if (alive) setTickets(Array.isArray(d?.tickets) ? (d.tickets as TicketLite[]) : []);
+    });
+    getJson<{ tickets?: TicketLite[] }>('/api/tickets?limit=500').then((d) => {
+      if (alive) setTicketsAll(Array.isArray(d?.tickets) ? (d.tickets as TicketLite[]) : []);
     });
     getJson<{ entries?: AuditLite[] }>('/api/audit?limit=6').then((d) => {
       if (alive) setAudit(Array.isArray(d?.entries) ? (d.entries as AuditLite[]) : []);
@@ -213,6 +221,41 @@ export default function Home() {
   const highPrior = sumBy(prior24, 'high');
   const deltaPct = (cur: number, prev: number) => (prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0);
   const chartData = buckets24.map((b) => ({ ...b, label: `${new Date(b.t * 1000).getHours()}:00` }));
+
+  /* 系统健康度（handoff 4.2）：五项真实检查 + 环形摘要分；无真实数据不渲染假分数 */
+  const healthChecks = [
+    { label: 'Collector 连接', ok: collectorState === 'live' },
+    { label: 'Agent 在线率', ok: totalDevices > 0 && activeDevices / totalDevices >= 0.5 },
+    { label: '版本覆盖', ok: totalDevices > 0 && currentDevices / totalDevices >= 0.5 },
+    { label: '上报趋势', ok: trend !== null },
+    { label: '审计链路', ok: audit !== null },
+  ];
+  const healthScore = Math.round((healthChecks.filter((c) => c.ok).length / healthChecks.length) * 100);
+
+  /* 风险资产表：版本漂移 / 上报过期(offline/stale) / 未闭环工单 优先（handoff 4.2） */
+  const openTicketDevices = new Set(
+    (ticketsAll ?? [])
+      .filter((t) => t.status !== 'resolved' && t.status !== 'closed' && t.device_id)
+      .map((t) => t.device_id as string),
+  );
+  const riskRows = (devices ?? [])
+    .filter(
+      (d) =>
+        d.status === 'offline' ||
+        d.status === 'stale' ||
+        (fleet ? d.agent_version !== fleet.required_agent_version : false) ||
+        openTicketDevices.has(d.device_id),
+    )
+    .slice(0, 6);
+
+  /* 处置进度：工单状态四段分布（handoff 4.2） */
+  const dispCounts: Record<string, number> = { resolved: 0, processing: 0, pending: 0, closed: 0 };
+  for (const t of ticketsAll ?? []) {
+    const s =
+      t.status === 'resolved' ? 'resolved' : t.status === 'closed' ? 'closed' : t.status === 'investigating' || t.status === 'acknowledged' ? 'processing' : 'pending';
+    dispCounts[s] = (dispCounts[s] ?? 0) + 1;
+  }
+  const dispTotal = (ticketsAll ?? []).length || 1;
 
   /* 真实分工具覆盖: 由 /api/devices 按 agent_type 聚合 */
   const toolCoverage = useMemo(() => {
@@ -355,11 +398,23 @@ export default function Home() {
       </div>
 
       {/* ─── 上报趋势（近24小时，AIDR 式趋势图）────────────────────────── */}
-      <section className="panel animate-entrance animate-entrance-5" style={{ padding: 16, marginBottom: 16 }}>
+      <section
+        className="panel animate-entrance animate-entrance-5"
+        style={{
+          padding: 16,
+          marginBottom: 16,
+          backgroundImage: 'url(/sentinel-threat-grid.svg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
         <div className="panel-head">
           <div>
             <h2>上报趋势（近24小时）</h2>
-            <p>按小时分桶的终端上报 / 严重 / 高危设备上报数（Collector 真实数据）</p>
+            <p>
+              按小时分桶的终端上报 / 严重 / 高危设备上报数（Collector 真实数据）
+              {trend ? ` · 更新于 ${new Date(trend.buckets[trend.buckets.length - 1]?.t * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : ''}
+            </p>
           </div>
           <Badge variant="outline">
             <span className="live-dot" />
@@ -413,6 +468,129 @@ export default function Home() {
           <p className="empty-hint">接收器未连接，暂无趋势数据。</p>
         )}
       </section>
+
+      {/* ─── 态势三区：系统健康度 / 风险资产 / 处置进度（handoff 4.2）────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, marginBottom: 16 }}>
+        <section className="panel" style={{ padding: 16 }}>
+          <div className="panel-head">
+            <div>
+              <h2>系统健康度</h2>
+              <p>Collector / Agent 在线 / 版本覆盖 / 趋势 / 审计 五项真实检查</p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ position: 'relative', width: 92, height: 92, flex: '0 0 92px' }}>
+              <svg viewBox="0 0 42 42" width="92" height="92" role="img" aria-label={`健康度 ${healthScore} 分`}>
+                <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--border)" strokeWidth="3.6" />
+                <circle
+                  cx="21"
+                  cy="21"
+                  r="15.9"
+                  fill="none"
+                  stroke={healthScore >= 80 ? 'var(--sentinel-accent)' : healthScore >= 50 ? 'var(--sentinel-warning)' : 'var(--sentinel-danger)'}
+                  strokeWidth="3.6"
+                  strokeDasharray={`${healthScore} ${100 - healthScore}`}
+                  strokeDashoffset="25"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
+                <strong className="sentinel-metric-value" style={{ fontSize: 22 }}>
+                  {trend || fleet ? healthScore : '—'}
+                </strong>
+              </div>
+            </div>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6, flex: 1 }}>
+              {healthChecks.map((c) => (
+                <li key={c.label} className="sentinel-status" data-state={c.ok ? 'normal' : 'stale'} style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <span>{c.label}</span>
+                  <span>{c.ok ? '正常' : '异常'}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <section className="panel" style={{ padding: 16 }}>
+          <div className="panel-head">
+            <div>
+              <h2>风险资产</h2>
+              <p>版本漂移 / 上报过期 / 未闭环 优先</p>
+            </div>
+            <Link href="/devices" style={{ fontSize: 12, color: 'var(--sentinel-cyan)' }}>
+              查看全部
+            </Link>
+          </div>
+          <table className="sentinel-table">
+            <thead>
+              <tr>
+                <th>资产</th>
+                <th>Agent</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {riskRows.length === 0 && (
+                <tr>
+                  <td colSpan={3} style={{ color: 'var(--muted-foreground)' }}>
+                    暂无风险资产
+                  </td>
+                </tr>
+              )}
+              {riskRows.map((d) => (
+                <tr key={d.device_id}>
+                  <td>
+                    <b>{d.hostname || d.device_id}</b>
+                    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'var(--sentinel-font-mono)' }}>{d.device_id}</div>
+                  </td>
+                  <td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{d.agent_version ?? '—'}</td>
+                  <td>
+                    <span className="sentinel-status" data-state={d.status === 'online' ? 'normal' : d.status === 'stale' ? 'warning' : 'offline'}>
+                      {d.status ?? '—'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        <section className="panel" style={{ padding: 16 }}>
+          <div className="panel-head">
+            <div>
+              <h2>处置进度</h2>
+              <p>工单状态四段分布</p>
+            </div>
+            <Link href="/risks" style={{ fontSize: 12, color: 'var(--sentinel-cyan)' }}>
+              查看全部
+            </Link>
+          </div>
+          <div style={{ display: 'flex', height: 10, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', marginBottom: 12 }}>
+            <div style={{ width: `${(dispCounts.resolved / dispTotal) * 100}%`, background: 'var(--sentinel-accent)' }} />
+            <div style={{ width: `${(dispCounts.processing / dispTotal) * 100}%`, background: 'var(--sentinel-cyan)' }} />
+            <div style={{ width: `${(dispCounts.pending / dispTotal) * 100}%`, background: 'var(--sentinel-warning)' }} />
+            <div style={{ width: `${(dispCounts.closed / dispTotal) * 100}%`, background: 'var(--sentinel-text-3)' }} />
+          </div>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6, fontSize: 12 }}>
+            <li className="sentinel-status" data-state="resolved" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <span>已完成</span>
+              <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{dispCounts.resolved}</span>
+            </li>
+            <li className="sentinel-status" data-state="processing" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <span>处理中</span>
+              <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{dispCounts.processing}</span>
+            </li>
+            <li className="sentinel-status" data-state="warning" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <span>待处理</span>
+              <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{dispCounts.pending}</span>
+            </li>
+            <li className="sentinel-status" data-state="stale" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <span>已关闭</span>
+              <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{dispCounts.closed}</span>
+            </li>
+          </ul>
+        </section>
+      </div>
 
       {/* ─── Content Grid ─────────────────────────────────────────── */}
       <div className="content-grid">

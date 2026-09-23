@@ -1,0 +1,30 @@
+<svg width="960" height="320" viewBox="0 0 960 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sentinel threat grid background">
+  <defs>
+    <linearGradient id="grid-bg" x1="0" y1="0" x2="0" y2="320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0A1D29"/>
+      <stop offset="1" stop-color="#06131C"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" stroke="#3B8297" stroke-opacity="0.15"/>
+    </pattern>
+    <filter id="point-glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="960" height="320" rx="10" fill="url(#grid-bg)"/>
+  <rect x="1" y="1" width="958" height="318" rx="9" fill="url(#grid)" stroke="#5BA6B8" stroke-opacity="0.24"/>
+  <path d="M96 218C197 159 221 210 312 118C384 47 437 106 506 152C576 199 632 66 718 132C787 185 836 112 892 74" stroke="#22CDE5" stroke-opacity="0.34" stroke-width="2"/>
+  <path d="M96 218C197 159 221 210 312 118C384 47 437 106 506 152C576 199 632 66 718 132C787 185 836 112 892 74" stroke="#2EE9AA" stroke-opacity="0.38" stroke-width="1" stroke-dasharray="4 8"/>
+  <g filter="url(#point-glow)">
+    <circle cx="96" cy="218" r="5" fill="#F0525D"/>
+    <circle cx="312" cy="118" r="5" fill="#FFB84B"/>
+    <circle cx="506" cy="152" r="5" fill="#2EE9AA"/>
+    <circle cx="718" cy="132" r="5" fill="#F0525D"/>
+    <circle cx="892" cy="74" r="5" fill="#2EE9AA"/>
+  </g>
+  <g fill="#9BBAC5" fill-opacity="0.4">
+    <circle cx="160" cy="64" r="1.5"/><circle cx="215" cy="260" r="1.5"/><circle cx="410" cy="238" r="1.5"/>
+    <circle cx="600" cy="54" r="1.5"/><circle cx="772" cy="256" r="1.5"/><circle cx="844" cy="204" r="1.5"/>
+  </g>
+</svg>

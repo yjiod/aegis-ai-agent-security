@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
@@ -18,7 +19,6 @@ import {
   Rocket,
   ScrollText,
   Settings,
-  ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   Tags,
@@ -218,11 +218,12 @@ export default function ConsoleShell({
             <Menu size={20} />
           </button>
           <div className="brand">
-            <span className="brandmark">
-              <ShieldCheck size={19} />
+            <span className="brandmark" style={{ background: 'none', padding: 0, overflow: 'hidden' }}>
+              {/* Sentinel 品牌标记（aegis-sentinel-mark.svg） */}
+              <Image src="/sentinel-mark.svg" alt="Aegis Sentinel" width={30} height={30} style={{ display: 'block', borderRadius: 8 }} />
             </span>
             <span>
-              Aegis<span className="brand-muted"> / Agent Security</span>
+              Aegis<span className="brand-muted"> / Sentinel</span>
             </span>
           </div>
           {/* 全局搜索（AIDR 式）：资产/终端、工单、打标资产三源下拉跳转 */}
