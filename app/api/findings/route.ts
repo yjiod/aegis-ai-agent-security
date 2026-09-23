@@ -53,7 +53,6 @@ export async function GET(request: Request) {
   const category: Category | 'all' = (CATEGORIES as readonly string[]).includes(catParam)
     ? (catParam as Category)
     : 'all';
-  const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 200) || 200, 1), 1000);
 
   const empty = { connected: false as const, category, devices: 0, devices_with_findings: 0, suppressed: 0, counts: { total: 0, critical: 0, high: 0, medium: 0, low: 0 }, findings: [] as unknown[] };
   const collector = process.env.AEGIS_COLLECTOR_URL;
@@ -72,15 +71,20 @@ export async function GET(request: Request) {
   // 可信源）；返回 next_cursor/complete 供前端"加载更多"追加；任一页失败诚实降级 connected:false。
   const base = collector.replace(/\/$/, '');
   const cursor0 = url.searchParams.get('cursor') ?? '';
+  // 设备级分页：每页返回接下来 device_limit 台设备的**全部**发现（不做半页截断，避免游标
+  // 丢失同页剩余发现）。30k 下每页有界（device_limit 台 × 其发现），客户端"加载更多"追加。
+  // limit 为 device_limit 的旧别名（向后兼容）。值=每页设备数。
+  const dlimitRaw = Number(url.searchParams.get('device_limit') ?? url.searchParams.get('limit') ?? 50);
+  const dlimit = Number.isFinite(dlimitRaw) ? Math.min(Math.max(Math.round(dlimitRaw), 1), 500) : 50;
   const all: Array<Record<string, unknown>> = [];
   const devicesWithFindingsSet = new Set<string>();
   let suppressed = 0;
   let devicesScanned = 0;
-  let cursor = cursor0;
+  let nextCursor: string | undefined;
   let complete = false;
-  for (let page = 0; page < 200 && all.length < limit; page += 1) {
-    const qs = new URLSearchParams({ limit: '1000' });
-    if (cursor) qs.set('cursor', cursor);
+  {
+    const qs = new URLSearchParams({ limit: String(dlimit) });
+    if (cursor0) qs.set('cursor', cursor0);
     let data: {
       complete?: boolean;
       next_cursor?: string;
@@ -98,7 +102,7 @@ export async function GET(request: Request) {
     } catch {
       return NextResponse.json(empty, { headers: NO_STORE });
     }
-    devicesScanned += typeof data.devices_scanned === 'number' ? data.devices_scanned : 0;
+    devicesScanned = typeof data.devices_scanned === 'number' ? data.devices_scanned : 0;
     for (const item of data.findings ?? []) {
       const f = item.finding ?? {};
       const deviceId = String(item.device_id ?? '');
@@ -122,13 +126,9 @@ export async function GET(request: Request) {
         ...(f.signal_matches !== undefined ? { signal_matches: f.signal_matches } : {}),
         scanned_at: item.scanned_at || 0,
       });
-      if (all.length >= limit) break;
     }
-    cursor = typeof data.next_cursor === 'string' ? data.next_cursor : '';
-    if (data.complete !== false || !cursor) {
-      complete = true;
-      break;
-    }
+    nextCursor = typeof data.next_cursor === 'string' && data.next_cursor ? data.next_cursor : undefined;
+    complete = data.complete !== false || !nextCursor;
   }
   const devicesWithFindings = devicesWithFindingsSet.size;
 
@@ -169,7 +169,7 @@ export async function GET(request: Request) {
       suppressed,
       counts,
       findings: all,
-      next_cursor: complete ? undefined : cursor || undefined,
+      next_cursor: complete ? undefined : nextCursor,
       complete,
       finding_totals: findingTotals,
     },

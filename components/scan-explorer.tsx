@@ -123,7 +123,7 @@ export function ScanExplorer({
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
       try {
-        const res = await fetch(`/api/findings?category=${category}&limit=200`, { cache: 'no-store' });
+        const res = await fetch(`/api/findings?category=${category}&device_limit=50`, { cache: 'no-store' });
         setStatus(res.status);
         if (!res.ok) throw new Error(`接口返回 ${res.status}`);
         const json = (await res.json()) as FindingsResponse;
@@ -146,7 +146,7 @@ export function ScanExplorer({
     if (!nextCursor || loadingMore) return;
     setLoadingMore(true);
     try {
-      const res = await fetch(`/api/findings?category=${category}&limit=200&cursor=${encodeURIComponent(nextCursor)}`, { cache: 'no-store' });
+      const res = await fetch(`/api/findings?category=${category}&device_limit=50&cursor=${encodeURIComponent(nextCursor)}`, { cache: 'no-store' });
       setStatus(res.status);
       if (!res.ok) throw new Error(`接口返回 ${res.status}`);
       const json = (await res.json()) as FindingsResponse;
