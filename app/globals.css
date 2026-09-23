@@ -2093,3 +2093,15 @@ button.risk-row {
   background: var(--sentinel-surface-2);
   font-size: 12px;
 }
+
+/* P2 克制动效：仅"实时/状态变化"使用脉冲，不循环炫技 (handoff P2) */
+@keyframes sentinel-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+:root:not([data-theme='light']) .live-dot {
+  animation: sentinel-pulse 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-theme='light']) .live-dot { animation: none; }
+}

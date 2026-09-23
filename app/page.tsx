@@ -126,6 +126,7 @@ interface TicketLite {
   status: string;
   device_id?: string;
   created_at: number;
+  resolved_at?: number | null;
 }
 interface AuditLite {
   id: number;
@@ -170,6 +171,9 @@ export default function Home() {
   const [audit, setAudit] = useState<AuditLite[] | null>(null);
   // 2026-09 总览重构(handoff 4.2)：处置进度需全量工单状态分布（有界 500）。
   const [ticketsAll, setTicketsAll] = useState<TicketLite[] | null>(null);
+  // P2 态势视图切换 + 规则/来源排行（真实数据；无真实地理数据→降级为排行表，handoff P2/原则5）。
+  const [view, setView] = useState<'overview' | 'coverage' | 'rules' | 'efficiency'>('overview');
+  const [findingsAll, setFindingsAll] = useState<Array<Record<string, unknown>> | null>(null);
   // 2026-09 改版：首页趋势图 + KPI 环比数据源（/api/trend → Collector /v1/trend，小时桶）。
   const [trend, setTrend] = useState<{ hours: number; buckets: TrendBucketLite[] } | null>(null);
 
@@ -183,6 +187,9 @@ export default function Home() {
     });
     getJson<{ tickets?: TicketLite[] }>('/api/tickets?limit=500').then((d) => {
       if (alive) setTicketsAll(Array.isArray(d?.tickets) ? (d.tickets as TicketLite[]) : []);
+    });
+    getJson<{ findings?: Array<Record<string, unknown>> }>('/api/findings?limit=1000').then((d) => {
+      if (alive) setFindingsAll(Array.isArray(d?.findings) ? (d.findings as Array<Record<string, unknown>>) : []);
     });
     getJson<{ entries?: AuditLite[] }>('/api/audit?limit=6').then((d) => {
       if (alive) setAudit(Array.isArray(d?.entries) ? (d.entries as AuditLite[]) : []);
@@ -256,6 +263,30 @@ export default function Home() {
     dispCounts[s] = (dispCounts[s] ?? 0) + 1;
   }
   const dispTotal = (ticketsAll ?? []).length || 1;
+
+  /* P2 规则/来源排行（无真实地理数据→降级为可解释排行表）+ 平均处置耗时 */
+  const ruleRank = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const f of findingsAll ?? []) {
+      const k = String(f.kind ?? 'unknown');
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [findingsAll]);
+  const egressRank = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of devices ?? []) {
+      const e = (d as { network?: { egress_ip?: string } }).network?.egress_ip;
+      if (typeof e === 'string' && e) m.set(e, (m.get(e) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [devices]);
+  const avgResolveHours = useMemo(() => {
+    const rs = (ticketsAll ?? []).filter((t) => t.status === 'resolved' && typeof t.resolved_at === 'number' && t.created_at);
+    if (rs.length === 0) return null;
+    const sum = rs.reduce((a, t) => a + (Number(t.resolved_at) - Number(t.created_at)), 0);
+    return (sum / rs.length / 3600000).toFixed(1);
+  }, [ticketsAll]);
 
   /* 真实分工具覆盖: 由 /api/devices 按 agent_type 聚合 */
   const toolCoverage = useMemo(() => {
@@ -468,6 +499,114 @@ export default function Home() {
           <p className="empty-hint">接收器未连接，暂无趋势数据。</p>
         )}
       </section>
+
+      {/* P2 态势视图切换（聚焦透镜，handoff P2）：运营概览 / 终端覆盖 / 规则风险 / 处置效率 */}
+      <div role="tablist" aria-label="态势视图" style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        {([['overview', '运营概览'], ['coverage', '终端覆盖'], ['rules', '规则风险'], ['efficiency', '处置效率']] as const).map(([k, label]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={view === k}
+            className="sentinel-button"
+            style={view === k ? { borderColor: 'var(--sentinel-accent)', color: 'var(--sentinel-accent)' } : undefined}
+            onClick={() => setView(k)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'coverage' && (
+        <section className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <div className="panel-head">
+            <div>
+              <h2>终端覆盖</h2>
+              <p>在线率 / 版本覆盖 / 漂移（真实 Collector 数据）</p>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>在线率</div>
+              <strong className="sentinel-metric-value" style={{ fontSize: 22 }}>{totalDevices ? ((activeDevices / totalDevices) * 100).toFixed(1) : '—'}%</strong>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>版本覆盖</div>
+              <strong className="sentinel-metric-value" style={{ fontSize: 22 }}>{totalDevices ? ((currentDevices / totalDevices) * 100).toFixed(1) : '—'}%</strong>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>漂移设备</div>
+              <strong className="sentinel-metric-value" style={{ fontSize: 22 }}>{fleet ? totalDevices - currentDevices : '—'}</strong>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {view === 'rules' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, marginBottom: 16 }}>
+          <section className="panel" style={{ padding: 16 }}>
+            <div className="panel-head">
+              <div>
+                <h2>规则风险排行</h2>
+                <p>按规则类型统计发现数（无真实地理数据时的可解释降级视图）</p>
+              </div>
+            </div>
+            <table className="sentinel-table">
+              <thead>
+                <tr><th>规则类型</th><th>发现数</th></tr>
+              </thead>
+              <tbody>
+                {ruleRank.length === 0 && <tr><td colSpan={2} style={{ color: 'var(--muted-foreground)' }}>暂无发现数据</td></tr>}
+                {ruleRank.map(([k, n]) => (
+                  <tr key={k}><td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{k}</td><td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{n}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+          <section className="panel" style={{ padding: 16 }}>
+            <div className="panel-head">
+              <div>
+                <h2>来源排行（出口 IP）</h2>
+                <p>按终端出口 IP 统计设备数</p>
+              </div>
+            </div>
+            <table className="sentinel-table">
+              <thead>
+                <tr><th>出口 IP</th><th>设备数</th></tr>
+              </thead>
+              <tbody>
+                {egressRank.length === 0 && <tr><td colSpan={2} style={{ color: 'var(--muted-foreground)' }}>暂无出口数据</td></tr>}
+                {egressRank.map(([ip, n]) => (
+                  <tr key={ip}><td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{ip}</td><td style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{n}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        </div>
+      )}
+
+      {view === 'efficiency' && (
+        <section className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <div className="panel-head">
+            <div>
+              <h2>处置效率</h2>
+              <p>工单闭环耗时与状态分布</p>
+            </div>
+          </div>
+          <p style={{ fontSize: 13, marginBottom: 12 }}>
+            平均处置耗时：<strong className="sentinel-metric-value" style={{ fontSize: 20 }}>{avgResolveHours ?? '—'}</strong>
+            {avgResolveHours ? ' 小时' : '（暂无已闭环工单）'}
+          </p>
+          <div style={{ display: 'flex', height: 10, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', marginBottom: 10 }}>
+            <div style={{ width: `${(dispCounts.resolved / dispTotal) * 100}%`, background: 'var(--sentinel-accent)' }} />
+            <div style={{ width: `${(dispCounts.processing / dispTotal) * 100}%`, background: 'var(--sentinel-cyan)' }} />
+            <div style={{ width: `${(dispCounts.pending / dispTotal) * 100}%`, background: 'var(--sentinel-warning)' }} />
+            <div style={{ width: `${(dispCounts.closed / dispTotal) * 100}%`, background: 'var(--sentinel-text-3)' }} />
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
+            已完成 {dispCounts.resolved} · 处理中 {dispCounts.processing} · 待处理 {dispCounts.pending} · 已关闭 {dispCounts.closed}
+          </p>
+        </section>
+      )}
 
       {/* ─── 态势三区：系统健康度 / 风险资产 / 处置进度（handoff 4.2）────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, marginBottom: 16 }}>
