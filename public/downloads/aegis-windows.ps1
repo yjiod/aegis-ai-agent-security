@@ -506,7 +506,7 @@ if ($identitySn) { $deviceMaterial = "aegis-hw:" + $identitySn } else { $deviceM
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $sn = $serialDisplay
-$agentVersion = '0.36.8'
+$agentVersion = '0.36.9'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
@@ -576,13 +576,23 @@ $owner = if ($env:AEGIS_DEVICE_OWNER) { [string]$env:AEGIS_DEVICE_OWNER } else {
 # 描述含虚拟关键字(Hyper-V/VMware/Parallels/vEthernet/Docker/TAP…)。本机 IP 剔除
 # 回环(127.*/::1)与链路本地(169.254./fe80)。出口 IP 由 Collector 记请求源, 不在此采集。
 # 全程 try/catch 兜底空对象：采集失败绝不影响上报。
+# 虚拟机修正(2026-09-23 真机): 上述虚拟关键字过滤在**虚拟机**上会把 VM 唯一的真实网卡
+# (Parallels/VMware/Hyper-V 适配器)也排除 → VM 的 MAC/本机IP 恒为空。改为: 先用 BIOS
+# 注册表(快, 非 WMI)判定本机是否 VM; 是 VM 则保留虚拟关键字网卡(即其真实网卡), 仅物理宿主机
+# 才排除虚拟杂卡(vEthernet/Docker/TAP 等)。
+$isVm = $false
+try {
+  $bios = Get-ItemProperty 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -ErrorAction Stop
+  if (([string]$bios.SystemManufacturer + ' ' + [string]$bios.SystemProductName) -match 'Parallels|VMware|VirtualBox|Hyper-V|Virtual Machine|QEMU|Xen|KVM') { $isVm = $true }
+} catch { }
 $networkInfo = @{ physical_nics = @(); macs = @(); local_ips = @() }
 try {
   $nics = @(); $allMacs = @(); $allIps = @()
   foreach ($ni in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
     $t = [string]$ni.NetworkInterfaceType
     if ($t -in @('Tunnel', 'Loopback', 'Ppp', 'Unknown', 'Atm', 'GenericModem')) { continue }
-    if ($ni.Description -match 'Virtual|VMware|Hyper-V|Parallels|VirtualBox|TAP-Windows|TUN|Docker|vEthernet|WireGuard|ZeroTier') { continue }
+    $isVirtualDesc = $ni.Description -match 'Virtual|VMware|Hyper-V|Parallels|VirtualBox|TAP-Windows|TUN|Docker|vEthernet|WireGuard|ZeroTier'
+    if ($isVirtualDesc -and -not $isVm) { continue }   # 物理宿主机排除虚拟杂卡; VM 上虚拟卡即真实网卡, 保留
     $macraw = $ni.GetPhysicalAddress().ToString()
     if (-not $macraw -or $macraw -eq '000000000000') { continue }
     $mac = (([regex]::Matches($macraw, '..') | ForEach-Object { $_.Value }) -join ':').ToLower()

@@ -1,18 +1,18 @@
 {
   "schema": "aegis.update/v1",
   "release": "0.73.3",
-  "agent_version": "0.36.8",
+  "agent_version": "0.36.9",
   "channel": "pilot",
   "published_at": "2026-09-20T08:11:35+08:00",
   "min_agent_version": "0.33.0",
   "artifacts": {
     "aegis_agent.py": {
       "url": "/downloads/aegis_agent.py",
-      "sha256": "203baf3f8a7cd99b347e727761b8c650123f9d6ab75be344c316436cd60f0a37"
+      "sha256": "89db98fed79fd94e26a917ecd65155513c37e06bcbebb7e8242653552734b8c6"
     },
     "aegis-windows.ps1": {
       "url": "/downloads/aegis-windows.ps1",
-      "sha256": "e2fdad0d43f23223869b8e8ddbdef2763b7308c8e80ac31fed4897af2e7e9e8c"
+      "sha256": "32356972e855b9326b3d6cecdc61241ec6587f252ef37fdc8939523b30414b41"
     },
     "aegis_self_update.py": {
       "url": "/downloads/aegis_self_update.py",
