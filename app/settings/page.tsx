@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCollector } from '@/components/collector-context';
 import { useRole } from '@/components/role-context';
+import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
 
 /**
  * 系统设置。诚实原则：只有真正接了后端的项才呈现为"可管理/实时"，其余项
@@ -119,11 +120,13 @@ interface AlertCfg {
 
 /** 告警推送配置（真实可写，admin）：存 PG settings；服务器 aegis_alert_check.py 用 Collector 令牌只读拉取。 */
 function AlertingPanel() {
-  const { role } = useRole();
+  const { role, subject } = useRole();
   const isAdmin = role === 'admin';
   const [cfg, setCfg] = useState<AlertCfg | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  // 测试发送会向已配置 webhook 真实外发一条消息，统一确认弹窗（不展示 webhook 原文，避免泄露凭据）。
+  const [pendingTest, setPendingTest] = useState(false);
 
   useEffect(() => {
     fetch('/api/settings/alerting', { cache: 'no-store' })
@@ -169,6 +172,13 @@ function AlertingPanel() {
       setMsg('测试发送失败：网络错误');
     }
     setBusy(false);
+  }
+
+  /** 测试发送经统一确认弹窗后执行（真实外发，人在回路）。 */
+  async function confirmTest() {
+    if (busy) return;
+    await test();
+    setPendingTest(false);
   }
 
   if (!cfg) return null;
@@ -261,12 +271,31 @@ function AlertingPanel() {
             <Settings size={15} />
             保存告警配置
           </Button>
-          <Button variant="outline" onClick={() => void test()} disabled={busy || !cfg.webhook} title="向当前 webhook 发一条测试告警">
+          <Button variant="outline" onClick={() => setPendingTest(true)} disabled={busy || !cfg.webhook} title="向当前 webhook 发一条测试告警">
             <Send size={15} />
             测试发送
           </Button>
         </div>
       )}
+
+      <ActionConfirmDialog
+        open={pendingTest}
+        onOpenChange={(open) => {
+          if (!open && !busy) setPendingTest(false);
+        }}
+        title="发送测试告警"
+        description="确认向当前已配置的告警 webhook 发送一条测试消息？"
+        impact={[
+          '会向告警通道真实外发一条测试消息（通道内成员会收到）',
+          '不改动任何告警配置，也不影响终端或策略',
+        ]}
+        rollback="测试消息无法撤回，但不产生持久化副作用；如误发可忽略。"
+        operator={subject || '当前登录用户'}
+        variant="default"
+        confirmLabel="确认发送"
+        busy={busy}
+        onConfirm={() => void confirmTest()}
+      />
     </div>
   );
 }

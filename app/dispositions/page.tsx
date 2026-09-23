@@ -76,6 +76,7 @@ export default function DispositionsPage() {
   const [preview, setPreview] = useState<PolicyPreview | null>(null);
   const [current, setCurrent] = useState<CurrentRelease | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [pendingPublish, setPendingPublish] = useState(false);
   const [publishMsg, setPublishMsg] = useState('');
   // 封禁爆炸半径闸(PM 评审 #1): 发布被 409 拦截时展示精确影响清单 + typed override 输入。
   const [blast, setBlast] = useState<{ hint: string; impact: { device_id: string; skills: string[]; mcp: string[]; count: number; pct: number }[]; override: string } | null>(null);
@@ -323,6 +324,13 @@ export default function DispositionsPage() {
     } finally {
       setPublishing(false);
     }
+  }
+
+  /** 发布签名策略 = 高影响动作，统一经确认弹窗（影响范围 + 回滚）后执行。 */
+  async function confirmPublish() {
+    if (publishing) return;
+    await publishPolicy();
+    setPendingPublish(false);
   }
 
   // 「系统默认放行」= 默认自带白名单(seed-defaults)写入、且用户未改动过(disposition 仍为
@@ -576,7 +584,7 @@ export default function DispositionsPage() {
             <Badge variant="outline">尚未发布</Badge>
           )}
           {isAdmin && preview && (
-            <Button style={{ marginLeft: 'auto' }} onClick={() => void publishPolicy()} disabled={publishing}>
+            <Button style={{ marginLeft: 'auto' }} onClick={() => setPendingPublish(true)} disabled={publishing}>
               <Upload size={15} />
               {publishing ? '发布中…' : `发布策略 (v${preview.next_version})`}
             </Button>
@@ -721,6 +729,34 @@ export default function DispositionsPage() {
         confirmLabel="确认删除"
         busy={busy && pendingRemove !== null}
         onConfirm={() => void confirmRemove()}
+      />
+
+      <ActionConfirmDialog
+        open={pendingPublish}
+        onOpenChange={(open) => {
+          if (!open && !publishing) setPendingPublish(false);
+        }}
+        title="发布签名策略"
+        description={
+          preview
+            ? `确认发布 v${preview.next_version}？签名后将下发所有纳管终端，下次加载即验签生效。`
+            : '确认发布签名策略？'
+        }
+        impact={[
+          preview
+            ? `将编译 ${preview.counts.allow} 加白 / ${preview.counts.monitor} 观察 / ${preview.counts.deny} 拉黑`
+            : '将按当前处置编译加白 / 观察 / 拉黑名单',
+          predicted.bulkNames > 0
+            ? `deny 名单预计影响 ${predicted.total} 资产 / ${predicted.impact.length} 台设备（详见上方爆炸半径预览）`
+            : '当前 deny 名单为空，不会隔离任何资产',
+          '终端加载时验签，篡改则拒载并回退上一份有效策略',
+        ]}
+        rollback="发布后可在本页点击「回滚上一版」一键回到上一版（以新版本号重签，历史不改）。"
+        operator={subject || '当前登录用户'}
+        variant={predicted.exceeded || predicted.absExceeded ? 'danger' : 'warning'}
+        confirmLabel="确认发布"
+        busy={publishing}
+        onConfirm={() => void confirmPublish()}
       />
     </>
   );

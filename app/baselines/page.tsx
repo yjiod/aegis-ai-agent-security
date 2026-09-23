@@ -256,6 +256,7 @@ export default function BaselinesPage() {
  * 范围（全量/百分比/部门）拉取并附加进受管基线；与上游同步基线完全分离、互不影响。
  */
 function EnterpriseMdPanel() {
+  const { subject } = useRole();
   const [content, setContent] = useState('');
   const [mode, setMode] = useState<'all' | 'percent' | 'department'>('all');
   const [percent, setPercent] = useState(10);
@@ -263,6 +264,8 @@ function EnterpriseMdPanel() {
   const [current, setCurrent] = useState<{ published: boolean; version?: number; rollout?: { mode?: string; percent?: number; departments?: string[] } } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  // 灰度推送 = 高影响动作（终端按范围拉取生效），统一确认弹窗。
+  const [pendingPublish, setPendingPublish] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -300,6 +303,20 @@ function EnterpriseMdPanel() {
     setBusy(false);
   }
 
+  /** 灰度推送经统一确认弹窗后执行（高影响动作，人在回路）。 */
+  async function confirmPublish() {
+    if (busy) return;
+    await publish();
+    setPendingPublish(false);
+  }
+
+  const rolloutScope =
+    mode === 'percent'
+      ? `百分比（${percent}% 终端）`
+      : mode === 'department'
+        ? `部门（${departments.split(/[,，\s]+/).filter(Boolean).join('、') || '未填写'}）`
+        : '全量（所有纳管终端）';
+
   return (
     <div className="panel" style={{ marginTop: 16 }}>
       <div className="panel-head">
@@ -328,10 +345,30 @@ function EnterpriseMdPanel() {
           {mode === 'department' && (
             <input className="form-input" style={{ flex: 1 }} placeholder="部门列表，逗号分隔（如 研发,安全）" value={departments} onChange={(e) => setDepartments(e.target.value)} />
           )}
-          <Button onClick={() => void publish()} disabled={busy}>{busy ? '发布中…' : '发布并推送'}</Button>
+          <Button onClick={() => setPendingPublish(true)} disabled={busy}>{busy ? '发布中…' : '发布并推送'}</Button>
         </div>
         {msg && <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{msg}</p>}
       </div>
+
+      <ActionConfirmDialog
+        open={pendingPublish}
+        onOpenChange={(open) => {
+          if (!open && !busy) setPendingPublish(false);
+        }}
+        title="发布并推送企业级 MD"
+        description="确认把当前企业级 MD 基线推送到 Collector？终端将按灰度范围拉取并附加生效。"
+        impact={[
+          `灰度范围：${rolloutScope}`,
+          '命中终端下次拉取即把本基线附加进受管基线',
+          '与上游同步基线（upstream-baseline）分离，不会互相覆盖',
+        ]}
+        rollback="如需回滚，重新发布上一版内容，或缩小 / 清空灰度范围后重发；终端按最新灰度拉取。"
+        operator={subject || '当前登录用户'}
+        variant={mode === 'all' ? 'danger' : 'warning'}
+        confirmLabel="确认发布"
+        busy={busy}
+        onConfirm={() => void confirmPublish()}
+      />
     </div>
   );
 }
