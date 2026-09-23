@@ -140,9 +140,25 @@ AGENT_VER=$(grep -m1 'AGENT_VERSION =' "$INSTALL_DIR/aegis_agent.py" | sed 's/[^
 echo "  ✓ 运行时已就位（agent ${AGENT_VER:-unknown}）"
 
 echo "═══ 2. 获取凭据与策略，写入配置（0600）═══"
+# 覆盖安装识别：已存在有效入网凭据且 Collector 地址未变（且未显式传 --token）→ 判定为升级/重装，
+# 保留既有身份（reporting.json/config.json/令牌/策略），**不重复零接触入网**：避免对一台已在网的
+# 设备无谓轮换令牌、或在控制台瞬断时把"重装"误判成"安装失败"而中止。令牌被吊销由守护 --auto-enroll 自愈。
+EXIST_TOKEN=""; EXIST_URL=""
+if [ -f "$INSTALL_DIR/reporting.json" ]; then
+  EXIST_TOKEN=$(sed -n 's/.*"report_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$INSTALL_DIR/reporting.json" | head -1)
+  EXIST_URL=$(sed -n 's/.*"report_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$INSTALL_DIR/reporting.json" | head -1)
+fi
+PRESERVE=0
+if [ -z "$TOKEN" ] && [ -n "$EXIST_TOKEN" ] && [ "${#EXIST_TOKEN}" -ge 32 ] && [ "${#EXIST_TOKEN}" -le 4096 ]; then
+  case "$EXIST_URL" in
+    "$COLLECTOR_URL"*) PRESERVE=1 ;;
+  esac
+fi
 # 由 agent 自身（冻结二进制或 python3 脚本）完成入网+写配置——安装器不再内嵌 python heredoc，
 # 故无 python3 的 mac 也能装（二进制自带 --install-config 逻辑，与旧 heredoc 等价）。
-if ! run_agent --install-config "$INSTALL_DIR" "$COLLECTOR_URL" "$ENROLL_URL" "$DEVICE_ID" "$INTERVAL" "$TOKEN" "$AGENT_VER"; then
+if [ "$PRESERVE" = 1 ]; then
+  echo "  · 覆盖安装：检测到既有有效入网凭据（Collector 地址未变），保留身份，跳过入网"
+elif ! run_agent --install-config "$INSTALL_DIR" "$COLLECTOR_URL" "$ENROLL_URL" "$DEVICE_ID" "$INTERVAL" "$TOKEN" "$AGENT_VER"; then
   echo "错误: 凭据/策略获取失败，安装中止（未注册 LaunchAgent）。" >&2; exit 1
 fi
 

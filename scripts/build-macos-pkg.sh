@@ -5,8 +5,13 @@
 # 产物是自包含 .pkg：
 #   payload  → /Library/Application Support/AegisAgent/{aegis_agent.py,aegis-policy.json,
 #              aegis-security-baseline.md} + /Library/LaunchDaemons/com.aegis.agent.plist
-#   postinstall（以 root 运行）→ 零接触自动入网：向 ${SERVER}/api/enroll 申请上报令牌+
-#              signing_secret+当前已发布策略，写入 reporting.json(0600) 并覆盖出厂策略，
+#   postinstall（以 root 运行）→ 覆盖安装识别 + 零接触自动入网：
+#              · 若已存在有效入网凭据且控制台地址未变（reporting.json 令牌有效、report_url
+#                前缀 == 本包烘焙地址），判定为升级/重装：**保留既有身份**（令牌/配置/策略），
+#                不重复入网、不弹任何提示——pkg 即"覆盖安装"通道。
+#              · 仅当无凭据 / 凭据损坏 / 控制台地址变更（全新安装或换控制台）才向
+#                ${SERVER}/api/enroll 申请上报令牌+signing_secret+当前已发布策略，写入
+#                reporting.json(0600) 并覆盖出厂策略；此时入网失败才弹"入网暂失败"提示。
 #              随后 bootstrap 系统级 LaunchDaemon（开机自启、周期扫描 /Users 并上报）。
 #
 # 服务器地址在构建时烘焙进 postinstall：AEGIS_PUBLIC_ORIGIN（默认 RFC 占位
@@ -126,11 +131,29 @@ fi
 _hw_serial="$(ioreg -c IOPlatformExpert 2>/dev/null | awk -F'"' '/IOPlatformSerialNumber/{print $4; exit}')"
 [ -z "$_hw_serial" ] && _hw_serial="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Serial Number \(system\)/{gsub(/ /,"",$2); print $2; exit}')"
 if [ -n "$_hw_serial" ]; then DEVICE_ID="$(printf 'aegis-hw:%s' "$_hw_serial" | shasum -a 256 | cut -c1-12)"; else DEVICE_ID="$(hostname | tr -d '\n' | shasum -a 256 | cut -c1-12)"; fi
+# 覆盖安装识别（pkg = 升级/重装通道）：若已存在有效入网凭据且控制台地址未变，说明本机早已
+# 入网——保留既有身份（reporting.json/config.json/令牌/策略），**不重复零接触入网**，也就不会
+# 对一台已在网的设备误报"入网失败"。仅当无凭据 / 凭据损坏 / 控制台地址变更时才重新入网。
+# （令牌被服务端吊销的情况由守护进程 --auto-enroll 在 401/403 时自动重入网自愈，无需安装期处理。）
+EXIST_TOKEN=""; EXIST_URL=""
+if [ -f "$INSTALL_DIR/reporting.json" ]; then
+  EXIST_TOKEN=$(sed -n 's/.*"report_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$INSTALL_DIR/reporting.json" | head -1)
+  EXIST_URL=$(sed -n 's/.*"report_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$INSTALL_DIR/reporting.json" | head -1)
+fi
+PRESERVE=0
+if [ -n "$EXIST_TOKEN" ] && [ "${#EXIST_TOKEN}" -ge 32 ] && [ "${#EXIST_TOKEN}" -le 4096 ]; then
+  case "$EXIST_URL" in
+    "$SERVER"*) PRESERVE=1 ;;
+  esac
+fi
 # 入网+写配置：二进制(免 python) 优先，否则 python3 脚本；两者统一走 agent 的 --install-config
 # （逻辑与原 python heredoc 等价：自动 /api/enroll、写 reporting.json/config.json 0600、服务端策略覆盖出厂）。
 INTERVAL="__INTERVAL__"; VERSION="__VERSION__"
 CFG_OK=0
-if [ -n "$AGENT" ]; then
+if [ "$PRESERVE" = 1 ]; then
+  CFG_OK=1
+  echo "  · 覆盖安装：检测到既有有效入网凭据（控制台地址未变），保留身份，跳过零接触入网"
+elif [ -n "$AGENT" ]; then
   "$AGENT" --install-config "$INSTALL_DIR" "$SERVER/aegis" "$SERVER/api/enroll" "$DEVICE_ID" "$INTERVAL" "" "$VERSION" && CFG_OK=1
 else
   PYBIN=""
@@ -139,11 +162,15 @@ else
   done
   if [ -n "$PYBIN" ]; then "$PYBIN" "$INSTALL_DIR/aegis_agent.py" --install-config "$INSTALL_DIR" "$SERVER/aegis" "$SERVER/api/enroll" "$DEVICE_ID" "$INTERVAL" "" "$VERSION" && CFG_OK=1; fi
 fi
+# 入网成功或覆盖保留（设备已在网）→ 清掉历史 enroll-pending，守护无需再重试、也不残留旧标记。
+if [ "$CFG_OK" = 1 ]; then
+  rm -f "$INSTALL_DIR/enroll-pending" 2>/dev/null || true
+fi
 if [ "$CFG_OK" != 1 ]; then
   printf '%s %s\n' "enroll-deferred" "$SERVER/api/enroll" > "$INSTALL_DIR/enroll-pending" 2>/dev/null || true
   chmod 644 "$INSTALL_DIR/enroll-pending" 2>/dev/null || true
 fi
-# 入网失败时对双击安装的用户弹 GUI 提示（stderr 不可见，避免"装完没反应"）。
+# 仅"全新安装（无既有身份）且入网失败"才弹 GUI 提示；覆盖安装保留身份时不打扰用户。
 # 守护进程带 --auto-enroll，网络/地址恢复后会自动重试入网。
 if [ -f "$INSTALL_DIR/enroll-pending" ]; then
   REASON="$(head -1 "$INSTALL_DIR/enroll-pending" 2>/dev/null || echo unknown)"
