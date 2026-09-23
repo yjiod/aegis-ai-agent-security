@@ -39,6 +39,7 @@ export default function OnboardingPage() {
   const [deviceCount, setDeviceCount] = useState<number | null>(null);
   const [ticketCount, setTicketCount] = useState<number | null>(null);
   const [baselineCount, setBaselineCount] = useState<number | null>(null);
+  const [labelCount, setLabelCount] = useState<number | null>(null);
 
   useEffect(() => {
     fetch('/api/devices', { cache: 'no-store' })
@@ -49,6 +50,10 @@ export default function OnboardingPage() {
       .then((r) => (r.ok ? (r.json() as Promise<{ total?: number }>) : null))
       .then((d) => setTicketCount(typeof d?.total === 'number' ? d.total : 0))
       .catch(() => setTicketCount(null));
+    fetch('/api/labels', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ labels?: unknown[] }>) : null))
+      .then((d) => setLabelCount(Array.isArray(d?.labels) ? d.labels.length : 0))
+      .catch(() => setLabelCount(null));
     fetch('/api/baselines', { cache: 'no-store' })
       .then((r) => (r.ok ? (r.json() as Promise<{ baselines?: unknown[] }>) : null))
       .then((d) => setBaselineCount(Array.isArray(d?.baselines) ? d!.baselines!.length : 0))
@@ -87,7 +92,7 @@ export default function OnboardingPage() {
       desc: '对识别到的技能与 MCP 服务打标：加白 / 观察 / 拉黑，形成下发策略。',
       href: '/dispositions',
       cta: '去处置中心',
-      done: false,
+      done: (labelCount ?? 0) > 0,
     },
     {
       key: 'baseline',

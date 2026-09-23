@@ -2187,3 +2187,6 @@ button.risk-row {
 [data-theme='light'] .detail-kpis article { border-left-color: #0f9d76; }
 [data-theme='light'] .detail-kpis article:nth-child(2) { border-left-color: #2790c4; }
 [data-theme='light'] .detail-kpis article:nth-child(3) { border-left-color: #c0392b; }
+
+/* KPI 4 卡单行（消除 3+1 换行孤儿）；窄屏自动折行 */
+.detail-kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }

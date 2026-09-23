@@ -209,18 +209,22 @@ export function ScanExplorer({
         <article className="animate-entrance animate-entrance-1">
           <strong>{loading ? '—' : counts.total}</strong>
           <span>本类发现</span>
+          <small>已加载 · 服务端分页</small>
         </article>
         <article className="animate-entrance animate-entrance-2">
           <strong>{loading ? '—' : counts.critical + counts.high}</strong>
           <span>严重 / 高危</span>
+          <small>需优先处置</small>
         </article>
         <article className="animate-entrance animate-entrance-3">
           <strong>{loading ? '—' : (data?.devices_with_findings ?? 0)}</strong>
           <span>涉及终端</span>
+          <small>有发现的终端</small>
         </article>
         <article className="animate-entrance animate-entrance-4" title="已在处置中心加白（disposition=allow）的同源资产发现，已自动从告警中消除，不再计入">
           <strong>{loading ? '—' : (data?.suppressed ?? 0)}</strong>
           <span>加白已消除</span>
+          <small>处置中心加白同源</small>
         </article>
       </div>
 
