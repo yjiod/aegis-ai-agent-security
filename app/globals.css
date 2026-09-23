@@ -2157,3 +2157,33 @@ button.risk-row {
 [data-theme='light'] .mini label { color: #5b7280; }
 [data-theme='light'] .bar-spark { background: linear-gradient(180deg, transparent, rgba(15, 157, 118, 0.05)); }
 [data-theme='light'] .progress { background: #e1e9ee; }
+
+/* ---------- 风险页 KPI 卡密度/和谐度（视觉迭代 2026-09-23） ---------- */
+.detail-kpis article {
+  position: relative;
+  min-height: 0;
+  padding: 14px 16px;
+  border-left: 3px solid var(--sentinel-accent);
+}
+.detail-kpis article strong {
+  font: 700 26px var(--sentinel-font-mono);
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+.detail-kpis article span {
+  display: block;
+  margin-top: 2px;
+  color: var(--sentinel-text-2);
+  font-size: 12px;
+}
+.detail-kpis article small {
+  display: block;
+  margin-top: 4px;
+  color: var(--sentinel-text-3);
+  font-size: 11px;
+}
+.detail-kpis article:nth-child(2) { border-left-color: var(--sentinel-cyan); }
+.detail-kpis article:nth-child(3) { border-left-color: var(--sentinel-danger); }
+[data-theme='light'] .detail-kpis article { border-left-color: #0f9d76; }
+[data-theme='light'] .detail-kpis article:nth-child(2) { border-left-color: #2790c4; }
+[data-theme='light'] .detail-kpis article:nth-child(3) { border-left-color: #c0392b; }

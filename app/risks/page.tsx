@@ -103,7 +103,8 @@ const ERROR_COPY: Record<string, string> = {
  * `.wide` 是 5 列网格；最后一列放宽到 auto，让「标记已解决 + 驳回」这类
  * 双动作也能并排显示。窄屏下 `.device` / `.time` 由 globals.css 隐藏。
  */
-const TICKET_ROW_GRID = '54px minmax(0,1fr) 116px 62px auto';
+// 6 列：[选择框][严重度][主信息][设备][时间][操作]。此前加选择框后未同步列数导致行内容错位。
+const TICKET_ROW_GRID = '30px 54px minmax(0,1fr) 150px 70px auto';
 
 const handleStyle: CSSProperties = { cursor: 'pointer' };
 
@@ -544,14 +545,17 @@ export default function RisksPage() {
         <article className="animate-entrance animate-entrance-1">
           <strong>{filterCounts.pending}</strong>
           <span>待处理工单</span>
+          <small>共 {tickets.length} 张 · 需人工认领</small>
         </article>
         <article className="animate-entrance animate-entrance-2">
           <strong>{filterCounts.investigating}</strong>
           <span>调查中</span>
+          <small>处理中 · 有人跟进</small>
         </article>
         <article className="animate-entrance animate-entrance-3">
           <strong>{highRiskOpen}</strong>
           <span>未闭环高危事件</span>
+          <small>含严重 · 优先处置</small>
         </article>
       </div>
 
