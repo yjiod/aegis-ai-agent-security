@@ -90,6 +90,10 @@ export function ScanExplorer({
   const [status, setStatus] = useState(0);
   // 2026-09 搜索：本页发现按 kind/path/message/终端 本地过滤（数据为单类聚合全量，客户端过滤完整）。
   const [q, setQ] = useState('');
+  // 统一筛选条（handoff P0）：等级 / 规则类型 / 终端，作用于已加载发现（分页子集）。
+  const [sevF, setSevF] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
+  const [kindF, setKindF] = useState('all');
+  const [devF, setDevF] = useState('');
   // P1 抽屉扩展到扫描页：选中发现 → 右侧抽屉（发现/资产/规则信号/建议动作/来源）。
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [disposing, setDisposing] = useState(false);
@@ -175,6 +179,26 @@ export function ScanExplorer({
     return c;
   }, [loaded]);
   const connected = data?.connected ?? false;
+
+  /** 统一筛选（等级/类型/终端/搜索）作用于已加载发现；口径在 UI 上如实标注为分页子集。 */
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    const dd = devF.trim().toLowerCase();
+    return loaded.filter((f) => {
+      if (sevF !== 'all' && f.severity !== sevF) return false;
+      if (kindF !== 'all' && f.kind !== kindF) return false;
+      if (dd && !(f.device_id ?? '').toLowerCase().includes(dd)) return false;
+      if (!qq) return true;
+      const hay = [f.kind, f.path, f.message, f.device_id]
+        .filter((x): x is string => typeof x === 'string')
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(qq);
+    });
+  }, [loaded, q, sevF, kindF, devF]);
+
+  const kindOptions = useMemo(() => Array.from(new Set(loaded.map((f) => f.kind))).sort(), [loaded]);
+  const hasScanFilter = sevF !== 'all' || kindF !== 'all' || devF.trim() !== '' || q.trim() !== '';
 
   return (
     <section className="workspace">
@@ -299,7 +323,68 @@ export function ScanExplorer({
             <p>已连接接收器，但当前没有{title}相关的真实发现。新的上报会自动进入此列表。</p>
           </div>
         ) : (
-          <div className="data-table cols-5">
+          <>
+            {/* 统一筛选条（handoff P0）：等级 / 规则类型 / 终端 + 搜索；口径如实标注为已加载子集 */}
+            <div
+              role="toolbar"
+              aria-label="发现统一筛选"
+              style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}
+            >
+              <select
+                className="form-input"
+                style={{ width: 110, padding: '6px 8px', fontSize: 12 }}
+                value={sevF}
+                onChange={(e) => setSevF(e.target.value as typeof sevF)}
+                aria-label="按等级筛选"
+              >
+                <option value="all">全部等级</option>
+                <option value="critical">严重</option>
+                <option value="high">高危</option>
+                <option value="medium">中危</option>
+                <option value="low">低危</option>
+              </select>
+              <select
+                className="form-input"
+                style={{ width: 200, padding: '6px 8px', fontSize: 12 }}
+                value={kindF}
+                onChange={(e) => setKindF(e.target.value)}
+                aria-label="按规则类型筛选"
+              >
+                <option value="all">全部规则类型</option>
+                {kindOptions.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="form-input"
+                style={{ width: 150, padding: '6px 8px', fontSize: 12 }}
+                value={devF}
+                onChange={(e) => setDevF(e.target.value)}
+                placeholder="终端 ID 片段…"
+                aria-label="按终端筛选"
+              />
+              {hasScanFilter && (
+                <button
+                  type="button"
+                  className="sentinel-button"
+                  style={{ padding: '4px 10px', fontSize: 11 }}
+                  onClick={() => {
+                    setSevF('all');
+                    setKindF('all');
+                    setDevF('');
+                    setQ('');
+                  }}
+                >
+                  清除筛选
+                </button>
+              )}
+              <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+                命中 {filtered.length} / 已加载 {loaded.length} 条（已加载为分页子集，非全舰队）
+              </span>
+            </div>
+            <div className="data-table cols-5">
             <div className="data-head">
               <span>等级</span>
               <span>类型</span>
@@ -307,16 +392,7 @@ export function ScanExplorer({
               <span>说明</span>
               <span>时间</span>
             </div>
-            {loaded
-              .filter((f) => {
-                const qq = q.trim().toLowerCase();
-                if (!qq) return true;
-                const hay = [f.kind, f.path, f.message, f.device_id]
-                  .filter((x): x is string => typeof x === 'string')
-                  .join(' ')
-                  .toLowerCase();
-                return hay.includes(qq);
-              })
+            {filtered
               .slice(0, 500)
               .map((f, i) => {
               const sev = asSeverity(f.severity);
@@ -383,6 +459,7 @@ export function ScanExplorer({
               </button>
             )}
           </div>
+          </>
         )}
       </div>
       {/* P1 抽屉扩展到扫描页：发现 → 资产 → 规则信号 → 建议动作 → 来源/时间 */}
