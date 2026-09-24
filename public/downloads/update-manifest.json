@@ -20,11 +20,11 @@
     },
     "aegis-agent-darwin-arm64": {
       "url": "/downloads/aegis-agent-darwin-arm64",
-      "sha256": "fdca4e861ce57b7f53ec8732eb2c6ab1eefa71cbec64e597713f09be25718a67"
+      "sha256": "6c21c04c00018b7227afdfe2cb24832366432a190ad2e4594b82e7ca2247e2f3"
     },
     "aegis-agent-darwin-x64": {
       "url": "/downloads/aegis-agent-darwin-x64",
-      "sha256": "c00389b31c387e392d2baa35da12a152a015938aad025b0046d06f05fb4cca40"
+      "sha256": "85396f7cc2c3acaa56ce7d601abcdced37c3a55a7e72cdff1887a8c928e20b1e"
     }
   }
 }
