@@ -128,3 +128,51 @@ class WebhookPayloadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AlertEmailTests(unittest.TestCase):
+    """邮件通道：env 缺失→None(跳过)；配置齐→走 smtplib 且凭据仅来自 env。"""
+
+    def test_send_email_without_smtp_env_returns_none(self):
+        import os
+        saved = {k: os.environ.pop(k, None) for k in
+                 ("AEGIS_ALERT_SMTP_HOST", "AEGIS_ALERT_SMTP_USER", "AEGIS_ALERT_SMTP_PASS", "AEGIS_ALERT_SMTP_FROM")}
+        try:
+            self.assertIsNone(A.send_email("a@example.com", [], 1_800_000_000))
+        finally:
+            for k, v in saved.items():
+                if v is not None:
+                    os.environ[k] = v
+
+    def test_send_email_posts_via_smtp(self):
+        import os
+        from unittest.mock import patch, MagicMock
+        alerts = [{"type": "critical_findings", "device_id": "d1", "hostname": "h1",
+                   "severity": "critical", "detail": "2 critical finding(s)"}]
+        env = {"AEGIS_ALERT_SMTP_HOST": "smtp.example.com", "AEGIS_ALERT_SMTP_USER": "u@example.com",
+               "AEGIS_ALERT_SMTP_PASS": "pw", "AEGIS_ALERT_SMTP_FROM": "aegis@example.com"}
+        saved = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        try:
+            with patch("smtplib.SMTP") as Smtp:
+                inst = MagicMock()
+                Smtp.return_value.__enter__.return_value = inst
+                n = A.send_email("ops@example.com, sec@example.com", alerts, 1_800_000_000)
+                self.assertEqual(n, 1)
+                Smtp.assert_called_once_with("smtp.example.com", 587, timeout=20)
+                inst.starttls.assert_called_once()
+                inst.login.assert_called_once_with("u@example.com", "pw")
+                self.assertEqual(inst.sendmail.call_count, 1)
+                args = inst.sendmail.call_args[0]
+                self.assertEqual(args[0], "aegis@example.com")
+                self.assertEqual(args[1], ["ops@example.com", "sec@example.com"])
+                import base64
+                body = base64.b64decode(args[2].split("\n\n", 1)[1]).decode("utf-8")
+                self.assertIn("critical_findings", body)
+                self.assertIn("h1", body)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v

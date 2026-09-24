@@ -248,6 +248,7 @@ interface AlertCfg {
   format: 'generic' | 'dingtalk';
   offline_hours: number;
   min_interval_hours: number;
+  email: string;
 }
 
 /** 告警推送配置（真实可写，admin）：存 PG settings；服务器 aegis_alert_check.py 用 Collector 令牌只读拉取。 */
@@ -325,7 +326,7 @@ function AlertingPanel() {
       <div className="panel-head">
         <div>
           <h2>告警推送（Fleet Alerting）</h2>
-          <p>服务器告警评估器（systemd timer 每 5 分钟）按此配置推送离线/坏自更/critical 告警；webhook 为空=不推送（dry-run）。</p>
+          <p>服务器告警评估器（systemd timer 每 5 分钟）按此配置推送离线/坏自更/critical 告警；webhook 为空=不推送（dry-run）。配置邮件收件人且服务器已配 SMTP 后，同批告警同时发邮件。</p>
         </div>
       </div>
       <div className="setting-row">
@@ -369,6 +370,19 @@ function AlertingPanel() {
           <option value="generic">generic</option>
           <option value="dingtalk">dingtalk</option>
         </select>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>邮件收件人（可选）</strong>
+          <span>逗号分隔；非空且服务器配 AEGIS_ALERT_SMTP_* 后评估器同时发邮件</span>
+        </div>
+        <Input
+          value={cfg.email ?? ''}
+          disabled={!isAdmin}
+          placeholder="ops@example.com, sec@example.com"
+          onChange={(e) => setCfg({ ...cfg, email: e.target.value })}
+          style={{ maxWidth: 360 }}
+        />
       </div>
       <div className="setting-row">
         <div>

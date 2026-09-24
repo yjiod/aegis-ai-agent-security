@@ -11,6 +11,8 @@ aegis_alert_check.py — 舰队告警评估 + webhook 推送（把"无人察觉"
 推送格式：
   generic （默认）：POST JSON {schema:"aegis.alert/v1", at, alerts:[{type,device_id,hostname,detail,severity}]}
   dingtalk        ：POST {msgtype:"text", text:{content:"Aegis 告警\\n- ..."}}（钉钉机器人 webhook）
+  email（并行通道）：控制台 alert_config.email 非空 + 服务器 AEGIS_ALERT_SMTP_* env 时，
+                    同批告警同时发邮件（smtplib+TLS；凭据只从 env 读，绝不入库/入对话）。
 
 安全/运维边界：
   - 未配置 webhook（--webhook / AEGIS_ALERT_WEBHOOK）时为 dry-run：只打印将推送的告警，不写状态、不发送。
@@ -126,6 +128,32 @@ def post_webhook(webhook, fmt, alerts, now):
         return r.status
 
 
+def send_email(to_addrs, alerts, now):
+    """邮件通道：SMTP 凭据只从 AEGIS_ALERT_SMTP_* env 读取（运维在 unit/env 配置），
+    控制台只存收件人列表（逗号分隔）。任一 env 缺失视为邮件通道未配置，跳过不报错。"""
+    host = os.environ.get("AEGIS_ALERT_SMTP_HOST", "")
+    user = os.environ.get("AEGIS_ALERT_SMTP_USER", "")
+    pwd = os.environ.get("AEGIS_ALERT_SMTP_PASS", "")
+    sender = os.environ.get("AEGIS_ALERT_SMTP_FROM", user)
+    if not (host and user and pwd and sender):
+        return None  # 未配置 SMTP env → 邮件通道关闭
+    import smtplib
+    from email.mime.text import MIMEText
+    lines = ["Aegis 舰队告警 %s" % time.strftime("%Y-%m-%d %H:%M", time.localtime(now)), ""]
+    for a in alerts:
+        lines.append("[%s] %s %s: %s" % (a["severity"], a["type"], a["hostname"], a["detail"]))
+    msg = MIMEText("\n".join(lines), "plain", "utf-8")
+    msg["Subject"] = "Aegis 告警：critical/high %d 条" % len(alerts)
+    msg["From"] = sender
+    msg["To"] = to_addrs
+    port = int(os.environ.get("AEGIS_ALERT_SMTP_PORT", "587"))
+    with smtplib.SMTP(host, port, timeout=20) as smtp:
+        smtp.starttls()
+        smtp.login(user, pwd)
+        smtp.sendmail(sender, [x.strip() for x in to_addrs.split(",") if x.strip()], msg.as_string())
+    return len(alerts)
+
+
 def fetch_console_config(collector_token, console_base):
     """从控制台拉告警配置（Collector bearer 只读）。失败返回 None（回落 env/默认）。"""
     if not console_base or not collector_token:
@@ -163,6 +191,7 @@ def main():
     fmt = args.format or cc.get("format") or os.environ.get("AEGIS_ALERT_FORMAT", "generic")
     offline_hours = args.offline_hours if args.offline_hours is not None else float(cc.get("offline_hours", 2.0))
     min_interval = args.min_interval_hours if args.min_interval_hours is not None else float(cc.get("min_interval_hours", 6.0))
+    email_to = str(cc.get("email") or os.environ.get("AEGIS_ALERT_EMAIL_TO", "")).strip()
     if not enabled:
         log("alerting disabled in console config; skip")
         return 0
@@ -180,19 +209,36 @@ def main():
         return 0
     for a in pending:
         log("ALERT %s %s %s: %s" % (a["severity"], a["type"], a["hostname"], a["detail"]))
-    if args.dry_run or not webhook:
-        log("dry-run (no webhook configured or --dry-run): not sending, state unchanged")
+    if args.dry_run or (not webhook and not email_to):
+        log("dry-run (no webhook/email configured or --dry-run): not sending, state unchanged")
         return 0
-    try:
-        st = post_webhook(webhook, fmt, pending, now)
-        log("webhook posted status=%s" % st)
+    sent_any, failed = False, False
+    if webhook:
+        try:
+            st = post_webhook(webhook, fmt, pending, now)
+            log("webhook posted status=%s" % st)
+            sent_any = True
+        except Exception as e:
+            log("webhook post failed (will retry next run): %s" % e)
+            failed = True
+    if email_to:
+        try:
+            n = send_email(email_to, pending, now)
+            if n is None:
+                log("email channel: SMTP env not configured (AEGIS_ALERT_SMTP_*), skipped")
+            else:
+                log("email sent to %s (%d alerts)" % (email_to, n))
+                sent_any = True
+        except Exception as e:
+            log("email send failed (will retry next run): %s" % e)
+            failed = True
+    # 任一通道成功即记去重状态；全部失败保留状态下轮重试。
+    if sent_any:
         for a in pending:
             state[a["_key"]] = now
         save_state(args.state, state)
         return 0
-    except Exception as e:
-        log("webhook post failed (will retry next run): %s" % e)
-        return 2
+    return 2
 
 
 if __name__ == "__main__":

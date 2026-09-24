@@ -14,6 +14,8 @@ export interface AlertConfig {
   format: 'generic' | 'dingtalk';
   offline_hours: number;
   min_interval_hours: number;
+  /** 邮件通道收件人（逗号分隔）；非空且服务器配了 SMTP env 时评估器同时发邮件。 */
+  email: string;
 }
 
 const KEY = 'alert_config';
@@ -24,6 +26,7 @@ export const ALERT_DEFAULTS: AlertConfig = {
   format: 'generic',
   offline_hours: 2,
   min_interval_hours: 6,
+  email: '',
 };
 
 function clampNum(v: unknown, def: number, min: number, max: number): number {
@@ -42,6 +45,7 @@ export function getAlertConfig(): AlertConfig {
       format: p.format === 'dingtalk' ? 'dingtalk' : 'generic',
       offline_hours: clampNum(p.offline_hours, ALERT_DEFAULTS.offline_hours, 0.1, 168),
       min_interval_hours: clampNum(p.min_interval_hours, ALERT_DEFAULTS.min_interval_hours, 0.1, 168),
+      email: typeof p.email === 'string' ? p.email.slice(0, 500) : '',
     };
   } catch {
     return { ...ALERT_DEFAULTS };
@@ -72,7 +76,11 @@ export function validateAlertConfig(body: Record<string, unknown>): AlertConfigV
   const min_interval_hours = clampNum(body.min_interval_hours, ALERT_DEFAULTS.min_interval_hours, 0.1, 168);
   if (body.min_interval_hours !== undefined && (typeof body.min_interval_hours !== 'number' || !Number.isFinite(body.min_interval_hours) || body.min_interval_hours < 0.1 || body.min_interval_hours > 168))
     problems.push('min_interval_hours must be a number in [0.1, 168]');
-  return { ok: problems.length === 0, problems, value: { enabled, webhook, format, offline_hours, min_interval_hours } };
+  const email = typeof body.email === 'string' ? body.email.trim().slice(0, 500) : '';
+  if (email && !/^[^\s@,]+@[^\s@,]+(\.[^\s@,]+)*(,[^\s@,]+@[^\s@,]+(\.[^\s@,]+)*)*$/.test(email)) {
+    problems.push('email must be a comma-separated list of valid addresses or empty');
+  }
+  return { ok: problems.length === 0, problems, value: { enabled, webhook, format, offline_hours, min_interval_hours, email } };
 }
 
 export function setAlertConfig(c: AlertConfig, by: string): AlertConfig {
