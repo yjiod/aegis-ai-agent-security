@@ -64,6 +64,69 @@ function relTime(ts: number): string {
   return `${Math.floor(h / 24)} 天前`;
 }
 
+/** 分页器：上一页 / 第 X / Y 页 / 下一页（配合 2026-09-25 用户反馈"长列表要翻页"）。 */
+function Pager({ page, pages, total, onChange }: { page: number; pages: number; total: number; onChange: (p: number) => void }) {
+  if (pages <= 1) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', padding: '8px 0 2px', fontSize: 12 }}>
+      <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onChange(page - 1)}>上一页</Button>
+      <span style={{ color: 'var(--muted-foreground)' }}>第 {page} / {pages} 页 · 共 {total} 项</span>
+      <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => onChange(page + 1)}>下一页</Button>
+    </div>
+  );
+}
+
+/**
+ * 发布预览的处置明细（2026-09-25 用户反馈重设计）：
+ * - 不再平铺全量名单（预制库完全不显示）；
+ * - 自定义处置按 加白Skill / 加白MCP / 观察 / 拉黑 归类，只显示计数徽标；
+ * - 需要看名字时点开"明细"，分页翻页（每页 20），绝不堆一屏文字。
+ */
+function PublishBreakdown({ groups }: { groups: { key: string; label: string; items: string[] }[] }) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [page, setPage] = useState<Record<string, number>>({});
+  const PAGE_SIZE = 20;
+  return (
+    <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
+      {groups.map((g) => {
+        const p = page[g.key] ?? 1;
+        const pages = Math.max(1, Math.ceil(g.items.length / PAGE_SIZE));
+        const shown = g.items.slice((p - 1) * PAGE_SIZE, p * PAGE_SIZE);
+        const isOpen = Boolean(open[g.key]);
+        return (
+          <div key={g.key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap', fontSize: 13 }}>
+            <span style={{ display: 'flex', gap: 6, alignItems: 'center', minWidth: 130 }}>
+              <Badge variant="outline">{g.label}</Badge>
+              <strong>{g.items.length}</strong>
+              <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>项</span>
+            </span>
+            {g.items.length > 0 && (
+              <button
+                type="button"
+                className="handle"
+                onClick={() => setOpen((m) => ({ ...m, [g.key]: !isOpen }))}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--primary)', padding: 0 }}
+              >
+                {isOpen ? '收起明细' : '明细（分页）'}
+              </button>
+            )}
+            {isOpen && (
+              <div style={{ flexBasis: '100%' }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '4px 0' }}>
+                  {shown.map((name) => (
+                    <Badge key={name} variant="outline">{name}</Badge>
+                  ))}
+                </div>
+                <Pager page={p} pages={pages} total={g.items.length} onChange={(np) => setPage((m) => ({ ...m, [g.key]: np }))} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function DispositionsPage() {
   const { role, subject } = useRole();
   const isAdmin = role === 'admin';
@@ -88,6 +151,11 @@ export default function DispositionsPage() {
   >([]);
   // 系统默认放行（原生自带）默认折叠，避免"加白"列表被非用户决策项刷屏（用户反馈）。
   const [showDefaults, setShowDefaults] = useState(false);
+  // 2026-09-25 用户反馈：预制库展开后是一长串 → 搜索 + 类型筛选 + 分页（每页 20）。
+  const [defaultsQuery, setDefaultsQuery] = useState('');
+  const [defaultsTypeFilter, setDefaultsTypeFilter] = useState<'all' | 'skill' | 'mcp'>('all');
+  const [defaultsPage, setDefaultsPage] = useState(1);
+  const DEFAULTS_PAGE = 20;
 
   // 2026-09 改版（处置中心 IA）：自定义库按资产类型分组折叠 + 搜索/筛选 + 组内增量加载，
   // 应对几百上千条加白时的可读性与性能（旧版为单一平铺分页列表）。
@@ -355,6 +423,25 @@ export default function DispositionsPage() {
     (g) => g.items.length > 0,
   );
 
+  // 预制库分页数据（2026-09-25 用户反馈：展开是一长串 → 搜索/筛选 + 每页 20 翻页）。
+  const dq = defaultsQuery.trim().toLowerCase();
+  const filteredDefaults = defaultLabels.filter(
+    (l) =>
+      (defaultsTypeFilter === 'all' || l.asset_type === defaultsTypeFilter) &&
+      (!dq || l.asset_key.toLowerCase().includes(dq)),
+  );
+  const defaultsPages = Math.max(1, Math.ceil(filteredDefaults.length / DEFAULTS_PAGE));
+  const pagedDefaults = filteredDefaults.slice((defaultsPage - 1) * DEFAULTS_PAGE, defaultsPage * DEFAULTS_PAGE);
+
+  // 发布预览明细（2026-09-25 用户反馈重设计）：只归类自定义处置，预制库不进明细。
+  const publishGroups = [
+    { key: 'allow-skill', label: '自定义加白 Skill', items: userLabels.filter((l) => l.asset_type === 'skill' && l.disposition === 'allow').map((l) => l.asset_key) },
+    { key: 'allow-mcp', label: '自定义加白 MCP', items: userLabels.filter((l) => l.asset_type === 'mcp' && l.disposition === 'allow').map((l) => l.asset_key) },
+    { key: 'allow-path', label: '自定义加白路径', items: userLabels.filter((l) => l.asset_type === 'path' && l.disposition === 'allow').map((l) => l.asset_key) },
+    { key: 'monitor', label: '观察', items: userLabels.filter((l) => l.disposition === 'monitor').map((l) => l.asset_key) },
+    { key: 'deny', label: '拉黑', items: userLabels.filter((l) => l.disposition === 'deny').map((l) => l.asset_key) },
+  ];
+
   return (
     <>
       <div className="page-head animate-entrance animate-entrance-1">
@@ -417,7 +504,8 @@ export default function DispositionsPage() {
         </div>
       </div>
 
-      {/* AI Agent 预制库（默认折叠）：原生自带、自动加白，不作为用户"加白"决策展示 */}
+      {/* AI Agent 预制库（默认折叠）：原生自带、自动加白，不作为用户"加白"决策展示。
+          2026-09-25 用户反馈：展开后是一长串 → 改为搜索 + 类型筛选 + 分页翻页（每页 20）。 */}
       {defaultLabels.length > 0 && (
         <div className="panel animate-entrance animate-entrance-2" style={{ padding: 12, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -428,32 +516,61 @@ export default function DispositionsPage() {
             <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
               AI Agent 原生自带的 skill / MCP，自动加白并参与告警抑制与策略编译；不计入你的处置决策、不在下方自定义库显示。
             </span>
-            <Button variant="outline" size="sm" onClick={() => setShowDefaults((v) => !v)} style={{ marginLeft: 'auto' }}>
+            <Button variant="outline" size="sm" onClick={() => { setShowDefaults((v) => !v); setDefaultsPage(1); }} style={{ marginLeft: 'auto' }}>
               {showDefaults ? '收起' : '展开查看 / 单独覆盖'}
             </Button>
           </div>
           {showDefaults && (
-            <div style={{ marginTop: 10, display: 'grid', gap: 6 }}>
-              {defaultLabels.map((l) => (
-                <div key={`${l.asset_type}:${l.asset_key}`} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
-                  <Badge variant="outline">{l.asset_type}</Badge>
-                  <strong>{l.asset_key}</strong>
-                  <Badge variant="outline">系统默认</Badge>
-                  {isAdmin && (
-                    <select
-                      value={l.disposition}
-                      disabled={busy}
-                      onChange={(e) => void save(l, { disposition: e.target.value as Label['disposition'] })}
-                      style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12, marginLeft: 'auto' }}
-                    >
-                      <option value="allow">保持系统默认（加白）</option>
-                      <option value="monitor">改为观察</option>
-                      <option value="deny">改为拉黑</option>
-                      <option value="">改为未处置</option>
-                    </select>
-                  )}
-                </div>
-              ))}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                <Input
+                  placeholder="在预制库中搜索…"
+                  value={defaultsQuery}
+                  onChange={(e) => { setDefaultsQuery(e.target.value); setDefaultsPage(1); }}
+                  style={{ maxWidth: 260, fontSize: 12 }}
+                />
+                <select
+                  value={defaultsTypeFilter}
+                  onChange={(e) => { setDefaultsTypeFilter(e.target.value as 'all' | 'skill' | 'mcp'); setDefaultsPage(1); }}
+                  style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}
+                >
+                  <option value="all">全部类型</option><option value="skill">Skill</option><option value="mcp">MCP</option>
+                </select>
+              </div>
+              {filteredDefaults.length === 0 ? (
+                <p className="empty-hint">无匹配项，请调整搜索 / 筛选。</p>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {pagedDefaults.map((l) => (
+                      <div key={`${l.asset_type}:${l.asset_key}`} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+                        <Badge variant="outline">{l.asset_type}</Badge>
+                        <strong>{l.asset_key}</strong>
+                        <Badge variant="outline">系统默认</Badge>
+                        {isAdmin && (
+                          <select
+                            value={l.disposition}
+                            disabled={busy}
+                            onChange={(e) => void save(l, { disposition: e.target.value as Label['disposition'] })}
+                            style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12, marginLeft: 'auto' }}
+                          >
+                            <option value="allow">保持系统默认（加白）</option>
+                            <option value="monitor">改为观察</option>
+                            <option value="deny">改为拉黑</option>
+                            <option value="">改为未处置</option>
+                          </select>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <Pager
+                    page={defaultsPage}
+                    pages={defaultsPages}
+                    total={filteredDefaults.length}
+                    onChange={setDefaultsPage}
+                  />
+                </>
+              )}
             </div>
           )}
         </div>
@@ -693,14 +810,11 @@ export default function DispositionsPage() {
           <>
             <p style={{ color: 'var(--muted-foreground)', fontSize: 12, marginBottom: 8 }}>
               服务端权威预览（与发布输出一致）：将编译 {preview.counts.allow} 加白 / {preview.counts.monitor} 观察 / {preview.counts.deny} 拉黑，扫描模式 {preview.scan_mode}。
-              {defaultLabels.length > 0 && `（加白中含系统默认放行 ${defaultLabels.length} 项，它们不在上方处置列表显示）`}
+              {defaultLabels.length > 0 && ` 其中系统默认放行 ${defaultLabels.length} 项（AI Agent 预制库，自动参与编译，此处不展开明细）。`}
             </p>
-            <p style={{ fontSize: 13 }}>
-              <b>加白 Skill</b>：{preview.policy.allowed_skills.join(', ') || '（空）'}
-            </p>
-            <p style={{ fontSize: 13 }}>
-              <b>加白 MCP</b>：{preview.policy.allowed_mcp_servers.join(', ') || '（空）'}
-            </p>
+            {/* 2026-09-25 用户反馈：不要在这里堆全量名单。预制库不显示；
+                自定义处置只做归类汇总（计数 + 分页明细，默认折叠）。 */}
+            <PublishBreakdown groups={publishGroups} />
           </>
         ) : (
           <p className="empty-hint">{isAdmin ? '加载发布预览…' : '仅管理员可查看发布预览。'}</p>
