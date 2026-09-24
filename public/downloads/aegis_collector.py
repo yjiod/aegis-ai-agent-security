@@ -51,6 +51,14 @@ def db_open(path):
             db.execute("UPDATE device_state SET crit_count=COALESCE(json_extract(r.body,'$.summary.critical'),0),high_count=COALESCE(json_extract(r.body,'$.summary.high'),0),med_count=COALESCE(json_extract(r.body,'$.summary.medium'),0),low_count=COALESCE(json_extract(r.body,'$.summary.low'),0) FROM reports r WHERE r.id=device_state.latest_id")
             db.execute("PRAGMA user_version=2")
             db.commit()
+        # stage-2（v3）：per-rule 检测计数物化表 + 聚合水位线（技战法活跃态势数据源）。
+        # 建表幂等；user_version 仅作 schema 标记（与 v2 计数层同套路），聚合本身由
+        # refresh_rule_stats 按水位线增量推进，不在上报写路径执行。
+        db.execute("CREATE TABLE IF NOT EXISTS rule_stats(rule_id TEXT NOT NULL,category TEXT NOT NULL,critical INTEGER NOT NULL DEFAULT 0,high INTEGER NOT NULL DEFAULT 0,medium INTEGER NOT NULL DEFAULT 0,low INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(rule_id,category))")
+        db.execute("CREATE TABLE IF NOT EXISTS stats_watermark(id INTEGER PRIMARY KEY CHECK(id=1),last_report_id INTEGER NOT NULL)")
+        if db.execute("PRAGMA user_version").fetchone()[0] < 3:
+            db.execute("PRAGMA user_version=3")
+            db.commit()
         # 每设备上报令牌（批4）：token 以 sha256 哈希存储（不落明文），signing_secret 与
         # 凭据文件同待遇（服务端受控存储）。report_authentication 双接受：全局令牌 ∪ 每设备令牌。
         db.execute("CREATE TABLE IF NOT EXISTS device_tokens(device_id TEXT NOT NULL,token_hash TEXT NOT NULL,signing_secret TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(device_id,token_hash))"); db.commit()
@@ -363,6 +371,42 @@ def ensure_device_state(db):
     if rmax<=wm: return 0
     cur=db.execute("INSERT INTO device_state(device_id,latest_id,received_at,severity,agent_version,policy_version,report_count,crit_count,high_count,med_count,low_count) SELECT r.device_id,r.id,r.received_at,r.severity,r.agent_version,r.policy_version,(SELECT COUNT(*) FROM reports x WHERE x.device_id=r.device_id),COALESCE(json_extract(r.body,'$.summary.critical'),0),COALESCE(json_extract(r.body,'$.summary.high'),0),COALESCE(json_extract(r.body,'$.summary.medium'),0),COALESCE(json_extract(r.body,'$.summary.low'),0) FROM reports r JOIN (SELECT device_id,MAX(id) AS mid FROM reports WHERE id>? GROUP BY device_id) d ON d.device_id=r.device_id AND d.mid=r.id ON CONFLICT(device_id) DO UPDATE SET latest_id=excluded.latest_id,received_at=excluded.received_at,severity=excluded.severity,agent_version=excluded.agent_version,policy_version=excluded.policy_version,report_count=excluded.report_count,crit_count=excluded.crit_count,high_count=excluded.high_count,med_count=excluded.med_count,low_count=excluded.low_count",(wm,))
     db.commit(); return max(int(cur.rowcount or 0),0)
+def refresh_rule_stats(db,max_reports=1000,batch=200):
+    """增量聚合 per-rule 检测计数（技战法活跃态势数据源），高水位线契约、幂等可重入。
+
+    水位线 wm = stats_watermark.last_report_id（已聚合进 rule_stats 的最大 report id）。
+    仅扫 id>wm 的新报告，按 (kind,category) 累加严重度计数 UPSERT 进 rule_stats；单次调用
+    以 max_reports 设防（30k 舰队下不允一次全表扫拖垮请求），未扫完返回 complete=False，
+    消费端下次调用继续推进。**聚合不在上报写路径**（写路径红线），只由 /v1/findings/rule-stats
+    按需触发，故 store_report 热路径零额外开销。"""
+    row=db.execute("SELECT last_report_id FROM stats_watermark WHERE id=1").fetchone()
+    wm=int(row[0]) if row else 0
+    processed=0; agg={}
+    while processed<max_reports:
+        rows=db.execute("SELECT id,body FROM reports WHERE id>? ORDER BY id ASC LIMIT ?",(wm,batch)).fetchall()
+        if not rows: break
+        for rid,bodystr in rows:
+            wm=int(rid); processed+=1
+            try: body=json.loads(bodystr) if bodystr else {}
+            except (ValueError,TypeError): body={}
+            findings=body.get("findings") if isinstance(body,dict) else None
+            if not isinstance(findings,list): continue
+            for f in findings:
+                if not isinstance(f,dict): continue
+                kind=f.get("kind")
+                if not isinstance(kind,str) or not kind: continue
+                cat=f.get("category") if isinstance(f.get("category"),str) and f.get("category") else "unknown"
+                slot=agg.setdefault((kind,cat),{"critical":0,"high":0,"medium":0,"low":0,"total":0})
+                slot["total"]+=1
+                sev=f.get("severity")
+                if sev in ("critical","high","medium","low"): slot[sev]+=1
+        if len(rows)<batch: break
+    for (kind,cat),s in agg.items():
+        db.execute("INSERT INTO rule_stats(rule_id,category,critical,high,medium,low,total) VALUES(?,?,?,?,?,?,?) ON CONFLICT(rule_id,category) DO UPDATE SET critical=critical+excluded.critical,high=high+excluded.high,medium=medium+excluded.medium,low=low+excluded.low,total=total+excluded.total",(kind,cat,s["critical"],s["high"],s["medium"],s["low"],s["total"]))
+    db.execute("INSERT INTO stats_watermark(id,last_report_id) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET last_report_id=excluded.last_report_id",(wm,))
+    db.commit()
+    complete=db.execute("SELECT 1 FROM reports WHERE id>? LIMIT 1",(wm,)).fetchone() is None
+    return {"processed":processed,"complete":bool(complete),"last_report_id":wm}
 def collector_summary(db_path,now=None,active_window=86400,required_agent=None,required_policy=None):
     """Return fleet posture from only the newest accepted report per device."""
     now=int(time.time()) if now is None else int(now); active_window=min(max(int(active_window),60),30*86400)
@@ -640,6 +684,21 @@ class Handler(BaseHTTPRequestHandler):
             if not complete and last and last!=cursor: page_out["next_cursor"]=last
             audit_event(self.server.db_path,"findings_aggregate_read",detail=str(scanned)+":"+str(len(out))+":"+("complete" if complete else "partial"))
             return self.reply(200,page_out)
+        if parsed.path=="/v1/findings/rule-stats":
+            # per-rule 检测计数（fleet 级、增量聚合）：技战法活跃态势的服务端权威数据源，
+            # 取代控制台对 ≤1000 条发现样本的客户端推断。有界刷新（max_reports 设防）。
+            query=parse_qs(parsed.query,keep_blank_values=True)
+            if set(query)-{"max_reports"} or any(len(v)!=1 for v in query.values()): return self.reply(400,{"error":"invalid_query"})
+            try: mr=int(query.get("max_reports",["1000"])[0])
+            except ValueError: return self.reply(400,{"error":"invalid_limit"})
+            if not 1<=mr<=5000: return self.reply(400,{"error":"invalid_limit"})
+            try:
+                with db_open(self.server.db_path) as db:
+                    meta=refresh_rule_stats(db,mr)
+                    rows=db.execute("SELECT rule_id,category,critical,high,medium,low,total FROM rule_stats ORDER BY total DESC").fetchall()
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            audit_event(self.server.db_path,"rule_stats_read",detail=str(meta["processed"])+":"+("complete" if meta["complete"] else "partial"))
+            return self.reply(200,{"generated_at":int(time.time()),"complete":meta["complete"],"processed":meta["processed"],"last_report_id":meta["last_report_id"],"rule_stats":[{"rule_id":r[0],"category":r[1],"critical":r[2],"high":r[3],"medium":r[4],"low":r[5],"total":r[6]} for r in rows]})
         if parsed.path=="/v1/summary" and not parsed.query:
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)

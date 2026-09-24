@@ -183,6 +183,12 @@ export default function Home() {
   const [findingsAll, setFindingsAll] = useState<Array<Record<string, unknown>> | null>(null);
   // 2026-09 改版：首页趋势图 + KPI 环比数据源（/api/trend → Collector /v1/trend，小时桶）。
   const [trend, setTrend] = useState<{ hours: number; buckets: TrendBucketLite[] } | null>(null);
+  // fleet 级 per-rule 检测计数（技战法活跃态势权威源；旧 Collector 无端点时 connected:false 回落样本）。
+  const [ruleStats, setRuleStats] = useState<{
+    connected?: boolean;
+    complete?: boolean;
+    rule_stats?: Array<{ rule_id: string; category: string; critical: number; high: number; total: number }>;
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -203,6 +209,13 @@ export default function Home() {
     });
     getJson<{ hours?: number; buckets?: TrendBucketLite[] }>('/api/trend?hours=48').then((d) => {
       if (alive && d && Array.isArray(d.buckets)) setTrend({ hours: d.hours ?? 48, buckets: d.buckets });
+    });
+    getJson<{
+      connected?: boolean;
+      complete?: boolean;
+      rule_stats?: Array<{ rule_id: string; category: string; critical: number; high: number; total: number }>;
+    }>('/api/findings/rule-stats').then((d) => {
+      if (alive) setRuleStats(d ?? null);
     });
     return () => {
       alive = false;
@@ -278,21 +291,38 @@ export default function Home() {
    */
   const techniqueActivity = useMemo(() => {
     const m = new Map<string, { count: number; critHigh: number }>();
-    for (const f of findingsAll ?? []) {
-      const kind = String(f.kind ?? '');
-      const cat = String(f.category ?? '') as RuleSet;
-      const sev = String(f.severity ?? '');
-      for (const t of TECHNIQUES) {
-        const hit = t.rules.some((r) => r.set === cat && r.ids.includes(kind));
-        if (!hit) continue;
-        const cur = m.get(t.id) ?? { count: 0, critHigh: 0 };
-        cur.count += 1;
-        if (sev === 'critical' || sev === 'high') cur.critHigh += 1;
-        m.set(t.id, cur);
+    const fleetRows = ruleStats?.connected && Array.isArray(ruleStats.rule_stats) ? ruleStats.rule_stats : null;
+    if (fleetRows) {
+      // fleet 级权威聚合：per-rule 计数直接映射到技战法（全量，非样本）。
+      for (const r of fleetRows) {
+        for (const t of TECHNIQUES) {
+          const hit = t.rules.some((x) => x.set === r.category && x.ids.includes(r.rule_id));
+          if (!hit) continue;
+          const cur = m.get(t.id) ?? { count: 0, critHigh: 0 };
+          cur.count += r.total;
+          cur.critHigh += r.critical + r.high;
+          m.set(t.id, cur);
+        }
+      }
+    } else {
+      for (const f of findingsAll ?? []) {
+        const kind = String(f.kind ?? '');
+        const cat = String(f.category ?? '') as RuleSet;
+        const sev = String(f.severity ?? '');
+        for (const t of TECHNIQUES) {
+          const hit = t.rules.some((r) => r.set === cat && r.ids.includes(kind));
+          if (!hit) continue;
+          const cur = m.get(t.id) ?? { count: 0, critHigh: 0 };
+          cur.count += 1;
+          if (sev === 'critical' || sev === 'high') cur.critHigh += 1;
+          m.set(t.id, cur);
+        }
       }
     }
     return [...m.entries()].sort((a, b) => b[1].count - a[1].count);
-  }, [findingsAll]);
+  }, [findingsAll, ruleStats]);
+  const techniqueSource: 'fleet' | 'sample' =
+    ruleStats?.connected && Array.isArray(ruleStats.rule_stats) ? 'fleet' : 'sample';
   const egressRank = useMemo(() => {
     const m = new Map<string, number>();
     for (const d of devices ?? []) {
@@ -731,7 +761,11 @@ export default function Home() {
             <div className="panel-head">
               <div>
                 <h2>技战法活跃态势</h2>
-                <p>已加载发现样本映射到 OWASP 技战法的命中分布（Detection 活动侧）</p>
+                <p>
+                  {techniqueSource === 'fleet'
+                    ? `Collector fleet 级 per-rule 增量聚合映射到 OWASP 技战法的命中分布${ruleStats?.complete ? '' : '（聚合推进中·partial）'}`
+                    : '已加载发现样本（≤1000 条）映射到 OWASP 技战法的命中分布（旧 Collector 无 fleet 聚合端点时的回落口径）'}
+                </p>
               </div>
             </div>
             <table className="sentinel-table">

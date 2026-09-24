@@ -521,7 +521,7 @@ class AegisTests(unittest.TestCase):
             with self.collector.db_open(path) as db:
                 uv=db.execute("PRAGMA user_version").fetchone()[0]
                 row=db.execute("SELECT crit_count,high_count,med_count,low_count FROM device_state WHERE device_id='aaaaaaaaaaaa'").fetchone()
-            self.assertEqual(uv,2); self.assertEqual(tuple(row),(2,1,0,0))
+            self.assertGreaterEqual(uv,2); self.assertEqual(tuple(row),(2,1,0,0))
     def test_collector_purge_removes_device_state_and_counts(self):
         # 删除设备须连 device_state 物化行一起清, 否则孤儿行继续参与 finding_totals/设备计数
         # (真机反馈: 删除一台后很多地方仍显示旧台数)。
@@ -1533,5 +1533,33 @@ class AegisTests(unittest.TestCase):
                 self.assertEqual(len(q2),1)
             finally:
                 self.agent.managed_homes=orig_homes; self.agent.quarantine_dir=orig_q
+
+    def test_rule_stats_incremental_aggregation(self):
+        # stage-2：per-rule 计数物化 + 水位线增量聚合；幂等、有界、不在写路径。
+        with tempfile.TemporaryDirectory() as d:
+            path=os.path.join(d,'c.db')
+            with self.collector.db_open(path) as db:
+                self.assertGreaterEqual(db.execute("PRAGMA user_version").fetchone()[0],3)
+                body=json.dumps({"findings":[{"kind":"dynamic_eval","category":"code","severity":"critical"},{"kind":"prompt_override","category":"skill","severity":"high"},{"kind":"dynamic_eval","category":"code","severity":"low"}]})
+                db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('h1','dev1',1,'critical',body)); db.commit()
+                meta=self.collector.refresh_rule_stats(db,1000)
+                self.assertTrue(meta["complete"]); self.assertEqual(meta["processed"],1)
+                rows={(r[0],r[1]):r for r in db.execute("SELECT rule_id,category,critical,high,medium,low,total FROM rule_stats").fetchall()}
+                self.assertEqual(rows[("dynamic_eval","code")][6],2)   # total
+                self.assertEqual(rows[("dynamic_eval","code")][2],1)   # critical
+                self.assertEqual(rows[("dynamic_eval","code")][5],1)   # low
+                self.assertEqual(rows[("prompt_override","skill")][3],1)  # high
+                # 幂等：重跑不重复计数
+                meta2=self.collector.refresh_rule_stats(db,1000)
+                self.assertEqual(meta2["processed"],0); self.assertTrue(meta2["complete"])
+                rows2={(r[0],r[1]):r for r in db.execute("SELECT rule_id,category,critical,high,medium,low,total FROM rule_stats").fetchall()}
+                self.assertEqual(rows2[("dynamic_eval","code")][6],2)
+                # 水位线：新报告在下次调用增量聚合
+                db.execute("INSERT INTO reports(report_hash,device_id,received_at,severity,body) VALUES(?,?,?,?,?)",('h2','dev1',2,'high',json.dumps({"findings":[{"kind":"prompt_override","category":"skill","severity":"medium"}]}))); db.commit()
+                meta3=self.collector.refresh_rule_stats(db,1000)
+                self.assertEqual(meta3["processed"],1)
+                rows3={(r[0],r[1]):r for r in db.execute("SELECT rule_id,category,critical,high,medium,low,total FROM rule_stats").fetchall()}
+                self.assertEqual(rows3[("prompt_override","skill")][6],2)
+                self.assertEqual(rows3[("prompt_override","skill")][4],1)  # medium
 
 if __name__=='__main__': unittest.main()
