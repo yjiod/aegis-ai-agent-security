@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { logAudit } from '@/lib/store';
+import { pgGetMfa } from '@/lib/pg-store';
+import { issueMfaToken } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -63,6 +65,16 @@ export async function GET(request: Request) {
 
   // 4A · Accounting：SSO 登录成功留审计（actor=IdP subject）。
   logAudit({ actor: subject, action: 'auth:sso_login', resource_type: 'system', detail: 'method=oidc' });
+
+  // 4A · MFA 步进：IdP 通过后若该 subject 已启用 TOTP，**不直接签发会话**；改发短期 mfa
+  // 挑战并经 URL fragment 回 /login 完成第二步（fragment 不进服务端日志与浏览历史）。
+  // 真机反馈：启用 MFA 后走 SSO 未弹第二步 → 会话被直接签发，MFA 形同虚设。
+  const mfa = await pgGetMfa(subject).catch(() => null);
+  if (mfa?.enabled) {
+    logAudit({ actor: subject, action: 'auth:mfa_challenge', resource_type: 'system', detail: 'method=oidc' });
+    const mfaToken = issueMfaToken(subject);
+    return NextResponse.redirect(new URL(`/login#mfa=${encodeURIComponent(mfaToken)}`, url.origin));
+  }
 
   const response = NextResponse.redirect(new URL('/', url.origin));
   response.cookies.set('aegis_session', `${payloadStr}.${sigHex}`, {

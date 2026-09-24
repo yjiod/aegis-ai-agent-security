@@ -37,6 +37,17 @@ export default function LoginPage() {
       };
       setError(map[err] ?? '登录失败，请重试');
     }
+    // SSO 通过后若需 MFA：挑战令牌经 URL fragment 送达（不进服务端日志/历史），
+    // 读取后立即从地址栏清除，进入第二步输入 TOTP。
+    const hash = window.location.hash;
+    if (hash.startsWith('#mfa=')) {
+      const token = decodeURIComponent(hash.slice('#mfa='.length));
+      if (token) {
+        setMfaToken(token);
+        setError('');
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+    }
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {

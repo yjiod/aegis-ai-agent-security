@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     const token = await signSessionToken(subject);
     const response = json({ ok: true, username: subject });
     attachSessionCookie(response, token);
-    logAudit({ actor: subject, action: 'auth:login', resource_type: 'system', detail: 'method=local+mfa' });
+    logAudit({ actor: subject, action: 'auth:login', resource_type: 'system', detail: 'method=second_factor' });
     return response;
   }
 
