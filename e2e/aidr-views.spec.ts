@@ -61,4 +61,27 @@ test.describe('aidr views', () => {
     await bar.locator('button', { hasText: '清除筛选' }).click();
     await expect(sla).toHaveAttribute('aria-pressed', 'false');
   });
+
+  test('ticket drawer shows 响应闭环 (detection -> asset -> disposition) section', async ({ page }) => {
+    await authedPage(page);
+    await page.goto('/risks');
+    // 有工单才可测；空队列(demo 无 PG)时跳过——绝不为测而造数据。
+    const row = page.locator('.risk-row').first();
+    if (!(await row.count())) {
+      test.skip(true, 'no tickets available for the D&R loop drawer test');
+      return;
+    }
+    await row.click();
+    const drawer = page.locator('[data-slot="drawer-content"], [class*="drawer"]').first();
+    await expect(drawer).toBeVisible({ timeout: 15_000 });
+    // 抽屉包含 响应闭环 与 响应 Playbook 两个 AIDR 段
+    await expect(page.locator('text=响应闭环').first()).toBeVisible();
+    await expect(page.locator('text=响应 Playbook').first()).toBeVisible();
+    // 闭环段三行 kv：检测规则 / 关联资产 / 当前处置
+    await expect(page.locator('text=当前处置').first()).toBeVisible();
+    await expect(page.locator('text=关联资产').first()).toBeVisible();
+    // 处置状态必须是三态语义（加白/观察/拉黑/未处置）或解析中——不得空白
+    const disposition = page.locator('text=/加白|观察|拉黑|未处置|解析中/').first();
+    await expect(disposition).toBeVisible({ timeout: 15_000 });
+  });
 });

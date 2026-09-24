@@ -352,6 +352,20 @@ test.describe('zero-touch enrollment', () => {
         if (published.policy?.version) expect(policy.version).toBe(published.policy.version);
         expect(body.policy_version).toBe(policy.version);
       }
+
+      // 带外信任锚（2026-09-24 事故回归）：enroll 必须下发 ed25519 公钥，
+      // 且与公开验签端点 /api/policy/verify-key 同源一致——安装器据此写
+      // ed25519-public.b64，否则"带签名策略 + 无 HMAC 环"终端每周期停报。
+      const vk = await ctx.get('/api/policy/verify-key');
+      if (vk.status() === 200) {
+        const key = (await vk.json()) as { public?: string; key_id?: string };
+        expect(key.public, 'verify-key must expose the public key').toBeTruthy();
+        expect(body.ed25519_public, 'enroll must carry the ed25519 trust anchor').toBe(key.public);
+        expect(body.ed25519_key_id).toBe(key.key_id);
+      } else {
+        // seed 未配置（部分 e2e 环境）：enroll 也不得伪造锚。
+        expect(body.ed25519_public).toBeUndefined();
+      }
     } finally {
       await ctx.dispose();
     }
