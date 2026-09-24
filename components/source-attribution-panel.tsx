@@ -8,6 +8,7 @@
  * 数据全部来自 props（页面已取的 devices + findings），无额外请求、不造假。
  */
 import { useMemo } from 'react';
+import { maskEgress } from '@/lib/redact';
 
 type Dev = {
   device_id: string;
@@ -44,14 +45,15 @@ export function SourceAttributionPanel({ devices, findings }: { devices: Dev[]; 
     for (const d of devices) {
       const ip = d.network?.egress_ip;
       if (!ip) continue;
-      const e = m.get(ip) ?? { devices: 0, crit: 0, high: 0 };
+      const key = maskEgress(ip); // 二次脱敏：宽视图按 /16 聚合，不平铺完整 IP
+      const e = m.get(key) ?? { devices: 0, crit: 0, high: 0 };
       e.devices += 1;
       const f = byDeviceFindings.get(d.device_id);
       if (f) {
         e.crit += f.crit;
         e.high += f.high;
       }
-      m.set(ip, e);
+      m.set(key, e);
     }
     return [...m.entries()].sort((a, b) => b[1].devices - a[1].devices).slice(0, 6);
   }, [devices, byDeviceFindings]);

@@ -72,6 +72,9 @@ function safeText(value: string): string {
   return value.replace(INVISIBLE_CTRL, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
+// 二次脱敏（handoff P0）：列表默认 …/basename，完整路径仅在详情抽屉展示。
+import { maskPath } from '@/lib/redact';
+
 export function ScanExplorer({
   category,
   eyebrow,
@@ -403,7 +406,7 @@ export function ScanExplorer({
                   style={{ animationDelay: `${i * 20 + 150}ms`, cursor: 'pointer' }}
                   role="button"
                   tabIndex={0}
-                  aria-label={`打开发现详情：${f.kind} ${f.path}`}
+                  aria-label={`打开发现详情：${f.kind} ${maskPath(f.path ?? '')}`}
                   onClick={() => setSelectedFinding(f)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -417,7 +420,7 @@ export function ScanExplorer({
                   </i>
                   <span style={{ fontSize: 12 }}>{safeText(f.kind)}</span>
                   <span style={{ fontSize: 11, wordBreak: 'break-all' }}>
-                    {safeText(f.path) || '—'}
+                    {safeText(maskPath(f.path ?? '')) || '—'}
                     <br />
                     <span style={{ color: 'var(--muted-foreground)' }}>{f.device_id}</span>
                   </span>

@@ -33,6 +33,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import Link from 'next/link';
 import { TECHNIQUES, type RuleSet } from '@/lib/detection-coverage';
+import { maskEgress } from '@/lib/redact';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -328,7 +329,9 @@ export default function Home() {
     const m = new Map<string, number>();
     for (const d of devices ?? []) {
       const e = (d as { network?: { egress_ip?: string } }).network?.egress_ip;
-      if (typeof e === 'string' && e) m.set(e, (m.get(e) ?? 0) + 1);
+      if (typeof e !== 'string' || !e) continue;
+      const key = maskEgress(e);
+      m.set(key, (m.get(key) ?? 0) + 1);
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
   }, [devices]);
@@ -743,7 +746,7 @@ export default function Home() {
             <div className="panel-head">
               <div>
                 <h2>来源排行（出口 IP）</h2>
-                <p>按终端出口 IP 统计设备数</p>
+                <p>按终端出口 IP（默认脱敏至 /16）统计设备数</p>
               </div>
             </div>
             <table className="sentinel-table">
