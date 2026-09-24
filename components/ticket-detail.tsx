@@ -106,12 +106,13 @@ export function ticketTransitions(status: TicketStatus): TicketTransition[] {
   return TICKET_TRANSITIONS[status] ?? [];
 }
 
-/** `.severity` 只定义了 red / orange 两种配色，低危用主题绿补齐。 */
+/** `.severity` 定义 critical / red / orange 三档配色，低危用主题绿补齐。
+ *  严重与高危必须可区分：critical=深红、high=橙红、medium=琥珀、low=绿。 */
 export const SEVERITY_META: Record<
   TicketSeverity,
-  { label: string; tone: 'red' | 'orange' | 'pass'; hint: string }
+  { label: string; tone: 'critical' | 'red' | 'orange' | 'pass'; hint: string }
 > = {
-  critical: { label: '严重', tone: 'red', hint: '严重' },
+  critical: { label: '严重', tone: 'critical', hint: '严重' },
   high: { label: '高危', tone: 'red', hint: '高' },
   medium: { label: '中危', tone: 'orange', hint: '中' },
   low: { label: '低危', tone: 'pass', hint: '低' },

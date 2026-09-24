@@ -415,7 +415,7 @@ export function ScanExplorer({
                     }
                   }}
                 >
-                  <i className={severityMeta(sev).tone === 'red' ? 'fail' : severityMeta(sev).tone === 'orange' ? 'warn' : ''}>
+                  <i className={(severityMeta(sev).tone === 'critical' || severityMeta(sev).tone === 'red') ? 'fail' : severityMeta(sev).tone === 'orange' ? 'warn' : ''}>
                     {severityMeta(sev).label}
                   </i>
                   <span style={{ fontSize: 12 }}>{safeText(f.kind)}</span>

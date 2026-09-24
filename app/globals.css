@@ -135,7 +135,8 @@
 [data-theme="light"] .demo-notice { background: #fff8e6; border-color: #f0d080; color: #7a6020; }
 [data-theme="light"] .demo-notice strong { color: #6f5416; }
 [data-theme="light"] .toast { background: #ffffff; border-color: #b8d4ca; color: #1a3d30; box-shadow: var(--shadow-overlay); }
-[data-theme="light"] .severity.red { background: #fde8e8; color: #c0392b; }
+[data-theme="light"] .severity.critical { background: #fde8e8; color: #c0392b; }
+[data-theme="light"] .severity.red { background: #fdeee6; color: #b34a1f; }
 [data-theme="light"] .severity.critical { background: #fbdcd9; color: #9b1c12; border-color: #f0b4ad; }
 [data-theme="light"] .severity.orange { background: #fef3e2; color: #8a5a12; }
 [data-theme="light"] .data-row { border-bottom-color: #e8f0ed; }
@@ -303,9 +304,11 @@
 [data-theme="light"] .risk-main span,
 [data-theme="light"] .device,
 [data-theme="light"] .time { color: #527469; }
+[data-theme="light"] .severity.critical,
 [data-theme="light"] .severity.red,
 [data-theme="light"] .severity.orange { box-shadow: none; }
-[data-theme="light"] .severity.red { border-color: #f0bfba; }
+[data-theme="light"] .severity.critical { border-color: #f0bfba; }
+[data-theme="light"] .severity.red { border-color: #f0cdba; }
 [data-theme="light"] .severity.orange { border-color: #ecd3a3; }
 [data-theme="light"] .handle:hover {
   border-color: rgba(18, 122, 84, 0.5);
@@ -1365,30 +1368,30 @@ button.risk-row {
 }
 
 .severity.critical {
-  background: linear-gradient(160deg, #6b1d19, #4a1210);
-  color: #ffd7d3;
-  font-weight: 700;
-  border-color: rgba(255, 82, 72, 0.6);
-  box-shadow: 0 0 16px rgba(255, 62, 52, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  background: rgba(240, 82, 93, 0.14);
+  color: #ff8f96;
+  border-color: rgba(240, 82, 93, 0.45);
+  box-shadow: none;
 }
 
 .severity.critical:hover,
 .risk-row:hover .severity.critical {
-  box-shadow: 0 0 22px rgba(255, 62, 52, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 82, 72, 0.8);
+  box-shadow: none;
+  border-color: rgba(240, 82, 93, 0.6);
 }
 
+/* high = 橙红，与 critical 深红可区分 */
 .severity.red {
-  background: rgba(240, 82, 93, 0.12);
-  color: #ff9b94;
-  border-color: rgba(240, 82, 93, 0.35);
+  background: rgba(255, 120, 73, 0.12);
+  color: #ffa38a;
+  border-color: rgba(255, 120, 73, 0.4);
   box-shadow: none;
 }
 
 .severity.red:hover,
 .risk-row:hover .severity.red {
   box-shadow: none;
-  border-color: rgba(240, 82, 93, 0.5);
+  border-color: rgba(255, 120, 73, 0.55);
 }
 
 .severity.orange {
