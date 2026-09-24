@@ -218,38 +218,9 @@ function pickRecord(payload: unknown, key: string): unknown {
 /* ─── 页面 ───────────────────────────────────────────────── */
 
 /**
- * 响应 Playbook（AIDR「Response」侧）：按工单严重度 + 来源/描述类别，给出有序的
- * 推荐处置步骤。步骤全部指向控制台真实能力（处置打标 / 签名策略下发 / 凭据轮换 /
- * 白名单收紧 / 终态闭环），是产品内置的 runbook 知识，不含任何虚构数据。
- */
-function buildResponsePlaybook(ticket: Ticket): string[] {
-  const steps: string[] = ['认领工单并确认影响面：终端、关联资产、规则信号与首次 / 最近出现时间'];
-  const blob = `${ticket.source ?? ''} ${ticket.description ?? ''} ${ticket.title ?? ''}`.toLowerCase();
-  if (ticket.severity === 'critical' || ticket.severity === 'high') {
-    steps.push('高危 / 严重：在处置中心对关联资产执行【拉黑】，编译进签名策略下发终端（需 admin；超爆炸半径需 typed override）');
-    steps.push('发布策略后核对终端回执与版本姿态，确认封禁已在网生效');
-  } else {
-    steps.push('中 / 低危：优先【观察】留存证据，复核后再决定加白或拉黑');
-  }
-  if (/secret|credential|凭据|密钥|token|akia|ghp_/.test(blob)) {
-    steps.push('凭据类：立即轮换泄露凭据，并审计该凭据近期调用记录');
-  }
-  if (/depend|lockfile|supply|依赖|供应链|unpinned|untrusted/.test(blob)) {
-    steps.push('供应链类：锁定 / 移除不受信依赖，补齐 lockfile 后重新扫描');
-  }
-  if (/domain|egress|network|url|出站|网络|tls|transport/.test(blob)) {
-    steps.push('网络 / 出站类：收紧 allowed_mcp_domains 与传输白名单，复核异常外联');
-  }
-  if (/eval|shell|deserial|exec|命令|注入|prompt|override/.test(blob)) {
-    steps.push('代码执行 / 注入类：隔离相关 Skill / MCP，禁用动态执行路径并复扫');
-  }
-  steps.push('处置完成后流转至「已解决」闭环（终态需二次确认），全程留审计');
-  return steps;
-}
-
-/**
- * 分诊 SLA（AIDR triage 压力）：未闭环工单超过响应时限即"超 SLA"。
- * 阈值为产品内置标准（严重 1h / 高危 4h / 其余 24h），已闭环不计。
+ * 响应 Playbook（AIDR「Response」侧 / SOAR 引导）：按工单严重度 + 来源/描述类别，给出有序的
+ * 推荐处置步骤；步骤尽量带深链（href）直达对应控制台能力，使 runbook 可执行而非纯文字。
+ * 阈值为产品内置标准；已闭环不计。不含任何虚构数据。
  */
 const SLA_HOURS: Record<string, number> = { critical: 1, high: 4, medium: 24, low: 24, info: 24 };
 function isSlaBreached(t: Ticket): boolean {
@@ -257,6 +228,40 @@ function isSlaBreached(t: Ticket): boolean {
   if (typeof t.created_at !== 'number') return false;
   const limit = SLA_HOURS[t.severity] ?? 24;
   return Date.now() / 1000 - t.created_at > limit * 3600;
+}
+
+interface PlaybookStep {
+  text: string;
+  href?: string;
+}
+function buildResponsePlaybook(ticket: Ticket): PlaybookStep[] {
+  const steps: PlaybookStep[] = [
+    { text: '认领工单并确认影响面：终端、关联资产、规则信号与首次 / 最近出现时间' },
+  ];
+  const blob = `${ticket.source ?? ''} ${ticket.description ?? ''} ${ticket.title ?? ''}`.toLowerCase();
+  if (ticket.severity === 'critical' || ticket.severity === 'high') {
+    steps.push({
+      text: '高危 / 严重：在处置中心对关联资产执行【拉黑】，编译进签名策略下发终端（需 admin；超爆炸半径需 typed override）',
+      href: '/dispositions',
+    });
+    steps.push({ text: '发布策略后核对终端回执与版本姿态，确认封禁已在网生效', href: '/devices' });
+  } else {
+    steps.push({ text: '中 / 低危：优先【观察】留存证据，复核后再决定加白或拉黑', href: '/dispositions' });
+  }
+  if (/secret|credential|凭据|密钥|token|akia|ghp_/.test(blob)) {
+    steps.push({ text: '凭据类：立即轮换泄露凭据，并审计该凭据近期调用记录', href: '/audit' });
+  }
+  if (/depend|lockfile|supply|依赖|供应链|unpinned|untrusted/.test(blob)) {
+    steps.push({ text: '供应链类：锁定 / 移除不受信依赖，补齐 lockfile 后重新扫描', href: '/quality' });
+  }
+  if (/domain|egress|network|url|出站|网络|tls|transport/.test(blob)) {
+    steps.push({ text: '网络 / 出站类：收紧 allowed_mcp_domains 与传输白名单，复核异常外联', href: '/mcp' });
+  }
+  if (/eval|shell|deserial|exec|命令|注入|prompt|override/.test(blob)) {
+    steps.push({ text: '代码执行 / 注入类：隔离相关 Skill / MCP，禁用动态执行路径并复扫', href: '/skills' });
+  }
+  steps.push({ text: '处置完成后流转至「已解决」闭环（终态需二次确认），全程留审计' });
+  return steps;
 }
 
 export default function RisksPage() {
@@ -351,6 +356,46 @@ export default function RisksPage() {
     const t = searchParams.get('ticket');
     if (t) setExpandedId(t);
   }, [searchParams]);
+
+  // 统一筛选条 URL 持久化（可分享 / 可收藏的研判视图）：挂载时从 query 恢复筛选，
+  // 筛选变化时回写 query（保留 ticket/focus 等其它参数）。用 ref 读当前 params 以避免
+  // replace→searchParams 变化→effect 重入 的循环。
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+  const [urlReady, setUrlReady] = useState(false);
+  useEffect(() => {
+    if (urlReady) return;
+    const sev = searchParams.get('sev');
+    const src = searchParams.get('src');
+    const dev = searchParams.get('dev');
+    const win = searchParams.get('win');
+    const sla = searchParams.get('sla');
+    const q = searchParams.get('q');
+    if (sev === 'critical' || sev === 'high' || sev === 'medium' || sev === 'low' || sev === 'info') setSevFilter(sev);
+    if (src) setSourceFilter(src);
+    if (dev) setDeviceFilter(dev);
+    if (win === '24h' || win === '7d' || win === '30d') setTimeFilter(win);
+    if (sla === '1') setSlaOnly(true);
+    if (q) setQuery(q);
+    setUrlReady(true);
+  }, [searchParams, urlReady]);
+
+  useEffect(() => {
+    if (!urlReady) return;
+    const p = new URLSearchParams(searchParamsRef.current.toString());
+    const put = (key: string, value: string, def: string) => {
+      if (value === def) p.delete(key);
+      else p.set(key, value);
+    };
+    put('sev', sevFilter, 'all');
+    put('src', sourceFilter, 'all');
+    put('dev', deviceFilter, '');
+    put('win', timeFilter, 'all');
+    put('sla', slaOnly ? '1' : '', '');
+    put('q', query, '');
+    const qs = p.toString();
+    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+  }, [urlReady, sevFilter, sourceFilter, deviceFilter, timeFilter, slaOnly, query, router]);
 
   /** 写操作失败时的提示：实时模式下明确说明「没有真的改动」。 */
   const failureCopy = useCallback(
@@ -1195,7 +1240,19 @@ export default function RisksPage() {
                   content: (
                     <ol style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6, fontSize: 12, color: 'var(--muted-foreground)' }}>
                       {buildResponsePlaybook(drawerTicket).map((s, i) => (
-                        <li key={i}>{s}</li>
+                        <li key={i}>
+                          {s.href ? (
+                            <Link
+                              href={s.href}
+                              style={{ color: 'var(--ring)', textDecoration: 'none', borderBottom: '1px dashed currentColor' }}
+                              title="跳转到对应控制台能力"
+                            >
+                              {s.text}
+                            </Link>
+                          ) : (
+                            s.text
+                          )}
+                        </li>
                       ))}
                     </ol>
                   ),
