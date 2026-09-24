@@ -292,6 +292,59 @@ export default function RisksPage() {
   // P1：批量选择 / 详情抽屉 / 列表光标 / 本地搜索 / 快捷键（/ r f j/k Enter）
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [drawerTicket, setDrawerTicket] = useState<Ticket | null>(null);
+  // D&R 闭环：抽屉打开时解析 工单→发现→资产→当前处置，暴露"检测了但未处置"的缺口。
+  const [loopInfo, setLoopInfo] = useState<{
+    asset_type?: string;
+    asset_key?: string;
+    disposition?: string;
+    kind?: string;
+    state: 'loading' | 'ready' | 'error';
+  } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (!drawerTicket) {
+      setLoopInfo(null);
+      return;
+    }
+    const t = drawerTicket;
+    (async () => {
+      try {
+        setLoopInfo({ state: 'loading' });
+        const fr = await fetch(`/api/findings?device_id=${encodeURIComponent(t.device_id ?? '')}&limit=200`, { cache: 'no-store' });
+        const fd = fr.ok ? ((await fr.json()) as { findings?: unknown }) : null;
+        const findings = Array.isArray(fd?.findings) ? (fd.findings as Array<Record<string, unknown>>) : [];
+        const match =
+          findings.find((f) => `${f.kind}:${(f.asset_key as string) || (f.path as string) || ''}` === t.finding_ref) ??
+          findings.find((f) => f.kind === t.source) ??
+          findings.find((f) => f.severity === t.severity) ??
+          null;
+        const asset = match
+          ? (findingAsset(match as never) ?? { asset_type: 'path' as const, asset_key: String(match.path ?? '') })
+          : null;
+        if (!asset) {
+          if (alive) setLoopInfo({ state: 'ready', kind: String(match?.kind ?? '') });
+          return;
+        }
+        const lr = await fetch('/api/labels', { cache: 'no-store' });
+        const ld = lr.ok ? ((await lr.json()) as { labels?: unknown }) : null;
+        const labels = Array.isArray(ld?.labels) ? (ld.labels as Array<{ asset_type: string; asset_key: string; disposition?: string }>) : [];
+        const lab = labels.find((l) => l.asset_type === asset.asset_type && l.asset_key === asset.asset_key);
+        if (alive)
+          setLoopInfo({
+            state: 'ready',
+            asset_type: asset.asset_type,
+            asset_key: asset.asset_key,
+            disposition: lab?.disposition,
+            kind: String(match?.kind ?? ''),
+          });
+      } catch {
+        if (alive) setLoopInfo({ state: 'error' });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [drawerTicket]);
   const [cursorIdx, setCursorIdx] = useState(0);
   const [query, setQuery] = useState('');
   // 统一筛选条（handoff P0）：等级 / 来源 / 终端 / 时间窗，与状态筛选 + 搜索叠加。
@@ -1255,6 +1308,46 @@ export default function RisksPage() {
                         </li>
                       ))}
                     </ol>
+                  ),
+                },
+                {
+                  label: '响应闭环',
+                  content: (
+                    <div className="kv">
+                      <span>检测规则</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{loopInfo?.kind || drawerTicket.source || '—'}</span>
+                      <span>关联资产</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)', wordBreak: 'break-all' }}>
+                        {loopInfo?.state === 'loading' ? '解析中…' : loopInfo?.asset_key ? `${loopInfo.asset_type}:${loopInfo.asset_key}` : '未匹配到发现'}
+                      </span>
+                      <span>当前处置</span>
+                      <span>
+                        {loopInfo?.state === 'loading' ? (
+                          '解析中…'
+                        ) : loopInfo?.disposition ? (
+                          <i className={loopInfo.disposition === 'deny' ? 'fail' : loopInfo.disposition === 'monitor' ? 'warn' : 'pass'} style={{ fontSize: 10 }}>
+                            {loopInfo.disposition === 'deny' ? '拉黑' : loopInfo.disposition === 'monitor' ? '观察' : '加白'}
+                          </i>
+                        ) : loopInfo?.asset_key ? (
+                          <i className="warn" style={{ fontSize: 10 }}>未处置（检测未闭环）</i>
+                        ) : (
+                          '—'
+                        )}
+                      </span>
+                      {loopInfo?.asset_key && (
+                        <>
+                          <span>去处置</span>
+                          <span>
+                            <Link
+                              href={`/dispositions?type=${encodeURIComponent(loopInfo.asset_type ?? 'path')}&asset=${encodeURIComponent(loopInfo.asset_key)}`}
+                              style={{ color: 'var(--ring)', textDecoration: 'none', borderBottom: '1px dashed currentColor', fontSize: 12 }}
+                            >
+                              在处置中心打开该资产
+                            </Link>
+                          </span>
+                        </>
+                      )}
+                    </div>
                   ),
                 },
                 {
