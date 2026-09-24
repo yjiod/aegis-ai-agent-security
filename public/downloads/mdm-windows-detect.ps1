@@ -1,6 +1,6 @@
 ﻿$ErrorActionPreference = 'SilentlyContinue'
 $installDir = Join-Path $env:ProgramData 'AegisAgent'
-$expected = @{ 'aegis-policy.json'='6d059c7f31b10c8d133184f3673fcba01d25fd409b0310944f7bde0eab30088b'; 'aegis-windows.ps1'='f8e14790b0d483bf9f4b9ab1755e8d91ea365629d2ab177d4ab527cf0f902889'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
+$expected = @{ 'aegis-policy.json'='6d059c7f31b10c8d133184f3673fcba01d25fd409b0310944f7bde0eab30088b'; 'aegis-windows.ps1'='fb8c463f53dc36d1347850021698086b4f9be388c0808dbe12ff9d5a8aa911c1'; 'aegis-security-baseline.md'='5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806' }
 $valid=$true
 foreach($name in $expected.Keys){$path=Join-Path $installDir $name;if(-not(Test-Path $path) -or (Get-FileHash $path -Algorithm SHA256).Hash.ToLower() -ne $expected[$name]){$valid=$false}}
 $task=Get-ScheduledTask -TaskName 'Aegis AI Agent Security Scan' -ErrorAction SilentlyContinue

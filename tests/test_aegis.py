@@ -1604,4 +1604,15 @@ class AegisTests(unittest.TestCase):
         f6=self.agent.scan_mcp_server(Path("mcp.json"),"peer-agent",{"url":"https://agent.example.com:9000/a2a","headers":{"Authorization":"Bearer x"}},pol)
         self.assertFalse(any(x["kind"]=="unauthenticated_agent_channel" for x in f6))
 
+    def test_watchdog_run_scan_cycle_timeout_does_not_wedge_parent(self):
+        # 看门狗：正常子进程返回 ok；超预算子进程被 kill 进程组后返回 scan_timeout，
+        # 父进程不被阻塞（真机事故：kill-then-wait 被不可中断子进程楔住 → 全终端停报）。
+        import sys as _s, time as _t
+        t0=_t.time()
+        self.assertEqual(self.agent.run_scan_cycle([_s.executable,"-c","pass"],5),"ok")
+        t0=_t.time()
+        st=self.agent.run_scan_cycle([_s.executable,"-c","import time;time.sleep(30)"],1,grace=2)
+        self.assertEqual(st,"scan_timeout")
+        self.assertLess(_t.time()-t0,10)  # 父进程在 budget+grace 内返回，不永久阻塞
+
 if __name__=='__main__': unittest.main()

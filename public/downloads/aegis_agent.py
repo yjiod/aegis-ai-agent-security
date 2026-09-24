@@ -549,6 +549,33 @@ def scan_sleep_seconds(interval,rng=None):
     base=max(int(interval),60)
     rand=rng if rng is not None else random.uniform
     return base*rand(0.9,1.1)
+def run_scan_cycle(child_argv,budget,grace=15):
+    """扫描看门狗单周期监督（watch 父进程调用）。
+
+    真机事故(2026-09-24): 子进程阻塞在 hung/网络挂载目录的 open() 进入不可中断 IO，
+    SIGKILL 也杀不掉；旧实现 subprocess.run(timeout=...) 在超时后 kill-then-**wait**，
+    父进程因此永久阻塞 → 后续所有周期(含上报与自更新)停摆 → 控制台把在线终端误判
+    "过期/离线"。本实现超时后先 kill 整个进程组，grace 内仍不退出则**放弃等待并脱离**
+    (泄漏一个挂死子进程远好于整台终端停报)，守护循环继续下一周期。"""
+    try:
+        p=subprocess.Popen(child_argv,start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    except OSError:
+        return "spawn_failed"
+    try:
+        p.wait(timeout=budget)
+        return "ok"
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(os.getpgid(p.pid),signal.SIGKILL)
+    except (OSError,ProcessLookupError):
+        try: p.kill()
+        except OSError: pass
+    try:
+        p.wait(timeout=grace)
+        return "scan_timeout"
+    except subprocess.TimeoutExpired:
+        return "scan_timeout_wedged_detached"
 def quarantine_dir():
     return Path(os.path.expanduser("~"))/QUARANTINE_DIRNAME
 def _atomic_write_json(path,obj,mode=None):
@@ -1535,7 +1562,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.37.0"
+AGENT_VERSION = "0.37.1"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
@@ -1765,10 +1792,9 @@ def main():
         except (TypeError,ValueError): budget=1800
         child_argv=([sys.executable] if getattr(sys,"frozen",False) else [sys.executable,str(Path(__file__).resolve())])+[a for a in sys.argv[1:] if a!="--watch"]
         while True:
-            try:
-                subprocess.run(child_argv,timeout=budget,check=False)
-            except subprocess.TimeoutExpired:
-                print(f"aegis scan cycle exceeded budget {budget}s; child killed (scan_timeout); will retry next interval",file=sys.stderr)
+            status=run_scan_cycle(child_argv,budget)
+            if status!="ok":
+                print(f"aegis scan cycle {status}; will retry next interval",file=sys.stderr)
             time.sleep(scan_sleep_seconds(args.interval))
     host_device_id=hardware_device_id()
     # 每设备入网凭据优先：显式 --enrollment-config > --enrollment-dir/<本机device_id>.json > 全网 reporting.json(向后兼容)。
