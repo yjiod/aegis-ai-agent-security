@@ -294,9 +294,10 @@ export default function Home() {
     const fleetRows = ruleStats?.connected && Array.isArray(ruleStats.rule_stats) ? ruleStats.rule_stats : null;
     if (fleetRows) {
       // fleet 级权威聚合：per-rule 计数直接映射到技战法（全量，非样本）。
+      // 规则 ID 在三集合间唯一，故按 id 匹配即可（prod 旧上报可能缺 category 字段）。
       for (const r of fleetRows) {
         for (const t of TECHNIQUES) {
-          const hit = t.rules.some((x) => x.set === r.category && x.ids.includes(r.rule_id));
+          const hit = t.rules.some((x) => x.ids.includes(r.rule_id));
           if (!hit) continue;
           const cur = m.get(t.id) ?? { count: 0, critHigh: 0 };
           cur.count += r.total;
