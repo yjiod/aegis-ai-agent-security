@@ -80,9 +80,9 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
   allowed_mcp_domains: [],
   blocked_commands: ['curl * | sh', 'wget * | sh', 'chmod 777', 'rm -rf'],
   secret_patterns: ['AKIA[0-9A-Z]{16}', 'sk-[A-Za-z0-9_-]{20,}', 'ghp_[A-Za-z0-9]{30,}'],
-  skill_rules: ['unknown_skill', 'prompt_override', 'hidden_instruction', 'credential_access', 'unbounded_shell', 'skill_symlink_escape'],
-  mcp_rules: ['unknown_mcp', 'unapproved_mcp_transport', 'ambiguous_mcp_transport', 'unapproved_mcp_domain', 'unapproved_mcp_command_path', 'unapproved_mcp_invocation', 'invalid_mcp_arguments', 'invalid_mcp_server', 'invalid_mcp_environment', 'mcp_url_credentials', 'broad_filesystem_scope', 'literal_mcp_secret'],
-  code_rules: ['hardcoded_secret', 'shell_true', 'dynamic_eval', 'weak_random_token', 'blocked_command', 'insecure_tls_verification', 'unsafe_deserialization', 'debug_mode_enabled', 'empty_exception_handler', 'oversized_file_skipped', 'dependency_unpinned', 'dependency_untrusted_source', 'missing_lockfile'],
+  skill_rules: ['unknown_skill', 'prompt_override', 'hidden_instruction', 'credential_access', 'unbounded_shell', 'skill_symlink_escape', 'context_poisoning'],
+  mcp_rules: ['unknown_mcp', 'unapproved_mcp_transport', 'ambiguous_mcp_transport', 'unapproved_mcp_domain', 'unapproved_mcp_command_path', 'unapproved_mcp_invocation', 'invalid_mcp_arguments', 'invalid_mcp_server', 'invalid_mcp_environment', 'mcp_url_credentials', 'broad_filesystem_scope', 'literal_mcp_secret', 'unauthenticated_agent_channel'],
+  code_rules: ['hardcoded_secret', 'shell_true', 'dynamic_eval', 'weak_random_token', 'blocked_command', 'insecure_tls_verification', 'unsafe_deserialization', 'debug_mode_enabled', 'empty_exception_handler', 'oversized_file_skipped', 'dependency_unpinned', 'dependency_untrusted_source', 'missing_lockfile', 'unvalidated_llm_execution'],
   agent_self_update: {
     enabled: true,
     channel: 'pilot',

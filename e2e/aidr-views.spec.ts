@@ -30,12 +30,12 @@ test.describe('aidr views', () => {
     await page.goto('/engines');
     const panel = page.locator('text=检测覆盖 · 技战法映射').first();
     await expect(panel).toBeVisible({ timeout: 20_000 });
-    // 覆盖计数 + 缺口如实标注（出厂基座下应有缺口，不伪装全覆盖）
+    // 覆盖计数如实呈现；AGT06/07/LLM09 已由新规则覆盖（不再恒为缺口）
     await expect(page.locator('text=/覆盖 \\d+\\/\\d+/').first()).toBeVisible();
-    await expect(page.locator('text=/缺口 \\d+/').first()).toBeVisible();
-    // 至少一条技战法行（LLM01 提示注入）与其覆盖规则徽章
     await expect(page.locator('text=LLM01 / AGT01').first()).toBeVisible();
     await expect(page.locator('text=Skill·prompt_override').first()).toBeVisible();
+    await expect(page.locator('text=AGT06').first()).toBeVisible();
+    await expect(page.locator('text=Skill·context_poisoning').first()).toBeVisible();
   });
 
   test('risks unified filter bar + 超SLA toggle behave', async ({ page }) => {

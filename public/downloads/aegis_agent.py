@@ -300,6 +300,20 @@ def scan_text(path,text,policy):
         else:
             hit=re.search(pat,text)
         if hit: out.append(finding(kind,sev,path,f"安全代码质量规则命中: {kind}",hit.group(0).strip()[:80]))
+    # Agentic 技战法规则（OWASP Agentic Top10 缺口补齐）：由 skill_rules ∪ code_rules 门控。
+    #   context_poisoning (AGT06 记忆/上下文投毒)：面向"未来会话/记忆持久化"的指令注入，
+    #     或指示写入 agent 记忆/awareness 存储——把不可信内容固化进后续推理上下文。
+    #   unvalidated_llm_execution (LLM09/AGT08 过度依赖/级联幻觉)：模型输出未经校验直入
+    #     exec/eval/shell/子进程，或对高危动作关闭人工确认（auto_approve 等）。
+    agentic_checks=[
+        ("context_poisoning","high",r"(?is)(?:remember\s+to\s+always|in\s+future\s+sessions?\b|update\s+your\s+memory|write\s+(?:this|these)\s+(?:instructions?|rules?)?\s+to\s+(?:your\s+)?memory|persist\s+this\s+instruction|append\s+to\s+memory\.md|\bmemory\.md\b|awareness/memory\b)"),
+        ("unvalidated_llm_execution","high",r"(?is)\b(?:exec|eval|os\.system|subprocess\.(?:run|call|popen|check_output))\s*\([^)]{0,200}?(?:llm|model|completion|assistant|agent|chat)[_\- ]?(?:output|response|message|content|reply)|auto_?approve\s*[:=]\s*(?:true|1)|require_?(?:human|manual)?_?approval\s*[:=]\s*(?:false|0)"),
+    ]
+    enabled_agentic=set(policy.get("skill_rules",[])) | set(policy.get("code_rules",[]))
+    for kind,sev,pat in agentic_checks:
+        if kind not in enabled_agentic: continue
+        hit=re.search(pat,text)
+        if hit: out.append(finding(kind,sev,path,f"Agentic 技战法规则命中: {kind}",hit.group(0).strip()[:80]))
     hidden=re.search(r"[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]",text)
     if hidden: out.append(finding("hidden_instruction","high",path,"包含可隐藏或改变显示方向的 Unicode 控制字符",f"U+{ord(hidden.group(0)):04X}"))
     weak=re.search(r"(?is)(?:token|secret|session|nonce).{0,120}(?:math\.random|random\.random)\s*\(|(?:math\.random|random\.random)\s*\(.{0,120}(?:token|secret|session|nonce)",text)
@@ -347,6 +361,19 @@ def scan_mcp_server(path,name,cfg,policy):
         if "allowed_mcp_domains" in policy and host not in allowed_domains: out.append(finding("unapproved_mcp_domain","medium",path,f"MCP {name} 连接未批准域名: {host or '[missing]'}"))
         sensitive={"token","key","api_key","apikey","secret","password","access_token"}
         if parsed.username or parsed.password or any(k.lower() in sensitive for k,_ in parse_qsl(parsed.query,keep_blank_values=True)): out.append(finding("mcp_url_credentials","critical",path,f"MCP {name} URL 包含凭据或敏感查询参数","[REDACTED]"))
+    # AGT07 不安全的 Agent 间通信：非回环明文通道（http/ws）或 agent/a2a 端点无任何鉴权配置。
+    if url and "unauthenticated_agent_channel" in set(policy.get("mcp_rules",[])):
+        try:
+            p2=urlsplit(url); h2=(p2.hostname or "").lower(); scheme2=p2.scheme
+        except ValueError:
+            p2=None; h2=""; scheme2=""
+        loopback={"localhost","127.0.0.1","::1"}
+        auth_cfg=bool(cfg.get("headers")) or any(re.search(r"TOKEN|SECRET|AUTH",str(k),re.I) for k in (cfg.get("env") or {}))
+        is_agent_endpoint=bool(re.search(r"agent|a2a|inter-?agent",url,re.I))
+        if scheme2 in ("http","ws") and h2 not in loopback:
+            out.append(finding("unauthenticated_agent_channel","high",path,f"MCP/Agent 通道 {name} 使用非回环明文传输: {scheme2}"))
+        elif is_agent_endpoint and scheme2!="https" and not auth_cfg:
+            out.append(finding("unauthenticated_agent_channel","high",path,f"Agent 端点 {name} 未配置 TLS/鉴权"))
     if not command and not url: out.append(finding("incomplete_mcp_server","medium",path,f"MCP {name} 未配置命令或 URL"))
     for f in out: f["asset_type"]="mcp"; f["asset_key"]=str(name)[:128]
     return out
@@ -1508,7 +1535,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.36.9"
+AGENT_VERSION = "0.37.0"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用

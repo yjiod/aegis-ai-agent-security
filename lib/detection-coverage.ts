@@ -29,7 +29,7 @@ export interface Technique {
 }
 
 export const FALLBACK_RULE_SETS: Record<RuleSet, string[]> = {
-  skill: ['unknown_skill', 'prompt_override', 'hidden_instruction', 'credential_access', 'unbounded_shell', 'skill_symlink_escape'],
+  skill: ['unknown_skill', 'prompt_override', 'hidden_instruction', 'credential_access', 'unbounded_shell', 'skill_symlink_escape', 'context_poisoning'],
   mcp: [
     'unknown_mcp',
     'unapproved_mcp_transport',
@@ -43,6 +43,7 @@ export const FALLBACK_RULE_SETS: Record<RuleSet, string[]> = {
     'mcp_url_credentials',
     'broad_filesystem_scope',
     'literal_mcp_secret',
+    'unauthenticated_agent_channel',
   ],
   code: [
     'hardcoded_secret',
@@ -58,6 +59,7 @@ export const FALLBACK_RULE_SETS: Record<RuleSet, string[]> = {
     'dependency_unpinned',
     'dependency_untrusted_source',
     'missing_lockfile',
+    'unvalidated_llm_execution',
   ],
 };
 
@@ -129,18 +131,18 @@ export const TECHNIQUES: Technique[] = [
     id: 'AGT06',
     name: '记忆 / 上下文投毒',
     framework: 'OWASP AGT',
-    rules: [],
+    rules: [{ set: 'skill', ids: ['context_poisoning'] }],
   },
   {
     id: 'AGT07',
     name: '不安全的 Agent 间通信',
     framework: 'OWASP AGT',
-    rules: [],
+    rules: [{ set: 'mcp', ids: ['unauthenticated_agent_channel'] }],
   },
   {
     id: 'LLM09 / AGT08',
     name: '过度依赖 · 级联幻觉',
     framework: 'OWASP AGT',
-    rules: [],
+    rules: [{ set: 'code', ids: ['unvalidated_llm_execution'] }],
   },
 ];

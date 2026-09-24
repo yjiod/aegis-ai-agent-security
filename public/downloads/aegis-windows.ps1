@@ -506,7 +506,7 @@ if ($identitySn) { $deviceMaterial = "aegis-hw:" + $identitySn } else { $deviceM
 $sha = [System.Security.Cryptography.SHA256]::Create()
 $deviceId = ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($deviceMaterial)))).Replace('-','').Substring(0,12).ToLower()
 $sn = $serialDisplay
-$agentVersion = '0.36.9'
+$agentVersion = '0.37.0'
 # ── 服务器地址覆盖（预留文件）：编辑 %ProgramData%\AegisAgent\server-override.json 即全自动
 #    重新入网并切换控制台（无需重装）。失败 SOFT FAIL 保持原上报配置。 ──
 $ovServer = $null
