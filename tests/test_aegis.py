@@ -1599,9 +1599,9 @@ class AegisTests(unittest.TestCase):
         self.assertTrue(any(x["kind"]=="unvalidated_llm_execution" for x in f3))
         f4=self.agent.scan_text(Path("cfg.yaml"),"auto_approve: true",pol)
         self.assertTrue(any(x["kind"]=="unvalidated_llm_execution" for x in f4))
-        f5=self.agent.scan_mcp_server(Path("mcp.json"),"peer-agent",{"url":"http://10.0.0.5:9000/a2a"},pol)
+        f5=self.agent.scan_mcp_server(Path("mcp.json"),"peer-agent",{"url":"http://agent.example.com:9000/a2a"},pol)
         self.assertTrue(any(x["kind"]=="unauthenticated_agent_channel" for x in f5))
-        f6=self.agent.scan_mcp_server(Path("mcp.json"),"peer-agent",{"url":"https://10.0.0.5:9000/a2a","headers":{"Authorization":"Bearer x"}},pol)
+        f6=self.agent.scan_mcp_server(Path("mcp.json"),"peer-agent",{"url":"https://agent.example.com:9000/a2a","headers":{"Authorization":"Bearer x"}},pol)
         self.assertFalse(any(x["kind"]=="unauthenticated_agent_channel" for x in f6))
 
 if __name__=='__main__': unittest.main()
