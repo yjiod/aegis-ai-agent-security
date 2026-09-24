@@ -1307,7 +1307,7 @@ button {
   grid-template-columns: 54px minmax(0, 1fr) 120px 70px 48px;
   gap: 12px;
   align-items: center;
-  border-top: 1px solid rgba(23, 45, 38, 0.85);
+  border-top: 1px solid rgba(111, 173, 204, 0.12);
   padding: 12px 8px;
   margin: 0 -8px;
   border-radius: 8px;
@@ -1315,8 +1315,8 @@ button {
 }
 
 .risk-row:hover {
-  background: linear-gradient(90deg, rgba(23, 52, 42, 0.4), rgba(16, 34, 28, 0.18));
-  box-shadow: inset 2px 0 0 rgba(73, 232, 165, 0.3);
+  background: rgba(39, 184, 243, 0.07);
+  box-shadow: inset 2px 0 0 rgba(39, 184, 243, 0.35);
 }
 
 /* 工单行是真正的 <button>（可展开触发器），而非 div[role="button"]：
@@ -1379,23 +1379,23 @@ button.risk-row {
 }
 
 .severity.red {
-  background: linear-gradient(160deg, #4d2321, #3a1a18);
-  color: #ff918b;
-  border-color: rgba(255, 104, 95, 0.28);
-  box-shadow: 0 0 10px rgba(255, 104, 95, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: rgba(240, 82, 93, 0.12);
+  color: #ff9b94;
+  border-color: rgba(240, 82, 93, 0.35);
+  box-shadow: none;
 }
 
 .severity.red:hover,
 .risk-row:hover .severity.red {
-  box-shadow: 0 0 16px rgba(255, 104, 95, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 104, 95, 0.45);
+  box-shadow: none;
+  border-color: rgba(240, 82, 93, 0.5);
 }
 
 .severity.orange {
-  background: linear-gradient(160deg, #44311a, #33240f);
-  color: #f6bd6d;
-  border-color: rgba(246, 189, 109, 0.24);
-  box-shadow: 0 0 10px rgba(246, 189, 109, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  background: rgba(255, 184, 75, 0.12);
+  color: #ffcf8a;
+  border-color: rgba(255, 184, 75, 0.35);
+  box-shadow: none;
 }
 
 .severity.orange:hover,
@@ -1431,9 +1431,9 @@ button.risk-row {
 }
 
 .handle {
-  border: 1px solid #2b4f43;
-  background: linear-gradient(160deg, #132c24, #0e211a);
-  color: #65d9a9;
+  border: 1px solid var(--sentinel-line, rgba(111, 173, 204, 0.22));
+  background: var(--sentinel-surface-2, #0d202c);
+  color: var(--sentinel-text-2, #a5bdc9);
   border-radius: 7px;
   padding: 5px 8px;
   font-size: 10px;
@@ -1448,10 +1448,10 @@ button.risk-row {
 }
 
 .handle:hover {
-  border-color: rgba(40, 230, 160, 0.5);
-  color: var(--sentinel-accent, #28e6a0);
-  background: rgba(40, 230, 160, 0.1);
-  box-shadow: 0 0 0 3px rgba(40, 230, 160, 0.08), 0 4px 12px rgba(0, 0, 0, 0.35);
+  border-color: rgba(39, 184, 243, 0.5);
+  color: var(--sentinel-text, #edf7fb);
+  background: rgba(39, 184, 243, 0.1);
+  box-shadow: 0 0 0 3px rgba(39, 184, 243, 0.08), 0 4px 12px rgba(0, 0, 0, 0.35);
   transform: translateY(-1px);
 }
 
