@@ -1342,6 +1342,18 @@ export default function DevicesPage() {
               })}
             </tbody>
           </table>
+          <div style={{ margin: '12px 16px 4px', padding: '10px 12px', borderRadius: 8, background: 'var(--sentinel-surface-2, #0d202c)', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', fontSize: 12, color: 'var(--sentinel-text-2, #a5bdc9)' }}>
+            <strong style={{ color: 'var(--sentinel-text, #edf7fb)' }}>无法自动更新的终端（旧二进制在自更新前崩溃/离线）</strong>
+            <p style={{ margin: '6px 0', color: 'var(--sentinel-text-3, #6c8796)' }}>
+              在该终端上以管理员身份运行一次一键脚本即可解锁自更新（保留既有入网配置；之后恢复自动热更）：
+            </p>
+            <code style={{ display: 'block', fontSize: 11, wordBreak: 'break-all', background: 'var(--sentinel-surface-3, #102a37)', padding: '6px 8px', borderRadius: 6 }}>
+              {`curl -fsSL ${typeof window !== 'undefined' ? window.location.origin : ''}/downloads/aegis-install-macos-oneclick.sh | bash`}
+            </code>
+            <code style={{ display: 'block', marginTop: 6, fontSize: 11, wordBreak: 'break-all', background: 'var(--sentinel-surface-3, #102a37)', padding: '6px 8px', borderRadius: 6 }}>
+              {`powershell -ExecutionPolicy Bypass -Command "iwr ${typeof window !== 'undefined' ? window.location.origin : ''}/downloads/aegis-install-windows-oneclick.ps1 -OutFile $env:TEMP\\a.ps1; & $env:TEMP\\a.ps1"`}
+            </code>
+          </div>
         </section>
       )}
 
