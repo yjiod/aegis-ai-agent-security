@@ -35,9 +35,18 @@ esac
 [ -n "$PKG_URL" ] || PKG_URL="$SERVER/downloads/aegis-agent-macos.pkg"
 
 # 0) 提权(非 root 自动 sudo 重跑)
+#    管道模式(curl … | bash)下 $0 是 shell 本身(/bin/bash), 直接 exec 会报
+#    "cannot execute binary file"——先把脚本落盘再 sudo 重跑(真机踩过)。
 if [ "$(id -u)" != "0" ]; then
+  SELF="$0"
+  case "$SELF" in
+    bash|sh|/bin/bash|/bin/sh|-bash|-sh|"")
+      SELF="$(mktemp /tmp/aegis-oneclick.XXXXXX.sh)"
+      curl -fsSL "$SERVER/downloads/aegis-install-macos-oneclick.sh" -o "$SELF" || { echo "[aegis] 脚本落盘失败(网络)。" >&2; exit 2; }
+      ;;
+  esac
   echo "[aegis] 需要 root, 以 sudo 重跑…"
-  exec sudo -E bash "$0" -Server "$SERVER" -PkgUrl "$PKG_URL" -PkgPath "$PKG_PATH"
+  exec sudo -E bash "$SELF" -Server "$SERVER" -PkgUrl "$PKG_URL" -PkgPath "$PKG_PATH"
 fi
 log(){ echo "[aegis] $*"; }
 

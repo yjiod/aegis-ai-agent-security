@@ -140,8 +140,8 @@ export default function OnboardingPage() {
                 placeItems: 'center',
                 flexShrink: 0,
                 border: '1px solid var(--border)',
-                color: s.done ? 'var(--primary)' : 'var(--muted-foreground)',
-                background: s.done ? 'color-mix(in srgb, var(--primary) 14%, transparent)' : 'transparent',
+                color: s.done ? 'var(--sentinel-accent, #28e6a0)' : 'var(--muted-foreground)',
+                background: s.done ? 'color-mix(in srgb, var(--sentinel-accent, #28e6a0) 14%, transparent)' : 'transparent',
               }}
             >
               {s.done ? <Check size={15} /> : <CircleDot size={15} />}

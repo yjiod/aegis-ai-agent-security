@@ -124,9 +124,9 @@ export function severityMeta(severity: TicketSeverity) {
 }
 
 const passToneStyle: CSSProperties = {
-  color: 'var(--primary)',
-  background: 'color-mix(in srgb, var(--primary) 14%, transparent)',
-  borderColor: 'color-mix(in srgb, var(--primary) 34%, transparent)',
+  color: 'var(--sentinel-accent, #28e6a0)',
+  background: 'color-mix(in srgb, var(--sentinel-accent, #28e6a0) 14%, transparent)',
+  borderColor: 'color-mix(in srgb, var(--sentinel-accent, #28e6a0) 34%, transparent)',
 };
 
 export function severityStyle(severity: TicketSeverity): CSSProperties | undefined {
