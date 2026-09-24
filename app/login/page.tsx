@@ -102,15 +102,25 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: 'radial-gradient(circle at 50% -20%, #143329 0, transparent 50%), #07110f', padding: 24 }}>
+    <main
+      className="sentinel-grid-bg"
+      style={{
+        minHeight: '100vh',
+        display: 'grid',
+        placeItems: 'center',
+        // Sentinel 深色底 + 顶部青绿微光（与全站一致），不再使用旧绿色整页晕染
+        background: 'radial-gradient(circle at 50% -20%, rgba(18, 81, 92, 0.18) 0, transparent 52%), var(--sentinel-bg-deep, #040b12)',
+        padding: 24,
+      }}
+    >
       <div className="animate-entrance" style={{ width: '100%', maxWidth: 380 }}>
         {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: 'rgba(40, 230, 160, 0.12)', border: '1px solid rgba(40, 230, 160, 0.4)', display: 'grid', placeItems: 'center', boxShadow: '0 0 40px rgba(40, 230, 160, 0.18)' }}>
+          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: 'rgba(40, 230, 160, 0.10)', border: '1px solid rgba(40, 230, 160, 0.38)', display: 'grid', placeItems: 'center', boxShadow: '0 0 32px rgba(40, 230, 160, 0.14)' }}>
             <ShieldCheck size={28} color="#28e6a0" />
           </div>
-          <h1 style={{ fontSize: 22, color: '#eaf7f2', letterSpacing: '-0.02em', margin: '0 0 6px' }}>Aegis 安全控制台</h1>
-          <p style={{ fontSize: 13, color: '#78968c', margin: 0 }}>企业 AI Agent 安全治理平台</p>
+          <h1 style={{ fontSize: 22, color: 'var(--sentinel-text, #edf7fb)', letterSpacing: '-0.02em', margin: '0 0 6px' }}>Aegis 安全控制台</h1>
+          <p style={{ fontSize: 13, color: 'var(--sentinel-text-3, #6c8796)', margin: 0 }}>企业 AI Agent 安全治理平台</p>
         </div>
 
         {/* OIDC unified identity login (when configured) */}
@@ -119,25 +129,25 @@ export default function LoginPage() {
             <Button
               type="button"
               onClick={() => { window.location.href = oidc.url; }}
-              style={{ width: '100%', height: 42, background: '#143329', border: '1px solid #34765f', color: '#c9f5e4' }}
+              style={{ width: '100%', height: 42, background: 'rgba(40, 230, 160, 0.10)', border: '1px solid rgba(40, 230, 160, 0.42)', color: 'var(--sentinel-accent, #28e6a0)' }}
             >
               <KeyRound size={16} /> {oidc.label}
             </Button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0', color: '#5e7c73', fontSize: 11 }}>
-              <span style={{ flex: 1, height: 1, background: '#1e332d' }} /> 或使用本地账号 <span style={{ flex: 1, height: 1, background: '#1e332d' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0', color: 'var(--sentinel-text-3, #6c8796)', fontSize: 11 }}>
+              <span style={{ flex: 1, height: 1, background: 'var(--sentinel-line, rgba(111,173,204,0.22))' }} /> 或使用本地账号 <span style={{ flex: 1, height: 1, background: 'var(--sentinel-line, rgba(111,173,204,0.22))' }} />
             </div>
           </div>
         )}
 
         {/* 4A · MFA 第二步（仅当服务端下发挑战时显示） */}
         {mfaToken ? (
-          <form onSubmit={handleMfaSubmit} style={{ background: 'linear-gradient(145deg, #0d1b18, #0a1613)', border: '1px solid #1e332d', borderRadius: 14, padding: 28, boxShadow: '0 24px 64px #00000055' }}>
+          <form onSubmit={handleMfaSubmit} style={{ background: 'linear-gradient(160deg, rgba(13, 32, 44, 0.92), rgba(8, 24, 34, 0.94))', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', borderRadius: 12, padding: 28, boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
             {error && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: '#2b1515', border: '1px solid #5c2626', color: '#ff9b94', fontSize: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: 'rgba(240, 82, 93, 0.12)', border: '1px solid rgba(240, 82, 93, 0.4)', color: '#ffb5b8', fontSize: 12 }}>
                 <AlertTriangle size={14} /> {error}
               </div>
             )}
-            <label style={{ display: 'block', fontSize: 12, color: '#86a39a', marginBottom: 6 }}>两步验证码（6 位）</label>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--sentinel-text-2, #a5bdc9)', marginBottom: 6 }}>两步验证码（6 位）</label>
             <input
               className="form-input"
               style={{ marginBottom: 24, textAlign: 'center', letterSpacing: '0.4em', fontSize: 18 }}
@@ -154,23 +164,23 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => { setMfaToken(null); setMfaCode(''); setError(''); }}
-              style={{ width: '100%', marginTop: 12, background: 'none', border: 0, color: '#5e7c73', fontSize: 12, cursor: 'pointer' }}
+              style={{ width: '100%', marginTop: 12, background: 'none', border: 0, color: 'var(--sentinel-text-3, #6c8796)', fontSize: 12, cursor: 'pointer' }}
             >
               返回重新登录
             </button>
           </form>
         ) : (
         /* Login form */
-        <form onSubmit={handleSubmit} style={{ background: 'linear-gradient(145deg, #0d1b18, #0a1613)', border: '1px solid #1e332d', borderRadius: 14, padding: 28, boxShadow: '0 24px 64px #00000055' }}>
+        <form onSubmit={handleSubmit} style={{ background: 'linear-gradient(160deg, rgba(13, 32, 44, 0.92), rgba(8, 24, 34, 0.94))', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', borderRadius: 12, padding: 28, boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
           {error && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: '#2b1515', border: '1px solid #5c2626', color: '#ff9b94', fontSize: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: 'rgba(240, 82, 93, 0.12)', border: '1px solid rgba(240, 82, 93, 0.4)', color: '#ffb5b8', fontSize: 12 }}>
               <AlertTriangle size={14} /> {error}
             </div>
           )}
 
-          <label style={{ display: 'block', fontSize: 12, color: '#86a39a', marginBottom: 6 }}>用户名</label>
+          <label style={{ display: 'block', fontSize: 12, color: 'var(--sentinel-text-2, #a5bdc9)', marginBottom: 6 }}>用户名</label>
           <div style={{ position: 'relative', marginBottom: 16 }}>
-            <User size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#5e7c73' }} />
+            <User size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sentinel-text-3, #6c8796)' }} />
             <input
               className="form-input"
               style={{ paddingLeft: 36 }}
@@ -182,9 +192,9 @@ export default function LoginPage() {
             />
           </div>
 
-          <label style={{ display: 'block', fontSize: 12, color: '#86a39a', marginBottom: 6 }}>密码</label>
+          <label style={{ display: 'block', fontSize: 12, color: 'var(--sentinel-text-2, #a5bdc9)', marginBottom: 6 }}>密码</label>
           <div style={{ position: 'relative', marginBottom: 24 }}>
-            <Lock size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#5e7c73' }} />
+            <Lock size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--sentinel-text-3, #6c8796)' }} />
             <input
               className="form-input"
               type="password"
@@ -203,7 +213,7 @@ export default function LoginPage() {
         </form>
         )}
 
-        <p style={{ textAlign: 'center', fontSize: 11, color: '#5e7c73', marginTop: 20 }}>
+        <p style={{ textAlign: 'center', fontSize: 11, color: 'var(--sentinel-text-3, #6c8796)', marginTop: 20 }}>
           仅限授权人员访问；如需账号请联系安全管理员
         </p>
       </div>
