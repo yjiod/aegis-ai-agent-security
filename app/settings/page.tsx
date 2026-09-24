@@ -127,12 +127,18 @@ function AlertingPanel() {
   const [busy, setBusy] = useState(false);
   // 测试发送会向已配置 webhook 真实外发一条消息，统一确认弹窗（不展示 webhook 原文，避免泄露凭据）。
   const [pendingTest, setPendingTest] = useState(false);
+  // 投递可靠性遥测（真实发送记录，无记录时诚实不显示）。
+  const [delivery, setDelivery] = useState<Array<{ ts: number; ok: boolean; latency_ms: number; detail: string }>>([]);
 
   useEffect(() => {
     fetch('/api/settings/alerting', { cache: 'no-store' })
       .then((r) => (r.ok ? (r.json() as Promise<{ config?: AlertCfg }>) : null))
       .then((d) => setCfg(d?.config ?? null))
       .catch(() => setCfg(null));
+    fetch('/api/pipeline/telemetry', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ connected?: boolean; events?: Array<{ pipeline: string; ts: number; ok: boolean; latency_ms: number; detail: string }> }>) : null))
+      .then((d) => setDelivery((d?.events ?? []).filter((e) => e.pipeline === 'alert-delivery')))
+      .catch(() => setDelivery([]));
   }, []);
 
   async function save() {
@@ -275,6 +281,18 @@ function AlertingPanel() {
             <Send size={15} />
             测试发送
           </Button>
+        </div>
+      )}
+
+      {delivery.length > 0 && (
+        <div style={{ padding: '0 16px 12px', fontSize: 12, color: 'var(--muted-foreground)' }}>
+          投递可靠性（真实发送记录）：近 {delivery.length} 次中成功 {delivery.filter((d) => d.ok).length} 次
+          {delivery[0] && (
+            <>
+              {' '}· 最近一次 {delivery[0].ok ? '成功' : '失败'}（{delivery[0].latency_ms}ms，
+              {new Date(delivery[0].ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}）
+            </>
+          )}
         </div>
       )}
 

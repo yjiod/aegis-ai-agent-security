@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
 import { ensureBaselinesLoaded } from '@/lib/baselines';
+import { recordPipelineEvent } from '@/lib/pipeline-telemetry';
 import { logAudit } from '@/lib/store';
 import { getAlertConfig, setAlertConfig, validateAlertConfig } from '@/lib/alerting';
 
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
   const session = getSession(request);
+  const t0 = Date.now();
   let body: Record<string, unknown> = {};
   try {
     body = await request.json();
@@ -81,9 +83,19 @@ export async function POST(request: Request) {
       signal: AbortSignal.timeout(15000),
     });
     logAudit({ actor: session?.subject ?? 'console', action: 'alerting:test', resource_type: 'system', detail: `测试告警发送 status=${r.status}` });
+    void recordPipelineEvent({
+      pipeline: 'alert-delivery', source: cfg.format ?? 'webhook',
+      stages: [{ name: '配置校验', ok: true }, { name: '投递', ok: r.ok, detail: `http ${r.status}` }],
+      ok: r.ok, latencyMs: Date.now() - t0, actor: session?.subject ?? 'console', detail: `test status=${r.status}`,
+    }).catch(() => {});
     return NextResponse.json({ sent: true, status: r.status }, { headers: NO_STORE });
   } catch (e) {
     logAudit({ actor: session?.subject ?? 'console', action: 'alerting:test', resource_type: 'system', detail: `测试告警发送失败: ${e instanceof Error ? e.message : String(e)}` });
+    void recordPipelineEvent({
+      pipeline: 'alert-delivery', source: cfg.format ?? 'webhook',
+      stages: [{ name: '配置校验', ok: true }, { name: '投递', ok: false, detail: e instanceof Error ? e.message : String(e) }],
+      ok: false, latencyMs: Date.now() - t0, actor: session?.subject ?? 'console', detail: 'delivery_failed',
+    }).catch(() => {});
     return NextResponse.json({ sent: false, error: e instanceof Error ? e.message : String(e) }, { status: 502, headers: NO_STORE });
   }
 }
