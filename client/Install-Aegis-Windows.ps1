@@ -417,6 +417,14 @@ if ($enroll) {
         $json = $null; $tok = $null; $sec = $null; $cfg = $null
         Write-Log "reporting.dpapi 已写入（DPAPI LocalMachine，entropy=AegisAgent.Reporting.v1）"
         Write-Log "report_url=$reportUrl"
+        # 带外信任锚缓存（公开信息）：控制台 ed25519 公钥落盘，供冻结二进制在
+        # "策略带 signature 但无 HMAC 验签环" 的正常态做非对称验签（防停报事故复发）。
+        if ($enroll.ed25519_public) {
+          try {
+            [IO.File]::WriteAllText((Join-Path $Data 'ed25519-public.b64'), ([string]$enroll.ed25519_public).Trim())
+            Write-Log 'ed25519-public.b64 已写入（策略验签信任锚）'
+          } catch { Write-Log "ed25519 公钥缓存写入失败（SOFT FAIL）：$($_.Exception.Message)" 'WARN' }
+        }
         $enrolled = $true
       } catch {
         $json = $null; $tok = $null; $sec = $null; $cfg = $null

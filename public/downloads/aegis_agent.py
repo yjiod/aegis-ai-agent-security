@@ -1414,6 +1414,17 @@ def enroll_to_server(server, device_id):
     if len(tok) < 32 or len(tok) > 4096: raise ValueError("enroll_token_invalid")
     if len(sec) < 32 or len(sec) > 4096: raise ValueError("enroll_secret_invalid")
     if not ru.startswith("https://"): raise ValueError("enroll_report_url_not_https")
+    # 带外信任锚缓存：控制台经 TLS 下发的 ed25519 公钥（公开信息）落盘 644，供
+    # load_policy 在"策略带 signature 但无 HMAC 验签环"的正常态做非对称验签
+    # （防 2026-09-24 停报事故复发）。公钥非秘密；私钥/对称密钥绝不落盘于此。
+    pub = d.get("ed25519_public")
+    if isinstance(pub, str) and pub.strip():
+        try:
+            p = BASE_DIR / "ed25519-public.b64"
+            p.write_text(pub.strip(), encoding="utf-8")
+            os.chmod(p, 0o644)
+        except OSError:
+            pass
     return {"schema": "aegis.reporting/v1", "report_url": ru, "report_token": tok, "signing_secret": sec}, (d.get("policy") if isinstance(d.get("policy"), dict) else None)
 _OVERRIDE_NOTED = {"fail": False}
 def apply_server_override(args, host_device_id):
@@ -1589,7 +1600,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.37.2"
+AGENT_VERSION = "0.37.3"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
