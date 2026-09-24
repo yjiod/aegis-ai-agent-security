@@ -314,7 +314,7 @@ export default function RisksPage() {
         const fd = fr.ok ? ((await fr.json()) as { findings?: unknown }) : null;
         const findings = Array.isArray(fd?.findings) ? (fd.findings as Array<Record<string, unknown>>) : [];
         const match =
-          findings.find((f) => `${f.kind}:${(f.asset_key as string) || (f.path as string) || ''}` === t.finding_ref) ??
+          findings.find((f) => `${String(f.kind)}:${(f.asset_key as string) || (f.path as string) || ''}` === t.finding_ref) ??
           findings.find((f) => f.kind === t.source) ??
           findings.find((f) => f.severity === t.severity) ??
           null;

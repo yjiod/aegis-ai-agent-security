@@ -29,7 +29,8 @@
     "build/**",
     "dist/**",
     "coverage/**",
-    "next-env.d.ts"
+    "next-env.d.ts",
+    "lib/qrcodegen.ts"
   ],
   "rules": {
     "no-array-constructor": "error",

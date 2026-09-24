@@ -4,6 +4,51 @@ import { useCallback, useEffect, useState } from 'react';
 import { ShieldCheck, QrCode, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { qrMatrix } from '@/lib/qr';
+
+/** otpauth:// URI 的 TOTP 二维码（React 直渲 SVG 模块，无 innerHTML、无运行时依赖）。 */
+function TotpQr({ uri }: { uri: string }) {
+  const matrix = (() => {
+    try {
+      return qrMatrix(uri);
+    } catch {
+      return null;
+    }
+  })();
+  if (!matrix) return null;
+  const n = matrix.length;
+  const scale = 5;
+  const margin = 4;
+  const dim = (n + margin * 2) * scale;
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center' }}>
+      <svg
+        viewBox={`0 0 ${dim} ${dim}`}
+        width={220}
+        height={220}
+        shapeRendering="crispEdges"
+        role="img"
+        aria-label="两步验证绑定二维码"
+        style={{ background: '#ffffff', borderRadius: 8, padding: 0 }}
+      >
+        {matrix.map((row, r) =>
+          row.map((v, c) =>
+            v ? (
+              <rect
+                key={`${r}-${c}`}
+                x={(c + margin) * scale}
+                y={(r + margin) * scale}
+                width={scale}
+                height={scale}
+                fill="#000000"
+              />
+            ) : null,
+          ),
+        )}
+      </svg>
+    </div>
+  );
+}
 
 /**
  * 我的两步验证（TOTP）管理面板（4A · Authentication）。
@@ -103,10 +148,10 @@ export function MfaPanel() {
       {secret ? (
         <div style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted-foreground)' }}>
-            <QrCode size={14} /> 将下列密钥录入身份验证器 App（或扫码添加）：
+            <QrCode size={14} /> 用身份验证器 App 扫描下方二维码即可添加；亦可手动录入密钥。
           </div>
+          {uri && <TotpQr uri={uri} />}
           <code style={{ fontSize: 12, wordBreak: 'break-all', background: 'var(--muted)', padding: '8px 10px', borderRadius: 8 }}>{secret}</code>
-          <code style={{ fontSize: 10, wordBreak: 'break-all', color: 'var(--muted-foreground)' }}>{uri}</code>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Input
               value={code}
