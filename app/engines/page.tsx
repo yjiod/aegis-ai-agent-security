@@ -27,8 +27,9 @@ const ENGINES: Engine[] = [
   { name: 'aegis-regex', version: '1.0.0', vendor: 'Aegis', license: 'Proprietary', mode: 'local', scopes: ['skill', 'mcp', 'code', 'secrets'], builtin: true, rule_format: 'regex' },
   { name: 'semgrep', version: '运行时探测', vendor: 'Semgrep Inc.', license: 'LGPL-2.1 / Commons Clause', mode: 'local', scopes: ['code', 'secrets'], builtin: true, rule_format: 'yaml', rule_update_url: 'semgrep.dev/c/p/default' },
   { name: 'gitleaks', version: '运行时探测', vendor: 'Gitleaks', license: 'MIT', mode: 'local', scopes: ['secrets'], builtin: true, rule_format: 'toml', rule_update_url: 'github.com/gitleaks/gitleaks' },
-  { name: 'cisco-skill-scanner', version: '待集成', vendor: 'Cisco', license: 'Apache-2.0', mode: 'local', scopes: ['skill', 'mcp'], builtin: false, rule_format: 'json' },
-  { name: 'snyk-agent-scan', version: '待集成', vendor: 'Snyk', license: 'Commercial', mode: 'cloud', scopes: ['skill', 'mcp', 'deps'], builtin: false, rule_format: 'cloud-api', requires_token: true },
+  { name: 'cisco-skill-scanner', version: '运行时探测', vendor: 'Cisco', license: 'Apache-2.0', mode: 'local', scopes: ['skill', 'mcp'], builtin: true, rule_format: 'json', rule_update_url: 'github.com/cisco-ai-security/skill-scanner' },
+  { name: 'osv-sca', version: '1.0', vendor: 'OSV.dev (Google)', license: 'Apache-2.0', mode: 'cloud', scopes: ['deps'], builtin: true, rule_format: 'osv-api', rule_update_url: 'osv.dev' },
+  { name: 'pip-audit', version: '运行时探测', vendor: 'PyPA / Trail of Bits', license: 'Apache-2.0', mode: 'local', scopes: ['deps'], builtin: true, rule_format: 'pypi-advisory', rule_update_url: 'pypi.org/project/pip-audit' },
 ];
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -48,7 +49,7 @@ export default function EnginesPage() {
         <div>
           <p className="eyebrow">安全能力 / 扫描引擎</p>
           <h1>多引擎扫描管理</h1>
-          <p>Cisco skill-scanner · Snyk agent-scan · Semgrep · Gitleaks — 各自独立规则源，不强行转换语法。</p>
+          <p>Cisco skill-scanner · OSV.dev SCA · pip-audit · Semgrep · Gitleaks — 各自独立规则源，不强行转换语法；上游均无需 API Token。</p>
         </div>
         <div className="head-actions">
           {/* 诚实原则：未接入后端的能力不放"点了只弹提示"的活按钮，直接禁用并说明原因。 */}

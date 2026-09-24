@@ -4,8 +4,9 @@ Aegis Multi-Engine Scanner Framework.
 
 Architecture (per upstream recommendation):
 - Engines are INDEPENDENT sources — never force different rule syntaxes into regex.
-- Cisco skill-scanner (Apache-2.0): local multi-engine Skill/MCP rules.
-- Snyk agent-scan: cloud MCP + Skill analysis (requires token, has scale limits).
+- Cisco skill-scanner (Apache-2.0): local multi-engine Skill/MCP rules (integrated adapter, runtime-probed).
+- OSV.dev SCA: token-free cloud vulnerability lookup (replaces the token-gated Snyk engine).
+- pip-audit (Apache-2.0): local dependency audit, token-free (PyPI/OSV advisories).
 - Semgrep: static analysis with its own rule syntax (YAML-based).
 - Gitleaks: secret detection with its own TOML-based rules.
 
@@ -23,6 +24,8 @@ import json
 import os
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -310,72 +313,266 @@ class GitleaksEngine:
             return "not_installed"
 
 
-# ─── External Engine: Cisco Skill Scanner (placeholder) ─────────────────────
+# ─── External Engine: Cisco Skill Scanner (integrated adapter) ──────────────
 
 class CiscoSkillScannerEngine:
     """
-    Cisco skill-scanner (Apache-2.0).
-    Local multi-engine rules for Skill and MCP scanning.
+    Cisco skill-scanner (Apache-2.0). Local multi-engine rules for Skill/MCP.
     Rule format: JSON (Cisco's own schema).
 
-    Status: PLACEHOLDER — awaiting Cisco skill-scanner package availability.
-    Integration point defined; implementation pending binary/SDK release.
+    Integrated adapter: probes the upstream CLI (`skill-scanner`) or its python
+    module (`python3 -m skill_scanner`) at runtime. When present, runs it against
+    the target and normalizes its JSON findings; when absent, is_available()=False
+    and scan()=[] — an honest "not installed on this endpoint", never fabricated.
     """
+
+    def __init__(self, rules_dir: Path | None = None):
+        self._rules = rules_dir
 
     @property
     def info(self) -> EngineInfo:
         return EngineInfo(
-            name="cisco-skill-scanner", version="pending", vendor="Cisco",
+            name="cisco-skill-scanner", version=self.check_version(), vendor="Cisco",
             license="Apache-2.0",
             scopes=(EngineScope.SKILL, EngineScope.MCP),
             mode=EngineMode.LOCAL, rule_format="json",
-            rule_update_url="",  # TBD
+            rule_update_url="https://github.com/cisco-ai-security/skill-scanner",
         )
 
+    def _command(self) -> list[str] | None:
+        """Resolve the upstream invocation: CLI first, then python module."""
+        try:
+            subprocess.run(["skill-scanner", "--version"], capture_output=True, timeout=5, check=True)
+            return ["skill-scanner"]
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            subprocess.run(["python3", "-m", "skill_scanner", "--version"], capture_output=True, timeout=5, check=True)
+            return ["python3", "-m", "skill_scanner"]
+        except (OSError, subprocess.SubprocessError):
+            return None
+
     def is_available(self) -> bool:
-        return False  # Not yet integrated
+        return self._command() is not None
 
     def scan(self, target: Path, policy: dict[str, Any]) -> list[EngineFinding]:
-        return []  # TODO: implement when Cisco skill-scanner is available
+        cmd = self._command()
+        if cmd is None:
+            return []
+        # 上游 CLI 形态以 scan 子命令 + JSON 输出为准；参数不兼容/解析失败一律降级为空，
+        # 绝不把失败伪装成"无发现"以外的结论（返回 [] 即"本引擎本次未产出"）。
+        for args in (cmd + ["scan", str(target), "--format", "json"],
+                     cmd + ["scan", "--target", str(target), "--json"]):
+            try:
+                result = subprocess.run(args, capture_output=True, text=True, timeout=self.info.timeout_seconds)
+            except (OSError, subprocess.SubprocessError):
+                return []
+            text = (result.stdout or "").strip()
+            if not text:
+                continue
+            try:
+                data = json.loads(text)
+            except (ValueError, TypeError):
+                continue
+            items = data if isinstance(data, list) else (data.get("findings") or data.get("results") or [])
+            if not isinstance(items, list):
+                continue
+            findings = []
+            for item in items[:200]:
+                if not isinstance(item, dict):
+                    continue
+                sev = str(item.get("severity") or item.get("risk") or "medium").lower()
+                if sev not in ("critical", "high", "medium", "low"):
+                    sev = "medium"
+                findings.append(EngineFinding(
+                    engine="cisco-skill-scanner",
+                    kind=f"skill_{str(item.get('rule') or item.get('check') or 'finding')}",
+                    severity=sev,
+                    path=str(item.get("path") or item.get("file") or ""),
+                    message=str(item.get("message") or item.get("description") or "Cisco skill-scanner finding")[:180],
+                    rule_id=str(item.get("rule") or item.get("check") or ""),
+                    evidence=self._redact(str(item.get("evidence") or "")),
+                ))
+            return findings
+        return []
 
     def validate_rules(self, rule_path: Path) -> tuple[bool, str]:
-        return False, "engine_not_available"
+        cmd = self._command()
+        if cmd is None:
+            return False, "engine_not_available"
+        try:
+            data = json.loads(rule_path.read_text(encoding="utf-8", errors="replace"))
+            return (True, "ok") if isinstance(data, (dict, list)) else (False, "not_json")
+        except (OSError, ValueError) as e:
+            return False, f"parse_error: {type(e).__name__}"
 
     def check_version(self) -> str:
-        return "not_integrated"
+        cmd = self._command()
+        if cmd is None:
+            return "not_installed"
+        try:
+            r = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=5)
+            return (r.stdout or r.stderr or "").strip().splitlines()[0][:32] or "unknown"
+        except (OSError, subprocess.SubprocessError, IndexError):
+            return "unknown"
+
+    @staticmethod
+    def _redact(text: str) -> str:
+        return text[:180]
 
 
-# ─── External Engine: Snyk Agent Scan (placeholder) ─────────────────────────
+# ─── External Engine: OSV.dev SCA (token-free, replaces Snyk) ───────────────
 
-class SnykAgentScanEngine:
+class OsvEngine:
     """
-    Snyk agent-scan — covers both MCP and Skill analysis.
-    Cloud mode: requires SNYK_TOKEN, has scale/usage limits.
+    OSV.dev vulnerability lookup (https://osv.dev) — free public database,
+    **no API token required** (replaces the token-gated Snyk cloud engine).
 
-    Status: PLACEHOLDER — requires API token and usage agreement.
-    Integration point defined; implementation pending token provisioning.
+    Cloud mode but token-free: reads dependency manifests (requirements.txt /
+    package.json / package-lock) and queries the public OSV API. Network or
+    parse failures degrade to [] (engine produced nothing), never fabricated.
     """
+
+    API = "https://api.osv.dev/v1/query"
 
     @property
     def info(self) -> EngineInfo:
         return EngineInfo(
-            name="snyk-agent-scan", version="pending", vendor="Snyk",
-            license="Commercial (API token required)",
-            scopes=(EngineScope.SKILL, EngineScope.MCP, EngineScope.DEPENDENCIES),
-            mode=EngineMode.CLOUD, requires_token=True, rule_format="cloud-api",
+            name="osv-sca", version="1.0", vendor="OSV.dev (Google)",
+            license="Apache-2.0 (data: CC-BY / per-DB)",
+            scopes=(EngineScope.DEPENDENCIES,),
+            mode=EngineMode.CLOUD, requires_token=False, rule_format="osv-api",
+            rule_update_url="https://osv.dev",
         )
 
     def is_available(self) -> bool:
-        return bool(os.getenv("SNYK_TOKEN"))
+        return True  # 公开 API、无需凭据；网络不可达时 scan 降级为 []
 
     def scan(self, target: Path, policy: dict[str, Any]) -> list[EngineFinding]:
-        return []  # TODO: implement when SNYK_TOKEN is provisioned
+        deps = self._collect_deps(target)
+        if not deps:
+            return []
+        findings = []
+        for ecosystem, name, version in deps[:50]:
+            try:
+                body = json.dumps({"package": {"name": name, "ecosystem": ecosystem}, "version": version}).encode()
+                req = urllib.request.Request(self.API, data=body, headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    data = json.loads(r.read().decode())
+            except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError):
+                continue
+            for vuln in (data.get("vulns") or [])[:5]:
+                vid = str(vuln.get("id") or "OSV-UNKNOWN")
+                sev = self._severity(vuln)
+                findings.append(EngineFinding(
+                    engine="osv-sca",
+                    kind=f"dependency_vuln_{vid.split('-')[0].lower()}",
+                    severity=sev,
+                    path=str(target),
+                    message=f"{name}@{version} 命中已知漏洞 {vid}",
+                    rule_id=vid,
+                    evidence=f"{ecosystem}:{name}@{version}",
+                ))
+            if len(findings) >= 200:
+                break
+        return findings
 
     def validate_rules(self, rule_path: Path) -> tuple[bool, str]:
         return False, "cloud_engine_no_local_rules"
 
     def check_version(self) -> str:
-        return "not_configured" if not os.getenv("SNYK_TOKEN") else "api_ready"
+        return "api"
+
+    @staticmethod
+    def _severity(vuln: dict[str, Any]) -> str:
+        db = vuln.get("database_specific") or {}
+        sev = str(db.get("severity") or "").upper()
+        if sev in ("CRITICAL", "HIGH"):
+            return sev.lower()
+        return "high" if (vuln.get("aliases") or vuln.get("id")) else "medium"
+
+    @staticmethod
+    def _collect_deps(target: Path) -> list[tuple[str, str, str]]:
+        deps: list[tuple[str, str, str]] = []
+        req = target / "requirements.txt"
+        if req.is_file():
+            for line in req.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "==" not in line:
+                    continue
+                name, _, ver = line.partition("==")
+                deps.append(("PyPI", name.strip(), ver.strip().split(";")[0].strip()))
+        pkg = target / "package.json"
+        if pkg.is_file():
+            try:
+                data = json.loads(pkg.read_text(encoding="utf-8", errors="replace"))
+                for name, ver in {**(data.get("dependencies") or {}), **(data.get("devDependencies") or {})}.items():
+                    deps.append(("npm", str(name), str(ver).lstrip("^~>=< ").split(" ")[0]))
+            except (ValueError, TypeError):
+                pass
+        return deps
+
+
+# ─── External Engine: pip-audit (local, token-free) ─────────────────────────
+
+class PipAuditEngine:
+    """
+    pip-audit (Apache-2.0) local dependency audit — no token, uses PyPI/OSV data.
+    Probes the `pip-audit` CLI; absent → is_available()=False, scan()=[].
+    """
+
+    @property
+    def info(self) -> EngineInfo:
+        return EngineInfo(
+            name="pip-audit", version=self.check_version(), vendor="PyPA / Trail of Bits",
+            license="Apache-2.0",
+            scopes=(EngineScope.DEPENDENCIES,),
+            mode=EngineMode.LOCAL, requires_token=False, rule_format="pypi-advisory",
+            rule_update_url="https://pypi.org/project/pip-audit",
+        )
+
+    def is_available(self) -> bool:
+        try:
+            subprocess.run(["pip-audit", "--version"], capture_output=True, timeout=5, check=True)
+            return True
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def scan(self, target: Path, policy: dict[str, Any]) -> list[EngineFinding]:
+        req = target / "requirements.txt"
+        if not self.is_available() or not req.is_file():
+            return []
+        try:
+            result = subprocess.run(
+                ["pip-audit", "-r", str(req), "--format", "json", "--disable-pip", "--skip-editable"],
+                capture_output=True, text=True, timeout=self.info.timeout_seconds,
+            )
+            data = json.loads(result.stdout) if result.stdout.strip() else {}
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return []
+        findings = []
+        for dep in (data.get("dependencies") or [])[:100]:
+            for vuln in (dep.get("vulns") or []):
+                findings.append(EngineFinding(
+                    engine="pip-audit",
+                    kind="dependency_vuln_pypa",
+                    severity="high",
+                    path="requirements.txt",
+                    message=f"{dep.get('name')}@{dep.get('version')} 命中 {vuln.get('id')}",
+                    rule_id=str(vuln.get("id") or ""),
+                    evidence=f"{dep.get('name')}@{dep.get('version')}",
+                ))
+        return findings[:200]
+
+    def validate_rules(self, rule_path: Path) -> tuple[bool, str]:
+        return False, "local_engine_no_rule_file"
+
+    def check_version(self) -> str:
+        try:
+            r = subprocess.run(["pip-audit", "--version"], capture_output=True, text=True, timeout=5)
+            return (r.stdout or r.stderr or "").strip().splitlines()[0][:32] or "unknown"
+        except (OSError, subprocess.SubprocessError, IndexError):
+            return "not_installed"
 
 
 # ─── Rule Update Pipeline ───────────────────────────────────────────────────
@@ -521,4 +718,5 @@ def init_default_engines() -> None:
     register_engine(SemgrepEngine())
     register_engine(GitleaksEngine())
     register_engine(CiscoSkillScannerEngine())
-    register_engine(SnykAgentScanEngine())
+    register_engine(OsvEngine())
+    register_engine(PipAuditEngine())

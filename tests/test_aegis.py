@@ -1562,4 +1562,28 @@ class AegisTests(unittest.TestCase):
                 self.assertEqual(rows3[("prompt_override","skill")][6],2)
                 self.assertEqual(rows3[("prompt_override","skill")][4],1)  # medium
 
+    def test_engine_framework_token_free_upstreams_graceful_degradation(self):
+        # 上游去 token 化 + 诚实降级：注册表无 requires_token 引擎；snyk 已移除；
+        # cisco/pip-audit 无二进制时 scan 返回 []（不伪造）；osv 无 manifest 时返回 []。
+        # 注意：dataclass 注解解析需要模块先登记进 sys.modules，故此处不用共享 load()。
+        import importlib.util as _ilu, sys as _sys
+        spec=_ilu.spec_from_file_location('engines_fw',DOWNLOADS/'aegis_engine_framework.py')
+        eng=_ilu.module_from_spec(spec); _sys.modules['engines_fw']=eng; spec.loader.exec_module(eng)
+        eng.init_default_engines()
+        names={e.info.name for e in eng._ENGINES.values()}
+        self.assertNotIn('snyk-agent-scan',names)
+        self.assertIn('osv-sca',names); self.assertIn('pip-audit',names); self.assertIn('cisco-skill-scanner',names)
+        for e in eng._ENGINES.values():
+            self.assertFalse(e.info.requires_token, f"{e.info.name} 不应需要 token")
+        with tempfile.TemporaryDirectory() as d:
+            empty=Path(d)
+            cisco=eng.CiscoSkillScannerEngine(); pip=eng.PipAuditEngine(); osv=eng.OsvEngine()
+            self.assertEqual(cisco.scan(empty,{}),[])
+            self.assertEqual(pip.scan(empty,{}),[])
+            self.assertEqual(osv.scan(empty,{}),[])   # 无 manifest → 不查网络、返回 []
+            self.assertTrue(osv.is_available())        # 公开 API 无需凭据
+            # cisco 适配器：无上游二进制时诚实不可用
+            if shutil.which('skill-scanner') is None:
+                self.assertFalse(cisco.is_available())
+
 if __name__=='__main__': unittest.main()
