@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { requireAdmin, requireAuditor, getSession } from '@/lib/auth';
 import { logAudit } from '@/lib/store';
 import { pgGetSettings, pgSetSetting } from '@/lib/pg-store';
+import { recordPipelineEvent } from '@/lib/pipeline-telemetry';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +51,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
+  const t0 = Date.now();
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -79,8 +81,20 @@ export async function POST(request: Request) {
       cache: 'no-store',
       signal: AbortSignal.timeout(8000),
     });
-    if (!r.ok) return json({ error: 'collector_push_failed', status: r.status }, 502);
+    if (!r.ok) {
+      void recordPipelineEvent({
+        pipeline: 'enterprise-md-publish', source: 'console',
+        stages: [{ name: '结构验证', ok: true }, { name: '灰度配置', ok: true }, { name: '推送 Collector', ok: false, detail: `http ${r.status}` }],
+        ok: false, latencyMs: Date.now() - t0, actor: getSession(request)?.subject ?? 'admin', detail: 'collector_push_failed',
+      }).catch(() => {});
+      return json({ error: 'collector_push_failed', status: r.status }, 502);
+    }
   } catch {
+    void recordPipelineEvent({
+      pipeline: 'enterprise-md-publish', source: 'console',
+      stages: [{ name: '结构验证', ok: true }, { name: '灰度配置', ok: true }, { name: '推送 Collector', ok: false, detail: 'unreachable' }],
+      ok: false, latencyMs: Date.now() - t0, actor: getSession(request)?.subject ?? 'admin', detail: 'collector_unreachable',
+    }).catch(() => {});
     return json({ error: 'collector_unreachable' }, 502);
   }
 
@@ -90,6 +104,11 @@ export async function POST(request: Request) {
     resource_type: 'policy',
     detail: `发布企业级 MD v${version} 灰度=${rollout.mode}${rollout.mode === 'percent' ? `:${rollout.percent}%` : ''}${rollout.mode === 'department' ? `:${(rollout.departments ?? []).join(',')}` : ''}`,
   });
+  void recordPipelineEvent({
+    pipeline: 'enterprise-md-publish', source: 'console',
+    stages: [{ name: '结构验证', ok: true }, { name: '灰度配置', ok: true, detail: rollout.mode }, { name: '推送 Collector', ok: true }],
+    ok: true, latencyMs: Date.now() - t0, actor: getSession(request)?.subject ?? 'admin', detail: `v${version}`,
+  }).catch(() => {});
   return json({ ok: true, version, rollout });
 }
 

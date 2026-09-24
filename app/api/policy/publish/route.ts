@@ -7,6 +7,7 @@ import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelea
 import { moduleOverrides } from '@/lib/modules';
 import { exemptDevices, pinnedDevices } from '@/lib/exempt';
 import { getRollout } from '@/lib/rollout';
+import { recordPipelineEvent } from '@/lib/pipeline-telemetry';
 
 export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
   const session = getSession(request);
+  const t0 = Date.now();
   let body: Record<string, unknown> = {};
   try {
     body = await request.json();
@@ -130,6 +132,20 @@ export async function POST(request: Request) {
     resource_id: `v${rel.version}`,
     detail: `发布签名策略 v${rel.version}（key=${rel.signing_key_id}）：allow=${rel.receipt.label_counts.allow} monitor=${rel.receipt.label_counts.monitor} deny=${rel.receipt.label_counts.deny}${blastNote}${note ? ` note=${note}` : ''}`,
   });
+  // 管道遥测：策略发布 = 结构验证 → 签名 → 发布（真实门禁结果，非样例）。
+  void recordPipelineEvent({
+    pipeline: 'policy-publish',
+    source: 'console',
+    stages: [
+      { name: '结构验证', ok: true, detail: `scan_mode=${scanMode}` },
+      { name: '签名', ok: true, detail: `key=${rel.signing_key_id}` },
+      { name: '发布', ok: true, detail: `v${rel.version}` },
+    ],
+    ok: true,
+    latencyMs: Date.now() - t0,
+    actor: session?.subject ?? 'console',
+    detail: `v${rel.version} allow=${rel.receipt.label_counts.allow} deny=${rel.receipt.label_counts.deny}`,
+  }).catch(() => {});
 
   return NextResponse.json(
     {

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Check, Cpu, Inbox, RefreshCw, Zap } from 'lucide-react';
 import { ObservabilityPanel } from '@/components/observability-panel';
 import { DetectionCoveragePanel } from '@/components/detection-coverage-panel';
@@ -39,9 +40,42 @@ const SCOPE_LABELS: Record<string, string> = {
 // 规则更新管道的门禁阶段——这是管道「设计流程」的说明图（概念），非实时管道活动数据。
 const GATES = ['许可证兼容', 'SHA-256 哈希', '结构验证', '回归测试'];
 
+interface PipelineEvent {
+  ts: number;
+  pipeline: string;
+  source: string;
+  stages: Array<{ name: string; ok: boolean; detail?: string }>;
+  ok: boolean;
+  latency_ms: number;
+  actor: string;
+  detail: string;
+}
+
+const PIPELINE_LABEL: Record<string, string> = {
+  'policy-publish': '签名策略发布',
+  'baseline-sync': '上游基线同步',
+  'enterprise-md-publish': '企业级 MD 发布',
+};
+
 export default function EnginesPage() {
   const builtinCount = ENGINES.filter((e) => e.builtin).length;
   const pendingCount = ENGINES.filter((e) => !e.builtin).length;
+  const [telemetry, setTelemetry] = useState<{ connected: boolean; events: PipelineEvent[] } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/pipeline/telemetry', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ connected: boolean; events: PipelineEvent[] }>) : null))
+      .then((d) => {
+        if (alive) setTelemetry(d ?? { connected: false, events: [] });
+      })
+      .catch(() => {
+        if (alive) setTelemetry({ connected: false, events: [] });
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   return (
     <>
@@ -122,8 +156,8 @@ export default function EnginesPage() {
             <p>规则更新的门禁流程（设计说明）：隔离区 → 许可证 → 哈希 → 结构 → 回归 → 发布</p>
           </div>
           <Badge variant="outline">
-            <span className="demo-dot" />
-            遥测未接入
+            <span className={telemetry?.connected ? 'live-dot' : 'demo-dot'} />
+            {telemetry?.connected ? '遥测已接入' : '遥测未接入'}
           </Badge>
         </div>
 
@@ -143,16 +177,68 @@ export default function EnginesPage() {
           </span>
         </div>
 
-        {/* Honest empty state — no fabricated pipeline activity (red line: 绝不伪造数据) */}
-        <div className="empty-detail" style={{ minHeight: 140 }}>
-          <Inbox size={32} />
-          <h2>管道遥测未接入</h2>
-          <p>
-            规则更新管道尚未接入后端遥测。
-            <br />
-            此处不展示任何虚构的管道活动样例；接入真实遥测后，会呈现真实的隔离→发布流水与规则集版本。
-          </p>
-        </div>
+        {/* 真实管道活动（策略发布/基线同步/企业 MD 发布）；无活动时诚实空态，绝不伪造 */}
+        {telemetry?.connected && telemetry.events.length > 0 ? (
+          <table className="sentinel-table">
+            <thead>
+              <tr>
+                <th>管道</th>
+                <th>门禁阶段</th>
+                <th>结果</th>
+                <th>耗时</th>
+                <th>操作人</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              {telemetry.events.map((ev, i) => (
+                <tr key={`${ev.ts}-${i}`}>
+                  <td style={{ fontSize: 12 }}>
+                    {PIPELINE_LABEL[ev.pipeline] ?? ev.pipeline}
+                    <div style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>{ev.detail}</div>
+                  </td>
+                  <td>
+                    <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {ev.stages.map((s) => (
+                        <span
+                          key={s.name}
+                          title={s.detail ?? ''}
+                          style={{
+                            fontSize: 9,
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            background: s.ok ? 'rgba(40,230,160,0.12)' : 'rgba(240,82,93,0.12)',
+                            color: s.ok ? 'var(--sentinel-accent)' : 'var(--sentinel-danger)',
+                          }}
+                        >
+                          {s.ok ? '✓' : '✗'} {s.name}
+                        </span>
+                      ))}
+                    </span>
+                  </td>
+                  <td>
+                    <i className={ev.ok ? 'pass' : 'fail'} style={{ fontSize: 10 }}>{ev.ok ? '成功' : '失败'}</i>
+                  </td>
+                  <td style={{ fontFamily: 'var(--sentinel-font-mono)', fontSize: 11 }}>{ev.latency_ms}ms</td>
+                  <td style={{ fontSize: 11 }}>{ev.actor}</td>
+                  <td style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+                    {new Date(ev.ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <div className="empty-detail" style={{ minHeight: 140 }}>
+            <Inbox size={32} />
+            <h2>{telemetry?.connected ? '暂无管道活动' : '管道遥测未接入'}</h2>
+            <p>
+              {telemetry?.connected
+                ? '尚未发生策略发布 / 基线同步 / 企业 MD 发布；发生后此处呈现真实门禁流水。'
+                : '规则更新管道尚未接入后端遥测（或未配置持久化）。此处不展示任何虚构的管道活动样例。'}
+            </p>
+          </div>
+        )}
       </div>
     </>
   );

@@ -541,3 +541,40 @@ export function pgUpsertSigningKey(row: SigningKeyRow): void {
     ),
   );
 }
+
+/* ─── 规则更新管道遥测（pipeline_events，append-only）──────────────────────
+ * 真实管道活动：策略发布 / 基线同步 / 企业 MD 发布在各自路由里跑门禁并记录
+ * 每阶段 ok/fail + 耗时；无 PG 时 record 静默 no-op、load 返回 null（诚实空态）。 */
+export interface PipelineEventRow {
+  id?: number;
+  ts: number;
+  pipeline: string;
+  source: string;
+  stages: string; // JSON: [{name,ok,detail?}]
+  ok: boolean;
+  latency_ms: number;
+  actor: string;
+  detail: string;
+}
+
+const PIPELINE_DDL = `CREATE TABLE IF NOT EXISTS pipeline_events(
+  id BIGSERIAL PRIMARY KEY, ts BIGINT NOT NULL, pipeline TEXT NOT NULL, source TEXT NOT NULL,
+  stages TEXT NOT NULL, ok BOOLEAN NOT NULL, latency_ms INTEGER NOT NULL, actor TEXT NOT NULL, detail TEXT NOT NULL)`;
+
+export async function pgInsertPipelineEvent(e: PipelineEventRow): Promise<void> {
+  await withClient('pipeline-ddl', (c) => c.query(PIPELINE_DDL));
+  scheduleWrite('insertPipelineEvent', (c) =>
+    c.query(
+      'INSERT INTO pipeline_events(ts,pipeline,source,stages,ok,latency_ms,actor,detail) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      [e.ts, e.pipeline, e.source, e.stages, e.ok, e.latency_ms, e.actor, e.detail],
+    ),
+  );
+}
+
+export async function pgLoadPipelineEvents(limit = 20): Promise<PipelineEventRow[] | null> {
+  await withClient('pipeline-ddl', (c) => c.query(PIPELINE_DDL));
+  const r = await withClient('loadPipelineEvents', (c) =>
+    c.query('SELECT id,ts,pipeline,source,stages,ok,latency_ms,actor,detail FROM pipeline_events ORDER BY id DESC LIMIT $1', [limit]),
+  );
+  return r.ok ? (r.value.rows as PipelineEventRow[]) : null;
+}
