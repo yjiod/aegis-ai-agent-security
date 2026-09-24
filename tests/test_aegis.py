@@ -1652,6 +1652,17 @@ class AegisTests(unittest.TestCase):
         dal_src = open("lib/default-allowlist.ts", encoding="utf-8").read()
         self.assertIn("marketSkills", dal_src, "preset must include market groups")
         self.assertIn("OPTIONAL_REVIEW_GROUPS", dal_src)
+        # 2026-09-24 追加口径: 主流 Agent(Codex/Claude Code/Cursor/Qwen/DeepSeek/豆包…)
+        # 内置市场技能全量预置 —— 大清单独立文件, 必须被 default-allowlist 合并。
+        self.assertIn("MAINSTREAM_MARKET_SKILLS", dal_src, "must merge mainstream market skills")
+        self.assertIn("DEFAULT_MARKETPLACE_SKILLS", dal_src)
+        mms_src = open("lib/mainstream-market-skills.ts", encoding="utf-8").read()
+        self.assertIn('"figma-design-to-code"', mms_src, "Codex marketplace skills must be preset")
+        self.assertIn("'node_repl'", dal_src, "fleet MCP must be preset")
+        # 演练/自测夹具绝不允许进预置(否则 drill/e2e 全部失效)
+        for fixture in ("aegis-drill-fixture", "bulk-drill-1", "aegis-ban-drill",
+                        "aegis-enforce-selftest", "exempt-drill"):
+            self.assertNotIn(f'"{fixture}"', mms_src, f"drill fixture {fixture} must NOT be preset")
         pol_src = open("lib/policy.ts", encoding="utf-8").read()
         self.assertIn(".filter((s) => !denySkills.has(s))", pol_src, "deny must be filtered from allowed_skills")
         self.assertIn(".filter((s) => !denyMcp.has(s))", pol_src, "deny must be filtered from allowed_mcp_servers")

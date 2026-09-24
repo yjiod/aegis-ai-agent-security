@@ -13,6 +13,8 @@
  * 已有人工处置（含 deny）的条目**不覆盖**——人工封禁优先于预置白名单在写入层即保证。
  */
 
+import { MAINSTREAM_MARKET_SKILLS } from './mainstream-market-skills';
+
 /** 第 1) 类：各 AI Agent 原生核心 skill（自动加白）。 */
 export const DEFAULT_BUNDLED_SKILLS: string[] = [
   // QwenWork（千问办公）默认内置 skill（当前版本）
@@ -21,12 +23,26 @@ export const DEFAULT_BUNDLED_SKILLS: string[] = [
   'html-markdown', 'mini-program-dev', 'ai-dev-tools',
 ];
 
-/** 第 1) 类：各 AI Agent 原生/内置 MCP（自动加白）。命名约定 `<agent>-built-in`。 */
+/**
+ * 第 1b) 类：主流 Agent 内置市场技能全量预置（Codex 市场 / Claude Code 插件 /
+ * superpowers 系 / QwenWork 技能库社区技能），来源=真实舰队上报清单，
+ * 见 lib/mainstream-market-skills.ts（2026-09-24，541 项）。
+ */
+export const DEFAULT_MARKETPLACE_SKILLS: string[] = MAINSTREAM_MARKET_SKILLS;
+
+/**
+ * 第 1) 类：各 AI Agent 原生/内置 MCP（自动加白）。
+ * `<agent>-built-in` 为 Agent 内置工具集命名约定；node_repl/cua_repl/computer-use
+ * 为舰队真实上报的 Codex 内置 MCP server 名（生产 Collector 全量报告提取）。
+ */
 export const DEFAULT_BUNDLED_MCP: string[] = [
   'qw-builtin', // QwenWork lazy-loading 内置工具集
   'cursor-built-in', 'codex-built-in', 'claude-code-built-in', 'codebuddy-built-in',
   'windsurf-built-in', 'gemini-built-in', 'github-copilot-built-in', 'lingma-built-in',
   'workbuddy-built-in',
+  'doubao-built-in', 'deepseek-built-in', 'trae-built-in', 'qwen-built-in',
+  // 舰队实测内置 MCP server（Codex 等原生命名，非市场安装）
+  'node_repl', 'cua_repl', 'computer-use',
 ];
 
 /**
@@ -67,13 +83,24 @@ export interface DefaultAllowEntry {
   asset_key: string;
 }
 
-/** 展开为处置注册表条目（disposition=allow 由调用方设置）。仅含第 1) 类原生核心。 */
+/** 展开为处置注册表条目（disposition=allow 由调用方设置）。含原生核心 + 内置市场全量。 */
 export function defaultBundledEntries(): DefaultAllowEntry[] {
-  // 绝对要求 #4（2026-09-24）：内置 + 内置市场（专家团/连接器/社区商店）全量预置允许。
+  // 绝对要求 #4（2026-09-24）：内置 + 内置市场（专家团/连接器/社区商店/主流 Agent
+  // 市场技能）全量预置允许；跨组可能重名（如 QwenWork 技能同时出现在核心与市场组），
+  // 用 Set 去重保证单一条目。
   const marketSkills = Object.values(OPTIONAL_REVIEW_GROUPS).flat();
-  return [
-    ...DEFAULT_BUNDLED_SKILLS.map((k) => ({ asset_type: 'skill' as const, asset_key: k })),
-    ...marketSkills.map((k) => ({ asset_type: 'skill' as const, asset_key: k })),
-    ...DEFAULT_BUNDLED_MCP.map((k) => ({ asset_type: 'mcp' as const, asset_key: k })),
-  ];
+  const allSkills = [...DEFAULT_BUNDLED_SKILLS, ...DEFAULT_MARKETPLACE_SKILLS, ...marketSkills];
+  const seen = new Set<string>();
+  const entries: DefaultAllowEntry[] = [];
+  for (const k of allSkills) {
+    if (seen.has(k)) continue;
+    seen.add(k);
+    entries.push({ asset_type: 'skill', asset_key: k });
+  }
+  for (const k of DEFAULT_BUNDLED_MCP) {
+    if (seen.has(`mcp:${k}`)) continue;
+    seen.add(`mcp:${k}`);
+    entries.push({ asset_type: 'mcp', asset_key: k });
+  }
+  return entries;
 }
