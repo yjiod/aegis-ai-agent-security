@@ -1915,6 +1915,8 @@ def main():
             elif reporting: token=reporting["report_token"]; signing=reporting["signing_secret"]
             else: token=os.getenv("AEGIS_REPORT_TOKEN",""); signing=None
             spool=Path(args.spool_dir) if args.spool_dir else (Path(args.output).parent/"spool" if args.output else Path.home()/".aegis-agent/spool")
+            # 离线队列上限：签名策略 limits.offline_queue_max 优先（控制台全局配置下发），回落 env/默认。
+            spool_cap=(policy.get("limits") or {}).get("offline_queue_max") if isinstance(policy,dict) else None
             status_path=(Path(args.output).parent if args.output else spool.parent)/"upload-status.json"
             try: flush_spool(spool,args.report_url,token,signing); post_report(args.report_url,token,report,signing); write_upload_status(status_path,args.report_url)
             except Exception as exc:
@@ -1923,9 +1925,9 @@ def main():
                 if refreshed is not None:
                     enrollment=refreshed
                     try: post_report(args.report_url,refreshed["report_token"],report,refreshed["signing_secret"]); write_upload_status(status_path,args.report_url)
-                    except Exception: queue_report(spool,report); print("report upload failed after re-enroll; queued locally",file=sys.stderr)
+                    except Exception: queue_report(spool,report,spool_cap); print("report upload failed after re-enroll; queued locally",file=sys.stderr)
                 else:
-                    queue_report(spool,report); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)
+                    queue_report(spool,report,spool_cap); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)
         print(data)
         if not args.watch: return 2 if report["summary"]["critical"] or report["summary"]["high"] else 0
         # 高频封禁 tick: 把睡眠切成 ENFORCE_TICK_SECONDS 段, 段间做轻量封禁对账,
