@@ -21,7 +21,7 @@
  * 配置（PG settings `remediation_json`）：{enabled, auto_deny, notify}，默认全开
  * （用户要求"全自动纠偏"；可在设置页关闭）。
  */
-import { ensureLabelsLoaded, listLabels, setLabel, findingAsset, type AssetLabel, type AssetType } from '@/lib/labels';
+import { ensureLabelsLoaded, listLabels, setLabelInMemory, persistLabelsDurable, findingAsset, type AssetLabel, type AssetType } from '@/lib/labels';
 import { getSetting } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
 import { getAlertConfig } from '@/lib/alerting';
@@ -243,15 +243,37 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
   let publishBlocked: string | undefined;
 
   if (cfg.auto_deny && decision.denies.length > 0) {
-    for (const d of decision.denies) {
-      setLabel({
+    // 持久化优先（2026-09-25 事故修复）：deny 先批量落库（单事务、可等待），
+    // 落库失败绝不进入发布——绝不带着半套标签签发策略。
+    const denyRows: AssetLabel[] = decision.denies.map((d) =>
+      setLabelInMemory({
         asset_type: d.asset_type,
         asset_key: d.asset_key,
         disposition: 'deny',
         tags: ['auto-remediated'],
         note: `自动纠偏：${d.kind}(${d.severity})`,
         updated_by: actor,
+      }),
+    );
+    try {
+      await persistLabelsDurable(denyRows);
+    } catch (e) {
+      logAudit({
+        actor,
+        action: 'remediation:auto_sweep',
+        resource_type: 'policy',
+        detail: `deny 落库失败，本轮不发布：${e instanceof Error ? e.message : String(e)}`,
       });
+      return {
+        ran: true,
+        findings: findings.length,
+        denied: [],
+        conflicts: decision.conflicts,
+        notified: 0,
+        publish_blocked: `deny 落库失败（${e instanceof Error ? e.message : String(e)}）——已放弃自动发布，等待下轮重试`,
+      };
+    }
+    for (const d of decision.denies) {
       denied.push({ asset_type: d.asset_type, asset_key: d.asset_key });
     }
     // 自动发布（永不 override；超闸降级人工）

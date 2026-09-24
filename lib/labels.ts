@@ -15,6 +15,7 @@ import {
   pgEnabled,
   pgLoadLabels,
   pgUpsertLabel,
+  pgUpsertLabelsBatch,
   pgDeleteLabel,
   type AssetLabelRow,
 } from './pg-store';
@@ -158,8 +159,8 @@ export interface SetLabelInput {
   updated_by: string;
 }
 
-/** 设置/更新某资产的标签与处置；写穿透到 PG。 */
-export function setLabel(input: SetLabelInput): AssetLabel {
+/** 构造标签记录并写入内存（不触发 PG 调度写；供批量持久化路径收集）。 */
+export function setLabelInMemory(input: SetLabelInput): AssetLabel {
   const m = store();
   const k = mapKey(input.asset_type, input.asset_key);
   const prev = m.get(k);
@@ -173,6 +174,12 @@ export function setLabel(input: SetLabelInput): AssetLabel {
     updated_at: Date.now(),
   };
   m.set(k, rec);
+  return rec;
+}
+
+/** 设置/更新某资产的标签与处置；写穿透到 PG。 */
+export function setLabel(input: SetLabelInput): AssetLabel {
+  const rec = setLabelInMemory(input);
   pgUpsertLabel({
     asset_type: rec.asset_type,
     asset_key: rec.asset_key,
@@ -183,6 +190,27 @@ export function setLabel(input: SetLabelInput): AssetLabel {
     updated_at: rec.updated_at,
   });
   return rec;
+}
+
+/**
+ * 批量持久化标签（可等待、单事务，失败抛错）。种子/自动纠偏等"发布前置数据"
+ * 必须走本函数（生产事故 2026-09-25：fire-and-forget 批量写静默丢 291 条，
+ * 导致签名策略 v37 的 allowed 名单误瘦身；详见 pgUpsertLabelsBatch 注释）。
+ */
+export async function persistLabelsDurable(labels: AssetLabel[]): Promise<number> {
+  if (labels.length === 0) return 0;
+  if (!pgEnabled()) return labels.length; // 非 PG 模式（dev/文件存储）无持久化需求
+  return pgUpsertLabelsBatch(
+    labels.map((rec) => ({
+      asset_type: rec.asset_type,
+      asset_key: rec.asset_key,
+      tags: JSON.stringify(rec.tags),
+      disposition: rec.disposition,
+      note: rec.note,
+      updated_by: rec.updated_by,
+      updated_at: rec.updated_at,
+    })),
+  );
 }
 
 /** 移除某资产的标签/处置记录；写穿透到 PG。 */

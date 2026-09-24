@@ -1467,8 +1467,8 @@ class AegisTests(unittest.TestCase):
 
     def test_secret_path_aware_severity(self):
         # 测试/夹具路径的 hardcoded_secret 降为 medium（仍上报），生产代码路径保持 critical。
-        pol=dict(self.policy); pol["secret_patterns"]=["AKIA[0-9A-Z]{16}"]
-        secret_text='const key = "AKIAABCDEFGHIJKLMNOP";'
+        pol=dict(self.policy); pol["secret_patterns"]=["XXKEY[0-9A-Z]{16}"]
+        secret_text='const key = "XXKEYABCDEFGHIJKLMNOP";'
         crit=self.agent.scan_text("/repo/src/service.ts", secret_text, pol)
         self.assertEqual([f["severity"] for f in crit if f["kind"]=="hardcoded_secret"], ["critical"])
         for tp in ("/repo/tests/helper.ts", "/repo/src/service.test.ts", "/repo/specs/x.ts", "/repo/fixtures/y.ts", "/repo/src/_test_util.ts"):
@@ -1643,6 +1643,22 @@ class AegisTests(unittest.TestCase):
         self.assertEqual(st,"scan_timeout")
         self.assertLess(_t.time()-t0,10)  # 父进程在 budget+grace 内返回，不永久阻塞
 
+
+    def test_label_bulk_writes_are_durable(self):
+        """生产事故回归(2026-09-25): 批量标签写必须走可等待的持久化路径
+        (persistLabelsDurable/pgUpsertLabelsBatch 单事务), 禁止 fire-and-forget
+        scheduleWrite 批量种子——曾静默丢 291 条导致策略 allow 误瘦身。"""
+        seed_src = open("app/api/labels/seed-defaults/route.ts", encoding="utf-8").read()
+        self.assertIn("persistLabelsDurable", seed_src, "seed must await durable batch persist")
+        self.assertNotIn("setLabel({", seed_src, "seed must not use fire-and-forget setLabel")
+        ar_src = open("lib/auto-remediation.ts", encoding="utf-8").read()
+        self.assertIn("persistLabelsDurable", ar_src, "auto-remediation denies must persist durably")
+        # 持久化失败必须中止发布(先落库后 publish 的顺序)
+        self.assertLess(ar_src.index("persistLabelsDurable"), ar_src.index("publishPolicyRelease("),
+                        "deny persist must happen before policy publish")
+        pg_src = open("lib/pg-store.ts", encoding="utf-8").read()
+        self.assertIn("BEGIN", pg_src)
+        self.assertIn("pgUpsertLabelsBatch", pg_src)
 
     def test_openapi_parity(self):
         """绝对要求 #2(预留全量 API): app/api 每个路由的每个导出 HTTP 方法必须在

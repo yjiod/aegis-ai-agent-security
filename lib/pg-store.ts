@@ -266,6 +266,38 @@ export function pgUpsertLabel(row: AssetLabelRow): void {
   );
 }
 
+/**
+ * 批量持久化标签（可等待、单连接单事务）。
+ * 生产事故（2026-09-25）：seed-defaults 一次 501 条走 scheduleWrite(after) fire-and-forget，
+ * ~291 条静默丢失 → 重启后 allow 从 594 缩到 300，策略 v37 误瘦身。批量种子/自动纠偏
+ * 这类"发布前置数据"必须走本函数并 await：写失败即抛错，绝不带着半套数据发策略。
+ */
+export async function pgUpsertLabelsBatch(rows: AssetLabelRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const r = await withClient('upsertLabelsBatch', async (c) => {
+    let n = 0;
+    try {
+      await c.query('BEGIN');
+      for (const row of rows) {
+        await c.query(
+          `INSERT INTO asset_labels(asset_type,asset_key,tags,disposition,note,updated_by,updated_at)
+           VALUES($1,$2,$3,$4,$5,$6,$7)
+           ON CONFLICT(asset_type,asset_key) DO UPDATE SET tags=$3,disposition=$4,note=$5,updated_by=$6,updated_at=$7`,
+          [row.asset_type, row.asset_key, row.tags, row.disposition, row.note, row.updated_by, row.updated_at],
+        );
+        n += 1;
+      }
+      await c.query('COMMIT');
+    } catch (e) {
+      await c.query('ROLLBACK').catch(() => {});
+      throw e;
+    }
+    return n;
+  });
+  if (!r.ok) throw new Error('upsertLabelsBatch failed: ' + String(r.error ?? ''));
+  return r.value;
+}
+
 export function pgDeleteLabel(assetType: string, assetKey: string): void {
   scheduleWrite('deleteLabel', (c) =>
     c.query('DELETE FROM asset_labels WHERE asset_type=$1 AND asset_key=$2', [assetType, assetKey]),
