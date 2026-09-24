@@ -1604,6 +1604,34 @@ class AegisTests(unittest.TestCase):
         f6=self.agent.scan_mcp_server(Path("mcp.json"),"peer-agent",{"url":"https://agent.example.com:9000/a2a","headers":{"Authorization":"Bearer x"}},pol)
         self.assertFalse(any(x["kind"]=="unauthenticated_agent_channel" for x in f6))
 
+    def test_signed_policy_without_hmac_ring_uses_out_of_band_ed25519_pub(self):
+        # 终端无对称验签环是正常态：带 signature 的策略须用带外 ed25519 公钥(env/缓存)验签；
+        # 无带外公钥 fail-closed（真机事故：无环终端每周期 SystemExit 停报→误判过期）。
+        import os as _os
+        pol={"schema":"aegis.policy/v1","version":"9.9.9","signature":"x","signing_key_id":"k1",
+             "limits":{},"enforcement":{},"allowed_skills":[],"allowed_mcp_transports":[],"allowed_mcp_servers":[],
+             "allowed_mcp_commands":[],"allowed_mcp_command_paths":[],"allowed_mcp_invocations":[],
+             "allowed_mcp_domains":[],"blocked_commands":[],"secret_patterns":[],"skill_rules":[],
+             "mcp_rules":[],"code_rules":[],"scan_mode":"standard","agent_self_update":{"enabled":False},
+             "custom_baseline_rules":[],"monitor_notes":{},"modules":{},"deny":{"skills":[],"mcp":[]}}
+        import tempfile as _tf, json as _json, pathlib as _pl
+        with _tf.TemporaryDirectory() as d:
+            p=_pl.Path(d)/"p.json"; p.write_text(_json.dumps(pol))
+            _os.environ["AEGIS_POLICY_ED25519_PUBLIC"]="ZmFrZS1wdWJsaWMta2V5"
+            try:
+                orig=self.agent._verify_ed25519_with_pub
+                self.agent._verify_ed25519_with_pub=lambda data,pub: True
+                got,err=self.agent.reload_policy(str(p))
+                self.assertIsNotNone(got); self.assertFalse(err)
+                self.agent._verify_ed25519_with_pub=lambda data,pub: False
+                got2,err2=self.agent.reload_policy(str(p))
+                self.assertIsNone(got2); self.assertTrue(err2)  # 验签失败拒绝
+            finally:
+                self.agent._verify_ed25519_with_pub=orig
+                _os.environ.pop("AEGIS_POLICY_ED25519_PUBLIC",None)
+            got3,err3=self.agent.reload_policy(str(p))
+            self.assertIsNone(got3); self.assertTrue(err3)  # 无带外公钥 fail-closed
+
     def test_watchdog_run_scan_cycle_timeout_does_not_wedge_parent(self):
         # 看门狗：正常子进程返回 ok；超预算子进程被 kill 进程组后返回 scan_timeout，
         # 父进程不被阻塞（真机事故：kill-then-wait 被不可中断子进程楔住 → 全终端停报）。

@@ -172,12 +172,39 @@ def verify_policy_ed25519(data):
         return False
     body = {k: v for k, v in data.items() if k not in ("ed25519_signature", "ed25519_public", "ed25519_key_id")}
     return ed25519_verify(pub_b, canonical_json(body).encode("utf-8"), sig_b)
+def _cached_ed25519_public():
+    """安装期/入网期缓存的控制台 ed25519 公钥（base64，公开信息，644 可读即可）。"""
+    for cand in (BASE_DIR/"ed25519-public.b64", Path(os.path.expanduser("~"))/".aegis-agent"/"ed25519-public.b64"):
+        try:
+            v=cand.read_text(encoding="utf-8").strip()
+            if v: return v
+        except OSError:
+            continue
+    return ""
+def _verify_ed25519_with_pub(data,pub):
+    sig=data.get("ed25519_signature")
+    if not (isinstance(sig,str) and sig): return False
+    try:
+        pub_b=base64.b64decode(pub); sig_b=base64.b64decode(sig)
+    except Exception:
+        return False
+    body={k:v for k,v in data.items() if k not in ("ed25519_signature","ed25519_public","ed25519_key_id")}
+    return ed25519_verify(pub_b, canonical_json(body).encode("utf-8"), sig_b)
 def load_policy(path,verify_key=None,require_signature=False):
     data=json.loads(Path(path).read_text())
     data=validate_policy(data)
     if "signature" in data:
         ring={"default":verify_key} if verify_key else policy_verify_keyring()
-        if not ring: raise ValueError("policy_signed_but_no_verify_key")
+        if not ring:
+            # HMAC 验签环缺失是终端的**正常状态**（对称密钥绝不下发终端）。回落非对称通道：
+            # ed25519 公钥必须来自带外可信源（env AEGIS_POLICY_ED25519_PUBLIC 或安装期缓存文件），
+            # 绝不把策略体自携公钥单独当信任根；两者皆无则 fail-closed（保持防篡改强度）。
+            # 真机事故(2026-09-24): 控制台开始签发带 signature 字段的策略后，无验签环的终端
+            # 每周期 SystemExit("valid Aegis policy is required") → 停止上报 → 控制台误判"过期"。
+            pub=os.getenv("AEGIS_POLICY_ED25519_PUBLIC","").strip() or _cached_ed25519_public()
+            if not pub: raise ValueError("policy_signed_but_no_verify_key")
+            if not _verify_ed25519_with_pub(data,pub): raise ValueError("policy_ed25519_invalid")
+            return data
         if not verify_policy_signature(data,ring): raise ValueError("policy_signature_invalid")
     elif require_signature:
         # fail-closed：要求已签名时，缺签名字段即拒绝——防止能写本地策略文件的攻击者
@@ -1562,7 +1589,7 @@ def add_report_finding(report,item):
     if len(report["findings"])<REPORT_FINDING_LIMIT: report["findings"].append(item)
     else: report["findings"][-1]=item
     report["summary"]={severity:sum(f["severity"]==severity for f in report["findings"]) for severity in ["critical","high","medium","low"]}
-AGENT_VERSION = "0.37.1"
+AGENT_VERSION = "0.37.2"
 
 # 上报被拒(401/403=凭据失效或被吊销)时的一次自愈：重新入网刷新每设备凭据。
 # 限每进程 10 分钟一次，避免凭据故障时打爆入网端点；仅 --auto-enroll 模式可用
