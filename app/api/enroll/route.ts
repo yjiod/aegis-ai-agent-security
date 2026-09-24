@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ensurePgHydrated, logAudit } from '@/lib/store';
-import { ensurePolicyReleasesLoaded, currentPolicyRelease } from '@/lib/policy';
+import { ensurePolicyReleasesLoaded, currentPolicyRelease, ed25519VerifyKeyInfo } from '@/lib/policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -145,13 +145,14 @@ export async function POST(request: Request) {
     // 去签名的已发布策略体：终端 require_signature=false 经 TLS 信任加载，不暴露签名/验签密钥。
     payload.policy = rel.policy;
     payload.policy_version = rel.policy.version;
-    // 带外信任锚：控制台 ed25519 公钥（公开信息）。安装器据此写 ed25519-public.b64 缓存，
-    // 使终端在"策略带 signature 但无 HMAC 验签环"的正常态下可非对称验签（防 2026-09-24 停报事故复发）。
-    const rp = rel.policy as unknown as Record<string, unknown>;
-    if (typeof rp.ed25519_public === 'string' && rp.ed25519_public) {
-      payload.ed25519_public = rp.ed25519_public;
-      payload.ed25519_key_id = rp.ed25519_key_id ?? '';
-    }
+  }
+  // 带外信任锚：控制台 ed25519 公钥（公开信息，同 /api/policy/verify-key 源）。
+  // 真机修复: 发布存储的 policy 体不带 ed25519 字段(ed 仅在下发工件时附加), 此前从
+  // rel.policy 读恒为空 → 安装器从未拿到信任锚。改从密钥派生函数直接取, 与 verify-key 同源。
+  const keyInfo = await ed25519VerifyKeyInfo().catch(() => null);
+  if (keyInfo) {
+    payload.ed25519_public = keyInfo.public;
+    payload.ed25519_key_id = keyInfo.key_id;
   }
 
   logAudit({
