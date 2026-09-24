@@ -5,7 +5,7 @@
 #   -Server  https://<控制台>          必填(仓库副本为占位域且拒绝运行; 控制台副本已注入真实 origin)
 #   -MsiUrl  <url>                    覆盖 msi 下载地址
 #   -MsiPath <本地msi路径>             跳过下载
-#   -WaitSeconds <秒>                 等待 SYSTEM 安装任务的上限, 默认 120
+#   -WaitSeconds <秒>                 等待 SYSTEM 安装任务的上限, 默认 300
 # 流程: 提权自检 → 旧版残留清理(卸载 BUG F 绕过 + 破空 DACL BUG H) → 下载 msi →
 #       msiexec /qn 装文件(BUG G: 服务不建) → SYSTEM 补跑安装脚本(建服务+入网+ACL) → 验收
 # 注意: 本脚本须以 UTF-8 BOM 保存(PS 5.1 zh-CN 无 BOM 会把中文嚼碎致语法错误, D0)。
@@ -13,7 +13,7 @@ param(
   [string]$Server = 'https://aegis.example.com',
   [string]$MsiUrl = '',
   [string]$MsiPath = '',
-  [int]$WaitSeconds = 120
+  [int]$WaitSeconds = 300
 )
 $ErrorActionPreference = 'Stop'
 $Server = $Server.TrimEnd('/')
@@ -92,22 +92,35 @@ cmd /c "schtasks /Delete /TN AegisOneClick /F >nul 2>nul"
 cmd /c "schtasks /Create /TN AegisOneClick /SC ONCE /ST 00:00 /RU SYSTEM /F /TR $tr >nul 2>nul"
 cmd /c "schtasks /Run /TN AegisOneClick >nul 2>nul"
 Log '已触发 SYSTEM 安装任务, 等待完成...'
+# 真机事故修复: 只看 schtasks Last Result 会 (a) 任务未启动时读到上次/初始的 0 误判,
+# (b) 120s 不够(入网3次重试+服务重建+等 Running 最坏 ~3 分钟) → 白等后报失败,
+# 而任务其实稍后成功(控制台显示已是新版)。改为**结果驱动**:
+#   成功判据 = 服务 Running 且 install.log 尾部出现完成标记; schtasks 非0非运行码只作提前失败信号;
+#   超时只代表"尚未确认", 明确告知用户任务可能仍在后台进行。
 $ok = $false
+$failed = $false
 $elapsed = 0
+$ilog = Join-Path $env:ProgramData 'AegisAgent\install.log'
 for ($i = 0; $i -lt $WaitSeconds; $i += 5) {
   Start-Sleep -Seconds 5
   $elapsed += 5
-  # 每 15s 打一行进度: 此前等待期完全静默, 真机用户误以为脚本卡死(实际 SYSTEM 任务
-  # 入网+建服务本身要 1~2 分钟)。有输出才看得出"活着"。
   if ($elapsed % 15 -eq 0) { Log ("等待 SYSTEM 安装任务... {0}s / {1}s" -f $elapsed, $WaitSeconds) }
   $q = (cmd /c "schtasks /Query /TN AegisOneClick /V /FO LIST 2>nul") -join "`n"
   if ($q -match 'Last Result[^:]*:\s*(\d+)') {
     $code = [int]$Matches[1]
-    if ($code -eq 0) { $ok = $true; Log ('SYSTEM 安装任务完成(耗时约 {0}s)' -f $elapsed); break }
-    if ($code -ne 267011) { Log ('SYSTEM 任务退出码 ' + $code + ' (非0即失败, 267011=仍在运行)'); break }
+    if ($code -ne 0 -and $code -ne 267011) { Log ('SYSTEM 任务退出码 ' + $code + ' (非0, 判定失败)'); $failed = $true; break }
+  }
+  # 结果驱动: 服务 Running + 日志完成标记 → 成功(不再仅依赖任务返回码)
+  $svc = Get-Service -Name 'AegisAgent' -ErrorAction SilentlyContinue
+  if ($svc -and $svc.Status -eq 'Running' -and (Test-Path $ilog)) {
+    $tail = (Get-Content -Encoding UTF8 $ilog -Tail 5 -ErrorAction SilentlyContinue) -join "`n"
+    if ($tail -match '安装完成') { $ok = $true; Log ('确认安装完成: 服务 Running + 日志完成标记(耗时约 {0}s)' -f $elapsed); break }
   }
 }
 cmd /c "schtasks /Delete /TN AegisOneClick /F >nul 2>nul"
+if ($ok) { Log 'SYSTEM 安装任务结果已确认成功' }
+elseif ($failed) { Log 'SYSTEM 安装任务失败; 查看安装日志: %ProgramData%\AegisAgent\install.log' }
+else { Log ('等待 ' + $WaitSeconds + 's 未见完成标记, 但任务可能仍在后台运行(服务重建+首报需数分钟)。稍候 2~3 分钟后刷新控制台确认版本; 若仍未更新, 重跑本脚本或查 install.log。') }
 if (-not $ok) { Log 'SYSTEM 安装任务未在时限内成功; 可重跑本脚本或按 Issue#2 恢复手册排查' }
 
 # 5) 验收
