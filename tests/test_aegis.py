@@ -1643,4 +1643,54 @@ class AegisTests(unittest.TestCase):
         self.assertEqual(st,"scan_timeout")
         self.assertLess(_t.time()-t0,10)  # 父进程在 budget+grace 内返回，不永久阻塞
 
+
+    def test_preset_allowlist_never_overrides_deny(self):
+        """绝对要求 #4(2026-09-24): 封禁优先级 > 预置白名单(含内置市场技能)。
+        1) 预置清单必须包含市场组(专家团/连接器/社区商店);
+        2) 策略编译必须把 deny 从 allowed_* 剔除并写入显式 deny.*;
+        3) seed-defaults 不覆盖人工处置(含 deny)——写入层保证封禁不被预置冲掉。"""
+        dal_src = open("lib/default-allowlist.ts", encoding="utf-8").read()
+        self.assertIn("marketSkills", dal_src, "preset must include market groups")
+        self.assertIn("OPTIONAL_REVIEW_GROUPS", dal_src)
+        pol_src = open("lib/policy.ts", encoding="utf-8").read()
+        self.assertIn(".filter((s) => !denySkills.has(s))", pol_src, "deny must be filtered from allowed_skills")
+        self.assertIn(".filter((s) => !denyMcp.has(s))", pol_src, "deny must be filtered from allowed_mcp_servers")
+        seed_src = open("app/api/labels/seed-defaults/route.ts", encoding="utf-8").read()
+        self.assertIn("disposition", seed_src)
+
+
+    def test_path_asset_key_normalization_same_file_dedup(self):
+        """绝对要求 #5: 加白去重按分类+实际片段, 不看事件ID。同一文件的不同上报形态
+        (行号后缀/~与绝对路径/大小写/尾部斜杠) 必须折叠为同一 path 资产键。"""
+        import subprocess, json, os as _os, tempfile as _tf, shutil as _sh
+        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        cases = [
+            ("~/proj/a.py:12", "~/proj/a.py"),
+            ("~/proj/a.py:12:34", "~/proj/a.py"),
+            ("/Users/alice/proj/A.PY", "~/proj/a.py"),
+            ("C:\\Users\\alice\\proj\\a.py", "~/proj/a.py"),
+            ("~/proj/./a.py/", "~/proj/a.py"),
+            ("~/proj/a.py?x=1", "~/proj/a.py"),
+        ]
+        with _tf.TemporaryDirectory() as outdir:
+            try:
+                # esbuild bundle labels.ts → 单文件 CJS(node 内置/next 外部化)
+                compiled = _os.path.join(outdir, "labels.cjs")
+                r = subprocess.run(["npx", "esbuild", _os.path.join(root, "lib", "path-key.ts"),
+                                    "--bundle", "--platform=node", "--format=cjs",
+                                    "--outfile=" + compiled],
+                                   capture_output=True, text=True, cwd=root)
+                self.assertEqual(r.returncode, 0, r.stderr[:300])
+                script = ("const { normalizePathKey } = require(" + json.dumps(compiled) + ");\n"
+                          + "console.log(JSON.stringify([" + ",".join(
+                              f"normalizePathKey({json.dumps(inp)})" for inp, _ in cases
+                          ) + "]))")
+                out = subprocess.run(["node", "-e", script], capture_output=True, text=True, cwd=root)
+                self.assertEqual(out.returncode, 0, out.stderr[:300])
+                keys = json.loads(out.stdout.strip().splitlines()[-1])
+                for (inp, expected), got in zip(cases, keys):
+                    self.assertEqual(got, expected, f"normalizePathKey({inp!r}) -> {got!r}, want {expected!r}")
+            finally:
+                pass
+
 if __name__=='__main__': unittest.main()

@@ -10,6 +10,7 @@
  *   'monitor'观察：不阻断，持续上报行为供复查
  *   'deny'   拉黑：加入阻断名单，终端拦截并告警
  */
+import { normalizePathKey } from './path-key';
 import {
   pgEnabled,
   pgLoadLabels,
@@ -125,13 +126,22 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
     if (nm && nm[1]) return { asset_type: 'mcp', asset_key: nm[1].trim() };
   }
   // path(代码路径)：非 skill/mcp 的文件路径类发现（hardcoded_secret / insecure_tls 等代码质量项）。
-  // 此前这类发现 findingAsset 返回 null → 既无法加白抑制，"去处置"深链接又把路径当 skill 资产
-  // 提交、被 /api/labels 以"路径型 key"拒绝(HTTP 400)——处置链路对代码质量发现是断的(重大bug)。
   // 引入 path 资产类型后，可按路径加白/观察/拉黑以抑制该路径上的发现（FP 处置通道）。
   // 注意：path 仅在 skill/mcp 均判不出时回落，绝不抢占显式/派生的 skill·mcp 身份。
-  if (path) return { asset_type: 'path', asset_key: path.trim() };
+  //
+  // 归一化（绝对要求 #5, 2026-09-24）：同分类+同实际片段视为同一资产——事件 ID/行号/盘符
+  // 大小写/用户主目录前缀（~ 与 绝对路径）/尾部斜杠的差异不得产生不同的资产键，否则
+  // 加白后同文件的新发现（ID 不同）仍会重复告警。归一化规则：
+  //   1. 统一分隔符为 /（已在上文 f.path 处理）；
+  //   2. 丢弃行号/列号后缀（:123、:12:34）与查询串（?...）；
+  //   3. 大小写不敏感（Windows 盘符/路径大小写不定）→ 小写化；
+  //   4. 用户主目录前缀折叠为 ~（~/x 与 /Users/<u>/x 与 C:\Users\<u>\x 同键）；
+  //   5. 折叠尾部斜杠与 ./ 前缀。
+  if (path) return { asset_type: 'path', asset_key: normalizePathKey(path) };
   return null;
 }
+
+
 
 /** 该 finding 是否命中加白资产（应被抑制/自动消除）。 */
 export function isFindingAllowed(f: FindingLike, allowed: Set<string>): boolean {

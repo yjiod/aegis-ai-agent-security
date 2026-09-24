@@ -1,17 +1,16 @@
 /**
- * 默认自带白名单（default-bundled allowlist）—— 按用户最新口径分两类：
+ * 默认自带白名单（default-bundled allowlist）—— 2026-09-24 用户口径（绝对要求 #4）：
  *
- * 1) **原生核心（自动加白进库）**：每种 AI Agent 默认自带、开箱即用的 skill / MCP
- *    （workbuddy、cursor、codex、千问办公/QwenWork 等）。录入处置注册表
- *    disposition=allow，随签名策略发布为 allowed_skills / allowed_mcp_servers，
- *    终端不再对它们产生 unknown_skill / unknown_mcp 发现。
+ * **主流 AI Agent 的内置 skill、内置 MCP、内置市场技能（含 workbuddy 专家团/技能）
+ * 全量预置允许**——包括原生核心、连接器、专家套件、社区商店技能。
  *
- * 2) **可选项（不自动加白，由管理员手工决策）**：技能库 / 专家套件 / 连接器 /
- *    社区商店技能。见 OPTIONAL_REVIEW_GROUPS（仅作文档与处置中心参考，不进入
- *    defaultBundledEntries()，因此不会被自动加白）。管理员在处置中心逐项
- *    allow / monitor / deny 后才生效。
+ * 优先级（编译进签名策略时强制保证，见 lib/policy.ts computePolicyBody）：
+ *   自定义封禁(deny) > 预置白名单(preset allow) — deny 项会从 allowed_* 中剔除并进入
+ *   显式 deny.* 隔离名单，终端执行器据此隔离 Skill / 移除 MCP。
+ *   即：预置允许绝不能压制人工封禁；管理员 deny 一个预置技能即刻生效。
  *
- * 控制台「录入默认自带白名单」只写入第 1) 类；第 2) 类保持待审查，交用户拍板。
+ * 控制台「录入默认自带白名单」写入全部预置项（disposition=allow, tags=default-bundled）；
+ * 已有人工处置（含 deny）的条目**不覆盖**——人工封禁优先于预置白名单在写入层即保证。
  */
 
 /** 第 1) 类：各 AI Agent 原生核心 skill（自动加白）。 */
@@ -70,8 +69,11 @@ export interface DefaultAllowEntry {
 
 /** 展开为处置注册表条目（disposition=allow 由调用方设置）。仅含第 1) 类原生核心。 */
 export function defaultBundledEntries(): DefaultAllowEntry[] {
+  // 绝对要求 #4（2026-09-24）：内置 + 内置市场（专家团/连接器/社区商店）全量预置允许。
+  const marketSkills = Object.values(OPTIONAL_REVIEW_GROUPS).flat();
   return [
     ...DEFAULT_BUNDLED_SKILLS.map((k) => ({ asset_type: 'skill' as const, asset_key: k })),
+    ...marketSkills.map((k) => ({ asset_type: 'skill' as const, asset_key: k })),
     ...DEFAULT_BUNDLED_MCP.map((k) => ({ asset_type: 'mcp' as const, asset_key: k })),
   ];
 }
