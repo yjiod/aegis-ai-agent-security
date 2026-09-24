@@ -36,9 +36,22 @@ interface CurrentPolicy {
 export function DetectionCoveragePanel() {
   const [current, setCurrent] = useState<CurrentPolicy | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // fleet 级 per-rule 命中（/api/findings/rule-stats）：把"覆盖"与"活跃"合一屏。
+  const [ruleStats, setRuleStats] = useState<{
+    connected?: boolean;
+    rule_stats?: Array<{ rule_id: string; total: number; critical: number; high: number }>;
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
+    fetch('/api/findings/rule-stats', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ connected?: boolean; rule_stats?: Array<{ rule_id: string; total: number; critical: number; high: number }> }>) : null))
+      .then((d) => {
+        if (alive) setRuleStats(d ?? null);
+      })
+      .catch(() => {
+        if (alive) setRuleStats(null);
+      });
     fetch('/api/policy/current', { cache: 'no-store' })
       .then((r) => (r.ok ? (r.json() as Promise<CurrentPolicy>) : null))
       .then((d) => {
@@ -64,13 +77,33 @@ export function DetectionCoveragePanel() {
     };
   }, [current]);
 
+  const hitByRule = useMemo(() => {
+    const m = new Map<string, { total: number; critHigh: number }>();
+    if (ruleStats?.connected && Array.isArray(ruleStats.rule_stats)) {
+      for (const r of ruleStats.rule_stats) {
+        m.set(r.rule_id, { total: r.total, critHigh: r.critical + r.high });
+      }
+    }
+    return m;
+  }, [ruleStats]);
+  const fleetAvailable = Boolean(ruleStats?.connected);
+
   const rows = useMemo(
     () =>
       TECHNIQUES.map((t) => {
         const covering = t.rules.flatMap((r) => r.ids.filter((id) => enabled[r.set].has(id)).map((id) => ({ set: r.set, id })));
-        return { ...t, covering, covered: covering.length > 0 };
+        let hits = 0;
+        let hitsCritHigh = 0;
+        for (const r of t.rules) for (const id of r.ids) {
+          const h = hitByRule.get(id);
+          if (h) {
+            hits += h.total;
+            hitsCritHigh += h.critHigh;
+          }
+        }
+        return { ...t, covering, covered: covering.length > 0, hits, hitsCritHigh };
       }),
-    [enabled],
+    [enabled, hitByRule],
   );
 
   const coveredCount = rows.filter((r) => r.covered).length;
@@ -104,18 +137,20 @@ export function DetectionCoveragePanel() {
       <div style={{ padding: '0 16px 8px', display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted-foreground)' }}>
         <span>启用规则：Skill {enabled.skill.size} · MCP {enabled.mcp.size} · 代码 {enabled.code.size}</span>
         {customCount > 0 && <span>· 自定义基线规则 {customCount}</span>}
+        <span>· fleet 命中：{fleetAvailable ? 'Collector 增量聚合（全量）' : '暂不可用（旧 Collector 无聚合端点）'}</span>
         {!loaded && <span>· 加载已发布策略…</span>}
       </div>
 
       <div className="data-table" style={{ margin: '0 16px 16px', width: 'auto' }}>
-        <div className="data-head" style={{ gridTemplateColumns: '120px 1.4fr 2fr 90px' }}>
+        <div className="data-head" style={{ gridTemplateColumns: '120px 1.3fr 1.8fr 110px 90px' }}>
           <span>技战法</span>
           <span>名称</span>
           <span>覆盖规则</span>
+          <span>fleet 命中</span>
           <span>状态</span>
         </div>
         {rows.map((t) => (
-          <div className="data-row" key={t.id} style={{ gridTemplateColumns: '120px 1.4fr 2fr 90px' }}>
+          <div className="data-row" key={t.id} style={{ gridTemplateColumns: '120px 1.3fr 1.8fr 110px 90px' }}>
             <span style={{ fontFamily: 'var(--sentinel-font-mono)', fontSize: 11 }}>{t.id}</span>
             <span style={{ fontSize: 12 }}>{t.name}</span>
             <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -127,6 +162,18 @@ export function DetectionCoveragePanel() {
                 ))
               ) : (
                 <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>当前规则集未覆盖</span>
+              )}
+            </span>
+            <span style={{ fontFamily: 'var(--sentinel-font-mono)', fontSize: 11 }}>
+              {fleetAvailable ? (
+                <>
+                  {t.hits}
+                  {t.hitsCritHigh > 0 && (
+                    <span style={{ color: 'var(--sentinel-danger)' }}>（严重/高危 {t.hitsCritHigh}）</span>
+                  )}
+                </>
+              ) : (
+                <span style={{ color: 'var(--muted-foreground)' }}>—</span>
               )}
             </span>
             <span>
