@@ -116,7 +116,7 @@ export default function LoginPage() {
       <div className="animate-entrance" style={{ width: '100%', maxWidth: 380 }}>
         {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: 'rgba(40, 230, 160, 0.10)', border: '1px solid rgba(40, 230, 160, 0.38)', display: 'grid', placeItems: 'center', boxShadow: '0 0 32px rgba(40, 230, 160, 0.14)' }}>
+          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: 'var(--sentinel-surface-2, #0d202c)', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', display: 'grid', placeItems: 'center' }}>
             <ShieldCheck size={28} color="#28e6a0" />
           </div>
           <h1 style={{ fontSize: 22, color: 'var(--sentinel-text, #edf7fb)', letterSpacing: '-0.02em', margin: '0 0 6px' }}>Aegis 安全控制台</h1>
@@ -129,7 +129,7 @@ export default function LoginPage() {
             <Button
               type="button"
               onClick={() => { window.location.href = oidc.url; }}
-              style={{ width: '100%', height: 42, background: 'rgba(40, 230, 160, 0.10)', border: '1px solid rgba(40, 230, 160, 0.42)', color: 'var(--sentinel-accent, #28e6a0)' }}
+              style={{ width: '100%', height: 42, background: 'var(--sentinel-surface-2, #0d202c)', border: '1px solid var(--sentinel-line-strong, rgba(111,221,239,0.44))', color: 'var(--sentinel-text, #edf7fb)' }}
             >
               <KeyRound size={16} /> {oidc.label}
             </Button>
