@@ -56,6 +56,8 @@ def db_open(path):
         # refresh_rule_stats 按水位线增量推进，不在上报写路径执行。
         db.execute("CREATE TABLE IF NOT EXISTS rule_stats(rule_id TEXT NOT NULL,category TEXT NOT NULL,critical INTEGER NOT NULL DEFAULT 0,high INTEGER NOT NULL DEFAULT 0,medium INTEGER NOT NULL DEFAULT 0,low INTEGER NOT NULL DEFAULT 0,total INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(rule_id,category))")
         db.execute("CREATE TABLE IF NOT EXISTS stats_watermark(id INTEGER PRIMARY KEY CHECK(id=1),last_report_id INTEGER NOT NULL)")
+        # 运行时配置覆盖（控制台「全局配置」写入）：保留期/审计保留/审计封顶等，优先于 env。
+        db.execute("CREATE TABLE IF NOT EXISTS runtime_config(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)")
         if db.execute("PRAGMA user_version").fetchone()[0] < 3:
             db.execute("PRAGMA user_version=3")
             db.commit()
@@ -283,6 +285,22 @@ def audit_prune_interval(value=None):
     raw=os.getenv("AEGIS_AUDIT_PRUNE_INTERVAL_SECONDS","3600") if value is None else value
     try: return min(max(int(raw),1),86400)
     except (TypeError,ValueError): return 3600
+def runtime_config_get(db,key,default=None):
+    """运行时配置覆盖（控制台写入）；无覆盖返回 default。"""
+    try: row=db.execute("SELECT value FROM runtime_config WHERE key=?",(key,)).fetchone()
+    except sqlite3.Error: return default
+    return row[0] if row else default
+def runtime_config_set(db,key,value):
+    db.execute("INSERT INTO runtime_config(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",(key,str(value),int(time.time())))
+    db.commit()
+RUNTIME_CONFIG_KEYS={"retention_days":(1,3650),"audit_retention_days":(1,3650),"audit_max_events":(1000,1000000)}
+def runtime_config_snapshot(db):
+    out={}
+    for key,(lo,hi) in RUNTIME_CONFIG_KEYS.items():
+        ov=runtime_config_get(db,key)
+        getter={"retention_days":retention_days,"audit_retention_days":audit_retention_days,"audit_max_events":audit_max_events}[key]
+        out[key]={"value":getter(ov),"override":ov is not None,"min":lo,"max":hi}
+    return out
 # P1-1：/v1/findings/aggregate 单页发现条数硬上限（按设备原子纳入，超限则停在上一台并给游标）。
 # 与 limit(每页设备数≤1000) 双重设防，杜绝单页巨响应打爆控制台 worker 内存。
 MAX_AGGREGATE_FINDINGS=20000
@@ -314,10 +332,12 @@ class RateLimiter:
             if len(queue)>=self.limit: return False,max(1,int(self.window-(now-queue[0])+0.999))
             queue.append(now); return True,0
 def store_report(db_path,body,report,now=None,days=None,credential_generation=None,egress_ip=None):
-    now=int(time.time()) if now is None else now; days=retention_days(days)
+    now=int(time.time()) if now is None else now
     severity="critical" if report["summary"].get("critical",0) else "high" if report["summary"].get("high",0) else "normal"
     canonical=json.dumps(report,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); digest=hashlib.sha256(canonical).hexdigest(); receipt_id=hashlib.sha256(body).hexdigest()[:20]
     with db_open(db_path) as db:
+        # 保留期：显式参数 > 运行时配置覆盖（控制台全局配置）> env 默认。
+        days=retention_days(days if days is not None else runtime_config_get(db,"retention_days"))
         db.execute("DELETE FROM reports WHERE received_at < ?",(now-days*86400,))
         cursor=db.execute("INSERT OR IGNORE INTO reports(report_hash,device_id,received_at,severity,body,agent_version,policy_version,egress_ip) VALUES(?,?,?,?,?,?,?,?)",(digest,report["device_id"],now,severity,canonical.decode(),report.get("agent_version"),report.get("policy_version"),egress_ip)); duplicate=cursor.rowcount==0
         if not duplicate:
@@ -334,7 +354,9 @@ def store_report(db_path,body,report,now=None,days=None,credential_generation=No
         generation="legacy" if credential_generation is None else "g"+str(int(credential_generation)); db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",("report_duplicate" if duplicate else "report_accepted",now,report["device_id"],digest[:20]+":"+severity+":"+generation)); maybe_prune_audit(db,now); db.commit()
     return {"accepted":True,"duplicate":duplicate,"report_id":receipt_id,"severity":severity}
 def prune_audit(db,now=None,days=None,max_events=None):
-    now=int(time.time()) if now is None else int(now); days=audit_retention_days(days); max_events=audit_max_events(max_events)
+    now=int(time.time()) if now is None else int(now)
+    days=audit_retention_days(days if days is not None else runtime_config_get(db,"audit_retention_days"))
+    max_events=audit_max_events(max_events if max_events is not None else runtime_config_get(db,"audit_max_events"))
     db.execute("DELETE FROM audit_events WHERE occurred_at < ?",(now-days*86400,))
     db.execute("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY id DESC LIMIT ?)",(max_events,))
 # 30k 规模修复(P0-1)：审计封顶 DELETE 含 `id NOT IN (SELECT id ... ORDER BY id DESC LIMIT 100000)`
@@ -699,6 +721,12 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
             audit_event(self.server.db_path,"rule_stats_read",detail=str(meta["processed"])+":"+("complete" if meta["complete"] else "partial"))
             return self.reply(200,{"generated_at":int(time.time()),"complete":meta["complete"],"processed":meta["processed"],"last_report_id":meta["last_report_id"],"rule_stats":[{"rule_id":r[0],"category":r[1],"critical":r[2],"high":r[3],"medium":r[4],"low":r[5],"total":r[6]} for r in rows]})
+        if parsed.path=="/v1/config" and not parsed.query:
+            # 运行时配置快照（管理令牌）：保留期/审计保留/审计封顶，含是否被控制台覆盖。
+            try:
+                with db_open(self.server.db_path) as db: snap=runtime_config_snapshot(db)
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            return self.reply(200,{"generated_at":int(time.time()),"config":snap})
         if parsed.path=="/v1/summary" and not parsed.query:
             try:
                 summary=collector_summary(self.server.db_path); audit_event(self.server.db_path,"summary_read",detail=str(summary["total_devices"])); return self.reply(200,summary)
@@ -718,6 +746,28 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
+        # 控制台「全局配置」写入运行时配置覆盖（仅管理令牌）：保留期/审计保留/审计封顶。
+        if self.path=="/v1/config":
+            if not self.authorized(): return self.reply(401,{"error":"unauthorized"})
+            try: length=int(self.headers.get("Content-Length","0"))
+            except ValueError: return self.reply(400,{"error":"invalid_size"})
+            if length<2 or length>65536: return self.reply(413,{"error":"invalid_size"})
+            try: payload=json.loads(self.rfile.read(length))
+            except (json.JSONDecodeError,UnicodeDecodeError,RecursionError,ValueError): return self.reply(400,{"error":"invalid_json"})
+            if not isinstance(payload,dict): return self.reply(400,{"error":"invalid_body"})
+            unknown=set(payload)-set(RUNTIME_CONFIG_KEYS)
+            if unknown: return self.reply(400,{"error":"invalid_keys","details":sorted(unknown)})
+            for key,value in payload.items():
+                if isinstance(value,bool) or not isinstance(value,int): return self.reply(400,{"error":"invalid_value","details":[key]})
+                lo,hi=RUNTIME_CONFIG_KEYS[key]
+                if not lo<=value<=hi: return self.reply(400,{"error":"out_of_range","details":[f"{key}:{lo}-{hi}"]})
+            try:
+                with db_open(self.server.db_path) as db:
+                    for key,value in payload.items(): runtime_config_set(db,key,value)
+                    snap=runtime_config_snapshot(db)
+            except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
+            audit_event(self.server.db_path,"collector_config_update",detail=",".join(f"{k}={v}" for k,v in payload.items()))
+            return self.reply(200,{"ok":True,"config":snap})
         # 控制台发布企业级 MD → 推送至此（仅管理令牌）；终端经 GET /v1/enterprise-baseline 按灰度拉取。
         if self.path=="/v1/enterprise-baseline":
             if not self.authorized(): return self.reply(401,{"error":"unauthorized"})

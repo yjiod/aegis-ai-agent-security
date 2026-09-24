@@ -18,20 +18,9 @@ import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
  *   仅作只读说明展示（值来自当前部署约定，不可在此修改）。
  *
  * 真正可写的全局设置（扫描模式、上游基线地址）在「基线管理」页，走 /api/settings。
+ * 全局配置面板（GlobalConfigPanel）已接入真实后端：保留期/审计保留/审计封顶走
+ * Collector /v1/config 运行时覆盖；通知渠道/自动更新/离线队列读取真实状态。
  */
-type SettingRow =
-  | { name: string; desc: string; type: 'status' }
-  | { name: string; desc: string; type: 'text'; value: string; live: boolean }
-  | { name: string; desc: string; type: 'switch'; value: boolean; live: boolean };
-
-const settings: SettingRow[] = [
-  { name: 'Collector 连接', desc: '报告接收器地址与认证令牌', type: 'status' },
-  { name: '数据保留期', desc: '报告与风险事件保留天数', type: 'text', value: '90 天', live: false },
-  { name: '通知渠道', desc: '高危事件推送方式', type: 'text', value: '邮件 + Webhook', live: false },
-  { name: '自动更新', desc: 'Agent 版本自动升级策略（灰度 → 全量）', type: 'switch', value: true, live: false },
-  { name: '审计日志', desc: '控制台操作记录，保留 180 天', type: 'switch', value: true, live: false },
-  { name: '离线队列上限', desc: '终端离线时报告暂存最大条数', type: 'text', value: '500 条', live: false },
-];
 
 export default function SettingsPage() {
   const { collectorState } = useCollector();
@@ -42,71 +31,214 @@ export default function SettingsPage() {
         <div>
           <p className="eyebrow">管理 / 系统设置</p>
           <h1>系统设置</h1>
-          <p>Collector 连接为实时状态；其余为当前部署约定的只读说明（后端设置 API 未接入）。</p>
+          <p>Collector 连接为实时状态；保留期 / 审计保留 / 审计封顶可读写 Collector 运行时配置，其余项读取真实状态。</p>
         </div>
         <div className="head-actions">
-          <Button disabled title="后端设置 API 未接入，本页暂不可写">
+          <Button disabled title="全局配置已接入：保留期/审计保留/审计封顶在「全局配置」各行内保存；扫描模式与上游基线在「基线管理」">
             <Settings size={16} />
-            保存设置
+            行内保存
           </Button>
         </div>
       </div>
 
       <ObservabilityPanel />
 
-      <div className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>全局配置</h2>
-            <p>标「未接入」的项为只读展示，修改需接入后端设置 API</p>
-          </div>
-        </div>
-        {settings.map((setting) => {
-          if (setting.type === 'switch') {
-            return (
-              <div className="setting-row" key={setting.name}>
-                <div>
-                  <strong>{setting.name}</strong>
-                  <span>{setting.desc}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {!setting.live && <NotConnected />}
-                  <button
-                    className={`switch ${setting.value ? 'on' : ''}`}
-                    disabled
-                    title="后端设置 API 未接入，暂不可切换"
-                    aria-label={`${setting.name}（未接入，不可切换）`}
-                  >
-                    <span />
-                  </button>
-                </div>
-              </div>
-            );
-          }
-          return (
-            <div className="setting-row" key={setting.name}>
-              <div>
-                <strong>{setting.name}</strong>
-                <span>{setting.desc}</span>
-              </div>
-              {setting.type === 'status' ? (
-                <span className="system-ok">
-                  <span className={collectorState === 'live' ? 'live-dot' : 'demo-dot'} />
-                  {collectorState === 'live' ? '已连接' : collectorState === 'checking' ? '检测中' : '未连接'}
-                </span>
-              ) : (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {!setting.live && <NotConnected />}
-                  <strong style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>{setting.value}</strong>
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      <GlobalConfigPanel collectorState={collectorState} />
 
       <AlertingPanel />
     </>
+  );
+}
+
+interface CollectorCfgValue {
+  value: number;
+  override: boolean;
+  min: number;
+  max: number;
+}
+
+/**
+ * 全局配置面板（真实接入）：
+ * - 数据保留期 / 审计保留期 / 审计封顶：读写 Collector /v1/config 运行时覆盖（经 /api/settings/retention）。
+ * - 通知渠道：读取告警面板真实 webhook 配置状态（邮件通道需运维在控制台 env 配置 SMTP，未配置如实标注）。
+ * - 自动更新：读取已发布策略的 agent_self_update 与灰度比例（写随签名策略发布生效，此处只读+说明）。
+ * - 离线队列上限：读取已发布策略 limits.offline_queue_max（未随策略下发时如实标「未接入」）。
+ * Collector 不可达时如实显示加载失败，绝不伪造配置值。
+ */
+function GlobalConfigPanel({ collectorState }: { collectorState: string }) {
+  const { role } = useRole();
+  const isAdmin = role === 'admin';
+  const [cfg, setCfg] = useState<Record<string, CollectorCfgValue> | null>(null);
+  const [cfgError, setCfgError] = useState('');
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState('');
+  const [msg, setMsg] = useState('');
+  const [webhook, setWebhook] = useState<string | null>(null);
+  const [policy, setPolicy] = useState<{ agent_self_update?: { enabled?: boolean; rollout_percent?: number }; limits?: Record<string, number> } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/settings/retention', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ config?: Record<string, CollectorCfgValue> }>) : Promise.reject(new Error(String(r.status)))))
+      .then((d) => {
+        if (alive) setCfg(d.config ?? null);
+      })
+      .catch((e) => {
+        if (alive) setCfgError(e instanceof Error ? e.message : 'load_failed');
+      });
+    fetch('/api/settings/alerting', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ config?: { webhook?: string } }>) : null))
+      .then((d) => {
+        if (alive) setWebhook(d?.config?.webhook ?? '');
+      })
+      .catch(() => {
+        if (alive) setWebhook('');
+      });
+    fetch('/api/policy/current', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ policy?: { agent_self_update?: { enabled?: boolean; rollout_percent?: number }; limits?: Record<string, number> } }>) : null))
+      .then((d) => {
+        if (alive) setPolicy(d?.policy ?? null);
+      })
+      .catch(() => {
+        if (alive) setPolicy(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function save(key: string) {
+    const raw = draft[key];
+    const n = Number(raw);
+    if (raw === undefined || raw === '' || !Number.isInteger(n)) {
+      setMsg(`${key} 需为整数`);
+      return;
+    }
+    setSaving(key);
+    setMsg('');
+    try {
+      const r = await fetch('/api/settings/retention', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: n }),
+      });
+      const d = (await r.json().catch(() => ({}))) as { config?: Record<string, CollectorCfgValue>; error?: string };
+      if (r.ok && d.config) {
+        setCfg(d.config);
+        setMsg(`${key} 已保存并在 Collector 生效`);
+      } else {
+        setMsg(`保存失败：${d.error ?? r.status}`);
+      }
+    } catch {
+      setMsg('保存失败：网络错误');
+    }
+    setSaving('');
+  }
+
+  const numRow = (key: string, label: string, desc: string, unit: string) => {
+    const cur = cfg?.[key];
+    const value = draft[key] ?? String(cur?.value ?? '');
+    return (
+      <div className="setting-row" key={key}>
+        <div>
+          <strong>{label}</strong>
+          <span>{desc}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {cfgError && <NotConnected />}
+          <Input
+            value={value}
+            onChange={(e) => setDraft((p) => ({ ...p, [key]: e.target.value.replace(/\D/g, '').slice(0, 7) }))}
+            disabled={!isAdmin || Boolean(cfgError)}
+            style={{ width: 90, textAlign: 'right' }}
+            aria-label={label}
+          />
+          <strong style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>{unit}</strong>
+          {cur && (
+            <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
+              范围 {cur.min}–{cur.max}{cur.override ? ' · 已覆盖' : ' · env 默认'}
+            </span>
+          )}
+          <Button size="sm" onClick={() => void save(key)} disabled={!isAdmin || saving === key || Boolean(cfgError)}>
+            {saving === key ? '保存中…' : '保存'}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <div>
+          <h2>全局配置</h2>
+          <p>保留期 / 审计保留 / 审计封顶实时读写 Collector 运行时配置；其余项读取真实状态</p>
+        </div>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>Collector 连接</strong>
+          <span>报告接收器地址与认证令牌</span>
+        </div>
+        <span className="system-ok">
+          <span className={collectorState === 'live' ? 'live-dot' : 'demo-dot'} />
+          {collectorState === 'live' ? '已连接' : collectorState === 'checking' ? '检测中' : '未连接'}
+        </span>
+      </div>
+      {numRow('retention_days', '数据保留期', '报告与风险事件保留天数', '天')}
+      <div className="setting-row">
+        <div>
+          <strong>通知渠道</strong>
+          <span>高危事件推送方式</span>
+        </div>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+          {webhook === null ? (
+            <NotConnected />
+          ) : webhook ? (
+            <i className="pass" style={{ fontSize: 10 }}>Webhook 已接入</i>
+          ) : (
+            <i className="warn" style={{ fontSize: 10 }}>Webhook 未配置</i>
+          )}
+          <span style={{ color: 'var(--muted-foreground)' }}>在下方「告警推送」面板配置；邮件通道需运维配置 SMTP</span>
+        </span>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>自动更新</strong>
+          <span>Agent 版本自动升级策略（灰度 → 全量）</span>
+        </div>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+          {policy ? (
+            <>
+              <i className={policy.agent_self_update?.enabled ? 'pass' : 'warn'} style={{ fontSize: 10 }}>
+                {policy.agent_self_update?.enabled ? '已启用' : '已停用'}
+              </i>
+              <span style={{ color: 'var(--muted-foreground)' }}>
+                灰度 {policy.agent_self_update?.rollout_percent ?? 0}% · 修改随签名策略发布生效
+              </span>
+            </>
+          ) : (
+            <NotConnected />
+          )}
+        </span>
+      </div>
+      {numRow('audit_retention_days', '审计日志保留', '控制台与 Collector 审计记录保留天数（审计恒启用，基线要求不可关）', '天')}
+      {numRow('audit_max_events', '审计封顶条数', '审计表保留的最大事件条数（超出按最新截断）', '条')}
+      <div className="setting-row">
+        <div>
+          <strong>离线队列上限</strong>
+          <span>终端离线时报告暂存最大条数</span>
+        </div>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+          {policy?.limits?.offline_queue_max ? (
+            <strong style={{ fontSize: 13, color: 'var(--muted-foreground)' }}>{policy.limits.offline_queue_max} 条（随签名策略下发）</strong>
+          ) : (
+            <NotConnected />
+          )}
+        </span>
+      </div>
+      {msg && <p style={{ fontSize: 12, color: 'var(--muted-foreground)', padding: '0 16px 12px' }}>{msg}</p>}
+    </div>
   );
 }
 
