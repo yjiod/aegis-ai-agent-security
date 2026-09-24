@@ -46,6 +46,7 @@ export default function SettingsPage() {
       <GlobalConfigPanel collectorState={collectorState} />
 
       <AlertingPanel />
+      <RemediationPanel />
     </>
   );
 }
@@ -460,6 +461,123 @@ function AlertingPanel() {
         busy={busy}
         onConfirm={() => void confirmTest()}
       />
+    </div>
+  );
+}
+
+/** 自动纠偏配置（真实可写，admin）：绝对要求 #3 的总开关。 */
+function RemediationPanel() {
+  const { role } = useRole();
+  const isAdmin = role === 'admin';
+  const [cfg, setCfg] = useState<{ enabled: boolean; auto_deny: boolean; notify: boolean } | null>(null);
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sweepResult, setSweepResult] = useState<string>('');
+
+  useEffect(() => {
+    fetch('/api/settings/remediation', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ config?: { enabled: boolean; auto_deny: boolean; notify: boolean } }>) : null))
+      .then((d) => setCfg(d?.config ?? null))
+      .catch(() => setCfg(null));
+  }, []);
+
+  async function save() {
+    if (!isAdmin || !cfg) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      const r = await fetch('/api/settings/remediation', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+      });
+      setMsg(r.ok ? '已保存。下一轮自动纠偏（约 5 分钟）即按新配置执行。' : `保存失败：HTTP ${r.status}`);
+    } catch {
+      setMsg('保存失败：网络错误');
+    }
+    setBusy(false);
+  }
+
+  async function sweepNow() {
+    if (!isAdmin) return;
+    setBusy(true);
+    setSweepResult('');
+    try {
+      const r = await fetch('/api/remediation/auto-sweep', { method: 'POST' });
+      const j = (await r.json().catch(() => ({}))) as {
+        ran?: boolean; reason?: string; findings?: number; denied?: Array<{ asset_key: string }>;
+        conflicts?: Array<{ asset_key: string }>; notified?: number; published_version?: number; publish_blocked?: string;
+      };
+      if (!j.ran) setSweepResult(`未执行：${j.reason ?? '未知原因'}`);
+      else setSweepResult(
+        `扫描 ${j.findings ?? 0} 条发现 → 自动封禁 ${(j.denied ?? []).length} 项${(j.denied ?? []).length ? `（${(j.denied ?? []).map((d) => d.asset_key).slice(0, 5).join('、')}${(j.denied ?? []).length > 5 ? '…' : ''}）` : ''}`
+        + `；人工冲突 ${(j.conflicts ?? []).length}；通知 ${j.notified ?? 0}`
+        + (j.published_version ? `；策略已发布 v${j.published_version}` : '')
+        + (j.publish_blocked ? `；发布被拦截：${j.publish_blocked}` : ''),
+      );
+    } catch {
+      setSweepResult('执行失败：网络错误');
+    }
+    setBusy(false);
+  }
+
+  if (!cfg) return null;
+  return (
+    <div className="panel" style={{ marginTop: 16 }}>
+      <div className="panel-head">
+        <div>
+          <h2>自动纠偏（Auto Remediation）</h2>
+          <p>每 5 分钟扫描全量发现：高置信恶意 Skill（隐藏指令/提示词覆盖/凭据访问/上下文投毒， critical|high）与不可信 MCP（critical）自动拉黑并发布策略；人工处置永不覆盖（冲突转人工裁决）；代码质量问题与中低置信信号走通知（webhook 走「告警推送」通道）。自动发布永不使用爆炸半径 override。</p>
+        </div>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>启用自动纠偏</strong>
+          <span>总开关：关闭后后台循环与手动扫描都跳过</span>
+        </div>
+        <button
+          className={`switch ${cfg.enabled ? 'on' : ''}`}
+          disabled={!isAdmin}
+          aria-label="启用自动纠偏"
+          onClick={() => setCfg({ ...cfg, enabled: !cfg.enabled })}
+        >
+          <span />
+        </button>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>自动封禁（deny）</strong>
+          <span>高置信恶意信号自动拉黑并发布；关闭则只通知不封</span>
+        </div>
+        <button
+          className={`switch ${cfg.auto_deny ? 'on' : ''}`}
+          disabled={!isAdmin}
+          aria-label="自动封禁"
+          onClick={() => setCfg({ ...cfg, auto_deny: !cfg.auto_deny })}
+        >
+          <span />
+        </button>
+      </div>
+      <div className="setting-row">
+        <div>
+          <strong>推送通知</strong>
+          <span>封禁结果/人工冲突/待修复项经告警 webhook 推送</span>
+        </div>
+        <button
+          className={`switch ${cfg.notify ? 'on' : ''}`}
+          disabled={!isAdmin}
+          aria-label="纠偏通知"
+          onClick={() => setCfg({ ...cfg, notify: !cfg.notify })}
+        >
+          <span />
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="handle" disabled={!isAdmin || busy} onClick={() => void save()}>保存配置</button>
+        <button className="handle" disabled={!isAdmin || busy} onClick={() => void sweepNow()}>立即执行一轮</button>
+        {msg && <span style={{ fontSize: 12, color: 'var(--primary)' }}>{msg}</span>}
+      </div>
+      {sweepResult && <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '8px 0 0' }}>{sweepResult}</p>}
     </div>
   );
 }

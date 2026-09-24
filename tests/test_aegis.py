@@ -1644,6 +1644,95 @@ class AegisTests(unittest.TestCase):
         self.assertLess(_t.time()-t0,10)  # 父进程在 budget+grace 内返回，不永久阻塞
 
 
+    def test_openapi_parity(self):
+        """绝对要求 #2(预留全量 API): app/api 每个路由的每个导出 HTTP 方法必须在
+        lib/openapi.ts 契约表登记(双向对齐), 外部系统对接以该契约为准。"""
+        import os as _os, re as _re
+        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        # 1) 扫磁盘: 路由 → 方法集合
+        disk = {}
+        api_root = _os.path.join(root, "app", "api")
+        for dirpath, _dirs, files in _os.walk(api_root):
+            if "route.ts" not in files:
+                continue
+            rel = _os.path.relpath(_os.path.join(dirpath, "route.ts"), api_root)
+            path = "/" + rel[:-len("/route.ts")].replace("\\", "/")
+            path = _re.sub(r"\[([^\]]+)\]", r"{\1}", path)
+            src = open(_os.path.join(dirpath, "route.ts"), encoding="utf-8").read()
+            verbs = set(_re.findall(r"export async function (GET|POST|PUT|DELETE|PATCH)\b", src))
+            disk[path] = verbs
+        self.assertTrue(len(disk) >= 50, f"expect >=50 routes, got {len(disk)}")
+        # 2) 扫契约表
+        spec_src = open(_os.path.join(root, "lib", "openapi.ts"), encoding="utf-8").read()
+        spec = {}
+        for m in _re.finditer(r"\['(/[^']*)', \[([^\]]*)\]", spec_src):
+            path = m.group(1).replace("[id]", "{id}")
+            methods = set(_re.findall(r"'(GET|POST|PUT|DELETE|PATCH)'", m.group(2)))
+            spec[path] = methods
+        # 3) 双向对齐
+        missing = {p: v for p, v in disk.items() if p not in spec or v != spec.get(p)}
+        extra = {p: v for p, v in spec.items() if p not in disk}
+        self.assertEqual(missing, {}, f"routes on disk but not (fully) in OpenAPI table: {missing}")
+        self.assertEqual(extra, {}, f"routes in OpenAPI table but not on disk: {extra}")
+        # 4) 预留桩存在且恒 501
+        stub_dir = _os.path.join(root, "app", "api", "integrations")
+        for stub in ("health", "events", "inventory", "subscribe", "remediate"):
+            self.assertTrue(_os.path.isfile(_os.path.join(stub_dir, stub, "route.ts")),
+                            f"reserved stub /api/integrations/{stub} must exist")
+
+    def test_auto_remediation_decision_core(self):
+        """绝对要求 #3(全自动纠偏): 决策核心——高置信恶意 skill 自动 deny、
+        人工处置绝不覆盖(冲突降级通知)、代码质量问题只通知不封、MCP 仅 critical。"""
+        import subprocess, json, tempfile as _tf, os as _os
+        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        with _tf.TemporaryDirectory() as outdir:
+            compiled = _os.path.join(outdir, "ar.cjs")
+            # pg-store 传染 next/server('after')：esbuild 无 loader 可跳过运行时副作用，
+            # 用 alias 打桩成空模块（决策核心只用纯函数 findingAsset/set 逻辑，不触 pg）。
+            stub = _os.path.join(outdir, "stub.cjs")
+            open(stub, "w").write("module.exports = { after: () => {} };\n")
+            r = subprocess.run(["npx", "esbuild", _os.path.join(root, "lib", "auto-remediation.ts"),
+                                "--bundle", "--platform=node", "--format=cjs",
+                                "--alias:next/server=" + stub,
+                                "--outfile=" + compiled],
+                               capture_output=True, text=True, cwd=root)
+            self.assertEqual(r.returncode, 0, r.stderr[:400])
+            script = """
+const { decideRemediation } = require(%s);
+const labels = (arr) => arr.map(([t,k,d]) => ({asset_type:t, asset_key:k, disposition:d, tags:[], note:'', updated_by:'', updated_at:0}));
+const findings = [
+  // 恶意 skill(高置信) → 自动 deny
+  {device_id:'d1', kind:'hidden_instruction', severity:'critical', asset_type:'skill', asset_key:'evil-skill'},
+  // 人工已 allow 的恶意 skill → 冲突, 不覆盖
+  {device_id:'d1', kind:'prompt_override', severity:'high', asset_type:'skill', asset_key:'human-allowed'},
+  // 人工已 deny → 无事可做
+  {device_id:'d1', kind:'credential_access', severity:'high', asset_type:'skill', asset_key:'already-denied'},
+  // 代码质量 → 只通知
+  {device_id:'d2', kind:'dynamic_eval', severity:'high', asset_type:'path', asset_key:'~/x/a.py'},
+  // MCP medium → 不自动封(仅 critical), 归通知
+  {device_id:'d3', kind:'unapproved_mcp_transport', severity:'medium', asset_type:'mcp', asset_key:'weird-mcp'},
+  // MCP critical → 自动 deny
+  {device_id:'d3', kind:'incomplete_mcp_server', severity:'critical', asset_type:'mcp', asset_key:'bad-mcp'},
+  // 恶意 skill 但 medium → 不自动封, 归通知
+  {device_id:'d4', kind:'context_poisoning', severity:'medium', asset_type:'skill', asset_key:'maybe-evil'},
+];
+const d = decideRemediation(findings, labels([
+  ['skill','human-allowed','allow'], ['skill','already-denied','deny'],
+]));
+console.log(JSON.stringify(d));
+""" % json.dumps(compiled)
+            out = subprocess.run(["node", "-e", script], capture_output=True, text=True, cwd=root)
+            self.assertEqual(out.returncode, 0, out.stderr[:400])
+            d = json.loads(out.stdout.strip().splitlines()[-1])
+            deny_keys = sorted(x["asset_key"] for x in d["denies"])
+            self.assertEqual(deny_keys, ["bad-mcp", "evil-skill"], f"auto-deny set wrong: {deny_keys}")
+            self.assertEqual(sorted(x["asset_key"] for x in d["conflicts"]), ["human-allowed"])
+            notify_pairs = sorted((x["kind"], x["device_id"]) for x in d["notifies"])
+            self.assertIn(("dynamic_eval", "d2"), notify_pairs)
+            self.assertIn(("unapproved_mcp_transport", "d3"), notify_pairs)
+            self.assertIn(("context_poisoning", "d4"), notify_pairs)
+            self.assertNotIn(("hidden_instruction", "d1"), notify_pairs)  # 已封, 不再通知
+
     def test_preset_allowlist_never_overrides_deny(self):
         """绝对要求 #4(2026-09-24): 封禁优先级 > 预置白名单(含内置市场技能)。
         1) 预置清单必须包含市场组(专家团/连接器/社区商店);

@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { ensurePgHydrated } from '@/lib/store';
 import { startUpstreamSyncLoop } from '@/lib/baselines';
 import { startIntegrationAlertSync } from '@/lib/integrations';
+import { startAutoRemediationLoop } from '@/lib/auto-remediation';
 import {
   refreshSessionRevocations,
   refreshOperators,
@@ -31,6 +32,7 @@ export async function middleware(request: NextRequest) {
   await refreshDevelopers().catch(() => {});
   startUpstreamSyncLoop();
   startIntegrationAlertSync();
+  startAutoRemediationLoop();
   const { pathname } = request.nextUrl;
 
   // Dev-only component catalog (fabricated data) must never be reachable in prod.
