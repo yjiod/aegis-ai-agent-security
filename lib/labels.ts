@@ -138,7 +138,25 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
   //   3. 大小写不敏感（Windows 盘符/路径大小写不定）→ 小写化；
   //   4. 用户主目录前缀折叠为 ~（~/x 与 /Users/<u>/x 与 C:\Users\<u>\x 同键）；
   //   5. 折叠尾部斜杠与 ./ 前缀。
-  if (path) return { asset_type: 'path', asset_key: normalizePathKey(path) };
+  // 运维提示类发现（扫描截断/报告超限/策略重载失败等）不是"可处置的代码资产"——
+  // 它们是扫描器自身的运行状态上报，加白它们毫无意义（用户质疑"加白 /users 是不是
+  // 全加白了"）。运维类永远不产出资产键；目录级粗路径（/users、~、盘符根）同理跳过。
+  const OPS_KINDS = new Set([
+    'project_scan_truncated', 'skill_scan_truncated', 'findings_truncated',
+    'inventory_truncated', 'oversized_file_skipped', 'policy_reload_failed',
+    'user_level_deprecated', 'unreadable', 'agent_baseline_not_loaded',
+  ]);
+  if (path) {
+    if (OPS_KINDS.has(kind)) return null;
+    const key = normalizePathKey(path);
+    // 目录级粗键（无文件名）：加白 = 整个目录树静默，永远不该出现这种处置项。
+    if (!key || key === '~' || key === '/' || /^[a-z]:$/.test(key) || key === '/users' || key === '/home') return null;
+    // 文档/日志类不是代码资产（2026-09-25 用户质疑"MD 明显不是代码路径"）：AGENTS.md/
+    // references/*.md/log 是文档与运行日志，代码质量规则按字面匹配它们只会产误报；
+    // 把它们当"代码路径"加白毫无意义。SKILL.md 的资产身份是 skill（上文已处理）。
+    if (/\.(md|markdown|txt|log|rst|adoc)$/i.test(path) && !/\/skill\.md$/i.test(path)) return null;
+    return { asset_type: 'path', asset_key: key };
+  }
   return null;
 }
 

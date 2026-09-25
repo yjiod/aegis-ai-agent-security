@@ -438,7 +438,10 @@ foreach ($root in $roots) {
     $oversized=@(Get-ChildItem $root -File -Recurse -Force | Where-Object { $_.Length -gt $maxFileBytes -and $_.FullName -notmatch '\\.git\\|\\node_modules\\|\\dist\\|\\build\\' } | Select-Object -First 101)
     foreach($file in @($oversized|Select-Object -First 100)){$findings += @{kind='oversized_file_skipped';severity='medium';path=(Protect-AegisPath $file.FullName);message="文件超过扫描字节上限 $maxFileBytes"}}
     if($oversized.Count -gt 100){$findings += @{kind='oversized_file_findings_truncated';severity='medium';path=(Protect-AegisPath $root);message='超大文件发现项超过 100，仅保留前 100 项'}}
-    $candidates=@(Get-ChildItem $root -File -Recurse -Force | Where-Object { $_.Length -le $maxFileBytes -and $_.FullName -notmatch '\\.git\\|\\node_modules\\|\\dist\\|\\build\\' } | Select-Object -First ($projectFileLimit+1))
+    # 代码/配置扩展白名单(2026-09-25, 对齐 mac py agent suffixes + ps1)：markdown/log/txt
+    # 是文档不是代码, 全文正则只会把"禁止示例"误报成真命中(生产 964 条 .md 误报教训)。
+    $codeExt = @('.py','.js','.ts','.tsx','.jsx','.go','.java','.rb','.php','.sh','.ps1','.json','.toml','.yaml','.yml')
+    $candidates=@(Get-ChildItem $root -File -Recurse -Force | Where-Object { $_.Length -le $maxFileBytes -and $_.FullName -notmatch '\\.git\\|\\node_modules\\|\\dist\\|\\build\\' -and ($codeExt -contains $_.Extension.ToLower() -or $_.Name -in @('mcp.json','mcp_config.json','config.toml','package.json')) } | Select-Object -First ($projectFileLimit+1))
     if($candidates.Count -gt $projectFileLimit){$findings+=@{kind='project_scan_truncated';severity='medium';path=(Protect-AegisPath $root);message="项目候选文件超过扫描上限 $projectFileLimit"}}
     $candidates|Select-Object -First $projectFileLimit | ForEach-Object {
       $text = Get-Content -Encoding UTF8 $_.FullName -Raw

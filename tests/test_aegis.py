@@ -1644,6 +1644,51 @@ class AegisTests(unittest.TestCase):
         self.assertLess(_t.time()-t0,10)  # 父进程在 budget+grace 内返回，不永久阻塞
 
 
+    def test_ops_and_self_paths_never_become_assets(self):
+        """运维提示类发现与目录级粗路径不得产出可处置资产(2026-09-25 用户质疑):
+        project_scan_truncated 的 /users 不是可加白资产(加白=全目录静默);
+        Aegis 自身文件属扫描器自免范围, 控制台侧同样不聚合成处置项。"""
+        import subprocess, json, tempfile as _tf, os as _os
+        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        with _tf.TemporaryDirectory() as outdir:
+            compiled = _os.path.join(outdir, "labels.cjs")
+            stub = _os.path.join(outdir, "stub.cjs")
+            open(stub, "w").write("module.exports = { after: () => {} };\n")
+            r = subprocess.run(["npx", "esbuild", _os.path.join(root, "lib", "labels.ts"),
+                                "--bundle", "--platform=node", "--format=cjs",
+                                "--alias:next/server=" + stub,
+                                "--outfile=" + compiled],
+                               capture_output=True, text=True, cwd=root)
+            self.assertEqual(r.returncode, 0, r.stderr[:300])
+            script = """
+const { findingAsset } = require(%s);
+const cases = [
+  [{kind:"project_scan_truncated", path:"/Users", message:"项目候选文件超过扫描上限"}, null],
+  [{kind:"policy_reload_failed", path:"/Library/Application Support/AegisAgent/aegis-policy.json"}, null],
+  [{kind:"skill_scan_truncated", path:"~/.codex"}, null],
+  // 目录级粗键(无文件名)不是资产
+  [{kind:"hardcoded_secret", path:"/Users"}, null],
+  [{kind:"hardcoded_secret", path:"~"}, null],
+  // 正常文件路径仍是资产(不受影响)
+  [{kind:"hardcoded_secret", path:"/Users/alice/proj/a.py"}, {asset_type:"path", asset_key:"~/proj/a.py"}],
+  // 文档/日志不是代码资产(2026-09-25: MD 明显不是代码路径)
+  [{kind:"prompt_override", path:"~/.codex/AGENTS.md"}, null],
+  [{kind:"blocked_command", path:"~/.codex/.tmp/plugins/x/references/r2.md"}, null],
+  [{kind:"empty_exception_handler", path:"~/.codex/.sandbox/sandbox.2026-09-19.log"}, null],
+  [{kind:"prompt_override", path:"~/proj/README.md"}, null],
+  [{kind:"unbounded_shell", path:"~/x/b.sh"}, {asset_type:"path", asset_key:"~/x/b.sh"}],
+];
+console.log(JSON.stringify(cases.map(([f, want]) => {
+  const got = findingAsset(f);
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  return ok ? "ok" : "FAIL:" + JSON.stringify({f, got, want});
+})));
+""" % json.dumps(compiled)
+            out = subprocess.run(["node", "-e", script], capture_output=True, text=True, cwd=root)
+            self.assertEqual(out.returncode, 0, out.stderr[:300])
+            results = json.loads(out.stdout.strip().splitlines()[-1])
+            self.assertEqual([x for x in results if x != "ok"], [], f"asset normalization failures: {results}")
+
     def test_label_bulk_writes_are_durable(self):
         """生产事故回归(2026-09-25): 批量标签写必须走可等待的持久化路径
         (persistLabelsDurable/pgUpsertLabelsBatch 单事务), 禁止 fire-and-forget
