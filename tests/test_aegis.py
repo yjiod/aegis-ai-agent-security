@@ -1677,6 +1677,13 @@ const cases = [
   [{kind:"empty_exception_handler", path:"~/.codex/.sandbox/sandbox.2026-09-19.log"}, null],
   [{kind:"prompt_override", path:"~/proj/README.md"}, null],
   [{kind:"hardcoded_secret", path:"~/.codex/.tmp/plugins/x/assets/logo.png"}, null],
+  // Aegis 自身文件不是可处置资产(旧报告/离线设备仍被聚合, 控制台侧兜底)
+  [{kind:"unbounded_shell", path:"~/.aegis-agent/aegis_agent.py"}, null],
+  [{kind:"unbounded_shell", path:"~/.aegis-agent/previous/aegis_agent.py"}, null],
+  [{kind:"policy_reload_failed", path:"/Library/Application Support/AegisAgent/aegis-policy.json"}, null],
+  [{kind:"unbounded_shell", path:"C:\\\\ProgramData\\\\AegisAgent\\\\aegis_agent.py"}, null],
+  // 正常第三方代码不受影响
+  [{kind:"hardcoded_secret", path:"~/proj/vendor-tool/server.mjs"}, {asset_type:"path", asset_key:"~/proj/vendor-tool/server.mjs"}],
   [{kind:"hardcoded_secret", path:"~/proj/icon.jpg"}, null],
   [{kind:"hardcoded_secret", path:"~/proj/bin/app"}, null],
   [{kind:"unbounded_shell", path:"~/x/b.sh"}, {asset_type:"path", asset_key:"~/x/b.sh"}],

@@ -158,6 +158,11 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
     // 正向白名单：只接受真代码/配置扩展——新文件类型默认不产资产(保守, 防再犯)。
     const CODE_EXT = /\.(py|js|mjs|cjs|ts|tsx|jsx|mts|cts|go|java|rb|php|sh|bash|zsh|fish|ps1|psm1|bat|cmd|json|jsonc|toml|yaml|yml|ini|cfg|conf|env|sql|html|htm|css|scss|vue|svelte|rs|c|h|cpp|hpp|cs|kt|swift|dart|scala|pl|lua|r|m|mm)$/i;
     if (!CODE_EXT.test(path)) return null;
+    // Aegis 自身文件（2026-09-25 用户再次抓到"新工单仍显示 aegis_agent.py"）：终端侧已
+    // 自免扫描（新报告不再产出），但**旧报告/离线设备的最新报告**仍被 /api/findings 聚合，
+    // 控制台侧必须同样排除——.aegis-agent/、/Library/Application Support/AegisAgent/、
+    // ProgramData\AegisAgent\ 等 Aegis 安装位置的发现不是"可处置的第三方代码"。
+    if (/(^|\/)\.aegis-agent\//i.test(path) || /\/aegisagent\//i.test(path) || /(^|\/)aegis-agent\//i.test(path)) return null;
     return { asset_type: 'path', asset_key: key };
   }
   return null;
