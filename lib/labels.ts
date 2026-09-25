@@ -154,7 +154,10 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
     // 文档/日志类不是代码资产（2026-09-25 用户质疑"MD 明显不是代码路径"）：AGENTS.md/
     // references/*.md/log 是文档与运行日志，代码质量规则按字面匹配它们只会产误报；
     // 把它们当"代码路径"加白毫无意义。SKILL.md 的资产身份是 skill（上文已处理）。
-    if (/\.(md|markdown|txt|log|rst|adoc)$/i.test(path) && !/\/skill\.md$/i.test(path)) return null;
+    // 二进制/图片类同样不可代码处置（旧终端把它们当文本读出乱码后偶发误报）。
+    // 正向白名单：只接受真代码/配置扩展——新文件类型默认不产资产(保守, 防再犯)。
+    const CODE_EXT = /\.(py|js|mjs|cjs|ts|tsx|jsx|go|java|rb|php|sh|bash|zsh|ps1|bat|cmd|json|toml|yaml|yml|ini|cfg|conf|env|sql|html|vue|svelte|rs|c|h|cpp|hpp|cs|kt|swift|dart|scala)$/i;
+    if (!CODE_EXT.test(path)) return null;
     return { asset_type: 'path', asset_key: key };
   }
   return null;

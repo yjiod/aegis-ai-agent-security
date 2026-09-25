@@ -1671,11 +1671,14 @@ const cases = [
   [{kind:"hardcoded_secret", path:"~"}, null],
   // 正常文件路径仍是资产(不受影响)
   [{kind:"hardcoded_secret", path:"/Users/alice/proj/a.py"}, {asset_type:"path", asset_key:"~/proj/a.py"}],
-  // 文档/日志不是代码资产(2026-09-25: MD 明显不是代码路径)
+  // 文档/日志/图片不是代码资产(2026-09-25: MD 明显不是代码路径; 正向扩展白名单)
   [{kind:"prompt_override", path:"~/.codex/AGENTS.md"}, null],
   [{kind:"blocked_command", path:"~/.codex/.tmp/plugins/x/references/r2.md"}, null],
   [{kind:"empty_exception_handler", path:"~/.codex/.sandbox/sandbox.2026-09-19.log"}, null],
   [{kind:"prompt_override", path:"~/proj/README.md"}, null],
+  [{kind:"hardcoded_secret", path:"~/.codex/.tmp/plugins/x/assets/logo.png"}, null],
+  [{kind:"hardcoded_secret", path:"~/proj/icon.jpg"}, null],
+  [{kind:"hardcoded_secret", path:"~/proj/bin/app"}, null],
   [{kind:"unbounded_shell", path:"~/x/b.sh"}, {asset_type:"path", asset_key:"~/x/b.sh"}],
 ];
 console.log(JSON.stringify(cases.map(([f, want]) => {
