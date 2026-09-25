@@ -12,7 +12,11 @@
   任何一次撞上冷编译窗口的探测超时都触发 restart → 新一轮冷编译 → 再超时，形成连环重启
   （当日 40 分钟内 4 次），用户请求撞上冷窗口即 nginx 60s → HTTP 504。
   新策略：探测 15s 超时、服务启动 600s 内失败不计数、连续 3 次失败（状态文件 /run/aegis-console-fail.count）
-  才重启——冷编译慢与真死锁可区分。
+  才重启——冷编译慢与真死锁可区分。unit 定义见 `ops/aegis-console-healthcheck.service`。
+- **nginx 读超时 360s**（同日第二次 504 修复）：`location /` 的 `proxy_read_timeout` 从 60s 放宽到 360s，
+  覆盖冷编译最长 310s；配合部署脚本预热（deploy-console.sh 在"部署完成"前把 /login 冷编译跑完），
+  双保险。504 类报障先对时间轴（journalctl Stopped/Started × 用户操作时刻）定根因：看门狗误杀、
+  部署冷窗口、真死锁是三种不同病。
 - `ExecStartPost` 就绪轮询 + `TimeoutStartSec=360`（restart 阻塞到 worker 真可服务）。
 
 ## 候选方案

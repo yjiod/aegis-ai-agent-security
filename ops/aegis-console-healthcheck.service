@@ -1,0 +1,18 @@
+[Unit]
+Description=Aegis console health probe (restart only if unserving past boot grace)
+After=aegis-console.service
+
+[Service]
+Type=oneshot
+# 3-strike healthcheck (2026-09-25 fix, see docs/CONSOLE-SERVING.md):
+# - probe timeout 15s
+# - failures within 600s of service start don't count (cold-compile grace;
+#   /login compile measured 150-310s)
+# - 3 consecutive strikes (state file /run/aegis-console-fail.count) before
+#   systemctl restart — distinguishes slow compiles from real deadlocks.
+# Previous version (-m 10, grace 240s) restarted on any probe hitting a cold
+# window after grace → restart loop → user requests 504 (prod incident).
+ExecStart=/bin/sh -c 'state=/run/aegis-console-fail.count; if curl -fsS -m 15 -o /dev/null http://127.0.0.1:8787/login; then printf 0 > "$state" 2>/dev/null; exit 0; fi; enter=$(systemctl show aegis-console -p ActiveEnterTimestamp --value); age=$(( $(date +%s) - $(date -d "$enter" +%s) )); if [ "$age" -le 600 ]; then exit 0; fi; n=$(cat "$state" 2>/dev/null || echo 0); n=$((n+1)); printf %s "$n" > "$state" 2>/dev/null; if [ "$n" -ge 3 ]; then printf 0 > "$state" 2>/dev/null; systemctl restart aegis-console; fi; exit 0'
+
+[Install]
+WantedBy=multi-user.target
