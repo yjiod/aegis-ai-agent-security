@@ -264,6 +264,13 @@ function buildResponsePlaybook(ticket: Ticket): PlaybookStep[] {
   return steps;
 }
 
+interface DeviceIdent {
+  serial: string;
+  os_user: string;
+  hostname: string;
+  network?: { egress_ip?: string; local_ips?: string[]; macs?: string[]; physical_nics?: { name: string; mac: string; ips?: string[] }[] };
+}
+
 export default function RisksPage() {
   const { fleet } = useCollector();
   const { role, subject } = useRole();
@@ -272,6 +279,10 @@ export default function RisksPage() {
   const router = useRouter();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  // 设备识别信息（用户反馈 2026-09-25：光看 device_id 哈希分辨不出是哪台机器）：
+  // device_id → {serial, os_user, hostname, network}。IP/MAC 默认折叠，点开再看。
+  const [deviceInfo, setDeviceInfo] = useState<Record<string, DeviceIdent>>({});
+  const [netOpen, setNetOpen] = useState<Set<string>>(new Set());
   // 规模化分页（几千工单）：列表分页渲染。
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
@@ -409,6 +420,30 @@ export default function RisksPage() {
     const t = searchParams.get('ticket');
     if (t) setExpandedId(t);
   }, [searchParams]);
+
+  // 设备识别信息（序列号/用户/网络）：失败静默——工单行回落到仅 device_id，不阻塞。
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/devices', { cache: 'no-store' })
+      .then((r) => (r.ok ? (r.json() as Promise<{ devices?: unknown[] }>) : null))
+      .then((d) => {
+        if (!alive || !Array.isArray(d?.devices)) return;
+        const map: Record<string, DeviceIdent> = {};
+        for (const x of d.devices as Array<Record<string, unknown>>) {
+          map[String(x.device_id ?? '')] = {
+            serial: String(x.serial ?? ''),
+            os_user: String(x.os_user ?? ''),
+            hostname: String(x.hostname ?? ''),
+            network: (x.network as DeviceIdent['network']) ?? undefined,
+          };
+        }
+        setDeviceInfo(map);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // 统一筛选条 URL 持久化（可分享 / 可收藏的研判视图）：挂载时从 query 恢复筛选，
   // 筛选变化时回写 query（保留 ticket/focus 等其它参数）。用 ref 读当前 params 以避免
@@ -1103,16 +1138,67 @@ export default function RisksPage() {
                       </i>
                     )}
                   </div>
-                  <span className="device">
-                    {ticket.device_id || '未关联'}
-                    {ticket.device_id && (
-                      <Link
-                        href={`/devices?focus=${encodeURIComponent(ticket.device_id)}`}
-                        title="跳到该设备并展开其发现/封禁回执"
-                        style={{ marginLeft: 6, fontSize: 11, color: 'var(--ring)' }}
-                      >
-                        查看发现
-                      </Link>
+                  <span className="device" style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+                    {ticket.device_id ? (
+                      <>
+                        {/* 设备识别（用户反馈 2026-09-25）：序列号 + 用户，光哈希 ID 分不出机器 */}
+                        <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <strong style={{ fontFamily: 'var(--sentinel-font-mono)' }} title={`device_id: ${ticket.device_id}`}>
+                            {deviceInfo[ticket.device_id]?.serial || ticket.device_id}
+                          </strong>
+                          {deviceInfo[ticket.device_id]?.os_user && (
+                            <i className="handle" style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--muted-foreground)' }}>
+                              {deviceInfo[ticket.device_id].os_user}
+                            </i>
+                          )}
+                          <Link
+                            href={`/devices?focus=${encodeURIComponent(ticket.device_id)}`}
+                            title="跳到该设备并展开其发现/封禁回执"
+                            style={{ fontSize: 11, color: 'var(--ring)' }}
+                          >
+                            查看发现
+                          </Link>
+                        </span>
+                        {/* IP/MAC 默认折叠（MAC 属敏感指纹，按需展开） */}
+                        <button
+                          type="button"
+                          className="handle"
+                          aria-expanded={netOpen.has(ticket.ticket_id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setNetOpen((m) => {
+                              const n = new Set(m);
+                              const wasOpen = n.has(ticket.ticket_id);
+                              n.clear();
+                              for (const x of m) if (x !== ticket.ticket_id) n.add(x);
+                              if (!wasOpen) n.add(ticket.ticket_id);
+                              return n;
+                            });
+                          }}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10, color: 'var(--muted-foreground)' }}
+                        >
+                          {netOpen.has(ticket.ticket_id) ? '▾ 收起 IP/MAC' : '▸ IP / MAC'}
+                        </button>
+                        {netOpen.has(ticket.ticket_id) && (
+                          <span style={{ fontSize: 10, fontFamily: 'var(--sentinel-font-mono)', color: 'var(--muted-foreground)', lineHeight: 1.5 }}>
+                            {(() => {
+                              const n = deviceInfo[ticket.device_id]?.network;
+                              const rows: string[] = [];
+                              if (n?.egress_ip) rows.push(`出口 IP ${n.egress_ip}`);
+                              if (n?.local_ips?.length) rows.push(`内网 IP ${n.local_ips.join(' / ')}`);
+                              const macs = n?.physical_nics?.length
+                                ? n.physical_nics.map((nic) => `${nic.name}:${nic.mac}`).join(', ')
+                                : n?.macs?.join(', ');
+                              if (macs) rows.push(`MAC ${macs}`);
+                              return rows.length ? rows.join('\\n') : '（该终端未上报网络信息）';
+                            })().split('\\n').map((line) => (
+                              <span key={line} style={{ display: 'block' }}>{line}</span>
+                            ))}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      '未关联'
                     )}
                   </span>
                   <span className="time" title={`更新于 ${formatRelativeTime(ticket.updated_at)}`}>
@@ -1249,7 +1335,12 @@ export default function RisksPage() {
                   content: (
                     <div className="kv">
                       <span>终端</span>
-                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{drawerTicket.device_id}</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>
+                        {drawerTicket.device_id && (deviceInfo[drawerTicket.device_id]?.serial || drawerTicket.device_id)}
+                        {drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.os_user
+                          ? ` · ${deviceInfo[drawerTicket.device_id].os_user}`
+                          : ''}
+                      </span>
                     </div>
                   ),
                 },
