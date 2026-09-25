@@ -13,7 +13,7 @@
 
 - 目标环境：生产控制台 + Collector 健康；控制台自愈看门狗 active（`aegis-console-healthcheck.timer`）。
 - **演练端点必须是非豁免(non-exempt)在线设备**（如隔离的测试 VM）。`run_enforce_drill.py` 会校验目标 `exempt=false` 否则中止。
-- **开发主机永远豁免**：本机与 4090 在 `enforce_exempt`（只报不封）；不想让某台自动更新请把它加进 `pinned`（设备页或 `/api/settings/pinned`）。注意 exempt ≠ pinned：exempt 设备仍会自更，只有 pinned 才阻止自更。
+- **开发主机永远豁免**：团队开发机应登记在 `enforce_exempt`（只报告不拦截）；不想让某台自动更新请把它加进 `pinned`（设备页或 `/api/settings/pinned`）。注意 exempt ≠ pinned：exempt 设备仍会自更，只有 pinned 才阻止自更（终端的自更逻辑只读 `agent_self_update.pinned`，不读 `enforce_exempt`）。
 - 爆炸半径双闸（控制台发布闸 + 终端侧闸）：单发布影响资产 ≤5 且单设备占比 ≤10% 才可直接发布；超出需 typed override `I-ACCEPT-BLAST-RADIUS`；**绝对上限 20 资产 / 50% 不可 override**（必须拆批）。演练脚本用「1 夹具 + N filler」让 deny 占比天然 ≤10%。
 - 凭据/真实地址只经环境变量或命令行传入（`AEGIS_CONSOLE`、`AEGIS_DRILL_USER`、`AEGIS_DRILL_PASSWORD`）；仓库脚本只留占位。演练账号勿启用 MFA（脚本不支持两步）。
 
@@ -108,7 +108,8 @@ python3 scripts/run_canary_release.py --rollback     # rollout=0 冻结自更通
 
 ## 故障排查
 
-- **控制台 502/000**：小盒冷启 1–4 分钟；轮询 `curl 127.0.0.1:8787/login` 至 200/307。看门狗(60s 探活+240s grace)会自动重启真挂死；勿把正常冷启当故障反复手动重启。
+- **控制台 502/000**：小盒冷启 1–4 分钟（`/login` 冷编译实测 150–310s）；轮询 `curl 127.0.0.1:8787/login` 至 200/307。看门狗为 **3-strike 策略：探测超时 15s、服务启动 600s 内的失败不计数（冷编译宽限）、连续 3 次失败才重启**（状态文件 `/run/aegis-console-fail.count`，unit 见 `ops/aegis-console-healthcheck.service`，事故背景见 [`CONSOLE-SERVING.md`](CONSOLE-SERVING.md)）。因此**冷启窗口内的探测失败不会触发重启**；勿把正常冷启当故障反复手动重启。nginx 读超时已放宽到 360s。
+  > 旧版参数为"10s 探测 + 240s grace"，会在服务满 4 分钟后撞冷窗口即重启，形成连环重启并导致用户请求 504（2026-09-25 生产事故，40 分钟内 4 次）。若你在排查时看到 240s 这个数值，说明 unit 是旧版，需按 `ops/` 更新。
 - **演练超时/瞬态**：脚本已带 API 重试与轮询容错；仍失败看 `--status` 与终端 `install.log`/服务日志。
 - **设备不在线**：`--status` 里该设备 `last_seen` 旧；先恢复端点再演练/放量。
 - **privacy/CI**：仓库脚本只留占位（console 域名、guest home）；改 `public/downloads/DEPLOYMENT-GUIDE.md`（在 release bundle 内）后必须重跑 `aegis_release_build.py` 重生 bundle，否则 CI verify 报 `bundle_content_mismatch`。

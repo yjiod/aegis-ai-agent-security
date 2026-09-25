@@ -1,8 +1,10 @@
 # 规模化设计评估 · P1-1：消除控制台对采集器的 per-device N+1 扇出（发现聚合端点）
 
-> 状态：**方案评估（待拍板，未实现）** · 2026-09-22 · 属 30k 终端设计基准的阶段 0/1
+> 状态：**已实现并上线**（本文以下为原方案评估记录，保留作决策依据）· 评估于 2026-09-22 · 属 30k 终端设计基准的阶段 0/1
+> 落地位置：Collector 端点 `public/downloads/aegis_collector.py` 的 `/v1/findings/aggregate`（游标翻页 + severity/since 服务端过滤 + 单页发现条数硬上限）；控制台消费方 `app/api/findings/route.ts`、`lib/evidence.ts`、`lib/auto-remediation.ts`。提交 `cc1a066`（端点）+ `1c962ed`（删除 per-device 扇出）。
+> 回归守卫：`tests/test_aegis.py` 的 `test_collector_findings_aggregate_paginates_filters_and_never_drops` 与 `test_console_findings_use_aggregate_not_per_device_fanout`（后者为架构回归守卫，防止 N+1 复活）。
 > 前置依赖：**P0-3 `device_state` 物化表已落地**（commit c12ca07）——本方案直接复用它。
-> 关联：`~/.artifacts/aegis-30k-scale-architecture-report.md`（总报告 P1-1 条目）。
+> 关联：容量评估总报告《Aegis 30,000 终端上线：服务器架构评估与性能拆解报告》的 P1-1 条目。该总报告**未提交进本仓库**（内部归档），需引用请向维护者索取；另见 [`HA-ARCHITECTURE.md`](HA-ARCHITECTURE.md) §6–§7。
 
 ---
 
@@ -45,11 +47,11 @@
 
 | 方案 | 做法 | 30k 可行性 | 工量 | 风险 | 结论 |
 |---|---|---|---|---|---|
-| **A. 游标分页聚合端点** | 采集器新增 `GET /v1/findings/aggregate`，服务端 `device_state ⋈ reports`(PK) 逐页解析 body 返回扁平发现流，keyset 游标 + category/severity/since 过滤 | ✅（分页有界） | 中 | 每页仍解析 body；高频调用有 CPU 成本 | **推荐（明细层，阶段 0/1）** |
-| **B. `findings_current` 物化明细表** | 写入时把发现拆成行落库（indexed by device/category/severity），聚合读走纯 SQL | ✅✅（最快，支持不传输即计数） | 大 | 写放大、schema 迁移、去重/闭环状态维护复杂 | 阶段 2 演进（明细查询量上来后） |
-| **C. 控制台侧并发限流 + 缓存** | 保留 per-device fetch，但限并发 + 短 TTL 缓存 | ❌（仍 O(N) 调用，只是推迟崩溃点） | 小 | 治标不治本 | **否决** |
-| **D. 独立分析库（ClickHouse/只读副本）** | 发现明细进列存，聚合走分析库 | ✅✅ | 很大 | 新组件、运维成本 | 阶段 2/3（总报告已列） |
-| **计数层增强（叠加在 A 上）** | 扩展 `device_state`（或兄弟表 `device_finding_counts`）存每设备 severity/category 计数，写入时从已持有的 `report` dict 算出 | ✅✅ | 小 | 计数字段随策略发现类型演进需兼容 | **推荐（计数层，与 A 同期）** |
+| **A. 游标分页聚合端点** | 采集器新增 `GET /v1/findings/aggregate`，服务端 `device_state ⋈ reports`(PK) 逐页解析 body 返回扁平发现流，keyset 游标 + category/severity/since 过滤 | 可行（分页有界） | 中 | 每页仍解析 body；高频调用有 CPU 成本 | **推荐（明细层，阶段 0/1）** |
+| **B. `findings_current` 物化明细表** | 写入时把发现拆成行落库（indexed by device/category/severity），聚合读走纯 SQL | 最优（最快，支持不传输即计数） | 大 | 写放大、schema 迁移、去重/闭环状态维护复杂 | 阶段 2 演进（明细查询量上来后） |
+| **C. 控制台侧并发限流 + 缓存** | 保留 per-device fetch，但限并发 + 短 TTL 缓存 | 不可行（仍 O(N) 调用，只是推迟崩溃点） | 小 | 治标不治本 | **否决** |
+| **D. 独立分析库（ClickHouse/只读副本）** | 发现明细进列存，聚合走分析库 | 最优 | 很大 | 新组件、运维成本 | 阶段 2/3（总报告已列） |
+| **计数层增强（叠加在 A 上）** | 扩展 `device_state`（或兄弟表 `device_finding_counts`）存每设备 severity/category 计数，写入时从已持有的 `report` dict 算出 | 最优 | 小 | 计数字段随策略发现类型演进需兼容 | **推荐（计数层，与 A 同期）** |
 
 **推荐组合**：**计数层增强（写时物化计数） + 方案 A（游标分页明细聚合端点）**；方案 B/D 留作阶段 2 演进。理由：A 直接复用 P0-3 的 `device_state`，改动内聚、可灰度、可回滚；计数层让最高频的仪表盘/角标读**完全不碰 body、不扇出**，把 CPU 成本只留给「用户主动下钻明细」的低频路径。
 

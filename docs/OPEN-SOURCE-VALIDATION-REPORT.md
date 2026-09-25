@@ -8,9 +8,9 @@
 
 | 候选 | 角色 | 部署方式 | 适配器 e2e | 真实能力边界 |
 |---|---|---|---|---|
-| **Fleet** | 桌管/MDM + osquery telemetry | docker（mysql+redis+fleet，原生 amd64） | ✅ health/hosts/pack 下发/deploy 任务 | 软件分发、osquery 查询/标签、MDM（Apple）；策略下发=packs/profiles |
-| **Wazuh** | EDR/SIEM | 原生 apt（wazuh-manager 4.14.7） | ✅ health/agents/active-response 转发/合规判定 | 资产 inventory、告警/规则、active-response；合规=cis/策略状态 |
-| **PacketFence** | 准入 NAC | 契约 mock（arm/x86 均无官方可用镜像） | ✅ 节点列表/合规/状态回写+复读 | **真实准入（802.1X/Portal/VLAN 隔离）需办公网位置**，云上验不了 |
+| **Fleet** | 桌管/MDM + osquery telemetry | docker（mysql+redis+fleet，原生 amd64） | 通过：health/hosts/pack 下发/deploy 任务 | 软件分发、osquery 查询/标签、MDM（Apple）；策略下发=packs/profiles |
+| **Wazuh** | EDR/SIEM | 原生 apt（wazuh-manager 4.14.7） | 通过：health/agents/active-response 转发/合规判定 | 资产 inventory、告警/规则、active-response；合规=cis/策略状态 |
+| **PacketFence** | 准入 NAC | 契约 mock（arm/x86 均无官方可用镜像） | 通过：节点列表/合规/状态回写+复读 | **真实准入（802.1X/Portal/VLAN 隔离）需办公网位置**，云上验不了 |
 
 ## 二、每家"能做什么 / 不能做什么"
 

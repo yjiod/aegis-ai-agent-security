@@ -1,10 +1,12 @@
 # Aegis AI Agent Security
 
-Aegis 是面向企业终端的 **AI Coding 安全治理**工具。它在员工电脑上随 AI 编码工具运行一个轻量 Agent，**只读**发现本机受管的 AI Agent / Skill / MCP，加载企业安全编码基线，扫描 Skill、MCP、代码质量、依赖与密钥风险，并上报到受认证的接收器（Collector）；私有控制台用于研判、处置、**签名策略下发**、版本态势与审计。
+Aegis 是面向企业终端的 **AI Coding 安全治理**工具。它在员工电脑上随 AI 编码工具运行一个轻量 Agent，**只读**发现本机受管的 AI Agent / Skill / MCP，加载企业安全编码基线，扫描 Skill、MCP、依赖与密钥风险（代码质量域出厂默认停用，详见[扫描范围](#扫描范围)），并上报到受认证的接收器（Collector）；私有控制台用于研判、处置、**签名策略下发**、版本态势与审计。
 
 遵循**单端原则**：员工终端只安装 Aegis 一个 agent，其余平台（EDR / 桌管 / 开源安全栈）通过适配边界协同，不重复装探针。
 
-**当前发行**：产品 `0.72.0` · Endpoint Agent `0.33.0` · 策略出厂 `4.8.0`（控制台发布件递增 `4.9.0+`）· Collector `0.15` · Adapter `0.7`。
+**当前发行**：产品 `0.73.3`（channel `pilot`）· Endpoint Agent `0.37.3` · 策略出厂 `4.8.0`（控制台发布件按 `4.<8+n>.0` 递增，**具体已发布版本以控制台「策略配置」页显示为准**，属运行态不写死于文档）· Collector `0.15` · Adapter `0.7`。
+
+> 版本号单一真源：Agent 见 `public/downloads/aegis_agent.py` 的 `AGENT_VERSION`，产品/发行见 `public/downloads/release.json`，策略出厂见 `public/downloads/aegis-policy.json`，Collector 见 `public/downloads/aegis_collector.py` 的 `server_version`，Adapter 见 `public/downloads/aegis_adapter.py` 的 `User-Agent`。改动上述任一文件时须同步本行。
 
 ---
 
@@ -20,9 +22,24 @@ Agent 通过**只读文件标记**识别下列工具（不启动、不执行被�
 | Windsurf | `windsurf` | CodeBuddy | `codebuddy` |
 | Gemini CLI | `gemini_cli` | **WorkBuddy** | `workbuddy` |
 
-> 另支持登记为「其他工具」。工具清单在三处保持同步：`aegis_agent.py` 的发现标记、`lib/store.ts` 的类型、控制台设备表单选项。
+> 另支持登记为「其他工具」。表中「标识」是**控制台侧**的规范枚举值（`lib/store.ts` 的 `AGENT_TYPES`）。
 
-**平台**：macOS 与 Windows 提供原生安装器；Python Agent 亦可运行于 Linux。
+**工具清单当前有五处定义，且尚未完全同步（已知缺陷，修复中）**：
+
+| # | 位置 | 作用 |
+| --- | --- | --- |
+| 1 | `public/downloads/aegis_agent.py` 的 `AGENT_HOME_MARKERS` / `AGENT_SYSTEM_MARKERS` | macOS / Linux 只读发现标记 |
+| 2 | `public/downloads/aegis-windows.ps1` 的 `$agentMarkers`（及注册表/进程/厂商目录映射） | Windows 发现标记 |
+| 3 | `lib/store.ts` 的 `AGENT_TYPES` | 控制台规范枚举 |
+| 4 | `components/device-form.tsx` 的 `AGENT_TYPE_OPTIONS` | 设备表单选项与归一化 |
+| 5 | `app/page.tsx` 的 `AGENT_LABEL` | 总览覆盖面板显示名 |
+
+已知不一致（会在 UI 上可见）：
+
+- **macOS / Linux 侧不发现 WorkBuddy**：上表 1 的两个标记字典各 9 个键，均无 `workbuddy`；Windows 侧（上表 2）有。macOS 上仍会扫描 `.workbuddy/` 下的 MCP 配置与 Skill（它们在 `AGENT_CONFIGS` / `SKILL_ROOTS` 中），但**不会**把 WorkBuddy 作为一项「已安装 AI 工具」上报，因此设备页与覆盖面板在 macOS 舰队上少计该工具。
+- **Codex 标识两端不同**：终端上报的名字是 `codex`（上表 1 的字典键），控制台枚举与显示名用 `codex_cli`，且 `tools` 芯片按原始名直出，故总览「终端覆盖」可能显示原始标识 `codex` 而非「Codex CLI」。
+
+**平台**：macOS 提供原生 `.pkg` / 自包含 `.run`，Windows 提供原生 `.msi` 与免安装器入网脚本。两端扫描器是**各自独立的实现**——macOS / Linux 是单文件 Python Agent（`aegis_agent.py`），Windows 是 PowerShell 脚本（`aegis-windows.ps1`），同一功能两边各写一份，改动必须逐项 diff（历史上曾因 Windows 漏了扩展名白名单而产生 964 条文档误报）。Python Agent 亦可在 Linux 运行。
 
 ---
 
@@ -30,18 +47,19 @@ Agent 通过**只读文件标记**识别下列工具（不启动、不执行被�
 
 | 页面 | 作用 |
 | --- | --- |
-| 总览 / 快速开始 | 实时安全态势；五步接入引导（连接接收器 → 部署 Agent → 研判 → 处置 → 基线下发） |
-| 设备与 Agent | 终端清单、在线/覆盖、**版本姿态**（Agent/策略是否漂移） |
-| 风险中心 | 工单队列与状态机（待处理→认领→调查→解决/驳回）、关联发现、**命中证据「详细信息」** |
-| 处置中心 | 对 Skill / MCP 打标：加白 / 观察 / 拉黑，编译进下发策略 |
-| Skill / MCP / 代码质量扫描器 | 分域查看**真实扫描发现**（严重度分布 + 命中溯源明细 + 链到处置） |
-| 扫描引擎 | 内置引擎 + Semgrep / Gitleaks / Cisco skill-scanner / Snyk（引擎独立，不互转规则语法） |
-| 策略配置 | **签名策略发布**（`aegis.policy/v1`，HMAC 签名 + 密钥环轮换），终端可拉取强制执行 |
-| 基线管理 | 企业自定义编码基线导入 + 上游基线同步 |
-| 审计日志 | 全操作留痕（含自动入网、策略发布、令牌轮换、认证/改密/吊销等）+ **合规导出 CSV/JSON** |
-| 团队与权限 | 三级 RBAC：**管理员 / 审计员 / 只读**；按账号可选 **MFA(TOTP) 两步验证**；会话可吊销 |
-| 系统设置 | 扫描模式（`quick` / `standard` / `custom`）等全局配置 |
-| 接入中心 | Collector 连接与厂商适配（EDR / 桌管）集成 |
+| 总览 / 快速开始 | 实时安全态势、版本姿态、技战法覆盖与活跃、处置效能指标；五步接入引导（连接接收器 → 部署 Agent → 研判 → 处置 → 基线下发） |
+| 设备与 Agent | 终端清单、在线/覆盖、**版本姿态**（Agent/策略漂移与分维修复动作）、AI 工具覆盖矩阵、封禁回执、豁免与自更保护名单 |
+| 风险中心 | 工单队列与状态机（待处理→认领→调查→解决/驳回）、统一筛选（等级/来源/终端/时间窗/超 SLA）、关联发现与命中证据、响应闭环与 Playbook |
+| 处置中心 | 对 Skill / MCP / 代码路径 / 目录前缀打标：加白 / 观察 / 拉黑，编译进签名策略；发布前爆炸半径预览 |
+| Skill / MCP / 代码质量扫描器 | 分域查看**真实扫描发现**（严重度分布 + 命中溯源明细 + 链到处置）。注意：**代码质量域默认无数据**——`modules.code_scan` 出厂为 `false`（代码扫描交由专业扫描器负责，终端不扫也不上报代码类发现），需在「策略配置 → 模块开关」显式打开才恢复 |
+| 扫描引擎 | 引擎框架已实现的适配器：内置 `aegis-regex`、Semgrep、Gitleaks、Cisco skill-scanner、OSV.dev SCA、pip-audit（各引擎保持原生规则语法，不互转；上游均免 API Token）。**这些是框架侧适配器，终端 Agent 当前不调用它们**——终端扫描由 `aegis_agent.py` / `aegis-windows.ps1` 内置规则执行。页面另含规则更新管道遥测与 OWASP 技战法覆盖矩阵 |
+| 策略配置 | 9 个模块开关 + **签名策略发布**（`aegis.policy/v1`，HMAC + Ed25519 双签、密钥环轮换、一键回滚）+ 灰度设置。终端拉取验签后加载；**拉黑（deny）是否在终端真正隔离/拒连由 `modules.skill_enforce` / `mcp_enforce` 决定，二者出厂为 `false`（只报告不拦截）** |
+| 基线管理 | 企业自定义编码基线导入 + 上游基线同步 + **扫描模式切换**（`quick` / `standard` / `custom`）+ 企业级 MD 灰度推送 |
+| 审计日志 | 控制面操作与认证事件留痕（策略发布、模块变更、令牌轮换、登录/改密/吊销等）+ **合规导出 CSV/JSON** + Ed25519 签名证据包（可独立验签）。终端侧审计源的合并当前存在契约不一致，修复中；缺失时页面如实标注，不伪装完整 |
+| 团队与权限 | **五档 RBAC**：管理员 / 运维工程师（终端管理）/ 审计员（只读 + 审计查阅）/ 开发者（仅本人设备）/ 只读访客；按账号可选 **MFA(TOTP) 两步验证**（绑定二维码）；会话可吊销 |
+| 系统设置 | 全局配置（数据保留期 / 审计保留 / 审计封顶，实时读写 Collector 运行时配置）+ 告警推送（webhook / 邮件收件人、离线阈值、去重节流、投递可靠性）+ **自动纠偏**三开关（总开关 / 自动封禁 / 推送通知）。**扫描模式不在本页**，在「基线管理」 |
+| 分发中心 | 首次安装（macOS `.pkg` / Windows `.msi` / 一键脚本，已烘焙服务器地址）+ 桌管热更推送包（SHA-256 校验）+ 自更新灰度（canary）面板 |
+| 接入中心 | Collector 连接状态与厂商适配（Fleet / Wazuh / PacketFence 及商用 EDR / 桌管）健康探测、凭据配置与告警汇聚建单。另有 5 个对外集成预留端点（`/api/integrations/{health,events,inventory,subscribe,remediate}`）当前恒返回 501，供外部系统按 OpenAPI 契约先行开发 |
 
 控制台基于 vinext（Next.js on Cloudflare Workers）+ PostgreSQL 持久化；未连接接收器时**诚实显示空态/演示模式，绝不伪造数据**。
 
@@ -74,13 +92,25 @@ msiexec /i aegis-agent-windows.msi
 
 ## 扫描范围
 
-- **Skill**：未批准 / 未签名 Skill；能力风险信号（`exec` / `cred` / `network` / `filewrite` + 综合分 0–6，≥4 高危），并回收**逐处命中证据**（文件:行:片段）供研判、避免误伤。
-- **MCP**：传输协议、域名、命令与命令路径、精确调用白名单、URL 凭据、文件系统范围。
-- **代码质量**：硬编码密钥、`shell=True`、动态执行（`eval`/`exec`）、弱随机令牌、被阻断命令、不安全 TLS 校验、不安全反序列化、调试模式、空异常处理、超大文件跳过等。
-- **依赖**：清单清点 + 未固定版本、不可信/远程源、缺失锁文件。
-- **密钥**：`AKIA…`、`sk-…`、`ghp_…` 等模式。
+各域由策略 `modules` 独立门控。**出厂默认：`skill_scan` / `mcp_scan` / `deps_scan` 开，`code_scan` 关**（代码扫描交由专业扫描器负责，终端不扫也不上报代码类发现）。因此下表「默认」列标明生产开箱状态。
 
-扫描模式 `quick` / `standard` / `custom` 门控范围；策略含 `limits`（文件数/大小/清单/发现上限）与 `enforcement`（unknown_skill / unknown_mcp / critical_finding）。
+| 域 | 检出内容 | 门控开关 | 默认 |
+| --- | --- | --- | --- |
+| **Skill** | 未批准 Skill（按名字白名单判定）、Skill 符号链接越界、包超大/超文件数截断；未批准 Skill 另附能力风险信号（`exec` / `cred` / `network` / `filewrite` + 综合分 0–6，≥4 高危）与**逐处命中证据**（文件:行:片段）供研判、避免误伤 | `skill_scan` | 开 |
+| **MCP** | 传输协议、域名、命令与命令路径、精确调用白名单（完整 argv）、URL 内嵌凭据、明文敏感环境变量、文件系统范围、残缺/非法服务定义 | `mcp_scan` | 开 |
+| **依赖** | 清单清点、不可信/远程源、引用外部清单、清单无法安全解析 | `deps_scan` | 开 |
+| **代码质量** | `shell=True`、动态执行（`eval`/`exec`）、不安全 TLS 校验、不安全反序列化、调试模式、空异常处理、弱随机令牌、被阻断命令、超大文件跳过 | `code_scan` | **关** |
+| **代码内密钥** | `AKIA…`、`sk-…`、`ghp_…` 等策略 `secret_patterns` 模式（测试/夹具路径降级为中危） | `code_scan` | **关** |
+
+已知口径细节（避免误读上表）：
+
+- **「未批准」是按名字白名单判定，不是签名校验**：终端只比对 Skill 目录名是否在策略 `allowed_skills` 中，**当前没有 Skill 签名/摘要校验**。命中白名单名字的 Skill 会跳过 `unknown_skill` 判定与风险信号打分（即预置加白名单内的 Skill 不产出发现）。签名/来源绑定属规划中能力。
+- **`deps_scan` 开但两个依赖类发现默认不上报**：`dependency_unpinned` 与 `missing_lockfile` 同时被列在终端的 `CODE_QUALITY_KINDS` 兜底过滤名单里，`code_scan` 关闭时会在上报前被剔除。因此默认状态下依赖域实际只有「不可信/远程源、引用外部清单、清单解析失败」三类可见。这是两个开关的交叉副作用，已记录待修。
+- **`code_scan` 关闭同时关掉了 Skill/Agent 治理类信号**：`prompt_override`、`credential_access`、`hidden_instruction`、`context_poisoning`、`unbounded_shell`、`unvalidated_llm_execution` 与代码质量规则同产于终端的 `scan_text`，且该函数整体受 `code_scan` 门控，故默认状态下这些信号也不产出。拆分「治理组恒开 / 代码质量组受门控」已在演进计划中。
+
+扫描模式 `quick` / `standard` / `custom` 进一步门控代码质量规则集（详见[扫描模式与工具清单](docs/SCAN-MODES-AND-TOOLS.md)）；策略另含 `limits`（项目文件数 / 单文件字节 / 清单条目 / 发现数上限）。
+
+> 策略体中还有 `enforcement`（`unknown_skill` / `unknown_mcp` / `critical_finding`）字段，**当前终端不消费它**：Agent 读出 `unknown_skill` 的取值后未据此采取任何动作，`critical_finding` 在终端代码中无任何引用。真实的终端强制路径是 `deny.skills` / `deny.mcp` 名单配合 `modules.skill_enforce` / `mcp_enforce`（隔离 Skill、移除 MCP 配置、终止进程、拒绝执行、macOS 出站封禁），且这两个开关出厂为 `false`。
 
 ---
 
@@ -130,22 +160,45 @@ scripts/run-e2e.sh                              # Playwright（demo 模式全量
 scripts/run-e2e.sh --live e2e/policy.spec.ts    # live 模式（真实 Collector，验证版本姿态/入网）
 ```
 
-本地启动控制台：`npm run dev`。默认演示模式明确标识、不下发终端任务、不伪造数据；配置服务端 Collector 环境变量后，顶部摘要切换为真实只读数据。
+本地启动控制台：`npm run dev`。未配置服务端 Collector 环境变量时，控制台如实显示「接收器未连接」与各页空态，**不注入任何演示数据**（仓库内虽保留历史 seed 定义，但已无调用方，不会渲染）；配置后顶部摘要与全部列表切换为真实只读数据。
 
 ---
 
 ## 文档
+
+**入门与流程**
 
 - [架构与信任边界](docs/ARCHITECTURE.md)
 - [联合开发指南](CONTRIBUTING.md)
 - [开发与测试流程](docs/DEVELOPMENT.md)
 - [发行与部署流程](docs/RELEASE.md)
 - [企业部署指南](public/downloads/DEPLOYMENT-GUIDE.md)
+- [安全响应说明](SECURITY.md)
+
+**产品口径**
+
 - [扫描模式与工具清单](docs/SCAN-MODES-AND-TOOLS.md)
-- [风险信号术语](docs/RISK-SIGNAL-GLOSSARY.md)
+- [风险信号术语（人话版）](docs/RISK-SIGNAL-GLOSSARY.md)
+- [Skill / MCP 研判分析](docs/SKILL-MCP-DETAIL-ANALYSIS.md)
+- [Skill 策略分析](docs/SKILL-POLICY-ANALYSIS.md)
 - [单端推送原则](docs/SINGLE-ENDPOINT.md)
 - [演进路线](docs/EVOLUTION-ROADMAP.md)
-- [安全响应说明](SECURITY.md)
+
+**架构设计与规模化**
+
+- [高可用与 30k 规模化架构](docs/HA-ARCHITECTURE.md)
+- [发现聚合端点扩展（P1-1）](docs/SCALE-P1-1-FINDINGS-AGGREGATE.md)
+- [4A 与策略完整性设计](docs/4A-POLICY-INTEGRITY-DESIGN.md)
+- [UAC / SSO 集成](docs/UAC-INTEGRATION.md)
+- [厂商集成（EDR / 桌管 / NAC）](docs/VENDOR-INTEGRATION.md)
+- [开源选型验证报告](docs/OPEN-SOURCE-VALIDATION-REPORT.md)
+
+**运维**
+
+- [控制台服务化部署与 504 分诊](docs/CONSOLE-SERVING.md)
+- [舰队告警体系](docs/FLEET-ALERTING.md)
+- [Canary 灰度发布 + Enforce 演练 Runbook](docs/CANARY-DRILL-RUNBOOK.md)
+- [服务端运维单元说明](ops/README.md)
 
 ---
 
