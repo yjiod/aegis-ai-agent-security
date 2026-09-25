@@ -128,7 +128,7 @@
 [data-theme="light"] .sidebar { background: rgba(240,245,243,0.6); border-right-color: #d4e5df; }
 [data-theme="light"] .nav-item { color: #4a6d62; }
 [data-theme="light"] .nav-item:hover { background: #e8f5f0; color: #1a3d30; }
-[data-theme="light"] .nav-item.active { background: linear-gradient(90deg, #e0f2ec, #f0f8f5); color: #0f7a52; box-shadow: inset 3px 0 #1a9d6e; }
+[data-theme="light"] .nav-item.active { background: var(--sentinel-surface-3); color: var(--sentinel-cyan); border-color: transparent; box-shadow: inset 2px 0 0 var(--sentinel-cyan); }
 [data-theme="light"] .metric, [data-theme="light"] .panel { background: linear-gradient(145deg, #ffffff, #f8faf9); border-color: #d4e5df; box-shadow: var(--shadow-card); backdrop-filter: none; }
 [data-theme="light"] .metric strong { color: #0d1f1a; text-shadow: none; }
 [data-theme="light"] .metric.danger { border-color: #f5c6cb; background: linear-gradient(145deg, #fff8f8, #ffffff); }
@@ -1897,12 +1897,6 @@ button.risk-row {
   background: #141c27;
   color: var(--foreground);
 }
-:root:not([data-theme='light']) .nav-item.active {
-  background: #152232;
-  color: #7cc0ff;
-  border-color: transparent;
-  box-shadow: inset 3px 0 0 var(--ring);
-}
 
 :root:not([data-theme='light']) .panel,
 :root:not([data-theme='light']) .metric {
@@ -1996,8 +1990,8 @@ button.risk-row {
   --card-foreground: var(--sentinel-text);
   --popover: var(--sentinel-surface-2);
   --popover-foreground: var(--sentinel-text);
-  --primary: var(--sentinel-accent);
-  --primary-foreground: #06100d;
+  --primary: var(--sentinel-cyan);
+  --primary-foreground: #04100c;
   --secondary: var(--sentinel-surface-2);
   --secondary-foreground: var(--sentinel-text);
   --muted: var(--sentinel-surface-2);
@@ -2030,11 +2024,12 @@ button.risk-row {
   background: linear-gradient(180deg, rgba(14, 35, 46, 0.94), rgba(8, 24, 34, 0.94));
   border-color: var(--sentinel-line);
 }
-/* 导航选中：左 2px 青绿能量条（handoff 3），不整块填充 */
+/* 导航选中：左 2px 青蓝能量条（基线：交互主色=青蓝），不整块填充 */
 :root:not([data-theme='light']) .nav-item.active {
-  background: transparent;
-  color: var(--sentinel-accent);
-  box-shadow: inset 2px 0 0 var(--sentinel-accent);
+  background: rgba(39, 184, 243, 0.08);
+  color: var(--sentinel-cyan);
+  border-color: transparent;
+  box-shadow: inset 2px 0 0 var(--sentinel-cyan);
 }
 /* 数字等宽（handoff P2） */
 :root:not([data-theme='light']) .metric strong,
