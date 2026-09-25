@@ -1537,7 +1537,8 @@ export default function RisksPage() {
                           <span className="device-ident-value" style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                             {cat.keys.slice(0, 30).map((k) => (
                               <span key={k} style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                                <span style={{ wordBreak: 'break-all' }}>{k.length > 80 ? k.slice(0, 78) + '…' : k}</span>
+                                {/* 截断保留扩展名：长路径中段省略但后缀可见，用户能分辨资产类型 */}
+                                <span style={{ wordBreak: 'break-all' }}>{k.length > 80 ? k.slice(0, 72) + '…' + k.slice(k.lastIndexOf('.')) : k}</span>
                                 <Link
                                   href={`/dispositions?type=${cat.asset_type}&asset=${encodeURIComponent(k)}`}
                                   style={{ color: 'var(--ring)', textDecoration: 'none', borderBottom: '1px dashed currentColor', fontSize: 11, flexShrink: 0 }}
