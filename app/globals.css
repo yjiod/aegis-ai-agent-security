@@ -2092,8 +2092,12 @@ button.risk-row {
 .drawer-body { flex: 1; overflow: auto; padding: 14px 16px; }
 .drawer-section { margin-bottom: 16px; }
 .drawer-section-body { margin-top: 8px; font-size: 12px; color: var(--foreground); }
-.drawer-section-body .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
-.drawer-section-body .kv span:first-child { color: var(--muted-foreground); flex-shrink: 0; }
+/* kv 两行式（2026-09-25 用户反馈"布局非常不合理"）：旧版 flex+space-between 把多组
+   标签-值横排挤成一条线，窄抽屉里长路径被压成逐字符竖条。改为标签一行、值一行，
+   值整行自然换行（word-break 处理长路径/长 token）。 */
+.drawer-section-body .kv { display: flex; flex-direction: column; gap: 2px; padding: 3px 0; }
+.drawer-section-body .kv span:first-child { color: var(--muted-foreground); font-size: 11px; }
+.drawer-section-body .kv span:last-child { word-break: break-word; }
 
 /* 设备识别信息卡（2026-09-25 三轮反馈）：抽屉窄宽度下 kv 两列会把多值 IP/MAC 挤成
    横向滚动（用户："要向右拉滑块，失去便利性"）→ 纵向行布局，值整行自然换行，零滚动。 */
