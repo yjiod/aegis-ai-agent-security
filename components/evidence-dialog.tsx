@@ -123,7 +123,7 @@ export function EvidenceDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8' }} onClick={onClose}>
       <div
         className="animate-entrance"
         style={{ width: '100%', maxWidth: 520, maxHeight: '88vh', overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, boxShadow: '0 24px 64px #00000055', color: 'var(--card-foreground)' }}

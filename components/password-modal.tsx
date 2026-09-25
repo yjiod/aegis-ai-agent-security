@@ -42,7 +42,7 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8' }} onClick={onClose}>
       <div
         className="animate-entrance"
         style={{ width: '100%', maxWidth: 380, background: 'linear-gradient(145deg, #0d1b18, #0a1613)', border: '1px solid #1e332d', borderRadius: 14, padding: 28, boxShadow: '0 24px 64px #00000055' }}

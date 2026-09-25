@@ -20,9 +20,9 @@
 }
 
 .detail-kpis article {
-  /* harmonize：KPI 卡不再用实心绿渐变块（与深色主题冲突的"绿块"），改中性
-     Sentinel 表面；语义色由 globals 的左侧 accent 边条承担。 */
-  background: linear-gradient(160deg, rgba(13, 32, 44, 0.9), rgba(8, 24, 34, 0.92));
+  /* KPI 卡用平整实底（禁渐变填充），不用实心绿块；
+     语义色由 globals 的左侧 accent 边条承担。 */
+  background: var(--surface-1);
   border: 1px solid var(--sentinel-line, rgba(111, 173, 204, 0.22));
   border-radius: 11px;
   padding: 20px;
@@ -44,7 +44,8 @@
 
 .detail-kpis article:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px #00000040, 0 0 20px #49e8a50a;
+  /* 禁 glow：只保留抬升投影，去掉绿色外发光 */
+  box-shadow: 0 8px 32px #00000040;
   border-color: #34765f;
 }
 
@@ -54,7 +55,6 @@
   color: #6cebb7;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.03em;
-  text-shadow: 0 0 20px #49e8a520;
 }
 
 .detail-kpis span {
@@ -148,7 +148,11 @@
 
 .data-row:hover {
   background: linear-gradient(90deg, #14332908, #14332920, #14332908);
-  box-shadow: inset 3px 0 0 #49e8a540;
+  /* 禁 glow：去掉绿色 inset 能量条。
+     注意本规则实际零生效——globals.css 的 :root:not([data-theme='light']) .data-row:hover
+     （暗，特异性 0,4,0）与 [data-theme="light"] .data-row:hover（亮，0,3,0）均已覆盖它；
+     属 CSS 分层冗余，留待分层合并专项清理。 */
+  box-shadow: none;
 }
 
 .data-row strong {
@@ -195,16 +199,11 @@
   box-shadow: 0 0 8px #e8b44915;
 }
 
-.data-row:hover .pass {
-  box-shadow: 0 0 14px #49e8a530;
-}
-
-.data-row:hover .fail {
-  box-shadow: 0 0 14px #ff685f30;
-}
-
+/* 禁 glow：芯片 hover 不再加外发光（三色同族一并去除，避免只改 .pass 造成不一致） */
+.data-row:hover .pass,
+.data-row:hover .fail,
 .data-row:hover .warn {
-  box-shadow: 0 0 14px #e8b44930;
+  box-shadow: none;
 }
 
 /* ─── Wide Risk Row ─────────────────────────────────────── */
@@ -279,11 +278,12 @@
 }
 
 .switch:hover {
-  box-shadow: 0 0 12px #49e8a520;
+  /* 禁 glow：hover 不加外发光 */
+  box-shadow: none;
 }
 
 .switch:focus-visible {
-  outline: 2px solid #49e8a5;
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
@@ -298,8 +298,9 @@
 
 .empty-detail svg {
   margin: auto;
-  color: #4ee0a6;
-  animation: float 3s ease-in-out infinite;
+  /* 图标属信息性装饰，非"已完成"语义 → 用交互青蓝而非语义绿 */
+  color: var(--sentinel-cyan);
+  /* 禁纯装饰无限动画：去掉 float 浮动（动效白名单只含 live-dot 脉冲与加载指示） */
 }
 
 .empty-detail h2 {
@@ -372,7 +373,8 @@
   top: 8px;
   bottom: 8px;
   width: 1px;
-  background: linear-gradient(180deg, #49e8a540, #1e332d 60%, transparent);
+  /* 纯色连接线（禁渐变填充 + 禁 glow），走 border token 跟随主题 */
+  background: var(--border);
 }
 
 .timeline-entry {
@@ -406,14 +408,15 @@
 }
 
 .timeline-entry:hover::before {
-  border-color: #49e8a5;
-  box-shadow: 0 0 10px #49e8a540;
+  border-color: var(--sentinel-cyan);
+  /* 禁 glow：hover 只改描边色，不加外发光 */
+  box-shadow: none;
 }
 
 .timeline-entry:first-child::before {
-  border-color: #49e8a5;
-  background: #49e8a520;
-  box-shadow: 0 0 8px #49e8a530;
+  border-color: var(--sentinel-cyan);
+  background: color-mix(in srgb, var(--sentinel-cyan) 14%, transparent);
+  box-shadow: none;
 }
 
 .timeline-icon {
@@ -458,11 +461,6 @@
 @keyframes pulse {
   0%, 100% { background-position: 200% 0; }
   50% { background-position: 0 0; }
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
 }
 
 /* ─── Reduced Motion ────────────────────────────────────── */

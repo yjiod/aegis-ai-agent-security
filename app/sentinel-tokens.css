@@ -26,8 +26,10 @@
   --sentinel-danger: #f0525d;
   --sentinel-danger-2: #ff6e65;
 
-  --sentinel-glow-accent: 0 0 24px rgba(40, 230, 160, 0.2);
-  --sentinel-glow-danger: 0 0 24px rgba(240, 82, 93, 0.2);
+  /* 禁 glow：发光值统一置 none，一处熄灯即覆盖全部消费点
+     (.sentinel-section-title::before / .sentinel-button:hover / .shield-circle) */
+  --sentinel-glow-accent: none;
+  --sentinel-glow-danger: none;
   --sentinel-shadow-panel: 0 12px 36px rgba(0, 0, 0, 0.24);
 
   --sentinel-radius-sm: 4px;
@@ -47,9 +49,8 @@
 }
 
 body.sentinel-theme {
-  background:
-    radial-gradient(circle at 78% 0%, rgba(18, 81, 92, 0.16), transparent 28rem),
-    linear-gradient(180deg, var(--sentinel-bg-deep), var(--sentinel-bg));
+  /* 平整单色底：去掉 radial + linear 双层渐变（AI 味来源，基线禁背景渐变填充） */
+  background: var(--sentinel-bg);
   color: var(--sentinel-text);
   font-family: var(--sentinel-font-sans);
 }
@@ -92,7 +93,8 @@ body.sentinel-theme {
   height: 7px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 10px currentColor;
+  /* 禁 glow：状态点用纯色圆点，不加外发光 */
+  box-shadow: none;
   content: "";
 }
 

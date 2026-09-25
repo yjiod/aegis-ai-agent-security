@@ -4,7 +4,8 @@
 
 /* ============================================================
    AEGIS CONSOLE — GLOBAL STYLESHEET
-   Dark security-ops theme · green accent (#49e8a5)
+   Dark security-ops theme · Sentinel deep-navy (#06111a)
+   interactive cyan (#27b8f3) · semantic green (#28e6a0) reserved for status only
    ------------------------------------------------------------
    1.  Design tokens (:root)
    2.  Base / reset / body texture
@@ -122,7 +123,7 @@
   --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.08), 0 0 0 1px rgba(26,157,110,0.12), 0 8px 24px rgba(0,0,0,0.06);
   --shadow-overlay: 0 16px 48px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06);
 }
-[data-theme="light"] body { background: radial-gradient(circle at 72% -15%, #e0f2ec 0, transparent 28%), #f8faf9; color: #0d1f1a; }
+[data-theme="light"] body { background: var(--sentinel-bg); color: #0d1f1a; }
 [data-theme="light"] .topbar { background: rgba(248,250,249,0.92); border-bottom-color: #d4e5df; }
 [data-theme="light"] .brandmark { background: #1a9d6e; color: #fff; box-shadow: 0 0 16px rgba(26,157,110,0.25); }
 [data-theme="light"] .sidebar { background: rgba(240,245,243,0.6); border-right-color: #d4e5df; }
@@ -260,15 +261,9 @@
   background: #e3ece8;
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
 }
-[data-theme="light"] .metric [data-slot="progress-indicator"],
-[data-theme="light"] .coverage-row [data-slot="progress-indicator"] {
-  background: linear-gradient(90deg, #1a9d6e, #127a54);
-  box-shadow: none;
-}
-[data-theme="light"] .metric.danger [data-slot="progress-indicator"] {
-  background: linear-gradient(90deg, #d9564e, #c0392b);
-  box-shadow: none;
-}
+/* 进度条指示器不再单设亮色 override：直接继承基础规则的 var(--primary) /
+   var(--sentinel-danger)，亮色下自动解析为 #0d7fb0 / #c0392b 纯色。
+   （原亮色 override 是绿色渐变填充，违反禁渐变，且与暗色侧纯色不一致。） */
 
 /* Module grid + flow strip. */
 [data-theme="light"] .module p { color: #527469; }
@@ -493,8 +488,6 @@ button {
   top: 0;
   z-index: 10;
   background: linear-gradient(180deg, rgba(8, 18, 15, 0.92), rgba(7, 17, 15, 0.82));
-  backdrop-filter: blur(16px) saturate(1.4);
-  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid rgba(30, 51, 45, 0.9);
   box-shadow:
     0 1px 0 rgba(73, 232, 165, 0.05),
@@ -577,7 +570,8 @@ button {
   background: var(--sentinel-accent, #28e6a0);
   border-radius: 50%;
   box-shadow: 0 0 9px rgba(40, 230, 160, 0.35);
-  animation: live-pulse 2.4s ease-in-out infinite;
+  /* 脉冲动画统一由文件末尾的 sentinel-pulse（纯 opacity，2.4s）提供，
+     此处不再声明第二套动画，避免同一元素双重 infinite 动画叠加。 */
 }
 
 .icon-btn,
@@ -713,8 +707,6 @@ button {
   border: 1px solid var(--sentinel-line, rgba(111, 173, 204, 0.22));
   border-radius: 10px;
   background: linear-gradient(160deg, rgba(13, 32, 44, 0.9), rgba(8, 24, 34, 0.92));
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   padding: 12px;
   display: flex;
   align-items: center;
@@ -843,8 +835,6 @@ button {
   gap: 9px;
   align-items: center;
   background: var(--surface-glass-strong);
-  backdrop-filter: blur(14px) saturate(1.3);
-  -webkit-backdrop-filter: blur(14px) saturate(1.3);
   border: 1px solid #34765f;
   color: #c9f5e4;
   padding: 12px 16px;
@@ -929,7 +919,6 @@ button {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: #f2fbf7;
-  text-shadow: 0 0 28px rgba(73, 232, 165, 0.12);
 }
 
 .metric strong small {
@@ -1003,18 +992,17 @@ button {
   border-radius: 99px;
 }
 
-/* 指示器（真实数值宽度）才着色；轨道保持中性，避免"永远满格绿"的误读 */
+/* 指示器（真实数值宽度）才着色；轨道保持中性，避免"永远满格绿"的误读。
+   纯色填充（禁渐变）+ 无发光（禁 glow）。 */
 .metric [data-slot="progress-indicator"],
 .coverage-row [data-slot="progress-indicator"] {
-  background: linear-gradient(90deg, #2fbf81, var(--primary));
+  background: var(--primary);
   border-radius: 99px;
-  box-shadow: 0 0 10px rgba(39, 184, 243, 0.3);
   transition: width 0.8s var(--ease-out);
 }
 
 .metric.danger [data-slot="progress-indicator"] {
-  background: linear-gradient(90deg, #d9564e, #ff8a80);
-  box-shadow: 0 0 10px rgba(255, 104, 95, 0.4);
+  background: var(--sentinel-danger);
 }
 
 /* ---------- 10. Content grid & panels --------------------- */
@@ -1181,12 +1169,10 @@ button {
 
 .status.green {
   color: #54d69f;
-  text-shadow: 0 0 10px rgba(84, 214, 159, 0.35);
 }
 
 .status.blue {
   color: #67bce9;
-  text-shadow: 0 0 10px rgba(103, 188, 233, 0.35);
 }
 
 .flow {
@@ -1220,7 +1206,6 @@ button {
   align-items: center;
   gap: 5px;
   font-weight: 600;
-  text-shadow: 0 0 10px rgba(85, 221, 165, 0.3);
 }
 
 /* ---------- 12. Coverage rows ----------------------------- */
@@ -1472,17 +1457,6 @@ button {
 }
 
 /* ---------- 15. Animations & keyframes -------------------- */
-@keyframes live-pulse {
-  0%, 100% {
-    box-shadow: 0 0 6px rgba(73, 232, 165, 0.6);
-    opacity: 1;
-  }
-  50% {
-    box-shadow: 0 0 14px rgba(73, 232, 165, 0.95), 0 0 24px rgba(73, 232, 165, 0.35);
-    opacity: 0.82;
-  }
-}
-
 @keyframes toast-in {
   from {
     opacity: 0;
@@ -1892,9 +1866,9 @@ button {
 :root:not([data-theme='light']) .sidebar {
   background: var(--sentinel-bg-deep);
 }
-/* 面板叠加细网格微光（sentinel-panel 语义），现有 .panel 复用 */
+/* 面板用平整实底（禁渐变填充），与上方 AIDR 层 .panel/.metric 的 --surface-1 一致 */
 :root:not([data-theme='light']) .panel {
-  background: linear-gradient(180deg, rgba(14, 35, 46, 0.94), rgba(8, 24, 34, 0.94));
+  background: var(--surface-1);
   border-color: var(--sentinel-line);
 }
 /* 导航选中：左 2px 青蓝能量条（基线：交互主色=青蓝），不整块填充 */
@@ -2009,7 +1983,8 @@ button {
   border: 1px solid rgba(40, 230, 160, 0.55);
   border-radius: 50%;
   color: var(--sentinel-accent);
-  box-shadow: var(--sentinel-glow-accent), inset 0 0 24px rgba(40, 230, 160, 0.1);
+  /* 禁 glow：去掉外发光与内发光，仅保留上方 1px 描边（描边非发光） */
+  box-shadow: none;
   font-size: 26px;
 }
 .mini {
