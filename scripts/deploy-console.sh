@@ -156,7 +156,17 @@ echo "  ✓ wrangler.json 权限收紧为 600"
 systemctl restart aegis-console
 sleep 6
 systemctl is-active aegis-console
+# 冷编译预热(2026-09-25 504 事故根因之一): vinext 冷启动 /login 编译实测 150-310s,
+# 部署后若不预热, 用户首批请求会撞上冷窗口(此前 60s nginx 超时 → 504"删除失败")。
+# nginx 读超时已放宽到 360s 兜底; 此处主动把冷编译跑完, "部署完成"即热服务。
+echo "  预热(冷编译 /login, 最长约 310s)…"
+for i in \$(seq 1 60); do
+  code=\$(curl -s -o /dev/null -w '%{http_code}' -m 320 http://127.0.0.1:8787/login 2>/dev/null)
+  [ "\$code" = "200" ] && { echo "  ✓ 预热完成 (第 \${i} 次探测返回 200)"; break; }
+  sleep 5
+done
+[ "\$code" = "200" ] || echo "  ⚠ 预热未在 320s 内完成——请人工检查控制台状态"
 '
-echo "═══ 部署完成 ═══"
+echo "═══ 部署完成 ══"
 echo "  控制台: https://aegis.example.com"
 echo "  凭据文件: /etc/aegis/console.env (独立维护, 部署不覆盖)"
