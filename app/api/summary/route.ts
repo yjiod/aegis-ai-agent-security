@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireSession } from '@/lib/auth';
 import { ensurePgHydrated } from '@/lib/store';
 import { ensurePolicyReleasesLoaded, currentPolicyRelease } from '@/lib/policy';
 import { fetchCollectorDevices, computeVersionPosture } from '@/lib/collector-devices';
@@ -159,7 +160,11 @@ async function withAuthoritativePosture(summary: SanitizedSummary): Promise<Reco
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // 会话验签闸（契约 lib/openapi.ts 声明 /summary = session）：middleware 只校验
+  // Cookie 存在性+expiry 不验签，伪造 Cookie 能过 middleware，故必须在此真验签。
+  const __denied = requireSession(request);
+  if (__denied) return __denied;
   const endpoint = process.env.AEGIS_COLLECTOR_URL;
   const allowedHost = process.env.AEGIS_COLLECTOR_ALLOWED_HOST;
   const token = process.env.AEGIS_COLLECTOR_TOKEN;

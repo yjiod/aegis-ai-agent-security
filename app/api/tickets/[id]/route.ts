@@ -18,6 +18,13 @@
 
 import { NextResponse } from 'next/server';
 import {
+  getSession,
+  requireAdmin,
+  requireSession,
+  unauthenticated,
+  type Session,
+} from '@/lib/auth';
+import {
   apiError,
   boundedString,
   jsonResponse,
@@ -47,10 +54,6 @@ const ALLOW = 'DELETE, GET, PUT';
 
 const MAX_NOTE = 2_000;
 const MAX_ASSIGNEE = 128;
-const MAX_ACTOR = 128;
-
-/** Actor recorded when a caller does not identify itself. */
-const DEFAULT_ACTOR = 'aegis-console';
 
 /** History verb recorded for each target status. */
 const TRANSITION_ACTIONS: Readonly<Record<TicketStatus, string>> = {
@@ -79,17 +82,26 @@ const NOT_EDITABLE = [
   'history',
 ] as const;
 
-/** Optional `actor` override; defaults to the console's own identity. */
-function readActor(value: unknown, problems: string[]): string {
-  if (value === undefined || value === null) return DEFAULT_ACTOR;
-  const actor = boundedString(value, MAX_ACTOR);
-  if (actor === null) {
-    problems.push(
-      `actor must be a non-empty string of at most ${MAX_ACTOR} characters`,
-    );
-    return DEFAULT_ACTOR;
-  }
-  return actor;
+/**
+ * Resolve the audit actor for a mutation.
+ *
+ * 审计 actor **只**取自已验签会话的 subject —— 这是唯一不可伪造的身份来源
+ * （lib/auth.ts parseSession 做 HMAC-SHA256 验签）。
+ *
+ * 修复前两处归因缺陷：
+ *  - DELETE 把 actor 硬编码成字面量 `'console_user'` → 所有删除操作在审计里
+ *    都记成同一个虚构身份，无法追责；
+ *  - PUT 用请求体 `actor` 自报 → 任何已认证调用方都能把工单流转记到**别人**名下，
+ *    审计链形同虚设。
+ *
+ * 请求体里的 `actor` 字段不再作为 actor 来源（仍被容忍并直接忽略，避免打断既有
+ * 调用方）；契约 lib/openapi.ts 从未声明过该字段，忽略它不构成契约破坏。
+ *
+ * 入参刻意收窄为非空 `Session`（不是 `Session | null`）：由类型系统强制调用方
+ * 先过门禁并显式处理未认证分支，从源头杜绝"无身份也写审计"的路径。
+ */
+function auditActor(session: Session): string {
+  return session.subject;
 }
 
 /**
@@ -132,9 +144,14 @@ async function resolveTicket(
 
 /** GET /api/tickets/:id — the ticket plus its full audit history. */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: RouteContext,
 ): Promise<NextResponse> {
+  // 会话验签闸（契约声明 /tickets/{id} = session）：middleware 只校验 Cookie
+  // 存在性+expiry 不验签，伪造 Cookie 能过 middleware，故必须在此真验签，
+  // 否则任意工单的完整审计历史都可被未授权读取。任何已认证身份可读。
+  const __denied = requireSession(request);
+  if (__denied) return __denied;
   const resolved = await resolveTicket(context);
   if ('response' in resolved) return resolved.response;
   return jsonResponse({ ticket: resolved.ticket });
@@ -154,6 +171,16 @@ export async function PUT(
   request: Request,
   context: RouteContext,
 ): Promise<NextResponse> {
+  // 变更端点 → admin 门禁（与 POST /api/tickets 同档；e2e/rbac.spec.ts 已锁定
+  // operator/auditor/viewer 写工单必须 403，伪造签名必须 401）。
+  // 门禁置于 resolveTicket **之前**：未授权者连"该工单是否存在"都探不到，
+  // 避免把 404/200 差异变成存在性预言机。
+  const __denied = requireAdmin(request);
+  if (__denied) return __denied;
+  // requireAdmin 放行即保证会话存在；此处再解析一次以取得可归因的 subject。
+  // 类型上仍可能为 null，故显式 fail-closed 401，绝不带着空身份往下写审计。
+  const session = getSession(request);
+  if (!session) return unauthenticated();
   const resolved = await resolveTicket(context);
   if ('response' in resolved) return resolved.response;
   // Copy, never mutate in place: a rejected request must leave the store untouched.
@@ -213,7 +240,8 @@ export async function PUT(
     }
   }
 
-  const actor = readActor(body.actor, problems);
+  // actor 只信已验签会话，忽略请求体自报值（见 auditActor 的说明）。
+  const actor = auditActor(session);
 
   if (problems.length > 0) {
     return apiError(
@@ -339,18 +367,26 @@ export async function PUT(
  * Deleting is a registry operation, not a workflow transition, so it does not
  * append history: after the delete there is nothing left to read it. Real
  * deployments should prefer `dismissed` and reserve DELETE for bad data.
+ *
+ * 这是全项目破坏性最强的端点（删除后工单与其 history 一并消失），故 admin 门禁
+ * 必须置于 resolveTicket 之前：未授权者既删不掉，也探不到工单是否存在。
  */
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: RouteContext,
 ): Promise<NextResponse> {
+  const __denied = requireAdmin(request);
+  if (__denied) return __denied;
+  const session = getSession(request);
+  if (!session) return unauthenticated();
   const resolved = await resolveTicket(context);
   if ('response' in resolved) return resolved.response;
 
   getTicketStore().delete(resolved.ticket.ticket_id);
 
   logAudit({
-    actor: 'console_user',
+    // 此前硬编码 'console_user'：所有删除在审计里都记成同一个虚构身份，无法追责。
+    actor: auditActor(session),
     action: 'ticket:delete',
     resource_type: 'ticket',
     resource_id: resolved.ticket.ticket_id,

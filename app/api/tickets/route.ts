@@ -13,12 +13,11 @@
  */
 
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
+import { requireAdmin, requireSession } from '@/lib/auth';
 import { ensureLabelsLoaded, allowedAssetKeys, isFindingAllowed } from '@/lib/labels';
 import {
   apiError,
   boundedString,
-  intParam,
   jsonResponse,
   methodNotAllowed,
   readJsonObject,
@@ -308,6 +307,43 @@ function readEnumFilter<T extends string>(
   return matched.size > 0 ? matched : null;
 }
 
+/**
+ * Integer query parameter that CLAMPS out-of-range values instead of rejecting.
+ *
+ * 与 lib/api.ts 的 intParam 的唯一区别：intParam 对越界返回 null（调用方据此 400），
+ * 本函数把越界值钳制进 [min, max]。理由：调用方多要一点数据不该让整个请求失败——
+ * 前端总览页用 `?limit=500` 调本端点，400 会被 lib/api.ts 的 getJson 静默吞成空数组，
+ * 首页处置进度/完成率/MTTR 随之全显示 0% 或「—」，且**没有任何错误提示**（看起来
+ * 像"真的没工单"，比直接报错更危险）。
+ *
+ * 边界取舍：
+ *  - **非法输入仍然 400**（`limit=abc`、`limit=1e3`、超过 9 位数字）→ 返回 null。
+ *    clamp 只放宽"越界的合法整数"，不放宽"根本不是整数"。
+ *  - **不提高 MAX_LIMIT**：200 是有意的内存/性能护栏，提高上限属阶段2
+ *    「工单服务端游标分页」专项。
+ *  - 返回 `requested`（钳制前的原始值）与 `clamped`，让调用方能如实回传
+ *    "仅取前 N 条"。钳制若不上报就等于静默截断，违反"数据不完整却宣称完整"红线。
+ */
+function clampedIntParam(
+  searchParams: URLSearchParams,
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+): { value: number; requested: number; clamped: boolean } | null {
+  const raw = searchParams.get(key);
+  if (raw === null || raw === '') {
+    return { value: fallback, requested: fallback, clamped: false };
+  }
+  const trimmed = raw.trim();
+  // 允许前导符号，这样 `-1` 属于"越界的合法整数"(clamp) 而非"非法输入"(400)。
+  if (!/^[+-]?\d{1,9}$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isSafeInteger(parsed)) return null;
+  const value = Math.min(Math.max(parsed, min), max);
+  return { value, requested: parsed, clamped: value !== parsed };
+}
+
 /** Deterministic queue order: severity, then newest first, then id. */
 function compareTickets(left: Ticket, right: Ticket): number {
   const bySeverity =
@@ -349,8 +385,18 @@ function readOptional(
  *
  * `total` is the post-filter count so a client can page without a second query;
  * `tickets` is only the requested slice.
+ *
+ * TODO(P1-4, 阶段2 专项)：本 handler 通过 syncTicketsFromCollector() 带有写副作用
+ * （自动建单 / 自动闭环 / 刷新标题严重度 / 写审计）。GET 带副作用违反幂等语义，
+ * 且任何已认证身份的只读请求都会推动工单状态机。本轮止血**只补验签闸，不重构**；
+ * 把同步移出 GET（改为独立 POST /api/tickets/sync 或后台循环）属阶段2 专项。
  */
 export async function GET(request: Request): Promise<NextResponse> {
+  // 会话验签闸（契约声明 /tickets = session）：middleware 只校验 Cookie 存在性+expiry
+  // 不验签，伪造 Cookie 能过 middleware，故必须在此真验签。任何已认证身份可读
+  // （viewer/auditor/operator 的只读流程不得被打断）；写操作另有 requireAdmin。
+  const __denied = requireSession(request);
+  if (__denied) return __denied;
   await syncTicketsFromCollector();
   const searchParams = new URL(request.url).searchParams;
   const problems: string[] = [];
@@ -381,16 +427,29 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
   }
 
-  const limit = intParam(searchParams, 'limit', DEFAULT_LIMIT, 1, MAX_LIMIT);
-  if (limit === null) {
-    problems.push(`limit must be an integer between 1 and ${MAX_LIMIT}`);
+  // limit/offset 越界 → clamp（不再 400）；非法输入 → 仍 400。见 clampedIntParam。
+  const limitParam = clampedIntParam(
+    searchParams,
+    'limit',
+    DEFAULT_LIMIT,
+    1,
+    MAX_LIMIT,
+  );
+  if (limitParam === null) {
+    problems.push(`limit must be an integer (clamped into 1..${MAX_LIMIT})`);
   }
-  const offset = intParam(searchParams, 'offset', 0, 0, MAX_OFFSET);
-  if (offset === null) {
-    problems.push(`offset must be an integer between 0 and ${MAX_OFFSET}`);
+  const offsetParam = clampedIntParam(
+    searchParams,
+    'offset',
+    0,
+    0,
+    MAX_OFFSET,
+  );
+  if (offsetParam === null) {
+    problems.push(`offset must be an integer (clamped into 0..${MAX_OFFSET})`);
   }
 
-  if (problems.length > 0 || limit === null || offset === null) {
+  if (problems.length > 0 || limitParam === null || offsetParam === null) {
     return apiError(
       'validation_failed',
       'Ticket query was rejected.',
@@ -398,6 +457,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       problems,
     );
   }
+  const limit = limitParam.value;
+  const offset = offsetParam.value;
 
   const tickets = Array.from(getTicketStore().values())
     .filter((ticket) =>
@@ -417,6 +478,15 @@ export async function GET(request: Request): Promise<NextResponse> {
     returned: Math.max(0, Math.min(limit, tickets.length - offset)),
     limit,
     offset,
+    // 诚实钳制披露：请求值越界时如实回传原始请求值，让前端能显示"仅取前 N 条"，
+    // 而不是把钳制伪装成"数据就这么多"。均为**新增**字段，既有字段名一律不动
+    // （前端正在并行改动，改既有字段名会连带炸前端）。
+    ...(limitParam.clamped
+      ? { limit_clamped: true, requested_limit: limitParam.requested }
+      : {}),
+    ...(offsetParam.clamped
+      ? { offset_clamped: true, requested_offset: offsetParam.requested }
+      : {}),
   });
 }
 

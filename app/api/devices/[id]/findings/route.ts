@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { requireSession } from '@/lib/auth';
 import { ensureLabelsLoaded, allowedAssetKeys, isFindingAllowed } from '@/lib/labels';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +14,10 @@ export const dynamic = 'force-dynamic';
  * 原始发现仍留存于 Collector（审计留痕不销毁）。
  */
 export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
+  // 会话验签闸（契约声明 /devices/{id}/findings = session）：middleware 不验签，
+  // 伪造 Cookie 能过 middleware，此处必须真验签，否则可枚举任意设备的原始发现。
+  const __denied = requireSession(request);
+  if (__denied) return __denied;
   const { id } = await ctx.params;
   const url = new URL(request.url);
   const limit = Math.min(Number(url.searchParams.get('limit') ?? 200), 1000);

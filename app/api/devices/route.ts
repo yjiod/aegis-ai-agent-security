@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server';
 import { requireDeviceWriter, getSession, roleReadsAllDevices } from '@/lib/auth';
+import { fetchCollectorDevices } from '@/lib/collector-devices';
 import { getDeviceStore, logAudit } from '@/lib/store';
 import { exemptDevices, pinnedDevices } from '@/lib/exempt';
 import { getRollout, rolloutBucket, inRollout } from '@/lib/rollout';
@@ -33,6 +34,11 @@ interface DeviceNetwork {
   egress_ip?: string;
 }
 
+/**
+ * 本路由消费的 Collector 设备**视图类型**（字段比 lib/collector-devices.ts 的
+ * CollectorDeviceLite 宽）。数据拉取一律走 lib/collector-devices.ts（单一真源），
+ * 本接口只用于描述这里要读的字段形状，不再对应任何本地抓取实现。
+ */
 interface CollectorDevice {
   device_id: string;
   last_seen: number;
@@ -46,22 +52,21 @@ interface CollectorDevice {
   enforcement?: Device['enforcement'];
 }
 
-async function fetchCollectorDevices(): Promise<CollectorDevice[] | null> {
-  const url = process.env.AEGIS_COLLECTOR_URL;
-  const token = process.env.AEGIS_COLLECTOR_TOKEN;
-  if (!url || !token) return null;
-  try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/v1/devices?limit=200`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as any;
-    return Array.isArray(data?.devices) ? data.devices : null;
-  } catch {
-    return null;
-  }
+/**
+ * 单一真源适配层：lib/collector-devices.ts 的 fetchCollectorDevices 已实现
+ * cursor **全量**翻页（MAX_PAGES=200 × 每页 10000）+ 30s TTL 缓存，返回的运行时
+ * 对象保留 Collector 的全部字段（该模块只是把静态类型标窄为 CollectorDeviceLite，
+ * 并未裁剪字段），故此处断言成本路由的宽视图类型是安全的，且**不改动其对外契约**
+ * （它同时被 summary / search / posture 消费）。这里不发第二次请求。
+ *
+ * 修复前本文件内另有一份同名的本地抓取实现：单页硬编码 200 台上限、无游标续页，
+ * 并且忽略调用方传入的 limit —— 舰队超过 200 台时 /api/devices 会**静默只返回前
+ * 200 台**（总览页按 ?limit=2000 调它也一样被内部 200 覆盖），设备清单与 total
+ * 双双失真。删除本地实现、统一走游标全量版本，消除双实现漂移。
+ */
+async function fetchFleetDevices(): Promise<CollectorDevice[] | null> {
+  const devices = await fetchCollectorDevices();
+  return devices === null ? null : (devices as unknown as CollectorDevice[]);
 }
 
 /**
@@ -94,8 +99,8 @@ export async function GET(request: Request) {
       ? list.filter((d) => d.owner === session.subject || (d.os_user ?? '') === session.subject)
       : list;
 
-  // Try real Collector data first
-  const collectorDevices = await fetchCollectorDevices();
+  // Try real Collector data first（游标全量，无 200 台截断）
+  const collectorDevices = await fetchFleetDevices();
 
   if (collectorDevices && collectorDevices.length > 0) {
     await ensureBaselinesLoaded().catch(() => {});

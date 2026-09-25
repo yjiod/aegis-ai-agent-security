@@ -324,6 +324,38 @@ export function requireAdmin(request: Request): NextResponse | null {
 }
 
 /**
+ * 401 for a missing / expired / revoked / forged (bad HMAC) session cookie.
+ *
+ * 与 requireAdmin 内联的 401 同形状（`{ error: 'unauthenticated' }`），额外带
+ * no-store：鉴权失败响应同样不得被浏览器/CDN 缓存。
+ */
+export function unauthenticated(): NextResponse {
+  return NextResponse.json(
+    { error: 'unauthenticated' },
+    { status: 401, headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+/**
+ * Require ANY authenticated identity (the contract's `session` access level);
+ * returns null when a validly signed session exists, else the 401 Response.
+ *
+ * 这是"会话级"门禁的唯一真源，与 requireAdmin / requireAuditor /
+ * requireDeviceWriter 同构（返回 null 即放行，返回 Response 即拒绝）。
+ *
+ * 为什么路由层必须有这道闸：middleware 只做重定向闸，它仅校验 Cookie 的存在性、
+ * 三段式格式与 expiry（见 middleware.ts 末尾 "Signature verification happens
+ * server-side in each API route" 注释），**不验签**。攻击者构造
+ * `aegis_session=<任意subject>.<未来expiry>.<任意sig>` 即可通过 middleware，
+ * 真正的 HMAC-SHA256 验签只发生在 getSession -> parseSession -> verifySessionSignature。
+ * 因此每个非公开路由都必须自己调这道闸，否则伪造 Cookie 直接放行。
+ */
+export function requireSession(request: Request): NextResponse | null {
+  if (!getSession(request)) return unauthenticated();
+  return null;
+}
+
+/**
  * Require admin OR auditor; returns null if allowed to read privileged/audit
  * data, a 401 when unauthenticated, else a 403. Auditors get read access to the
  * audit trail and user rosters but never mutation rights.
