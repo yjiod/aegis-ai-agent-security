@@ -5,7 +5,6 @@ import './globals.css';
 import './sentinel-tokens.css';
 import './detail.css';
 import './onboarding.css';
-import './integrations.css';
 import './demo.css';
 
 const geistSans = Geist({

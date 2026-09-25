@@ -10,95 +10,6 @@
   text-align: left;
 }
 
-/* ─── Detail Overlay ────────────────────────────────────── */
-.detail-overlay {
-  position: fixed;
-  inset: 64px 0 0;
-  z-index: 9;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.overlay-bg {
-  position: absolute;
-  inset: 0;
-  border: 0;
-  background: #020806c8;
-  backdrop-filter: blur(6px) saturate(0.8);
-  animation: fadeIn 0.25s ease-out;
-}
-
-/* ─── Detail Panel ──────────────────────────────────────── */
-.detail-panel {
-  position: relative;
-  width: min(920px, calc(100vw - 232px));
-  height: 100%;
-  overflow: auto;
-  background: linear-gradient(180deg, #0b1a15 0%, #091512 40%, #07110f 100%);
-  border-left: 1px solid #28433a;
-  padding: 30px;
-  box-shadow:
-    -32px 0 80px #00000088,
-    -1px 0 0 #49e8a50a inset;
-  animation: slideIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-  backdrop-filter: blur(12px);
-
-  /* Thin themed scrollbar */
-  scrollbar-width: thin;
-  scrollbar-color: #2a4d41 #091512;
-}
-
-.detail-panel::-webkit-scrollbar {
-  width: 6px;
-}
-
-.detail-panel::-webkit-scrollbar-track {
-  background: #091512;
-}
-
-.detail-panel::-webkit-scrollbar-thumb {
-  background: #2a4d41;
-  border-radius: 3px;
-}
-
-.detail-panel::-webkit-scrollbar-thumb:hover {
-  background: #3d6b5a;
-}
-
-/* ─── Detail Title ──────────────────────────────────────── */
-.detail-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 24px;
-}
-
-.detail-title h1 {
-  margin: 5px 0 0;
-  font-size: 28px;
-  letter-spacing: -0.03em;
-}
-
-.close-btn {
-  border: 1px solid #29443b;
-  background: #10211c;
-  color: #98b7ad;
-  width: 38px;
-  height: 38px;
-  border-radius: 9px;
-  font-size: 24px;
-  display: grid;
-  place-items: center;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.close-btn:hover {
-  background: #1a332b;
-  border-color: #3d6b5a;
-  color: #e0f5ec;
-  transform: rotate(90deg);
-}
-
 /* ─── KPI Cards ─────────────────────────────────────────── */
 .detail-kpis {
   display: grid;
@@ -108,8 +19,7 @@
   margin-bottom: 14px;
 }
 
-.detail-kpis article,
-.baseline-banner {
+.detail-kpis article {
   /* harmonize：KPI 卡不再用实心绿渐变块（与深色主题冲突的"绿块"），改中性
      Sentinel 表面；语义色由 globals 的左侧 accent 边条承担。 */
   background: linear-gradient(160deg, rgba(13, 32, 44, 0.9), rgba(8, 24, 34, 0.92));
@@ -300,108 +210,6 @@
 /* ─── Wide Risk Row ─────────────────────────────────────── */
 .wide {
   grid-template-columns: 54px minmax(0, 1fr) 120px 70px 70px;
-}
-
-/* ─── Baseline Banner ───────────────────────────────────── */
-.baseline-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-  position: relative;
-}
-
-.baseline-banner::after {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: 12px;
-  padding: 1px;
-  background: linear-gradient(135deg, #49e8a530, transparent 40%, transparent 60%, #49e8a520);
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-  animation: shimmer 4s ease-in-out infinite;
-}
-
-.baseline-banner h2 {
-  margin: 0 0 5px;
-  font-size: 18px;
-  letter-spacing: -0.02em;
-}
-
-.baseline-banner p {
-  margin: 0;
-  color: #76958a;
-  font-size: 12px;
-}
-
-.baseline-banner > strong {
-  font-size: 28px;
-  color: #62e2ad;
-  display: flex;
-  flex-direction: column;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 24px #49e8a525;
-}
-
-.baseline-banner strong span {
-  font-size: 10px;
-  color: #78988d;
-}
-
-/* ─── Policy Grid ───────────────────────────────────────── */
-.policy-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.policy-card {
-  box-shadow: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-}
-
-.policy-card:hover {
-  border-color: #34765f;
-  box-shadow: 0 4px 24px #00000030, inset 0 0 30px #49e8a505;
-  transform: translateY(-1px);
-}
-
-.policy-card > span {
-  font-size: 10px;
-  color: #54dca5;
-  letter-spacing: 0.08em;
-  font-weight: 700;
-}
-
-.policy-card h3 {
-  font-size: 14px;
-  margin: 9px 0 20px;
-  letter-spacing: -0.01em;
-}
-
-.policy-card div {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.policy-card button {
-  border: 0;
-  background: none;
-  color: #60dca9;
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 5px;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.policy-card button:hover {
-  background: #1a3d30;
-  color: #8cf5cc;
 }
 
 /* ─── Settings Row ──────────────────────────────────────── */
@@ -647,22 +455,6 @@
 }
 
 /* ─── Animations ────────────────────────────────────────── */
-@keyframes slideIn {
-  from {
-    transform: translateX(30px) scale(0.98);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0) scale(1);
-    opacity: 1;
-  }
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 @keyframes pulse {
   0%, 100% { background-position: 200% 0; }
   50% { background-position: 0 0; }
@@ -673,18 +465,9 @@
   50% { transform: translateY(-8px); }
 }
 
-@keyframes shimmer {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
-}
-
 /* ─── Reduced Motion ────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .detail-panel { animation: none; }
-  .overlay-bg { animation: none; }
-  .close-btn:hover { transform: none; }
   .empty-detail svg { animation: none; }
-  .baseline-banner::after { animation: none; }
   .skeleton-row::before,
   .skeleton-row::after,
   .skeleton-cell { animation: none; }
@@ -692,23 +475,7 @@
 }
 
 /* ─── Light Theme Overrides ───────────────────────────────── */
-[data-theme="light"] .detail-panel {
-  background: linear-gradient(180deg, #ffffff 0%, #f8faf9 100%);
-  border-left-color: #d4e5df;
-  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.08);
-  scrollbar-color: #a9c6bb #f8faf9;
-}
-
-[data-theme="light"] .detail-panel::-webkit-scrollbar-track { background: #f8faf9; }
-[data-theme="light"] .detail-panel::-webkit-scrollbar-thumb { background: #a9c6bb; }
-[data-theme="light"] .detail-panel::-webkit-scrollbar-thumb:hover { background: #8fb3a5; }
-
-[data-theme="light"] .overlay-bg {
-  background: rgba(13, 31, 26, 0.2);
-}
-
-[data-theme="light"] .detail-kpis article,
-[data-theme="light"] .baseline-banner {
+[data-theme="light"] .detail-kpis article {
   background: linear-gradient(145deg, #e8f5f0, #f8faf9);
   border-color: #b8d4ca;
 }
@@ -729,18 +496,6 @@
 }
 
 [data-theme="light"] .detail-kpis span { color: #527469; }
-
-[data-theme="light"] .close-btn {
-  border-color: #d4e5df;
-  background: #ffffff;
-  color: #4a6d62;
-}
-
-[data-theme="light"] .close-btn:hover {
-  background: #f0f5f3;
-  border-color: #8fb3a5;
-  color: #0d1f1a;
-}
 
 [data-theme="light"] .data-head {
   color: #5a7d72;
@@ -779,32 +534,6 @@
 [data-theme="light"] .data-row:hover .pass,
 [data-theme="light"] .data-row:hover .fail,
 [data-theme="light"] .data-row:hover .warn { box-shadow: none; }
-
-[data-theme="light"] .baseline-banner p { color: #527469; }
-
-[data-theme="light"] .baseline-banner > strong {
-  color: #0f7a52;
-  text-shadow: none;
-}
-
-[data-theme="light"] .baseline-banner strong span { color: #527469; }
-
-[data-theme="light"] .baseline-banner::after {
-  background: linear-gradient(135deg, rgba(18, 122, 84, 0.22), transparent 40%, transparent 60%, rgba(18, 122, 84, 0.14));
-}
-
-[data-theme="light"] .policy-card:hover {
-  border-color: #8fb3a5;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.07);
-}
-
-[data-theme="light"] .policy-card > span { color: #0f7a52; }
-[data-theme="light"] .policy-card button { color: #0f7a52; }
-
-[data-theme="light"] .policy-card button:hover {
-  background: #e8f5f0;
-  color: #0b5f40;
-}
 
 [data-theme="light"] .setting-row { border-bottom-color: #e8f0ed; }
 [data-theme="light"] .setting-row:hover { background: rgba(240, 245, 243, 0.7); }
@@ -863,11 +592,6 @@
 
 /* ─── Responsive: Tablet ────────────────────────────────── */
 @media (max-width: 760px) {
-  .detail-panel {
-    width: 100vw;
-    padding: 20px;
-  }
-
   .detail-kpis {
     grid-template-columns: 1fr 1fr;
   }
@@ -901,26 +625,8 @@
 
 /* ─── Responsive: Mobile ────────────────────────────────── */
 @media (max-width: 480px) {
-  .policy-grid {
-    grid-template-columns: 1fr;
-  }
-
   .detail-kpis {
     grid-template-columns: 1fr;
-  }
-
-  .baseline-banner {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .baseline-banner > strong {
-    text-align: left;
-  }
-
-  .detail-title h1 {
-    font-size: 22px;
   }
 
   .timeline-icon {

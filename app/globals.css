@@ -151,7 +151,6 @@
 [data-theme="light"] .switch.on { background: #1a9d6e; box-shadow: 0 0 10px rgba(26,157,110,0.3); }
 [data-theme="light"] .live-dot { background: #1a9d6e; box-shadow: 0 0 6px rgba(26,157,110,0.5); }
 [data-theme="light"] .demo-dot { background: #b8860b; box-shadow: 0 0 6px rgba(184,134,11,0.4); }
-[data-theme="light"] .score-ring-chart { filter: none; }
 [data-theme="light"] .coverage-row .tool-logo { background: #f0f5f3; border-color: #d4e5df; color: #4a6d62; }
 [data-theme="light"] .flow { background: #f0f5f3; border-color: #d4e5df; color: #527469; }
 [data-theme="light"] .flow .safe { color: #0f7a52; }
@@ -317,19 +316,7 @@
   box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1);
 }
 
-/* Score ring + breakdown list. */
-[data-theme="light"] .score-ring {
-  background: conic-gradient(var(--primary) 0 92%, #dfe9e5 92%);
-  animation: none;
-}
-[data-theme="light"] .score-ring::after {
-  background: radial-gradient(circle at 50% 35%, #ffffff 0%, #f2f7f5 65%);
-  box-shadow:
-    inset 0 2px 8px rgba(0, 0, 0, 0.06),
-    inset 0 0 0 1px rgba(18, 122, 84, 0.1);
-}
-[data-theme="light"] .score-ring strong { color: #0d1f1a; text-shadow: none; }
-[data-theme="light"] .score-ring span { color: #527469; }
+/* Score breakdown list (light theme). */
 [data-theme="light"] .score-list p { color: #527469; border-bottom-color: #e8f0ed; }
 [data-theme="light"] .score-list p:hover { color: #1a3d30; }
 [data-theme="light"] .score-list b { color: #1a3d30; }
@@ -348,11 +335,6 @@
 @keyframes entrance-scale-dot {
   from { transform: scale(0); }
   to { transform: scale(1); }
-}
-
-@keyframes shimmer-sweep {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
 }
 
 .animate-entrance {
@@ -1322,21 +1304,12 @@ button {
   box-shadow: inset 2px 0 0 rgba(39, 184, 243, 0.35);
 }
 
-/* 工单行是真正的 <button>（可展开触发器），而非 div[role="button"]：
-   语义、键盘（Enter/Space）与焦点可达性全部由浏览器提供，焦点环复用上方
-   全局 :focus-visible。这里只需抹掉 UA 按钮外观 —— .risk-row 已声明
-   padding/margin/border-radius/border-top，故只重置其余三边边框，
-   避免 inline 写法把 border-top 一起覆盖掉。 */
-button.risk-row {
-  appearance: none;
-  background: none;
-  border-right: 0;
-  border-bottom: 0;
-  border-left: 0;
-  color: inherit;
-  text-align: left;
-  width: 100%;
-}
+/* 工单行 / 终端行是 div[role="button"]，不是原生 <button>：行内还嵌有
+   <label>+checkbox 与 <Button> 等交互控件，而原生按钮不允许嵌套交互元素。
+   因此键盘与焦点可达性不由浏览器免费提供，而是由组件侧显式声明：
+   role="button" + tabIndex={0} + aria-label + onKeyDown（Enter/Space 触发），
+   写法统一对齐 components/scan-explorer.tsx 的可点击行；焦点环复用上方全局
+   :focus-visible。此处无需（也不应）再写 button.risk-row 去抹 UA 按钮外观。 */
 
 .severity {
   font-size: 10px;
@@ -1462,57 +1435,11 @@ button.risk-row {
   transform: translateY(0);
 }
 
-/* ---------- 14. Score ring -------------------------------- */
+/* ---------- 14. Score body + breakdown list --------------- */
 .score-body {
   display: flex;
   align-items: center;
   gap: 24px;
-}
-
-.score-ring {
-  width: 116px;
-  height: 116px;
-  border-radius: 50%;
-  background: conic-gradient(var(--sentinel-accent, #28e6a0) 0 92%, var(--sentinel-surface-3, #102a37) 92%);
-  display: grid;
-  place-content: center;
-  position: relative;
-  flex-shrink: 0;
-}
-
-.score-ring::after {
-  content: "";
-  position: absolute;
-  inset: 8px;
-  background:
-    radial-gradient(circle at 50% 35%, #12251f 0%, #0c1916 65%);
-  border-radius: 50%;
-  box-shadow:
-    inset 0 2px 8px rgba(0, 0, 0, 0.5),
-    inset 0 0 0 1px rgba(73, 232, 165, 0.08);
-}
-
-.score-ring strong,
-.score-ring span {
-  position: relative;
-  z-index: 1;
-  text-align: center;
-}
-
-.score-ring strong {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-  color: #eafff6;
-  text-shadow: 0 0 20px rgba(73, 232, 165, 0.3);
-}
-
-.score-ring span {
-  font-size: 10px;
-  color: #6f8e84;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
 }
 
 .score-list {
@@ -1556,15 +1483,6 @@ button.risk-row {
   }
 }
 
-@keyframes ring-glow {
-  0%, 100% {
-    filter: drop-shadow(0 0 6px rgba(73, 232, 165, 0.18));
-  }
-  50% {
-    filter: drop-shadow(0 0 18px rgba(73, 232, 165, 0.42));
-  }
-}
-
 @keyframes toast-in {
   from {
     opacity: 0;
@@ -1595,49 +1513,6 @@ button.risk-row {
 }
 .form-input::placeholder { color: var(--muted-foreground); }
 
-.form-select {
-  width: 100%;
-  padding: 9px 12px;
-  background: var(--surface-1);
-  border: 1px solid var(--line-base);
-  border-radius: 7px;
-  color: var(--foreground);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2386a39a'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  transition: border-color var(--dur-fast) ease;
-}
-.form-select:focus { border-color: var(--primary); }
-
-.icon-action {
-  width: 26px;
-  height: 26px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted-foreground);
-  display: inline-grid;
-  place-items: center;
-  cursor: pointer;
-  transition: all var(--dur-fast) ease;
-}
-.icon-action:hover {
-  /* harmonize：hover 用主色微染而非实心绿块。 */
-  background: rgba(40, 230, 160, 0.14);
-  border-color: rgba(40, 230, 160, 0.4);
-  color: var(--sentinel-accent, var(--foreground));
-}
-.icon-action.danger:hover {
-  background: #2a1515;
-  border-color: #5c2626;
-  color: #ff8f88;
-}
-
 .filter-btn {
   padding: 6px 14px;
   border: 1px solid var(--line-base);
@@ -1667,10 +1542,8 @@ button.risk-row {
   font-size: 10px;
 }
 
-[data-theme="light"] .form-input,
-[data-theme="light"] .form-select { background: #fff; border-color: #d4e5df; color: #0d1f1a; }
+[data-theme="light"] .form-input { background: #fff; border-color: #d4e5df; color: #0d1f1a; }
 [data-theme="light"] .form-input:focus { border-color: #1a9d6e; box-shadow: 0 0 0 2px rgba(26,157,110,0.1); }
-[data-theme="light"] .icon-action:hover { background: #e8f5f0; color: #1a3d30; }
 [data-theme="light"] .filter-btn.active { background: #e0f2ec; border-color: #1a9d6e; color: #1a9d6e; }
 
 /* ---------- 16. Responsive breakpoints -------------------- */
