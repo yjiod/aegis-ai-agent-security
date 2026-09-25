@@ -196,6 +196,12 @@ test.describe('devices page', () => {
 
     // 行只取主表（第一个 .data-table）；覆盖矩阵是第二个表、设备 ID 会重复。
     const rows = page.locator('.data-table').first().locator('.data-row');
+    // 保持 `.empty-detail`：设备页**不** import components/ui-states，它渲染的是
+    // 自己的空态标记（app/devices/page.tsx:1193 与 :1209 两处 `.empty-detail`），
+    // 因此本页根本不会出现 `.state-block`。把它改成 `.state-block` 会匹配不到任何
+    // 元素 → emptyCount 恒 0；而 demo 模式下 rowCount 也恒 0（见下方 :217 的
+    // `expect(rowCount).toBe(0)`），断言必红。审计 #21 只让 ui-states 的 EmptyState
+    // 不再叠加 .empty-detail，并未移除 .empty-detail 这个类本身。
     const empty = page.locator('.empty-detail');
     await Promise.race([
       rows.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
@@ -231,7 +237,27 @@ test.describe('risks page', () => {
     await expect(page.locator('.detail-kpis article strong')).toHaveCount(3);
 
     const rows = page.locator('.risk-table .risk-row');
-    const empty = page.locator('.empty-detail');
+    // ⚠️ 这里不能写裸 `.state-block`：该类由 ui-states 的**四个**组件共用
+    // （LoadingState / EmptyState / ErrorState / StaleState）。若匹配裸类，
+    // 则"加载中"的转圈、甚至 app/risks/page.tsx:1341 的 ErrorState
+    // （`工单接口不可用`）都会让 emptyCount > 0 —— 也就是恰好在"静默失败"
+    // 这个本测试存在的唯一理由上放行。故收窄到 EmptyState：四个里唯有它
+    // 是 role="status" 且既无 aria-live（LoadingState 有）也无 data-tone
+    // （StaleState 有）；ErrorState 是 role="alert"，已被排除。
+    //
+    // 前端批 8（2e775f3）按审计 #21 让 ui-states 的 EmptyState 只挂 .state-block、
+    // 不再叠加 .empty-detail，因此本页原先的 `.empty-detail` 选择器失配 →
+    // demo 模式下 rowCount 与 emptyCount 双双为 0 → 断言必红（CI 36134011857）。
+    //
+    // 注意：**只有 risks 页使用 components/ui-states**。devices 页与 scanner 页
+    // （/skills /mcp /quality → components/scan-explorer）仍各自渲染自己的
+    // `.empty-detail`（app/devices/page.tsx:1193,1209；scan-explorer.tsx:296,313,323），
+    // 那两个页面的 `.empty-detail` 选择器**依然有效，不得改成 .state-block**
+    // （它们的页面根本不 import ui-states，改了会匹配不到任何东西 → 把两个
+    // 现在绿的用例改红）。详见下方 devices / scanner 两个用例处的说明。
+    const empty = page.locator(
+      '.state-block[role="status"]:not([aria-live]):not([data-tone])',
+    );
     await Promise.race([
       rows.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
       empty.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
@@ -266,6 +292,10 @@ test.describe('scanner pages', () => {
       const panel = page.locator('.panel').last();
       await expect(panel).toBeVisible();
       const rows = page.locator('.data-table .data-row');
+      // 保持 `.empty-detail`：三个扫描页（/skills /mcp /quality）都渲染共享的
+      // <ScanExplorer>，其空态标记是 components/scan-explorer.tsx:296/313/323 的
+      // `.empty-detail`；scan-explorer 同样不 import ui-states，故本页不会出现
+      // `.state-block`。改成 `.state-block` 会让这三个用例从"绿"变"红"。
       const emptyState = page.locator('.empty-detail');
       await Promise.race([
         rows.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}),
