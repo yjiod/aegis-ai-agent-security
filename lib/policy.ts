@@ -64,7 +64,7 @@ export interface PolicyBody {
   deny: { skills: string[]; mcp: string[] };
   /** 仅当发布时 typed override 通过才置 true; 终端据此放行超爆炸半径上限的封禁动作。 */
   enforce_override?: boolean;
-  /** 封禁豁免设备(开发主机等): 终端只报不封; 同时作为自更 pinned 名单。 */
+  /** 封禁豁免设备(开发主机等): 终端只报告不拦截; 同时作为自更 pinned 名单。 */
   enforce_exempt?: string[];
 }
 
@@ -104,7 +104,7 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
   // 不再在此处另抄一份字面量（P0 #38：三副本曾漂移，导致 /policies 面板显示的
   // 开关状态与终端实际收到的策略不一致）。
   // 语义不变：扫描类全开、code_scan 默认关（2026-09-25 用户决策，代码扫描交给
-  // 专业扫描器）、封禁执行类默认关（deny 名单只报不封，打开才真封禁）。
+  // 专业扫描器）、封禁执行类默认关（deny 名单只报告不拦截，打开才真封禁）。
   modules: { ...MODULE_DEFAULTS },
   deny: { skills: [], mcp: [] },
 };

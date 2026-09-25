@@ -1593,7 +1593,7 @@ class AegisTests(unittest.TestCase):
             finally:
                 self.agent.managed_homes=orig_homes
     def test_enforcer_off_by_default(self):
-        # 执行开关缺省关: 有 deny 名单也不动文件(只报不封), 防自主破坏。
+        # 执行开关缺省关: 有 deny 名单也不动文件(只报告不拦截), 防自主破坏。
         with tempfile.TemporaryDirectory() as td:
             home=Path(td)/'home'; skill=home/'.claude'/'skills'/'evil-skill'; skill.mkdir(parents=True)
             (skill/'SKILL.md').write_text('# evil')
@@ -1978,7 +1978,7 @@ console.log(JSON.stringify([...results, ...npResults]));
         """绝对要求 #3(全自动纠偏): 决策核心——高置信恶意 skill 自动 deny、
         人工处置绝不覆盖(冲突降级通知)、MCP ≥high 自动 deny、配置缺陷只通知不封。
 
-        ⚠️ 夹具严重度**必须取自终端真实产出**，不得凭空编造。本测试曾因夹具把
+        注意：夹具严重度**必须取自终端真实产出**，不得凭空编造。本测试曾因夹具把
         `incomplete_mcp_server` 写成 `critical`（aegis_agent.py:404 实发 `medium`）
         而全绿，掩盖了"MCP 自动封禁在生产中一次都没触发过"的事实——因为旧门禁要求
         `severity === 'critical'`，而名单里两个 kind 终端实发 high/medium，恒不满足。

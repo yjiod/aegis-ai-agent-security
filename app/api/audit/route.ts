@@ -35,7 +35,7 @@ interface CollectorAuditEntry {
  *   - 新版：`entries` 数组，字段 action / timestamp(**毫秒**) / actor / resource_*
  *   - 旧版：`events` 数组，字段 event / occurred_at(**秒**) / device_id
  *
- * ⚠️ 时间单位按**字段名**判定，不按数量级猜：`timestamp` 即毫秒（新契约），
+ * 注意：时间单位按**字段名**判定，不按数量级猜：`timestamp` 即毫秒（新契约），
  * `occurred_at` 即秒（Collector 用 int(time.time())）故 ×1000。按数量级猜阈值
  * 会在 2286 年之后静默判错，而且难以排查。单位不换算的后果很隐蔽——记录会存在，
  * 但合并排序时全部沉到队尾（看着像 1970 年），CSV 合规导出的时间列也全错。

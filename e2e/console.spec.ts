@@ -237,7 +237,7 @@ test.describe('risks page', () => {
     await expect(page.locator('.detail-kpis article strong')).toHaveCount(3);
 
     const rows = page.locator('.risk-table .risk-row');
-    // ⚠️ 这里不能写裸 `.state-block`：该类由 ui-states 的**四个**组件共用
+    // 注意：这里不能写裸 `.state-block`——该类由 ui-states 的**四个**组件共用
     // （LoadingState / EmptyState / ErrorState / StaleState）。若匹配裸类，
     // 则"加载中"的转圈、甚至 app/risks/page.tsx:1341 的 ErrorState
     // （`工单接口不可用`）都会让 emptyCount > 0 —— 也就是恰好在"静默失败"

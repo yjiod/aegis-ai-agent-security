@@ -98,7 +98,7 @@ export async function GET(request: Request) {
   //
   // capability RBAC：developer 档仅可读"本人"设备（owner/os_user == subject）。
   //
-  // ⚠️ 这里刻意**不使用** `session ? ... : false` 这类把 null 当"不受限"的写法：
+  // 注意：这里刻意**不使用** `session ? ... : false` 这类把 null 当"不受限"的写法：
   // 修复前正是那个三元把"验签失败"静默降级成"无需收窄"，于是伪造 Cookie 既读到
   // **全量舰队**（device_id / hostname / owner / os_user / serial / local_ips /
   // egress_ip / agent_version / skills / mcp_assets），又绕过了 developer 档的

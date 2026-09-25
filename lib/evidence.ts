@@ -488,7 +488,7 @@ function buildReport(opts: EvidenceOptions, generatedAt: number, sections: Recor
 /**
  * 取 Collector 侧审计并归一化进证据包。
  *
- * ⚠️ 这里的过滤是**签名完整性**的一部分，不是防御性冗余：证据包经 ed25519 签名，
+ * 注意：这里的过滤是**签名完整性**的一部分，不是防御性冗余：证据包经 ed25519 签名，
  * 任何进入 audit 节的记录都会获得"已被权威签署"的可信外观。修复前若只修好路由 404
  * 而字段名/时间单位仍不匹配，每条 Collector 记录都会变成
  * `{action: undefined, timestamp: undefined, actor: 'collector'}` 被签进包里 ——

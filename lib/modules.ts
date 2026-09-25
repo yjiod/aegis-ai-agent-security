@@ -35,7 +35,7 @@ export type ModuleKey = (typeof MODULE_KEYS)[number];
  * `tsc` 会在**编译期**报错。漂移因此在源头被类型系统挡住，而不是依赖测试或人肉
  * 审查事后发现 —— 这是本文件能当"单一真源"的真正原因。
  *
- * ⚠️ 本文件被客户端组件（app/policies/page.tsx）import。MODULE_DEFAULTS 与
+ * 注意：本文件被客户端组件（app/policies/page.tsx）import。MODULE_DEFAULTS 与
  * effectiveModules 都是**纯数据 / 纯函数**：不做任何 I/O，也不引入新的 import，
  * 对客户端安全。默认值**绝不要**挪进 lib/policy.ts —— 那个文件 import 了
  * node:crypto，被客户端组件拉进去会直接崩溃。
@@ -51,7 +51,7 @@ export const MODULE_DEFAULTS: Record<ModuleKey, boolean> = {
   baseline_install: true,
   network_collect: true,
   self_update: true,
-  // 执行类开关默认 false：封禁是不可逆倾向操作，deny 名单只报不封，
+  // 执行类开关默认 false：封禁是不可逆倾向操作，deny 名单只报告不拦截，
   // 必须管理员显式打开才真封禁（人工审批语义）。
   skill_enforce: false,
   mcp_enforce: false,
@@ -124,10 +124,16 @@ export const MODULE_HINTS: Record<ModuleKey, string> = {
   skill_scan: '扫描各 AI 工具技能目录，产出未知/高危 Skill 发现',
   mcp_scan: '扫描 MCP 配置（传输/命令/域名/凭据），产出未批准 MCP 发现',
   code_scan: '代码 / 密钥扫描（默认关：代码扫描交给专业扫描器，终端不上报代码类发现；打开即恢复终端扫描）',
-  deps_scan: '扫描依赖清单的未固定版本与不可信来源',
+  // 文案收窄为**当前实际行为**（OD-8 A 方案，PM 定稿）：本开关出厂为 true，但
+  // dependency_unpinned / missing_lockfile 在终端被归入 CODE_QUALITY_KINDS
+  // （aegis_agent.py:1588-1591），code_scan=false 时经 build_report 兜底过滤
+  // **不上报**（agent:1596-1599）。原文案承诺"未固定版本"⇒ UI 承诺了一个默认
+  // 拿不到的能力，与 #32 同源（虚假状态）。此处只陈述现状与交叉影响，
+  // **不承诺将来会恢复**——那属 Task #6 拆分 scan_text 后的事，未做就不写。
+  deps_scan: '扫描依赖清单的供应链风险：不可信或远程来源、引用外部清单、清单无法安全解析。注意：「未固定版本」与「缺失锁文件」在终端归类为代码质量发现，受「代码 / 密钥扫描」开关（默认关闭）交叉影响，当前默认不上报。',
   baseline_install: '向仓库/用户目录注入 Aegis 安全基线文件',
   network_collect: '采集物理网卡 MAC 与本机 IP（不含虚拟网卡）',
   self_update: '无桌管环境的客户端自更新兜底（主通道为桌管推送）',
-  skill_enforce: '按 deny.skills 真封禁 Skill：从工具可加载位置移除，且每个执行周期自动再执行（复发即再封，无需人工反复操作）；备份仅供管理员回滚；关闭则只报不封',
-  mcp_enforce: '按 deny.mcp 真封禁 MCP：从配置删除 + 终止在跑进程 + 禁止该二进制再执行 +（Windows）防火墙出站封禁其 host；每周期自动再执行；解封自动还原；关闭则只报不封',
+  skill_enforce: '按 deny.skills 真封禁 Skill：从工具可加载位置移除，且每个执行周期自动再执行（复发即再封，无需人工反复操作）；备份仅供管理员回滚；关闭则只报告不拦截',
+  mcp_enforce: '按 deny.mcp 真封禁 MCP：从配置删除 + 终止在跑进程 + 禁止该二进制再执行 +（Windows）防火墙出站封禁其 host；每周期自动再执行；解封自动还原；关闭则只报告不拦截',
 };

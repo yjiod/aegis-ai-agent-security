@@ -38,7 +38,7 @@ import { enforceableRuleIds } from '@/lib/policy';
 /**
  * 高置信恶意信号 → skill 资产自动 deny（severity critical|high）。
  *
- * ⚠️ 诚实边界：这四个 kind **全部**由 aegis_agent.py 的 `scan_text()` 产出
+ * 诚实边界：这四个 kind **全部**由 aegis_agent.py 的 `scan_text()` 产出
  * （prompt_override:303、credential_access:303、context_poisoning:336、
  * hidden_instruction:345，均在 scan_text 的 302-406 行内），而 `scan_text` 的每个
  * 调用点都被 `if m_code:` 门控（agent:550、:1032、:1068），`m_code` 即
