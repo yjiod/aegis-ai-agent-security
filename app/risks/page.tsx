@@ -1130,7 +1130,21 @@ export default function RisksPage() {
                     outline: index === cursorIdx ? '1px solid var(--sentinel-cyan)' : undefined,
                     outlineOffset: -1,
                   }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`打开工单 ${ticket.ticket_id} 详情`}
                   onClick={() => setDrawerTicket(ticket)}
+                  onKeyDown={(e) => {
+                    // 行内还嵌有复选框、「查看发现」链接与 IP/MAC 折叠按钮：焦点落在这些
+                    // 控件上时不得拦截按键，否则 Space/Enter 会冒泡到行、既打开抽屉又
+                    // preventDefault 掉控件自身行为（复选框选不上、链接跳不走）。
+                    // 写法对齐 components/scan-explorer.tsx 的可点击行，并加目标守卫。
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setDrawerTicket(ticket);
+                    }
+                  }}
                 >
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <input
@@ -1186,7 +1200,7 @@ export default function RisksPage() {
                               || ticket.device_id}
                           </strong>
                           {deviceInfo[ticket.device_id]?.os_user && (
-                            <i className="handle" style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--muted-foreground)' }}>
+                            <i className="handle" style={{ color: 'var(--muted-foreground)' }}>
                               {deviceInfo[ticket.device_id].os_user}
                             </i>
                           )}

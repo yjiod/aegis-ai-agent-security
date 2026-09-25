@@ -56,7 +56,7 @@ function ModuleToggles({ isAdmin }: { isAdmin: boolean }) {
               <span>{MODULE_HINTS[key as ModuleKey] ?? ''}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <i className={on ? 'pass' : 'warn'} style={{ fontSize: 11, fontStyle: 'normal' }}>{on ? '开' : '关'}</i>
+              <i className={on ? 'pass' : 'warn'}>{on ? '开' : '关'}</i>
               <button
                 className={`switch ${on ? 'on' : ''}`}
                 disabled={!isAdmin || busy === key}
@@ -297,11 +297,18 @@ export default function PoliciesPage() {
             </div>
             {keys.keys.map((k) => {
               const statusLabel = k.status === 'active' ? '活跃' : k.status === 'retiring' ? '退役中(重叠验签)' : k.status === 'retired' ? '已退役' : '已预置';
+              // 芯片色按审计 §10.1 的语义色分配规则取值，不再留空串（空串=只有结构没有颜色，
+              // 与同行兄弟芯片视觉割裂）：
+              //   active   → .pass  （绿：确实在生效，属"已具备"语义）
+              //   retiring → .warn  （琥珀：过渡态、仍在重叠验签，属"需要注意的部分生效"）
+              //   retired  → .muted （中性灰：历史归档，不是告警，禁用琥珀）
+              //   preset   → .muted （中性灰：未启用是中性事实，不是告警）
+              const statusTone = k.status === 'active' ? 'pass' : k.status === 'retiring' ? 'warn' : 'muted';
               return (
                 <div className="data-row" key={k.key_id} style={{ gridTemplateColumns: '1.4fr 1.2fr 0.9fr 0.6fr auto' }}>
                   <strong style={{ fontSize: 12 }}>{k.key_id}{!k.in_keyring ? '（未启用）' : ''}</strong>
                   <span style={{ fontSize: 11, color: 'var(--muted-foreground)', fontFamily: 'monospace' }}>{k.fingerprint || '—'}</span>
-                  <span><i className={k.status === 'active' ? 'pass' : k.status === 'retired' ? 'warn' : ''} style={{ fontStyle: 'normal', fontSize: 11 }}>{statusLabel}</i></span>
+                  <span><i className={statusTone}>{statusLabel}</i></span>
                   <span style={{ fontSize: 12 }}>{k.releases}</span>
                   <span style={{ display: 'flex', gap: 6 }}>
                     {isAdmin && k.in_keyring && k.status !== 'active' && k.status !== 'retired' && (

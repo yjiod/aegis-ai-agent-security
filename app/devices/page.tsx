@@ -828,6 +828,10 @@ export default function DevicesPage() {
               : 0;
             return (
               <Fragment key={device.device_id}>
+                {/* 行点击是 admin 专属的「行内编辑开关」，不是打开详情——详情入口是行内的
+                    Eye 按钮，编辑/删除是行内的 Pencil/Trash 按钮。因此键盘可达性按真实语义
+                    提供（aria-expanded 表达展开态），且 role/tabIndex 仅在 canMutate 时挂载：
+                    否则非 admin 会得到一个按了没反应的死 Tab 停靠点。 */}
                 <div
                   className="data-row animate-row-entrance"
                   style={{
@@ -835,6 +839,19 @@ export default function DevicesPage() {
                     animationDelay: `${index * 30 + 200}ms`,
                     cursor: canMutate ? 'pointer' : 'default',
                   }}
+                  role={canMutate ? 'button' : undefined}
+                  tabIndex={canMutate ? 0 : undefined}
+                  aria-label={canMutate ? `${editing ? '收起' : '展开'} ${device.hostname || device.device_id} 的行内编辑` : undefined}
+                  aria-expanded={canMutate ? editing : undefined}
+                  onKeyDown={canMutate ? (e) => {
+                    // 行内嵌有 Eye/Pencil/Trash 等真实按钮：焦点落在控件上时不拦截按键，
+                    // 否则 Space/Enter 会冒泡到行并 preventDefault 掉按钮自身行为。
+                    if (e.target !== e.currentTarget) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setEditingId(editing ? null : device.device_id);
+                    }
+                  } : undefined}
                   onClick={() => {
                     if (canMutate) setEditingId(editing ? null : device.device_id);
                   }}
@@ -1105,7 +1122,6 @@ export default function DevicesPage() {
                         <div style={{ fontSize: 12, lineHeight: 1.6 }}>
                           <i
                             className={device.self_update.updated ? 'pass' : 'fail'}
-                            style={{ fontStyle: 'normal', fontSize: 11 }}
                           >
                             {device.self_update.updated ? '已更新' : '未更新'}
                           </i>{' '}
@@ -1131,7 +1147,7 @@ export default function DevicesPage() {
                               <span style={{ fontSize: 11 }}>{e.asset_type}</span>
                               <span style={{ fontSize: 11, wordBreak: 'break-all' }}>{e.asset_key}</span>
                               <span>
-                                <i className={e.action === 'restored' || e.action === 'config_restored' ? 'pass' : 'warn'} style={{ fontStyle: 'normal', fontSize: 11 }}>{e.action}</i>
+                                <i className={e.action === 'restored' || e.action === 'config_restored' ? 'pass' : 'warn'}>{e.action}</i>
                               </span>
                               <span style={{ fontSize: 10, color: 'var(--muted-foreground)', wordBreak: 'break-all' }}>
                                 {e.backup || e.target || '—'}{e.reason ? ` · ${e.reason}` : ''}

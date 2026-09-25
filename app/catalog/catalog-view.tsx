@@ -1185,11 +1185,11 @@ export function CatalogView() {
 
             <CatalogEntry
               name="状态指示 Status"
-              source="app/detail.css · .pass / .fail / .warn"
-              description="三态标签：通过（绿）、失败（红）、警告（琥珀）。业务页面通常用一个 statusTone(status) 工具函数把中文状态映射到类名。"
-              note="padding、圆角、字号与 font-style: normal 都定义在 .data-row i 与 .policy-card i 两条规则里，脱离这两个父级单独使用 .pass 只会得到颜色，且 i 标签会保持斜体。独立使用时请改用 span 并补齐排版类（见第二个示例）。"
+              source="app/detail.css · .pass / .fail / .warn / .muted"
+              description="四态标签：通过（绿）、失败（红）、警告（琥珀）、中性（灰）。业务页面通常用一个 statusTone(status) 工具函数把中文状态映射到类名。"
+              note="结构性样式（font-style: normal、padding、圆角、字号、字重、line-height）已由芯片类自带，不再依赖 .data-row / .policy-card 父级，因此脱离表格单独使用也能得到完整外观，<i> 不会再退回斜体，也不需要内联补 fontStyle 或排版工具类。色值全部走 token，亮/暗主题均成立。第四态 .muted 用于「已停用 / 未启用 / 未知 / 历史归档」——这些是中性事实而非状态好坏，按语义色分配规则禁用绿、红、琥珀（绿会被读成“正常在跑”，红/琥珀会被读成“出故障了”）。"
             >
-              <Variant label="在 .data-row 内（推荐）" vertical>
+              <Variant label="在 .data-row 内" vertical>
                 <div className="w-full max-w-md rounded-lg border border-[#172d26] bg-[#0a1714] px-1 py-1">
                   <div className="data-row">
                     <strong>SEC-AUTH-01</strong>
@@ -1212,18 +1212,13 @@ export function CatalogView() {
                 </div>
               </Variant>
               <Variant
-                label="脱离 .data-row 时补齐排版类"
-                code='className="pass inline-block rounded-md px-2 py-1 text-[10px] font-semibold"'
+                label="脱离 .data-row 单独使用（无需补排版类）"
+                code='className="pass" / "warn" / "fail" / "muted"'
               >
-                <span className="pass inline-block rounded-md px-2 py-1 text-[10px] font-semibold">
-                  通过
-                </span>
-                <span className="warn inline-block rounded-md px-2 py-1 text-[10px] font-semibold">
-                  告警
-                </span>
-                <span className="fail inline-block rounded-md px-2 py-1 text-[10px] font-semibold">
-                  拦截
-                </span>
+                <span className="pass">通过</span>{' '}
+                <span className="warn">告警</span>{' '}
+                <span className="fail">拦截</span>{' '}
+                <span className="muted">已停用</span>
               </Variant>
             </CatalogEntry>
 

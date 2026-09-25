@@ -149,7 +149,7 @@ export default function OnboardingPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <strong style={{ fontSize: 14 }}>
                 {i + 1}. {s.title}
-                {s.done && <i className="pass" style={{ marginLeft: 8, fontStyle: 'normal', fontSize: 11 }}>已完成</i>}
+                {s.done && <i className="pass" style={{ marginLeft: 8 }}>已完成</i>}
               </strong>
               <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 8px' }}>{s.desc}</p>
               <Link

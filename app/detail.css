@@ -165,20 +165,31 @@
 }
 
 /* ─── Status Badges ─────────────────────────────────────── */
-.data-row i,
-.policy-card i {
+/* 结构性样式（非斜体 / 内边距 / 圆角 / 字号 / 字重）由芯片类自带，不再只挂在
+   .data-row 后代选择器上。此前父级不是 .data-row 的 orphan 用法拿不到结构，
+   <i> 会保持浏览器默认斜体、无内边距、贴边，逼得开发者到处内联补
+   fontStyle:'normal'（共 7 处），表格内与表格外的同款徽章视觉割裂。
+   .data-row i 保留在同一分组里，用于兜底 scan-explorer 中 className 为空串的 <i>；
+   原 .policy-card i 选择器已随 .policy-card 死类一并移除。 */
+.pass,
+.fail,
+.warn,
+.muted,
+.data-row i {
   font-style: normal;
+  display: inline-block;
   width: max-content;
   padding: 4px 9px;
-  border-radius: 6px;
+  border-radius: var(--sentinel-radius-sm);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.02em;
+  line-height: 1.2;
   transition: box-shadow 0.2s ease;
 }
 
 .pass {
-  /* harmonize：pass 徽章改主色微染（原 #163a2d 实底绿块与深色主题冲突）。 */
+  /* pass 徽章用主色微染，不用实底绿块 */
   color: var(--sentinel-accent, #5de1a9);
   background: rgba(40, 230, 160, 0.12);
   border: 1px solid rgba(40, 230, 160, 0.32);
@@ -189,20 +200,40 @@
   color: #ff8f88;
   background: #44201f;
   border: 1px solid #6b302e;
-  box-shadow: 0 0 8px #ff685f15;
+  /* 禁 glow：基础态也不加外发光（与 .pass 及上方 hover 规则一致） */
+  box-shadow: none;
 }
 
 .warn {
   color: #f2bd70;
   background: #3a2b16;
   border: 1px solid #5c4422;
-  box-shadow: 0 0 8px #e8b44915;
+  /* 禁 glow */
+  box-shadow: none;
 }
 
-/* 禁 glow：芯片 hover 不再加外发光（三色同族一并去除，避免只改 .pass 造成不一致） */
+/* 中性灰芯片：已停用 / 未启用 / 未知 / 不适用 / 历史归档。
+   这些是「中性事实」而非状态好坏——用绿会被误读为"正常在跑"（审计 #32 的 bug），
+   用红或琥珀会被误读为"出故障了"。取值模式与 globals.css 的 .severity.closed 一致
+   （color-mix 中性灰，不新造色值），走 token 故亮/暗主题均成立。禁 glow。
+
+   ⚠️ 与审计 10.3 的建议值有一处刻意偏差：审计写 --sentinel-text-3，实测该值在
+   10px 芯片上不达 4.5:1（暗色 4.23–4.52:1、亮色 4.19–4.45:1，随父级底色浮动，
+   部分组合 FAIL）。改用次级正文 token --sentinel-text-2：暗色 7.40–8.25:1、
+   亮色 6.25–6.65:1，两套主题均稳过；相对 --sentinel-text 仍明显降调，
+   不会把"停用"读成正常态。 */
+.muted {
+  color: var(--sentinel-text-2, var(--muted-foreground));
+  background: color-mix(in srgb, var(--sentinel-text-2) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sentinel-text-2) 28%, transparent);
+  box-shadow: none;
+}
+
+/* 禁 glow：芯片 hover 不再加外发光（四色同族一并去除，避免只改 .pass 造成不一致） */
 .data-row:hover .pass,
 .data-row:hover .fail,
-.data-row:hover .warn {
+.data-row:hover .warn,
+.data-row:hover .muted {
   box-shadow: none;
 }
 
@@ -531,7 +562,10 @@
 
 [data-theme="light"] .data-row:hover .pass,
 [data-theme="light"] .data-row:hover .fail,
-[data-theme="light"] .data-row:hover .warn { box-shadow: none; }
+[data-theme="light"] .data-row:hover .warn,
+[data-theme="light"] .data-row:hover .muted { box-shadow: none; }
+/* .muted 无需亮色 override：色值全部走 --sentinel-text-2 token，批2 已为亮色主题
+   重定义该 token（#40565f），实测亮色下对比 6.25–6.65:1 PASS。 */
 
 [data-theme="light"] .setting-row { border-bottom-color: #e8f0ed; }
 [data-theme="light"] .setting-row:hover { background: rgba(240, 245, 243, 0.7); }

@@ -584,6 +584,6 @@ function RemediationPanel() {
 
 function NotConnected() {
   return (
-    <i className="warn" style={{ fontSize: 11, fontStyle: 'normal' }}>未接入</i>
+    <i className="warn">未接入</i>
   );
 }

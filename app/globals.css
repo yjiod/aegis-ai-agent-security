@@ -1176,6 +1176,17 @@ button {
   color: #67bce9;
 }
 
+/* 中性态：已停用 / 未启用 / 未知（审计 #32 需要，供 app/page.tsx 能力卡消费）。
+   与 detail.css 的 .muted 芯片同源同理由：禁用绿 / 红 / 琥珀——"停用"是中性事实
+   而非状态好坏，绿会被读成"正常在跑"（正是 #32 的 bug），红/琥珀会被读成"出故障"。
+   色值走 token（批2 已为亮色主题重定义 --sentinel-text-2），两套主题均达标：
+   暗色 7.40–8.25:1、亮色 6.25–6.65:1，故无需再写 [data-theme="light"] override。
+   显式 text-shadow: none —— 禁 glow 基线，且防后续给 .status 族加发光时殃及中性态。 */
+.status.muted {
+  color: var(--sentinel-text-2);
+  text-shadow: none;
+}
+
 .flow {
   margin-top: 15px;
   background:
@@ -1405,6 +1416,10 @@ button {
 }
 
 .handle {
+  /* font-style: normal —— .handle 有 31 处消费点，其中 app/risks/page.tsx 用它渲染
+     <i>（终端 os_user 标签）。不加这行则该处会退回浏览器默认斜体，逼出内联
+     fontStyle:'normal' 补丁（审计 #10 记录的"逐个打补丁"反模式）。结构自带后内联已删。 */
+  font-style: normal;
   border: 1px solid var(--sentinel-line, rgba(111, 173, 204, 0.22));
   background: var(--sentinel-surface-2, #0d202c);
   color: var(--sentinel-text-2, #a5bdc9);
