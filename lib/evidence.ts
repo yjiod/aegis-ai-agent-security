@@ -485,24 +485,73 @@ function buildReport(opts: EvidenceOptions, generatedAt: number, sections: Recor
 
 /* ─── 主入口：组装并签名 ───────────────────────────────────── */
 
-async function fetchCollectorAudit(): Promise<Array<Record<string, unknown>>> {
+/**
+ * 取 Collector 侧审计并归一化进证据包。
+ *
+ * ⚠️ 这里的过滤是**签名完整性**的一部分，不是防御性冗余：证据包经 ed25519 签名，
+ * 任何进入 audit 节的记录都会获得"已被权威签署"的可信外观。修复前若只修好路由 404
+ * 而字段名/时间单位仍不匹配，每条 Collector 记录都会变成
+ * `{action: undefined, timestamp: undefined, actor: 'collector'}` 被签进包里 ——
+ * 也就是**给残缺记录以可信外观**，比取不到数据更糟（取证方会以为审计链完整）。
+ *
+ * 因此：动作名或时间戳缺失/非法的记录一律**丢弃**，且丢弃计数如实回传，
+ * 绝不静默塞进包里，也绝不伪装成"审计就这么多"。
+ *
+ * 兼容新旧 Collector 两种形状（`entries`+action/timestamp 毫秒 ｜ `events`+event/occurred_at 秒），
+ * 时间单位按**字段名**判定而非按数量级猜（后者会在 2286 年后静默判错）。
+ */
+async function fetchCollectorAudit(): Promise<{ rows: Array<Record<string, unknown>>; dropped: number }> {
   const c = collectorCreds();
-  if (!c) return [];
+  if (!c) return { rows: [], dropped: 0 };
   try {
     const res = await fetch(`${c.url}/v1/audit?limit=1000`, {
       headers: { Authorization: `Bearer ${c.token}`, Accept: 'application/json' },
       cache: 'no-store',
       signal: AbortSignal.timeout(6000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) return { rows: [], dropped: 0 };
     const data = (await res.json()) as Record<string, unknown>;
-    const arr = Array.isArray(data.entries) ? data.entries : Array.isArray(data) ? data : [];
-    return (arr as Array<Record<string, unknown>>).map((e, i) => ({
-      id: e.id ?? i + 1, timestamp: e.timestamp, actor: e.actor ?? 'collector', action: e.action,
-      resource_type: e.resource_type ?? 'system', resource_id: e.resource_id, detail: e.detail,
-    }));
+    const list = Array.isArray(data.entries)
+      ? data.entries
+      : Array.isArray(data.events)
+        ? data.events
+        : Array.isArray(data) ? data : [];
+    const rows: Array<Record<string, unknown>> = [];
+    let dropped = 0;
+    (list as Array<Record<string, unknown>>).forEach((e, i) => {
+      // 非对象记录（null / 字符串 / 数组）直接计入丢弃。必须先挡这一层：否则下面
+      // 读 e.action 会抛 TypeError，而整个 fetch 包在 try/catch 里 → **一条畸形记录
+      // 就会把整节审计静默清空**（return { rows: [], dropped: 0 }），签名包里
+      // audit 节变成空且 dropped=0，看起来像"本来就没有审计"。那是最坏的失败形态：
+      // 既丢数据又谎报完整。
+      if (!e || typeof e !== 'object') { dropped += 1; return; }
+      const action = typeof e.action === 'string' && e.action
+        ? e.action
+        : typeof e.event === 'string' ? e.event : '';
+      const ms = typeof e.timestamp === 'number' && Number.isFinite(e.timestamp) ? e.timestamp : null;
+      const sec = typeof e.occurred_at === 'number' && Number.isFinite(e.occurred_at) ? e.occurred_at * 1000 : null;
+      const timestamp = ms ?? sec;
+      // 残缺记录宁可不进包：没有动作名或没有可信时间的审计条目无法检索、无法归因、
+      // 无法按区间取证，签进包里只会给出不实的"审计完整"印象。
+      if (!action || timestamp === null) { dropped += 1; return; }
+      const deviceId = typeof e.device_id === 'string' ? e.device_id : '';
+      const resourceId = typeof e.resource_id === 'string' && e.resource_id ? e.resource_id : deviceId;
+      rows.push({
+        id: typeof e.id === 'number' ? e.id : i + 1,
+        timestamp,
+        actor: typeof e.actor === 'string' && e.actor ? e.actor : deviceId || 'collector',
+        action,
+        resource_type: typeof e.resource_type === 'string' && e.resource_type
+          ? e.resource_type
+          : deviceId ? 'device' : 'system',
+        ...(resourceId ? { resource_id: resourceId } : {}),
+        ...(typeof e.detail === 'string' ? { detail: e.detail } : {}),
+        source: 'collector',
+      });
+    });
+    return { rows, dropped };
   } catch {
-    return [];
+    return { rows: [], dropped: 0 };
   }
 }
 
@@ -543,6 +592,8 @@ export async function buildEvidenceBundle(opts: EvidenceOptions): Promise<Eviden
 
   const rawSections: Record<string, unknown> = {};
   const counts: Record<string, number> = {};
+  /** 被丢弃（未签入 audit 节）的残缺 Collector 审计记录数；0 = 无丢弃。 */
+  let auditIncompleteDropped = 0;
 
   if (want.has('inventory')) { const v = mapInventory(devices, level, deviceId); rawSections.inventory = v; counts.inventory = v.length; }
   if (want.has('enforcement')) { const v = mapEnforcement(devices, level, deviceId, since, until); rawSections.enforcement = v; counts.enforcement = v.length; }
@@ -585,7 +636,10 @@ export async function buildEvidenceBundle(opts: EvidenceOptions): Promise<Eviden
   if (want.has('tickets')) { const v = mapTickets([...getTicketStore().values()], level, deviceId, since, until); rawSections.tickets = v; counts.tickets = v.length; }
   if (want.has('audit')) {
     const coll = await fetchCollectorAudit();
-    const v = mapAudit(level, deviceId, since, until, coll); rawSections.audit = v; counts.audit = v.length;
+    // 因缺动作名/缺可信时间戳而被丢弃、未签入 audit 节的 Collector 记录数（见
+    // fetchCollectorAudit 的说明）。非 0 即说明 Collector 契约再次漂移，必须披露。
+    auditIncompleteDropped = coll.dropped;
+    const v = mapAudit(level, deviceId, since, until, coll.rows); rawSections.audit = v; counts.audit = v.length;
   }
   if (want.has('policy')) {
     const reqAgent = await fetchManifestAgentVersion();
@@ -612,6 +666,12 @@ export async function buildEvidenceBundle(opts: EvidenceOptions): Promise<Eviden
     scope: { device_id: deviceId, since, until },
     redaction: level,
     console: { collector_connected: collectorConnected, version: opts.consoleVersion ?? '' },
+    // 诚实披露：**仅在有丢弃时**才出现该键，正常包（dropped=0）字节保持不变，
+    // 因此既有证据包与离线验签脚本完全不受影响。
+    // 非 0 表示有 Collector 审计记录因缺动作名或缺可信时间戳被剔除、未签入 audit 节
+    // —— 通常意味着 Collector 契约再次漂移（字段名 / 时间单位）。取证方必须知道
+    // audit 节因此不完整；绝不能把"过滤后的残缺审计"包装成"完整审计"。
+    ...(auditIncompleteDropped > 0 ? { audit_incomplete_dropped: auditIncompleteDropped } : {}),
     sections,
     manifest,
     report_markdown: buildReport(opts, generatedAt, sections, collectorConnected, counts),

@@ -291,6 +291,130 @@ class AegisTests(unittest.TestCase):
                 self.collector.prune_audit(db,now=2000,days=90,max_events=1000); db.commit()
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0],1000)
         self.assertEqual(self.collector.audit_retention_days('bad'),90); self.assertEqual(self.collector.audit_max_events(5),1000)
+    def test_collector_audit_endpoint_accepts_query_and_maps_console_contract(self):
+        """Task #7①：/v1/audit 的四层契约不匹配（三层由 lead 盘出，第四层"时间单位"本轮发现）。
+
+        修复前任一层都足以让 **collector 侧审计在控制台与证据包里彻底不可见**：
+          1) 路由写作 `and not parsed.query` ⇒ 任何带参请求（控制台 ?limit=200、
+             证据包 ?limit=1000）落到 unknown path → **404**，消费方 `if (!res.ok) return null`
+             ⇒ 4A · Accounting 只剩控制台一半；
+          2) 响应键 `events`，而两个消费方都读 `data.entries`；
+          3) 字段名 `event/occurred_at/device_id`，消费方读 `action/timestamp/resource_id`；
+          4) **单位**：occurred_at 是 epoch 秒（int(time.time())），控制台 timestamp 是毫秒
+             ⇒ 不换算则 collector 记录排序全部沉底（看着像 1970 年），CSV 合规导出时间列全错。
+
+        第 3、4 层最阴险：记录"看起来存在"，会被 ed25519 签进证据包 —— 即
+        **给残缺记录以可信外观**，比取不到数据更糟。
+        """
+        import urllib.error, urllib.request
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'AEGIS_COLLECTOR_TOKEN':'bearer','AEGIS_REPORT_SIGNING_SECRET':'signing-secret'}):
+            db=Path(d)/'reports.db'
+            server=self.collector.ThreadingHTTPServer(('127.0.0.1',0),self.collector.Handler)
+            server.db_path=str(db); server.rate_limiter=self.collector.RateLimiter(limit=10000)
+            thread=threading.Thread(target=server.serve_forever,daemon=True); thread.start()
+            base=f'http://127.0.0.1:{server.server_port}'
+            H={'Authorization':'Bearer bearer'}
+            def get(qs=''):
+                req=urllib.request.Request(base+'/v1/audit'+qs,headers=H)
+                try:
+                    with urllib.request.urlopen(req,timeout=5) as r: return r.status, json.load(r)
+                except urllib.error.HTTPError as e:
+                    body=e.read().decode(); e.close()
+                    try: return e.code, json.loads(body)
+                    except ValueError: return e.code, {'raw':body[:80]}
+            try:
+                # 一条设备侧事件 + 一条 collector 自身事件；时间戳用**固定已知秒值**以便验单位换算
+                self.collector.store_report(db,b'{"x":1}',{'device_id':'dev-abc','summary':{'critical':0,'high':0}},now=1700000000)
+                self.collector.audit_event(db,'devices_read',device_id='',detail='3:complete',now=1700000005)
+
+                # ── 第 1 层：带参请求必须 200（修复前是 404）──────────────────
+                for qs in ('?limit=200','?limit=1000','?limit=5'):
+                    code,body=get(qs)
+                    self.assertEqual(code,200,f"/v1/audit{qs} 必须 200（修复前 404）：{body}")
+                code,plain=get()
+                self.assertEqual(code,200,"无参调用仍须 200（向后兼容）")
+
+                # ── 第 2 层：规范键 entries + 兼容别名 events ─────────────────
+                code,body=get('?limit=200')
+                self.assertIn('entries',body,"规范键必须是 entries（两个消费方都读它）")
+                self.assertIn('events',body,"保留 events 兼容别名，使控制台与 collector 可分别部署")
+                self.assertIsInstance(body['entries'],list)
+                self.assertTrue(body['entries'],"entries 不得为空（已播种两条事件）")
+
+                # ── limit 越界**钳制**而非 400：证据包按 ?limit=1000 取审计，回 400 会让
+                #    消费方 `if (!res.ok) return []` 把整个 audit 节静默变空（同类静默降级）。
+                code,body=get('?limit=1000')
+                self.assertEqual(body.get('limit'),500,"limit 必须钳制到读取护栏 500")
+                self.assertEqual(body.get('requested_limit'),1000,"必须回传原始请求值，不把钳制伪装成'就这么多'")
+                code,body=get('?limit=5')
+                self.assertEqual(body.get('limit'),5)
+                self.assertLessEqual(len(body['entries']),5,"limit 必须真实生效")
+                self.assertIs(body.get('complete'),False,"取满 limit 时必须如实报告 complete=false")
+
+                # ── 非法输入仍 400（钳制只放宽越界整数，不放宽"根本不是整数"）──
+                self.assertEqual(get('?bogus=1')[0],400,"未知查询参数必须 400")
+                self.assertEqual(get('?limit=abc')[0],400,"非整数 limit 必须 400")
+
+                # ── 第 3、4 层：字段映射 + 秒→毫秒 ────────────────────────────
+                code,body=get('?limit=200')
+                rows={r['action']:r for r in body['entries']}
+                self.assertIn('report_accepted',rows,"event 必须映射为 action")
+                dev=rows['report_accepted']
+                self.assertEqual(dev['occurred_at'],1700000000,"原生秒字段应保留（兼容旧消费方）")
+                self.assertEqual(dev['timestamp'],1700000000*1000,
+                                 "timestamp 必须是**毫秒** = occurred_at*1000（不换算会让 collector 记录排序沉底）")
+                self.assertEqual(dev['actor'],'dev-abc',"设备侧事件的行为主体即该设备")
+                self.assertEqual(dev['resource_type'],'device')
+                self.assertEqual(dev['resource_id'],'dev-abc')
+                self.assertIsInstance(dev.get('id'),int,"应带稳定 DB id（审计条目需可寻址，而非靠数组下标）")
+                sysrow=rows['devices_read']
+                self.assertEqual(sysrow['actor'],'collector',
+                                 "无 device_id 的是 collector 自身读取/维护事件；不得编造具体管理员身份")
+                self.assertEqual(sysrow['resource_type'],'system')
+                self.assertEqual(sysrow['timestamp'],1700000005*1000)
+                # 排序可用性：毫秒同轴才可与控制台审计合并排序
+                stamps=[r['timestamp'] for r in body['entries']]
+                self.assertEqual(stamps,sorted(stamps,reverse=True),"entries 必须按毫秒时间戳降序")
+                # 隐私红线不因映射而松动：报告正文仍不得进审计
+                self.assertNotIn('sensitive_path',json.dumps(body))
+            finally:
+                server.shutdown(); server.server_close(); thread.join(timeout=3)
+    def test_audit_consumers_tolerate_both_collector_shapes(self):
+        """源级奇偶：两个消费方都必须能吃下新旧两种 collector 形状，且**残缺记录绝不进
+        ed25519 签名证据包**。
+
+        控制台与 collector 由运维分别部署，版本错位是常态；而证据包一旦签下残缺记录，
+        就等于给"审计完整"背书。故此处钉死：
+          - 两方都接受 entries（规范）与 events（旧键）；
+          - 两方都接受 action/timestamp(毫秒) 与 event/occurred_at(秒)，且**按字段名**
+            而非数量级判定时间单位（数量级阈值会在 2286 年后静默判错）；
+          - 证据包对缺 action 或缺可信 timestamp 的记录**丢弃并计数**，绝不静默塞进包里。
+        """
+        route=(ROOT/'app'/'api'/'audit'/'route.ts').read_text(encoding='utf-8')
+        ev=(ROOT/'lib'/'evidence.ts').read_text(encoding='utf-8')
+        for name,src in (('app/api/audit/route.ts',route),('lib/evidence.ts',ev)):
+            self.assertIn('entries',src,f"{name} 必须读规范键 entries")
+            self.assertIn('events',src,f"{name} 必须兼容旧键 events")
+            self.assertIn('occurred_at',src,f"{name} 必须兼容原生字段名 occurred_at")
+            self.assertIn('* 1000',src,f"{name} 必须把秒换算成毫秒")
+            self.assertIn("typeof e.timestamp === 'number'",src,
+                          f"{name} 必须按**字段名**判定时间单位，不得按数量级猜阈值")
+        # 证据包侧的残缺记录护栏（"不给残缺记录以可信外观"的落点）
+        self.assertIn('dropped',ev,"evidence.ts 必须统计并丢弃残缺审计记录")
+        self.assertIn('audit_incomplete_dropped',ev,"丢弃数必须披露进签名包（仅非 0 时出现，正常包字节不变）")
+        self.assertRegex(ev,r'if \(!action \|\| timestamp === null\)',
+                         "缺 action 或缺可信 timestamp 的记录必须被丢弃，不得签进证据包")
+        # 非对象记录必须先挡住再读字段。漏了这层的话：一条 null 记录会让 `e.action`
+        # 抛 TypeError，而整段 fetch 包在 try/catch 里 → **整节审计被静默清空且
+        # dropped=0**，签名包看起来像"本来就没有审计"——既丢数据又谎报完整，
+        # 是最坏的失败形态。（该缺陷由变异测试实际触发后补上，非假想。）
+        self.assertRegex(ev,r"if \(!e \|\| typeof e !== 'object'\)",
+                         "evidence.ts 必须在读字段前先挡非对象记录，否则一条畸形记录会清空整节审计")
+        # 控制台侧同样不得渲染空白审计行
+        self.assertIn('if (!action) return null',route)
+        self.assertIn('if (timestamp === null) return null',route)
+        self.assertRegex(route,r"if \(!raw \|\| typeof raw !== 'object'\) return null",
+                         "route.ts 同样必须先挡非对象记录")
     def test_collector_semantic_deduplication_ignores_json_formatting(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'reports.db'; report={'schema':'aegis.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':1,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}

@@ -27,6 +27,54 @@ interface CollectorAuditEntry {
   detail?: string;
 }
 
+/**
+ * 把 Collector /v1/audit 的一条记录归一化成控制台契约形状。
+ *
+ * 新旧 Collector 并存期间两种命名都要能吃下（部署时机由运维分别决定，控制台可能
+ * 先于 Collector 上线）：
+ *   - 新版：`entries` 数组，字段 action / timestamp(**毫秒**) / actor / resource_*
+ *   - 旧版：`events` 数组，字段 event / occurred_at(**秒**) / device_id
+ *
+ * ⚠️ 时间单位按**字段名**判定，不按数量级猜：`timestamp` 即毫秒（新契约），
+ * `occurred_at` 即秒（Collector 用 int(time.time())）故 ×1000。按数量级猜阈值
+ * 会在 2286 年之后静默判错，而且难以排查。单位不换算的后果很隐蔽——记录会存在，
+ * 但合并排序时全部沉到队尾（看着像 1970 年），CSV 合规导出的时间列也全错。
+ */
+function normalizeCollectorEntry(raw: unknown, index: number): CollectorAuditEntry | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const e = raw as Record<string, unknown>;
+  const action = typeof e.action === 'string' && e.action
+    ? e.action
+    : typeof e.event === 'string' ? e.event : '';
+  // 没有动作名的审计记录没有意义（无法检索、无法归因），直接丢弃而不是渲染成空白行。
+  if (!action) return null;
+  const msTimestamp = typeof e.timestamp === 'number' && Number.isFinite(e.timestamp)
+    ? e.timestamp
+    : null;
+  const secTimestamp = typeof e.occurred_at === 'number' && Number.isFinite(e.occurred_at)
+    ? e.occurred_at * 1000
+    : null;
+  const timestamp = msTimestamp ?? secTimestamp;
+  // 时间戳缺失同样丢弃：无时间的审计条目无法排序、无法按区间取证。
+  if (timestamp === null) return null;
+  const deviceId = typeof e.device_id === 'string' ? e.device_id : '';
+  const resourceId = typeof e.resource_id === 'string' && e.resource_id
+    ? e.resource_id
+    : deviceId || undefined;
+  return {
+    id: typeof e.id === 'number' ? e.id : index + 1,
+    timestamp,
+    // 有 device_id 的是设备侧事件，主体即该设备；否则是 Collector 自身的读取/维护事件。
+    actor: typeof e.actor === 'string' && e.actor ? e.actor : deviceId || 'collector',
+    action,
+    resource_type: typeof e.resource_type === 'string' && e.resource_type
+      ? e.resource_type
+      : deviceId ? 'device' : 'system',
+    ...(resourceId === undefined ? {} : { resource_id: resourceId }),
+    ...(typeof e.detail === 'string' ? { detail: e.detail } : {}),
+  };
+}
+
 async function fetchCollectorAudit(): Promise<CollectorAuditEntry[] | null> {
   const url = process.env.AEGIS_COLLECTOR_URL;
   const token = process.env.AEGIS_COLLECTOR_TOKEN;
@@ -39,7 +87,19 @@ async function fetchCollectorAudit(): Promise<CollectorAuditEntry[] | null> {
     });
     if (!res.ok) return null;
     const data = (await res.json()) as Record<string, unknown>;
-    return Array.isArray(data?.entries) ? data.entries : Array.isArray(data) ? data : null;
+    // 规范键是 `entries`；`events` 是旧 Collector 的键名（新版也仍作为兼容别名下发）。
+    const list = Array.isArray(data?.entries)
+      ? data.entries
+      : Array.isArray(data?.events)
+        ? data.events
+        : Array.isArray(data) ? data : null;
+    if (!list) return null;
+    const out: CollectorAuditEntry[] = [];
+    list.forEach((raw, i) => {
+      const entry = normalizeCollectorEntry(raw, i);
+      if (entry) out.push(entry);
+    });
+    return out;
   } catch {
     return null;
   }

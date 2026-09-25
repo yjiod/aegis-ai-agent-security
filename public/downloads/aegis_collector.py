@@ -378,8 +378,47 @@ def audit_event(db_path,event,device_id="",detail="",now=None):
         db.execute("INSERT INTO audit_events(event,occurred_at,device_id,detail) VALUES(?,?,?,?)",(event,now,device_id,detail)); maybe_prune_audit(db,now); db.commit()
 def recent_audit(db_path,limit=200):
     limit=min(max(int(limit),1),500)
-    with db_open(db_path) as db: rows=db.execute("SELECT event,occurred_at,device_id,detail FROM audit_events ORDER BY id DESC LIMIT ?",(limit,)).fetchall()
-    return [{"event":event,"occurred_at":occurred,"device_id":device,"detail":detail} for event,occurred,device,detail in rows]
+    with db_open(db_path) as db: rows=db.execute("SELECT id,event,occurred_at,device_id,detail FROM audit_events ORDER BY id DESC LIMIT ?",(limit,)).fetchall()
+    return [{"id":rid,"event":event,"occurred_at":occurred,"device_id":device,"detail":detail} for rid,event,occurred,device,detail in rows]
+def audit_entries_console_shape(events):
+    """把 collector 原生审计行映射成控制台 / 证据包契约形状（/v1/audit 的规范输出）。
+
+    修复前"审计双源三重不匹配"（外加单位这一层，共四层），任一层都足以让 collector
+    侧审计在控制台彻底不可见：
+      1) 路由写作 `if parsed.path=="/v1/audit" and not parsed.query` —— **任何带参请求**
+         （控制台发 ?limit=200、证据包发 ?limit=1000）都落到 unknown path → 404，
+         于是控制台 `res.ok` 为假直接 return null，collector 审计从未被合并进 /api/audit，
+         生产上只看得到控制台自己那一半（4A · Accounting 完整性缺口）。
+      2) 响应键是 `events`，而两个消费方（app/api/audit/route.ts、lib/evidence.ts）
+         都读 `data.entries` → 即便修好 404 也拿不到数组。
+      3) 字段名是 `event/occurred_at/device_id`，消费方读 `action/timestamp/resource_id`
+         → 即便前两层修好，每条也会渲染成 action=undefined、timestamp=undefined。
+      4) **单位**：occurred_at 是 epoch **秒**（audit_event 用 int(time.time())），而控制台
+         timestamp 是 epoch **毫秒**（lib/store.ts 约定，两端在此边界换算）。不换算则
+         collector 记录的时间戳小 1000 倍，合并排序后全部沉到队尾（看着像 1970 年），
+         CSV 合规导出的时间列也全错。
+
+    第 3、4 层最阴险：记录"看起来存在"，会被 ed25519 签进证据包，等于**给残缺数据
+    以可信外观**。故本函数是这两层的唯一修复点，原生字段一并保留以兼容旧消费方。
+    """
+    out=[]
+    for e in events:
+        device=str(e.get("device_id") or "")
+        try: occurred=int(e.get("occurred_at") or 0)
+        except (TypeError,ValueError): occurred=0
+        entry=dict(e)  # 保留 id/event/occurred_at/device_id/detail 原生字段（向后兼容）
+        entry.update({
+            "timestamp":occurred*1000,  # 秒 → 毫秒（控制台契约；见上方第 4 层）
+            "action":str(e.get("event") or ""),
+            # actor：带 device_id 的是设备侧事件，行为主体就是该设备；不带的（devices_read /
+            # summary_read / audit_read 等）是 collector 自身的读取与维护事件，归 'collector'。
+            # 不猜测、不编造具体控制台用户——collector 无从得知是哪位管理员触发的读取。
+            "actor":device if device else "collector",
+            "resource_type":"device" if device else "system",
+            "resource_id":device if device else None,
+        })
+        out.append(entry)
+    return out
 def ensure_device_state(db):
     """增量回填 device_state 物化表（高水位线契约，幂等可重入）。
 
@@ -740,9 +779,25 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 return self.reply(200,collector_trend(self.server.db_path,hours))
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
-        if parsed.path=="/v1/audit" and not parsed.query:
+        if parsed.path=="/v1/audit":
+            # 修复：原先是 `and not parsed.query`，导致任何带参请求（控制台 ?limit=200、
+            # 证据包 ?limit=1000）都被当成 unknown path 回 404，collector 侧审计因此
+            # 从未进入 /api/audit 与 ed25519 证据包。查询串解析照 /v1/trend 的房屋风格。
+            query=parse_qs(parsed.query,keep_blank_values=True)
+            if set(query)-{"limit"} or any(len(v)!=1 for v in query.values()): return self.reply(400,{"error":"invalid_query"})
+            try: requested=int(query.get("limit",["200"])[0])
+            except ValueError: return self.reply(400,{"error":"invalid_limit"})
+            # 越界**钳制**而非 400：证据包按 ?limit=1000 取审计，若这里回 400，
+            # 消费方 `if (!res.ok) return []` 会把整个审计节静默变成空——正是要修的那类
+            # 静默降级。钳制到 recent_audit 的读取护栏(1..500)，并在响应里回传生效值，
+            # 让调用方能如实说明取了多少，不把钳制伪装成"就这么多"。
+            limit=min(max(requested,1),500)
             try:
-                audit_event(self.server.db_path,"audit_read"); return self.reply(200,{"events":recent_audit(self.server.db_path)})
+                audit_event(self.server.db_path,"audit_read")
+                # entries = 规范形状（控制台/证据包契约）；events 为同数据的兼容别名，
+                # 使控制台与 collector 可分别部署而不受版本错位影响（两边都读得到）。
+                entries=audit_entries_console_shape(recent_audit(self.server.db_path,limit))
+                return self.reply(200,{"entries":entries,"events":entries,"limit":limit,"requested_limit":requested,"count":len(entries),"complete":len(entries)<limit})
             except sqlite3.Error: return self.reply(503,{"error":"database_unavailable"})
         self.reply(404,{"error":"not_found"})
     def do_POST(self):
