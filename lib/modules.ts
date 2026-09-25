@@ -21,6 +21,69 @@ export const MODULE_KEYS = [
 
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 
+/**
+ * 模块开关的**出厂默认** —— 全仓单一真源（P0 #38）。
+ *
+ * 此前存在三份副本且已漂移：本文件只有键没有默认值、lib/policy.ts 的
+ * BASE_POLICY.modules、以及 app/policies/page.tsx 的本地 MODULE_DEFAULTS。
+ * 第三份写着 code_scan: true，而两个权威源都是 false —— 后果是管理员在 /policies
+ * 操作面板看到「代码 / 密钥扫描 = 开」，而终端实际收到的是关，即**管理决策面误报
+ * 安全控制状态**（比单纯的显示错误严重：它会让管理员基于错误前提做放行决策）。
+ *
+ * 类型刻意写成 `Record<ModuleKey, boolean>`（不是 Partial、也不是
+ * Record<string, boolean>）：这样往 MODULE_KEYS 里新增一个模块却忘了给默认值时，
+ * `tsc` 会在**编译期**报错。漂移因此在源头被类型系统挡住，而不是依赖测试或人肉
+ * 审查事后发现 —— 这是本文件能当"单一真源"的真正原因。
+ *
+ * ⚠️ 本文件被客户端组件（app/policies/page.tsx）import。MODULE_DEFAULTS 与
+ * effectiveModules 都是**纯数据 / 纯函数**：不做任何 I/O，也不引入新的 import，
+ * 对客户端安全。默认值**绝不要**挪进 lib/policy.ts —— 那个文件 import 了
+ * node:crypto，被客户端组件拉进去会直接崩溃。
+ */
+export const MODULE_DEFAULTS: Record<ModuleKey, boolean> = {
+  // 扫描类全开。
+  skill_scan: true,
+  mcp_scan: true,
+  // code_scan 出厂默认 false（2026-09-25 用户决策）：代码扫描交给专业扫描器负责，
+  // 终端不做代码质量扫描、也不上报代码类发现；需要时在设置页打开开关即可恢复。
+  code_scan: false,
+  deps_scan: true,
+  baseline_install: true,
+  network_collect: true,
+  self_update: true,
+  // 执行类开关默认 false：封禁是不可逆倾向操作，deny 名单只报不封，
+  // 必须管理员显式打开才真封禁（人工审批语义）。
+  skill_enforce: false,
+  mcp_enforce: false,
+};
+
+/**
+ * 出厂默认叠加控制台持久化的覆盖值 → 终端将实际收到的**有效**模块开关。
+ *
+ * 这是"有效值"的唯一计算处，供需要展示/判断**有效状态**的调用方使用（/policies
+ * 面板的开关列表、以及任何要回答"这个模块现在到底开没开"的地方）。调用方不得各自
+ * `{...MODULE_DEFAULTS, ...overrides}` 手搓展开 —— 手搓正是三份副本得以漂移的成因。
+ *
+ * 注意：lib/policy.ts 编译签名策略体时走的是 BASE_POLICY.modules（其值即
+ * MODULE_DEFAULTS 的浅拷贝）再叠加覆盖值，与本函数**取值等价**；那里刻意保持原有
+ * 展开写法未改，因为 modules 参与策略签名，改动其计算路径会影响已发布策略的
+ * 规范化字节。两者的默认值同源于 MODULE_DEFAULTS，故不会再漂移。
+ *
+ * 纯函数，不读库、不做 I/O，客户端/服务端皆可安全调用。逐键校验
+ * `typeof === 'boolean'`，因此即使喂进未清洗的原始 JSON（而非 moduleOverrides()
+ * 的输出）也不会把非布尔值渗进有效值里。
+ */
+export function effectiveModules(
+  overrides: Partial<Record<ModuleKey, boolean>> = {},
+): Record<ModuleKey, boolean> {
+  const out: Record<ModuleKey, boolean> = { ...MODULE_DEFAULTS };
+  for (const k of MODULE_KEYS) {
+    const v = overrides?.[k];
+    if (typeof v === 'boolean') out[k] = v;
+  }
+  return out;
+}
+
 /** 控制台持久化的模块覆盖值（仅合法键、仅布尔）。 */
 export function moduleOverrides(): Partial<Record<ModuleKey, boolean>> {
   try {

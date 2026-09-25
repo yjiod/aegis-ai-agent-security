@@ -1409,9 +1409,17 @@ class AegisTests(unittest.TestCase):
                 self.assertEqual(code_leak, [], f"code_scan 关闭时不得上报代码类发现: {code_leak}")
             finally:
                 self.agent.managed_homes=orig
-        # 终端控制台 BASE_POLICY 同步
+        # 终端控制台 BASE_POLICY 同步。
+        # #38 起模块默认值收敛到 lib/modules.ts 的 MODULE_DEFAULTS **单一真源**，
+        # lib/policy.ts 的 BASE_POLICY.modules 改为引用它、不再自带字面量副本，
+        # 故 code_scan 缺省的权威位置在 modules.ts。这里同时断言"真源里是 false"
+        # 与"policy.ts 确实引用了真源"，两者合起来才等价于原先那条
+        # 'code_scan: false' in policy.ts —— 只查其一都留下漂移缺口。
+        mod_src=open('lib/modules.ts',encoding='utf-8').read()
+        self.assertRegex(mod_src, r'code_scan:\s*false', "MODULE_DEFAULTS code_scan 缺省必须 false")
         pol_src=open('lib/policy.ts',encoding='utf-8').read()
-        self.assertIn('code_scan: false', pol_src, "BASE_POLICY code_scan 缺省必须 false")
+        self.assertIn("from './modules'", pol_src, "policy.ts 必须引用模块默认值单一真源")
+        self.assertIn('MODULE_DEFAULTS', pol_src, "BASE_POLICY.modules 必须引用 MODULE_DEFAULTS")
 
     def test_policy_modules_deny_contract(self):
         base=json.loads((DOWNLOADS/'aegis-policy.json').read_text())
@@ -2301,5 +2309,121 @@ console.log(JSON.stringify(d));
         # 对外响应字段名保持 `id`：前端消费的是 t.id，改名会连带炸前端
         self.assertIn("id: String(rec.ticket_id ?? '')", src,
                       "响应键必须仍是 id（前端契约），只是取值来源换成 ticket_id")
+
+    # ── P0 #38：模块开关默认值单一真源 + 跨语言奇偶 ──────────────────────
+    # 从 TS 源码解析布尔字面量（而非 esbuild 执行）：lib/modules.ts 经
+    # lib/baselines -> lib/pg-store 传递依赖 next/server 与 pg，为取 9 个布尔值
+    # 而 bundle 整条服务端链既慢又脆。源级解析与本文件其余 TS 断言同一传统，
+    # 且下面第 1 步把"键集完备"也一并断言了，等于把 tsc 的 Record<ModuleKey,…>
+    # 穷尽性保证在 python 侧复算一遍 —— 即便有人把类型注解放宽成
+    # Record<string, boolean>，漏给默认值仍会被这里抓住。
+
+    def _parse_ts_module_defaults(self):
+        """解析 lib/modules.ts 的 MODULE_KEYS 与 MODULE_DEFAULTS → (keys, defaults)。"""
+        import re as _re
+        src = (ROOT / 'lib' / 'modules.ts').read_text(encoding='utf-8')
+        mk = _re.search(r'export const MODULE_KEYS = \[(.*?)\] as const;', src, _re.S)
+        self.assertIsNotNone(mk, "MODULE_KEYS 解析不到")
+        keys = _re.findall(r"'([^']+)'", mk.group(1))
+        # 类型注解必须是穷尽的 Record<ModuleKey, boolean>：这是"新增模块忘了给默认值
+        # 就编译失败"的保证所在，放宽成 Partial/Record<string,boolean> 即失去该保证。
+        md = _re.search(
+            r'export const MODULE_DEFAULTS: Record<ModuleKey, boolean> = \{(.*?)\n\};',
+            src, _re.S)
+        self.assertIsNotNone(
+            md, "MODULE_DEFAULTS 必须存在且类型注解为 Record<ModuleKey, boolean>"
+                "（穷尽性由 tsc 保证；改成 Partial 或 Record<string, boolean> 会让本断言失败）")
+        # 先剥掉行注释再取值：注释里含 "code_scan 出厂默认 false" 之类散文，
+        # 不剥离会污染下面的 key: value 解析。
+        body = _re.sub(r'//[^\n]*', '', md.group(1))
+        defaults = {k: (v == 'true')
+                    for k, v in _re.findall(r'(\w+)\s*:\s*(true|false)\b', body)}
+        return keys, defaults
+
+    def test_module_defaults_single_source_and_terminal_parity(self):
+        """P0 #38：模块开关默认值必须**单一真源**，且与终端出厂策略逐键一致。
+
+        修复前有三份副本并已漂移：lib/modules.ts 只有键没有默认值、
+        lib/policy.ts 的 BASE_POLICY.modules（code_scan: false，权威正确）、
+        app/policies/page.tsx 的本地 MODULE_DEFAULTS（code_scan: **true**，错误，
+        且注释还声称"与 aegis-policy.json 一致"）。后果：管理员在 /policies 操作面板
+        看到「代码 / 密钥扫描 = 开」，而终端实际收到的是关 —— **管理决策面误报安全
+        控制状态**，管理员会基于错误前提做放行决策，比单纯的显示错误严重。
+        """
+        import re as _re
+        keys, defaults = self._parse_ts_module_defaults()
+
+        # 1) 键集完备：每个 MODULE_KEYS 都必须有默认值，且不得有多余键。
+        #    （python 侧复算 tsc 的穷尽性保证，见上方注释）
+        self.assertEqual(sorted(defaults), sorted(keys),
+                         f"MODULE_DEFAULTS 的键集必须与 MODULE_KEYS 完全一致："
+                         f"缺={sorted(set(keys) - set(defaults))} "
+                         f"多={sorted(set(defaults) - set(keys))}")
+        self.assertEqual(len(keys), 9,
+                         f"模块数变了？请同步核对终端侧与 aegis-policy.json：{keys}")
+
+        # 2) 跨语言奇偶：终端零接触注册时拿到的出厂策略(public/downloads/aegis-policy.json)
+        #    的 modules，必须与控制台单一真源逐键相等。二者不等即"控制台显示的状态
+        #    与终端实际执行的状态不一致"，正是 #38 的病症本身。
+        self.assertEqual(
+            self.policy['modules'], defaults,
+            "aegis-policy.json 的 modules 与 lib/modules.ts 的 MODULE_DEFAULTS 不一致"
+            f"（终端实际收到 {self.policy['modules']}，控制台真源 {defaults}）——"
+            "这正是 #38 的漂移，必须收敛到单一真源")
+
+        # 3) lib/policy.ts 必须**引用**真源，不得再自带一份字面量副本。
+        pol = (ROOT / 'lib' / 'policy.ts').read_text(encoding='utf-8')
+        self.assertIn("from './modules'", pol, "policy.ts 必须 import lib/modules 的单一真源")
+        base = _re.search(r'export const BASE_POLICY[^=]*= \{(.*?)\n\};', pol, _re.S)
+        self.assertIsNotNone(base, "BASE_POLICY 解析不到")
+        self.assertIn('MODULE_DEFAULTS', base.group(1),
+                      "BASE_POLICY.modules 必须引用 MODULE_DEFAULTS")
+        self.assertNotIn('skill_scan', base.group(1),
+                         "BASE_POLICY 里不得再出现模块默认值的字面量副本（三副本漂移的根因）")
+
+        # 4) 架构约束：默认值必须住在 modules.ts，**不能**住在 policy.ts ——
+        #    policy.ts import 了 node:crypto，被客户端组件(app/policies/page.tsx)
+        #    拉进去会直接崩。故断言 modules.ts 自身不得引入 node: 内置模块，
+        #    保证它对客户端安全（MODULE_DEFAULTS/effectiveModules 均为纯数据/纯函数）。
+        mod_src = (ROOT / 'lib' / 'modules.ts').read_text(encoding='utf-8')
+        self.assertNotRegex(mod_src, r"from 'node:",
+                            "lib/modules.ts 被客户端组件 import，不得引入任何 node: 内置模块")
+        self.assertIn('node:crypto', pol,
+                      "前提校验：policy.ts 确实 import node:crypto（故默认值不能放它里面）")
+        # effectiveModules 必须是"默认值 + 覆盖值"的纯函数，且逐键校验布尔
+        self.assertIn('export function effectiveModules(', mod_src)
+        self.assertIn('...MODULE_DEFAULTS', mod_src,
+                      "effectiveModules 必须以 MODULE_DEFAULTS 为基底展开")
+        self.assertRegex(mod_src, r"typeof v === 'boolean'",
+                         "effectiveModules 必须逐键校验布尔，防止未清洗的原始 JSON 渗入有效值")
+
+    def test_policies_page_module_defaults_copy_cannot_drift(self):
+        """**过渡期**护栏：app/policies/page.tsx 里的本地 MODULE_DEFAULTS 副本将由
+        前端在 Task #3 批9 删除并改为 import 单一真源。在那之前它仍然存在，故这里
+        锁定它的取值必须与真源逐键一致 —— 副本还在的期间也不许再漂移。
+
+        副本被删除后本测试**自动空过**（不要求它必须存在），因此前端删除副本
+        不会被这条断言挡住。
+        """
+        import re as _re
+        page = ROOT / 'app' / 'policies' / 'page.tsx'
+        if not page.exists():
+            return
+        src = page.read_text(encoding='utf-8')
+        m = _re.search(r'const MODULE_DEFAULTS[^=]*= \{(.*?)\n\};', src, _re.S)
+        if not m:
+            return  # 副本已删除（期望的终态），无需比对
+        _, truth = self._parse_ts_module_defaults()
+        body = _re.sub(r'//[^\n]*', '', m.group(1))
+        copy = {k: (v == 'true') for k, v in _re.findall(r'(\w+)\s*:\s*(true|false)\b', body)}
+        self.assertEqual(
+            len(copy), len(truth),
+            f"page.tsx 的副本键数({len(copy)})与真源({len(truth)})不符；"
+            "该副本应尽快删除并改用 lib/modules 的 MODULE_DEFAULTS/effectiveModules（#38）")
+        self.assertEqual(
+            copy, truth,
+            "app/policies/page.tsx 的本地 MODULE_DEFAULTS 副本已与 lib/modules.ts 真源漂移"
+            f"（副本={copy} 真源={truth}）。这正是 #38 的病症：面板显示状态与终端实际"
+            "下发不一致。请删除副本并 import 单一真源，不要就地改值。")
 
 if __name__=='__main__': unittest.main()

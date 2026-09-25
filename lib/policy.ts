@@ -15,6 +15,10 @@
  */
 import { createHmac, createHash, randomUUID } from 'node:crypto';
 import { listLabels, type AssetLabel } from './labels';
+// 模块开关出厂默认的单一真源（P0 #38）。方向必须是 policy -> modules：
+// modules.ts 不 import policy.ts（它只依赖 lib/baselines -> lib/pg-store），
+// 故无环。反过来放会让客户端组件经 modules 拉进 node:crypto 而崩溃。
+import { MODULE_DEFAULTS } from './modules';
 import {
   ed25519Supported,
   ed25519PublicKey,
@@ -96,14 +100,12 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
   monitor_notes: {
     node_repl: 'approved+monitor: computer-use 必需能力, 已加白但保持调用审计与 TRUSTED_CODE_PATHS 约束',
   },
-  // 模块开关出厂默认：扫描类全开；封禁执行类默认关（deny 名单只报不封，打开才真封禁）。
-  modules: {
-    // code_scan 出厂默认 false（2026-09-25 用户决策）：代码扫描交给专业扫描器负责，
-    // 终端不做代码质量扫描、也不上报代码类发现；需要时在设置页打开开关即可恢复。
-    skill_scan: true, mcp_scan: true, code_scan: false, deps_scan: true,
-    baseline_install: true, network_collect: true, self_update: true,
-    skill_enforce: false, mcp_enforce: false,
-  },
+  // 模块开关出厂默认：**引用 lib/modules.ts 的 MODULE_DEFAULTS 单一真源**，
+  // 不再在此处另抄一份字面量（P0 #38：三副本曾漂移，导致 /policies 面板显示的
+  // 开关状态与终端实际收到的策略不一致）。
+  // 语义不变：扫描类全开、code_scan 默认关（2026-09-25 用户决策，代码扫描交给
+  // 专业扫描器）、封禁执行类默认关（deny 名单只报不封，打开才真封禁）。
+  modules: { ...MODULE_DEFAULTS },
   deny: { skills: [], mcp: [] },
 };
 
