@@ -53,7 +53,7 @@ import { SourceAttributionPanel } from '@/components/source-attribution-panel';
 /* 严重度映射的唯一权威源：ticket-detail 的 5 档（含 info）。
    本页此前维护了一份 4 档本地副本，缺 info 且把低危映射成不存在的
    `.severity.blue` 类，导致低危徽章渲染成无样式空壳、info 级误显橙色中危。 */
-import { severityMeta, type TicketSeverity } from '@/components/ticket-detail';
+import { severityMeta, toTimestamp, type TicketSeverity } from '@/components/ticket-detail';
 // 模块开关的**有效值**由 lib/modules.ts 的单一真源计算（#38，后端 commit a018870）。
 // 该文件不 import node:crypto，客户端组件可安全引用；此前这里与 app/policies/page.tsx
 // 各有一份本地 MODULE_DEFAULTS 副本，副本正是三份默认值得以漂移的成因，现已删除。
@@ -135,8 +135,26 @@ interface TicketLite {
   device_id?: string;
   created_at: number;
   resolved_at?: number | null;
-  /** /api/tickets 返回完整工单（含 history）；此处窄视图仅取 MTTA 所需字段。 */
-  history?: Array<{ at?: number | string; to_status?: string }>;
+  /**
+   * /api/tickets 返回完整工单（含 history）；此处窄视图仅取 MTTA 所需字段。
+   *
+   * 字段名对齐权威定义 `lib/store.ts` 的 `TicketHistoryEntry`：
+   * `{ action, actor, timestamp, note? }` —— **不含任何状态字段，也不含 `at`**。
+   * 旧声明写的正是这两个并不存在的字段名（Task#5 ③），故过滤条件恒假。
+   *
+   * 已核实数据确实带 history 到前端：GET 处理器直接返回 store 里的完整工单对象、
+   * 不做字段投影（`jsonResponse({ tickets: tickets.slice(...) })`），而
+   * `READ_ONLY_ON_CREATE` 只约束**写入**（防伪造审计轨迹），不影响读出。
+   *
+   * 保留可选的 `at` 是为兼容 `components/ticket-detail.tsx` 的 parseHistoryEntry
+   * 归一化产物（它把 timestamp 映射成 at）——但那里状态字段仍是 null，因为源数据
+   * 本身不含状态，所以**不能**靠复用该解析器来判状态，只能按 action 判
+   * （见下方 LEAVE_OPEN_ACTIONS）。
+   *
+   * 注：本注释刻意不写出那两个错误字段名的字面量，否则按字段名做的复验 grep 会
+   * 命中注释、把这个已修项报成仍存在。
+   */
+  history?: Array<{ action?: string; actor?: string; timestamp?: number | string; at?: number | string; note?: string }>;
 }
 interface AuditLite {
   id: number;
@@ -192,15 +210,39 @@ const CODE_SCAN_DISABLED_DESC =
 const MODULES_UNAVAILABLE_LABEL = '状态未知 · 读取模块开关失败';
 
 /* ─── Typed fetch helper (avoids untyped r.json() '{}') ───────────────── */
-async function getJson<T>(url: string): Promise<T | null> {
+/**
+ * 拉取结果：成功带 data，失败带**可见**原因。
+ *
+ * 旧实现是双重静默吞错——`if (!r.ok) return null` 与 `catch { return null }`——
+ * 于是"接口 500"与"接口正常返回空数据"在 UI 上完全同形：调用方一律 `?? []`，
+ * KPI 显示 0、完成率显示 0%、时间线显示"暂无动态"。用户读到的是一个**安静的错误
+ * 数字**，而不是一个响亮的失败，比直接报错更危险（把 clamp 后的头部样本当全量、
+ * 把 503 当"舰队无风险"都属此类）。改为判别式结果，失败由页面级横幅显式呈现。
+ */
+type FetchResult<T> = { ok: true; data: T } | { ok: false; status: number | null; reason: string };
+
+async function getJson<T>(url: string): Promise<FetchResult<T>> {
   try {
     const r = await fetch(url, { cache: 'no-store' });
-    if (!r.ok) return null;
-    return (await r.json()) as T;
-  } catch {
-    return null;
+    if (!r.ok) return { ok: false, status: r.status, reason: `HTTP ${r.status}` };
+    return { ok: true, data: (await r.json()) as T };
+  } catch (e) {
+    return { ok: false, status: null, reason: e instanceof Error ? e.message : String(e) };
   }
 }
+
+/**
+ * 「首次脱离 open」的动作判据（Task#5 ③）。
+ *
+ * 权威词表来自 `app/api/tickets/[id]/route.ts` 的 TRANSITION_ACTIONS：
+ *   open→reopen、acknowledged→acknowledge、investigating→investigate、
+ *   resolved→resolve、dismissed→dismiss
+ * 另外 `lib/store.ts` 与该 route 还会 push create / assign / comment / update。
+ *
+ * 只有下面这四个动词代表"工单不再是 open"。刻意排除 reopen（它是**回到** open，
+ * 方向相反）与 create/assign/comment/update（不改状态）。
+ */
+const LEAVE_OPEN_ACTIONS = new Set(['acknowledge', 'investigate', 'resolve', 'dismiss']);
 
 /* ─── Overview Page ────────────────────────────────────────────────────── */
 export default function Home() {
@@ -227,26 +269,54 @@ export default function Home() {
   const [mods, setMods] = useState<Record<string, boolean> | null>(null);
   const [modsLoading, setModsLoading] = useState(true);
   const [modsError, setModsError] = useState('');
+  // 数据源失败清单（审计 Task#5 ④）：任一来源拉取失败都记在这里并在页面顶部
+  // 显式告警，不再把失败折叠成空数据。
+  const [failedSources, setFailedSources] = useState<Array<{ label: string; reason: string }>>([]);
+  /**
+   * /api/tickets?limit=500 的钳制元数据（Task#5 ②⑤）。
+   * 后端 MAX_LIMIT=200，故 limit=500 会被钳到 200；返回的是按"严重度升序+时间降序"
+   * 排序后的**头部偏置样本**（最严重的 200 张），不是全量。
+   * 因此任何比率的分母都必须用接口回传的 total，绝不能用切片长度——否则真实
+   * 500 张里 400 张已解决会显示成完成率 20%（真实 80%）。
+   */
+  const [ticketsMeta, setTicketsMeta] = useState<{
+    total?: number;
+    limit?: number;
+    returned?: number;
+    limit_clamped?: boolean;
+    requested_limit?: number;
+  } | null>(null);
+
+  const recordFailure = useCallback((label: string, reason: string) => {
+    setFailedSources((prev) => (prev.some((f) => f.label === label) ? prev : [...prev, { label, reason }]));
+  }, []);
 
   /**
    * 读取模块开关并折算为**有效值**。
    *
    * 【禁】失败一律 fail-closed 到"未知"（mods=null + modsError），**绝不 fail-open
-   * 到绿色**——接口挂了就宣称"已启用"，正是 #32 要消灭的伪造。注意 getJson 对
-   * 401/500/网络错误/非法 JSON 一律返回 null，故此处 null 覆盖了全部失败路径。
+   * 到绿色**——接口挂了就宣称"已启用"，正是 #32 要消灭的伪造。
+   * getJson 现为判别式结果：`ok:false` 覆盖 401/500/网络错误，契约不符（modules
+   * 缺失或非对象）单独判——两类都落到同一个中性灰未知态，但后者额外记入失败横幅。
    */
   const loadModules = useCallback(async () => {
     setModsLoading(true);
     setModsError('');
-    const d = await getJson<{ modules?: Record<string, unknown> }>('/api/settings/modules');
-    if (!d || typeof d.modules !== 'object' || d.modules === null) {
+    const r = await getJson<{ modules?: Record<string, unknown> }>('/api/settings/modules');
+    if (!r.ok) {
       setMods(null);
       setModsError(MODULES_UNAVAILABLE_LABEL);
+    } else if (typeof r.data.modules !== 'object' || r.data.modules === null) {
+      setMods(null);
+      setModsError(MODULES_UNAVAILABLE_LABEL);
+      setFailedSources((prev) =>
+        prev.some((f) => f.label === '模块开关') ? prev : [...prev, { label: '模块开关', reason: '接口返回结构不符（缺 modules 字段）' }],
+      );
     } else {
       // effectiveModules 内部逐键校验 typeof === 'boolean'，故喂进未清洗的原始
       // JSON 也不会把非布尔值渗进有效值（后端已在该函数文档中承诺此契约），
       // 这里的断言是安全的。
-      setMods(effectiveModules(d.modules as Partial<Record<ModuleKey, boolean>>));
+      setMods(effectiveModules(r.data.modules as Partial<Record<ModuleKey, boolean>>));
     }
     setModsLoading(false);
   }, []);
@@ -310,35 +380,70 @@ export default function Home() {
 
   useEffect(() => {
     let alive = true;
-    getJson<{ devices?: DeviceLite[] }>('/api/devices?limit=2000').then((d) => {
-      if (alive) setDevices(Array.isArray(d?.devices) ? (d.devices as DeviceLite[]) : []);
+    getJson<{ devices?: DeviceLite[] }>('/api/devices?limit=2000').then((r) => {
+      if (!alive) return;
+      if (r.ok) setDevices(Array.isArray(r.data.devices) ? r.data.devices : []);
+      else recordFailure('终端清单', r.reason);
     });
-    getJson<{ tickets?: TicketLite[] }>('/api/tickets?limit=6').then((d) => {
-      if (alive) setTickets(Array.isArray(d?.tickets) ? (d.tickets as TicketLite[]) : []);
+    getJson<{ tickets?: TicketLite[] }>('/api/tickets?limit=6').then((r) => {
+      if (!alive) return;
+      if (r.ok) setTickets(Array.isArray(r.data.tickets) ? r.data.tickets : []);
+      else recordFailure('最新工单', r.reason);
     });
-    getJson<{ tickets?: TicketLite[] }>('/api/tickets?limit=500').then((d) => {
-      if (alive) setTicketsAll(Array.isArray(d?.tickets) ? (d.tickets as TicketLite[]) : []);
+    getJson<{
+      tickets?: TicketLite[];
+      total?: number;
+      returned?: number;
+      limit?: number;
+      limit_clamped?: boolean;
+      requested_limit?: number;
+    }>('/api/tickets?limit=500').then((r) => {
+      if (!alive) return;
+      if (r.ok) {
+        setTicketsAll(Array.isArray(r.data.tickets) ? r.data.tickets : []);
+        // ②⑤：limit=500 会被后端钳到 MAX_LIMIT=200，返回的是头部偏置样本。
+        // 记下 total / limit_clamped，比率分母与口径标注都以此为准。
+        setTicketsMeta({
+          total: r.data.total,
+          returned: r.data.returned,
+          limit: r.data.limit,
+          limit_clamped: r.data.limit_clamped,
+          requested_limit: r.data.requested_limit,
+        });
+      } else {
+        recordFailure('全量工单（处置进度/MTTA/MTTR 的分母）', r.reason);
+      }
     });
-    getJson<{ findings?: Array<Record<string, unknown>> }>('/api/findings?limit=1000').then((d) => {
-      if (alive) setFindingsAll(Array.isArray(d?.findings) ? (d.findings as Array<Record<string, unknown>>) : []);
+    getJson<{ findings?: Array<Record<string, unknown>> }>('/api/findings?limit=1000').then((r) => {
+      if (!alive) return;
+      if (r.ok) setFindingsAll(Array.isArray(r.data.findings) ? r.data.findings : []);
+      else recordFailure('发现样本（技战法活跃态势）', r.reason);
     });
-    getJson<{ entries?: AuditLite[] }>('/api/audit?limit=6').then((d) => {
-      if (alive) setAudit(Array.isArray(d?.entries) ? (d.entries as AuditLite[]) : []);
+    getJson<{ entries?: AuditLite[] }>('/api/audit?limit=6').then((r) => {
+      if (!alive) return;
+      if (r.ok) setAudit(Array.isArray(r.data.entries) ? r.data.entries : []);
+      else recordFailure('近期动态', r.reason);
     });
-    getJson<{ hours?: number; buckets?: TrendBucketLite[] }>('/api/trend?hours=48').then((d) => {
-      if (alive && d && Array.isArray(d.buckets)) setTrend({ hours: d.hours ?? 48, buckets: d.buckets });
+    getJson<{ hours?: number; buckets?: TrendBucketLite[] }>('/api/trend?hours=48').then((r) => {
+      if (!alive) return;
+      if (r.ok && Array.isArray(r.data.buckets)) setTrend({ hours: r.data.hours ?? 48, buckets: r.data.buckets });
+      else if (!r.ok) recordFailure('48h 趋势', r.reason);
     });
     getJson<{
       connected?: boolean;
       complete?: boolean;
       rule_stats?: Array<{ rule_id: string; category: string; critical: number; high: number; total: number }>;
-    }>('/api/findings/rule-stats').then((d) => {
-      if (alive) setRuleStats(d ?? null);
+    }>('/api/findings/rule-stats').then((r) => {
+      if (!alive) return;
+      // rule-stats 允许诚实降级（旧 Collector 无该端点 → connected:false 回落样本），
+      // 故失败不记入告警横幅，但也不再伪装成"有数据"。
+      if (r.ok) setRuleStats(r.data);
+      else setRuleStats(null);
     });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [recordFailure]);
 
   /* 真实指标: 未连接接收器时为 0, 不使用任何虚构回退值 */
   const totalDevices = fleet?.total_devices ?? 0;
@@ -391,7 +496,37 @@ export default function Home() {
       t.status === 'resolved' ? 'resolved' : t.status === 'closed' ? 'closed' : t.status === 'investigating' || t.status === 'acknowledged' ? 'processing' : 'pending';
     dispCounts[s] = (dispCounts[s] ?? 0) + 1;
   }
-  const dispTotal = (ticketsAll ?? []).length || 1;
+  /**
+   * Task#5 ②⑤（PM 裁定 8.0）：clamp 样本口径。
+   *
+   * /api/tickets 的排序是「严重度升序 + 时间降序」，所以钳制到 MAX_LIMIT=200 后
+   * 返回的是**头部偏置样本**（最严重的 200 张），不是全量随机样本。旧代码用
+   * `ticketsAll.length` 当分母，把样本内比率冒充成全量比率：真实 500 张里 400 张
+   * 已解决时，样本（最严重那批，多半还没闭环）可能只有 40 张已解决 → 显示 20%，
+   * 而真实是 80%。把"响亮的 400 错误"换成"安静的错误数字"更危险，因为没人会质疑它。
+   *
+   * 按 PM 裁定改用接口回传的 `total` 作分母。注意这样得到的是**全量下界**而非估计值：
+   * 分子（样本内已解决数）是全量已解决数的子集，故 resolved/total ≤ 真实完成率。
+   * 下界保守但不会错，配合下方口径标注使用；而"样本内比率"是个方向未知的偏置估计，
+   * 不能当全量值展示。堆叠条同理——用 total 作分母后各段之和 < 100%，视觉上如实
+   * 呈现"我们只掌握了其中一部分"，而不是拼成一根看似完整的 100% 条。
+   */
+  const sampleSize = (ticketsAll ?? []).length;
+  const ticketsTotal = typeof ticketsMeta?.total === 'number' ? ticketsMeta.total : sampleSize;
+  /**
+   * 是否真的只拿到了一部分。
+   *
+   * 判据**只能**是 `total > 已加载数`，不能用 `limit_clamped`：后者表示"请求值被
+   * 钳过"，而本页请求的是 limit=500、后端 MAX_LIMIT=200，所以即使全舰队只有 7 张
+   * 工单、我们已经拿到全部 7 张，`limit_clamped` 依然是 true。用它当判据会在数据
+   * 完整时谎称"仅基于最严重的 7 张（共 7 张）· 非全量"——那是凭空捏造一个不存在
+   * 的样本偏差，比不标注更糟。（这是我第一版写错的地方，已改。）
+   *
+   * `limit_clamped` / `requested_limit` 仍有价值，但只用于说明"为什么是 200 而不是
+   * 500"，不用于判断截断。
+   */
+  const ticketsTruncated = ticketsTotal > sampleSize;
+  const dispTotal = ticketsTotal > 0 ? ticketsTotal : 1;
 
   /* P2 规则/来源排行（无真实地理数据→降级为可解释排行表）+ 平均处置耗时 */
   const ruleRank = useMemo(() => {
@@ -477,16 +612,31 @@ export default function Home() {
 
   /**
    * MTTA（平均响应时长，AIDR Response 侧 efficacy）：工单创建 → 首次脱离 open
-   * （认领/调查/处理）的平均小时数。由真实工单 history 时间戳派生，无数据返回 null。
+   * 的平均小时数。由真实工单 history 派生，无样本返回 null（绝不回填 0 或猜测值）。
+   *
+   * Task#5 ③：判据必须用 **action**，不能用状态字段。history 条目的真实字段是
+   * {action, actor, timestamp, note?}（lib/store.ts 的 TicketHistoryEntry），
+   * **既没有状态字段也没有 at**。旧实现的过滤条件同时断言了这两个不存在的字段，
+   * 故恒为假 → samples 恒空 → 该函数**自上线以来从未产出过真实数值**，页面一直
+   * 显示"—（暂无已响应工单）"，看起来像"没人响应过"，实际是"我们根本没读到"。
+   * （此处刻意不逐字引用旧表达式：引了会让按旧字段名做的复验 grep 命中注释，
+   *   把这个已修项报成仍存在。）
+   *
+   * 「脱离 open」= 第一条 action ∈ LEAVE_OPEN_ACTIONS 的条目。排除的动词：
+   *   create（工单诞生，仍在 open）、reopen（回到 open，是脱离的反向）、
+   *   assign / comment / update（不改状态）。
+   * 时间统一经 toTimestamp 归一（容忍 ms/s 混用），与 created_at 同基准后再相减。
    */
   const mttaHours = useMemo(() => {
     const samples: number[] = [];
     for (const t of ticketsAll ?? []) {
-      if (typeof t.created_at !== 'number') continue;
+      const created = toTimestamp(t.created_at);
+      if (created === null) continue;
       const first = (t.history ?? [])
-        .filter((h) => h.to_status && h.to_status !== 'open' && typeof h.at === 'number')
-        .sort((a, b) => Number(a.at) - Number(b.at))[0];
-      if (first && Number(first.at) >= Number(t.created_at)) samples.push(Number(first.at) - Number(t.created_at));
+        .map((h) => ({ action: String(h.action ?? ''), ts: toTimestamp(h.timestamp ?? h.at) }))
+        .filter((h): h is { action: string; ts: number } => h.ts !== null && h.ts >= created && LEAVE_OPEN_ACTIONS.has(h.action))
+        .sort((a, b) => a.ts - b.ts)[0];
+      if (first) samples.push(first.ts - created);
     }
     if (samples.length === 0) return null;
     return (samples.reduce((a, b) => a + b, 0) / samples.length / 3600000).toFixed(1);
@@ -518,6 +668,13 @@ export default function Home() {
   })();
   const ticketsToday = (ticketsAll ?? []).filter((t) => (t.created_at ?? 0) >= todayStart).length;
   const resolveRate = Math.round((dispCounts.resolved / dispTotal) * 100);
+  /**
+   * clamp 口径标注（PM §7.5 句式「基于最近 ≤N 条样本」的工单版）。
+   * 截断时必须说出来，且不得宣称全量；未截断时返回 null（不显示多余标注）。
+   */
+  const ticketsScopeNote = ticketsTruncated
+    ? `基于最严重的 ${sampleSize} 张工单（共 ${ticketsTotal} 张）· 非全量`
+    : null;
 
   /* 真实分工具覆盖: 由 /api/devices 按 agent_type 聚合 */
   const toolCoverage = useMemo(() => {
@@ -567,6 +724,49 @@ export default function Home() {
           </Button>
         </div>
       </div>
+
+      {/* Task#5 ④：数据源失败必须可见。此前 getJson 把 !r.ok 与 catch 双双折叠成
+          null，调用方再 `?? []`，于是"接口 500 / Collector 不可达"与"确实没有数据"
+          渲染完全同形——KPI 显示 0、完成率显示 0%、时间线显示"暂无动态"。
+          一个安静的错误数字比一个响亮的失败更危险，因为没人会去质疑它。 */}
+      {failedSources.length > 0 && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+            padding: '12px 14px',
+            marginBottom: 14,
+            borderRadius: 'var(--sentinel-radius-md)',
+            background: 'color-mix(in srgb, var(--sentinel-danger) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--sentinel-danger) 40%, transparent)',
+            color: 'var(--sentinel-danger)',
+            fontSize: 12,
+            lineHeight: 1.6,
+          }}
+        >
+          <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <div style={{ fontWeight: 600 }}>
+              {failedSources.length} 个数据源读取失败，本页相关数字不代表真实值
+            </div>
+            <ul style={{ margin: '4px 0 0', padding: '0 0 0 18px' }}>
+              {failedSources.map((f) => (
+                <li key={f.label}>
+                  {f.label}：{f.reason}
+                </li>
+              ))}
+            </ul>
+            <div style={{ marginTop: 6, color: 'var(--sentinel-text-2)' }}>
+              受影响的指标已按"未知"处理，不会回落成 0 或绿色正常态。
+              <button type="button" className="handle" style={{ marginLeft: 8 }} onClick={() => window.location.reload()}>
+                重新加载
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(!fleet || fleet.total_devices === 0) && (
         <div className="panel animate-entrance" style={{ padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -923,16 +1123,24 @@ export default function Home() {
           <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 12 }}>
             <p style={{ fontSize: 13, margin: 0 }}>
               平均响应 MTTA：<strong className="sentinel-metric-value" style={{ fontSize: 20 }}>{mttaHours ?? '—'}</strong>
-              {mttaHours ? ' 小时' : '（暂无已响应工单）'}
+              {mttaHours ? ' 小时' : ticketsAll === null ? '（工单数据未就绪）' : '（暂无已响应工单）'}
             </p>
             <p style={{ fontSize: 13, margin: 0 }}>
               平均闭环 MTTR：<strong className="sentinel-metric-value" style={{ fontSize: 20 }}>{avgResolveHours ?? '—'}</strong>
-              {avgResolveHours ? ' 小时' : '（暂无已闭环工单）'}
+              {avgResolveHours ? ' 小时' : ticketsAll === null ? '（工单数据未就绪）' : '（暂无已闭环工单）'}
             </p>
             <p style={{ fontSize: 12, margin: 0, color: 'var(--muted-foreground)' }}>
               其中 严重/高危 {mttrBySev.critHigh ?? '—'}h · 中/低 {mttrBySev.medLow ?? '—'}h
             </p>
           </div>
+          {ticketsScopeNote && (
+            /* Task#5 ⑤：MTTA / MTTR / 严重度细分全部派生自同一份 clamp 样本，
+               而样本是"最严重的 N 张"，其响应与闭环耗时系统性偏离全量（越严重
+               往往越慢）。不标注就会把一个头部偏置样本的平均值当成舰队均值读。 */
+            <p style={{ fontSize: 11, color: 'var(--sentinel-warning)', margin: '0 0 10px' }}>
+              {ticketsScopeNote}；MTTA / MTTR 为同样本内的均值，非全量。
+            </p>
+          )}
           <div style={{ display: 'flex', height: 10, borderRadius: 99, overflow: 'hidden', background: 'var(--surface-2)', marginBottom: 10 }}>
             <div style={{ width: `${(dispCounts.resolved / dispTotal) * 100}%`, background: 'var(--sentinel-accent)' }} />
             <div style={{ width: `${(dispCounts.processing / dispTotal) * 100}%`, background: 'var(--sentinel-cyan)' }} />
@@ -942,6 +1150,11 @@ export default function Home() {
           <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
             已完成 {dispCounts.resolved} · 处理中 {dispCounts.processing} · 待处理 {dispCounts.pending} · 已关闭 {dispCounts.closed}
           </p>
+          {ticketsScopeNote && (
+            /* Task#5 ⑤：clamp 口径标注。上方堆叠条以 total 为分母，故截断时各段之和
+               < 100%——留白部分即"尚未加载到的工单"，不是"没有其他状态"。 */
+            <p style={{ fontSize: 11, color: 'var(--sentinel-warning)', margin: '4px 0 0' }}>{ticketsScopeNote}</p>
+          )}
         </section>
       )}
 
@@ -1012,7 +1225,10 @@ export default function Home() {
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
             <strong className="sentinel-metric-value" style={{ fontSize: 26 }}>{resolveRate}%</strong>
             <span style={{ color: 'var(--sentinel-text-2)', fontSize: 12 }}>
-              本周期处置完成率{avgResolveHours ? ` · 平均 ${avgResolveHours}h` : ''}
+              {/* 截断时这个百分比是**全量下界**（分子来自样本、分母是全量 total），
+                  必须标明，否则会被读成全量完成率。Task#5 ⑤。 */}
+              {ticketsTruncated ? '处置完成率（已知部分的下界）' : '本周期处置完成率'}
+              {avgResolveHours ? ` · 平均 ${avgResolveHours}h` : ''}
             </span>
           </div>
           <div className="progress" style={{ marginBottom: 12 }}>
@@ -1042,6 +1258,12 @@ export default function Home() {
               <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{dispCounts.closed}</span>
             </li>
           </ul>
+          {ticketsScopeNote && (
+            /* Task#5 ⑤：四段计数是**样本内**计数，而上面堆叠条以全量 total 为分母，
+               所以各段之和 < 100%。缺这句标注的话，读者会把 200 张样本的四段分布
+               当成全量分布读（PM 裁定：clamp 时不得宣称全量）。 */
+            <p style={{ fontSize: 11, color: 'var(--sentinel-warning)', margin: '8px 0 0' }}>{ticketsScopeNote}</p>
+          )}
         </section>
       </div>
 

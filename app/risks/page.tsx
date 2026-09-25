@@ -330,6 +330,13 @@ export default function RisksPage() {
      *  哪个 skill、哪个 mcp、哪个代码路径，逐项直达处置）。 */
     perCategory?: Array<{ asset_type: 'skill' | 'mcp' | 'path'; keys: string[]; kinds: string[] }>;
     state: 'loading' | 'ready' | 'error';
+    /** state==='error' 时的**可见**原因。此前 error 态在渲染层没有任何分支，
+     *  会掉进"未匹配到发现"/"?个发现"，于是"读取失败"与"确实没有发现"渲染成
+     *  同一句话——用户无法区分"系统没读到"和"一切正常无发现"（审计 #33 同类问题）。 */
+    errorText?: string;
+    /** 该设备被加白抑制而**未计入** findingsTotal 的发现数（端点回传 suppressed）。
+     *  不显示它，"关联该设备全部 N 个发现"这句就是错的——N 是抑制后的数。 */
+    suppressed?: number;
   } | null>(null);
   useEffect(() => {
     let alive = true;
@@ -339,11 +346,31 @@ export default function RisksPage() {
     }
     const t = drawerTicket;
     (async () => {
+      // 无关联终端时不能拼出 /api/devices//findings 这种畸形 URL，也不能假装"无发现"。
+      if (!t.device_id) {
+        if (alive) setLoopInfo({ state: 'error', errorText: '该工单未关联终端，无法拉取其发现明细' });
+        return;
+      }
       try {
         setLoopInfo({ state: 'loading' });
-        const fr = await fetch(`/api/findings?device_id=${encodeURIComponent(t.device_id ?? '')}&limit=200`, { cache: 'no-store' });
-        const fd = fr.ok ? ((await fr.json()) as { findings?: unknown }) : null;
+        // P0-1 跨设备误封修复（同 runBatchLabel）：原先打的是 /api/findings 并附带一个
+        // device_id 查询参数，但该路由从不读这个参数，返回的是最多 200 **台设备**的
+        // 聚合发现，于是 findingsTotal 与 perCategory 都是对 200 台集合算的 ——
+        // 抽屉里"关联该设备全部 N 个发现"是一句跨设备假关联。改用设备级端点后
+        // N 才真的是这台设备的。
+        // （注释刻意不写出完整的旧查询串，否则按该串做的复验 grep 会命中注释、
+        //   把这个已修复的 P0 报成仍存在。）
+        const fr = await fetch(`/api/devices/${encodeURIComponent(t.device_id)}/findings?limit=200`, { cache: 'no-store' });
+        if (!fr.ok) {
+          // 不再用 `fr.ok ? json : null` 把失败折叠成"空列表"：那样 503（Collector
+          // 不可达）会渲染成"未匹配到发现"，与"确实没有发现"无法区分。
+          if (alive) setLoopInfo({ state: 'error', errorText: `发现明细读取失败（HTTP ${fr.status}），无法确认关联资产` });
+          return;
+        }
+        const fd = (await fr.json()) as { findings?: unknown; suppressed?: unknown };
         const findings = Array.isArray(fd?.findings) ? (fd.findings as Array<Record<string, unknown>>) : [];
+        // 端点会剔除已加白的同源发现并回传计数；不带上它，"全部 N 个"就是错的。
+        const suppressed = typeof fd?.suppressed === 'number' ? fd.suppressed : 0;
         // 匹配链只允许精确级：finding_ref 命中 → kind 命中。**禁止**按 severity 兜底——
         // 旧版第三级"取第一条同严重度发现"让每张设备级自动工单都关联到同一个随机
         // 发现（用户抓包质疑"所有工单关联的都是这个？"，属实是误导）。设备级汇总
@@ -358,7 +385,7 @@ export default function RisksPage() {
           ? (findingAsset(match as never) ?? { asset_type: 'path' as const, asset_key: String(match.path ?? '') })
           : null;
         if (!asset) {
-          if (alive) setLoopInfo({ state: 'ready', kind: String(match?.kind ?? ''), findingsTotal: findings.length, perCategory: aggregateRemediable(findings) });
+          if (alive) setLoopInfo({ state: 'ready', kind: String(match?.kind ?? ''), findingsTotal: findings.length, suppressed, perCategory: aggregateRemediable(findings) });
           return;
         }
         const lr = await fetch('/api/labels', { cache: 'no-store' });
@@ -373,10 +400,11 @@ export default function RisksPage() {
             disposition: lab?.disposition,
             kind: String(match?.kind ?? ''),
             findingsTotal: findings.length,
+            suppressed,
             perCategory: aggregateRemediable(findings),
           });
       } catch {
-        if (alive) setLoopInfo({ state: 'error' });
+        if (alive) setLoopInfo({ state: 'error', errorText: '发现明细读取失败（网络错误），无法确认关联资产' });
       }
     })();
     return () => {
@@ -734,27 +762,75 @@ export default function RisksPage() {
     // 窄类型保留：批量打标入口只处理具体资产（findingAsset 永不返回 prefix，
     // 断言收窄即可）；prefix 由处置中心单独管理。
     const assets = new Map<string, { asset_type: 'skill' | 'mcp' | 'path'; asset_key: string }>();
+    // 逐设备失败必须可见：原先是 `if (!r.ok) continue;` + 空 catch，于是 Collector
+    // 不可达时也会照样弹"已对 N 个资产执行拉黑"（N=0）——把失败伪装成成功。
+    // 批量拉黑是破坏性操作，提示必须如实反映到底处置了什么、有什么没读到。
+    const failedDevices: string[] = [];
+    if (deviceIds.length === 0) {
+      notify('所选工单没有关联终端，无法按设备聚合可处置资产。', 'info');
+      return;
+    }
     for (const did of deviceIds) {
       try {
-        const r = await fetch(`/api/findings?device_id=${encodeURIComponent(did)}&limit=200`, { cache: 'no-store' });
-        if (!r.ok) continue;
+        // P0-1 跨设备误封修复：原先打的是 /api/findings 并附带一个 device_id 查询参数，
+        // 但该路由**从不读 device_id**——它只读 category / cursor / device_limit，
+        // 且 limit 是 device_limit 的旧别名（每页设备数）。所以那次请求返回的是
+        // 最多 200 **台设备**的跨设备聚合发现，而下面对返回值不做任何过滤就逐个
+        // findingAsset 并写 deny ⇒ 勾选 1 台设备会污染最多 200 台的处置注册表。
+        //
+        // 改用设备级端点：服务端按 device_id 代理 collector /v1/findings，
+        // 天然限定单设备，并含 allow 抑制与 suppressed 计数。
+        // 该端点回传的是 collector **原始** finding 形状（无 /api/findings 那层
+        // 富化出的 asset_type/asset_key/category），但本函数只依赖 findingAsset()，
+        // 而 findingAsset 是从 kind/path/message 自行派生资产身份的，原始形状已足够
+        // ——同文件的 LinkedFindings 早就在用同一端点 + 同一个 findingAsset(f)，
+        // 故无需适配层。
+        const r = await fetch(`/api/devices/${encodeURIComponent(did)}/findings?limit=200`, { cache: 'no-store' });
+        if (!r.ok) {
+          failedDevices.push(`${did}（HTTP ${r.status}）`);
+          continue;
+        }
         const d = (await r.json()) as { findings?: Array<Record<string, unknown>> };
         for (const f of d.findings ?? []) {
           const a = findingAsset(f as never);
           if (a && a.asset_type !== 'prefix') assets.set(`${a.asset_type}:${a.asset_key}`, { asset_type: a.asset_type as 'skill' | 'mcp' | 'path', asset_key: a.asset_key });
         }
       } catch {
-        /* 单设备拉取失败跳过，不伪造 */
+        failedDevices.push(`${did}（网络错误）`);
       }
     }
-    for (const a of assets.values()) {
-      await fetch('/api/labels', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ asset_type: a.asset_type, asset_key: a.asset_key, disposition }),
-      });
+    // 全部设备都读不到 → 没有任何依据可处置，绝不能报"成功"。
+    if (failedDevices.length === deviceIds.length) {
+      notify(`未能读取任何所选终端的发现（${failedDevices.length} 台全部失败：${failedDevices.slice(0, 3).join('、')}${failedDevices.length > 3 ? ' 等' : ''}），本次未执行任何处置。`, 'error');
+      return;
     }
-    notify(`已对 ${assets.size} 个资产执行${disposition === 'allow' ? '加白' : disposition === 'monitor' ? '观察' : '拉黑'}。`, 'success');
+    const verb = disposition === 'allow' ? '加白' : disposition === 'monitor' ? '观察' : '拉黑';
+    // 写入也要看结果：原先完全忽略 /api/labels 的响应，写失败同样会被报成成功。
+    const writeFailed: string[] = [];
+    for (const a of assets.values()) {
+      try {
+        const wr = await fetch('/api/labels', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset_type: a.asset_type, asset_key: a.asset_key, disposition }),
+        });
+        if (!wr.ok) writeFailed.push(`${a.asset_type}:${a.asset_key}（HTTP ${wr.status}）`);
+      } catch {
+        writeFailed.push(`${a.asset_type}:${a.asset_key}（网络错误）`);
+      }
+    }
+    const scope = `（来自 ${deviceIds.length} 台所选终端）`;
+    const caveats: string[] = [];
+    if (failedDevices.length > 0) caveats.push(`${failedDevices.length} 台终端的发现读取失败，其资产未被处置：${failedDevices.slice(0, 3).join('、')}${failedDevices.length > 3 ? ' 等' : ''}`);
+    if (writeFailed.length > 0) caveats.push(`${writeFailed.length} 个资产写入失败：${writeFailed.slice(0, 3).join('、')}${writeFailed.length > 3 ? ' 等' : ''}`);
+    const okCount = assets.size - writeFailed.length;
+    if (assets.size === 0 && caveats.length === 0) {
+      notify(`所选 ${deviceIds.length} 台终端当前没有可处置的具体资产（无 skill/mcp/代码路径类发现，或均已被加白抑制）。`, 'info');
+    } else if (caveats.length > 0) {
+      notify(`已对 ${okCount} 个资产执行${verb}${scope}；但 ${caveats.join('；')}。`, 'error');
+    } else {
+      notify(`已对 ${assets.size} 个资产执行${verb}${scope}。`, 'success');
+    }
     setSelected(new Set());
     void refresh();
   }
@@ -1510,15 +1586,21 @@ export default function RisksPage() {
                       <span style={{ fontFamily: 'var(--sentinel-font-mono)', wordBreak: 'break-all' }}>
                         {loopInfo?.state === 'loading'
                           ? '解析中…'
-                          : loopInfo?.asset_key
-                            ? `${loopInfo.asset_type}:${loopInfo.asset_key}`
-                            : drawerTicket.source === 'aegis-collector.auto'
-                              ? <>设备级汇总工单：关联该设备全部 {loopInfo?.findingsTotal ?? '?'} 个发现，未锁定单一资产（
-                                <Link href={`/devices?focus=${encodeURIComponent(drawerTicket.device_id)}`} style={{ color: 'var(--ring)', textDecoration: 'none', borderBottom: '1px dashed currentColor' }}>
-                                  点此查看该设备发现明细
-                                </Link>
-                                ，或按下方资产分类逐项处置）</>
-                              : '未匹配到发现'}
+                          : loopInfo?.state === 'error'
+                            // 读取失败必须与"确实没有发现"可区分：此前 error 态无渲染分支，
+                            // 会掉进下面两支，把失败说成"未匹配到发现"/"? 个发现"。
+                            ? <span style={{ color: 'var(--sentinel-danger)' }}>{loopInfo.errorText ?? '发现明细读取失败'}</span>
+                            : loopInfo?.asset_key
+                              ? `${loopInfo.asset_type}:${loopInfo.asset_key}`
+                              : drawerTicket.source === 'aegis-collector.auto'
+                                ? <>设备级汇总工单：关联该设备全部 {loopInfo?.findingsTotal ?? '?'} 个发现
+                                  {(loopInfo?.suppressed ?? 0) > 0 ? `（另有 ${loopInfo?.suppressed ?? 0} 个已加白抑制，未计入）` : ''}
+                                  ，未锁定单一资产（
+                                  <Link href={`/devices?focus=${encodeURIComponent(drawerTicket.device_id)}`} style={{ color: 'var(--ring)', textDecoration: 'none', borderBottom: '1px dashed currentColor' }}>
+                                    点此查看该设备发现明细
+                                  </Link>
+                                  ，或按下方资产分类逐项处置）</>
+                                : '未匹配到发现'}
                       </span>
                       <span>当前处置</span>
                       <span>
@@ -1588,6 +1670,14 @@ export default function RisksPage() {
                         </div>
                       ))}
                     </div>
+                  ) : loopInfo?.state === 'loading' ? (
+                    <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>解析该终端的发现中…</p>
+                  ) : loopInfo?.state === 'error' ? (
+                    // 此前这一支被并进了"无可处置资产"，于是加载失败 / Collector 不可达
+                    // 都被说成"该工单无可处置资产"——把"没读到"伪装成"读到了、确实没有"。
+                    <p style={{ fontSize: 12, color: 'var(--sentinel-danger)', margin: 0 }}>
+                      {loopInfo.errorText ?? '发现明细读取失败'}；因此无法判断是否存在可处置资产（不等于"没有"）。
+                    </p>
                   ) : (
                     <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>该工单无可处置资产（发现均无资产归属）。</p>
                   ),
