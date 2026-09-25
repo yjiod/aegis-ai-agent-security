@@ -35,10 +35,49 @@ import { getRollout } from '@/lib/rollout';
 import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baselines';
 import { enforceableRuleIds } from '@/lib/policy';
 
-/** 高置信恶意信号 → skill 资产自动 deny（severity critical|high）。 */
+/**
+ * 高置信恶意信号 → skill 资产自动 deny（severity critical|high）。
+ *
+ * ⚠️ 诚实边界：这四个 kind **全部**由 aegis_agent.py 的 `scan_text()` 产出
+ * （prompt_override:303、credential_access:303、context_poisoning:336、
+ * hidden_instruction:345，均在 scan_text 的 302-406 行内），而 `scan_text` 的每个
+ * 调用点都被 `if m_code:` 门控（agent:550、:1032、:1068），`m_code` 即
+ * `modules.code_scan`，出厂默认 **false**。⇒ 现网终端根本不产生这些信号，
+ * **skill 自动封禁路径当前是零动作**。真正修复需把 scan_text 拆成
+ * "治理组恒开 / 代码质量组受 code_scan 门控"，属 Task #6（会触发 release 级联 +
+ * 冻结二进制 CI + 舰队自更，须在干净边界单独做）。
+ * **因此不得声称"绝对要求 #3（全自动纠偏）已达成"——它目前只达成 MCP 这一半。**
+ */
 export const AUTO_DENY_SKILL_KINDS = new Set(['hidden_instruction', 'prompt_override', 'credential_access', 'context_poisoning']);
-/** 高置信恶意信号 → mcp 资产自动 deny（仅 critical：传输不可信/残缺服务）。 */
-export const AUTO_DENY_MCP_KINDS = new Set(['unapproved_mcp_transport', 'incomplete_mcp_server']);
+/**
+ * 高置信恶意信号 → mcp 资产自动 deny（severity critical|high，见下方 mcpHit）。
+ *
+ * 名单依 PM 产品体检 §P0-2 修法2 裁定，三个 kind 的**终端实际产出严重度**为：
+ *   - `unapproved_mcp_transport` → high（agent:370；windows ps1 同口径）
+ *   - `literal_mcp_secret`       → critical（agent:383 与 :420；ps1 同）
+ *   - `mcp_url_credentials`      → critical（agent:390；ps1 同）
+ * 后两者是明文凭据外泄面，正是最该自动封禁的；前者是"传输不可信"，high 即足够置信。
+ *
+ * 修复前本名单是 `{unapproved_mcp_transport, incomplete_mcp_server}` 且门禁要求
+ * `severity === 'critical'` —— 而这两个 kind 终端实发 high / medium，**永远不等于
+ * critical**，故 mcpHit 恒 false、MCP 自动封禁在生产中一次都没触发过；单测却因为
+ * 夹具把 `incomplete_mcp_server` 编成 `critical`（终端从不产出该值）而全绿。
+ * tests/test_aegis.py 的跨语言奇偶断言现已把"名单内每个 kind 的终端真实严重度必须
+ * 满足门禁判据"钉死，两边脱钩即刻报红。
+ */
+export const AUTO_DENY_MCP_KINDS = new Set(['unapproved_mcp_transport', 'literal_mcp_secret', 'mcp_url_credentials']);
+/**
+ * 配置缺陷类（**非**恶意信号）→ 只通知，绝不自动封禁。
+ *
+ * PM §P0-2 修法2 裁定：`incomplete_mcp_server` 是"未配置命令或 URL"的配置错误
+ * （agent:404 实发 medium），自动 deny 一个只是配错的 MCP 属误伤——它未必有害。
+ * 故从 AUTO_DENY_MCP_KINDS 移出。
+ *
+ * 但移出封禁名单**不等于可以忽略**：它仍必须进通知队列。因为下方通知分支的条件是
+ * "critical/high 或命中封禁名单"，而它是 medium 且已不在任何封禁名单里 —— 若不在此
+ * 显式列出，这条发现会被整个静默丢弃（既不封也不通知）。
+ */
+export const NOTIFY_ONLY_KINDS = new Set(['incomplete_mcp_server']);
 /** 代码质量问题 → 仅通知（无资产可封，通知用户/Agent 修复）。 */
 export const CODE_QUALITY_KINDS = new Set([
   'dynamic_eval', 'empty_exception_handler', 'hardcoded_secret', 'weak_random_token',
@@ -81,7 +120,11 @@ export function decideRemediation(findings: RemediationFinding[], labels: AssetL
     const asset = findingAsset(f as Parameters<typeof findingAsset>[0]);
     const skillHit = asset?.asset_type === 'skill' && AUTO_DENY_SKILL_KINDS.has(kind)
       && (severity === 'critical' || severity === 'high');
-    const mcpHit = asset?.asset_type === 'mcp' && AUTO_DENY_MCP_KINDS.has(kind) && severity === 'critical';
+    // 门槛与 skill 路径对齐为 ≥high（原为 `=== 'critical'`）。原写法使整条 MCP 自动
+    // 封禁路径恒不触发：名单里的 kind 终端实发 high/medium，永远不等于 critical。
+    // 见 AUTO_DENY_MCP_KINDS 的说明与 PM §P0-2 修法2。
+    const mcpHit = asset?.asset_type === 'mcp' && AUTO_DENY_MCP_KINDS.has(kind)
+      && (severity === 'critical' || severity === 'high');
     if (skillHit || mcpHit) {
       const a = asset as { asset_type: AssetType; asset_key: string };
       const prev = byKey.get(`${a.asset_type}:${a.asset_key}`);
@@ -103,10 +146,12 @@ export function decideRemediation(findings: RemediationFinding[], labels: AssetL
       continue;
     }
     // 其余发现 → 通知相关用户与 Agent：critical/high（代码质量问题为主），以及
-    // 任何恶意信号类命中（含 medium——置信度门禁只限制"自动封禁"，不限制"通知"）。
+    // 任何恶意信号类命中（含 medium——置信度门禁只限制"自动封禁"，不限制"通知"），
+    // 以及配置缺陷类（NOTIFY_ONLY_KINDS：不封但必须通知，否则 medium 级会被静默丢弃）。
     if (
       severity === 'critical' || severity === 'high'
       || AUTO_DENY_SKILL_KINDS.has(kind) || AUTO_DENY_MCP_KINDS.has(kind)
+      || NOTIFY_ONLY_KINDS.has(kind)
     ) {
       const nk = `${f.device_id}:${kind}:${asset?.asset_key ?? f.path ?? ''}`;
       if (!notifySeen.has(nk)) {

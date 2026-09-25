@@ -1852,7 +1852,14 @@ console.log(JSON.stringify([...results, ...npResults]));
 
     def test_auto_remediation_decision_core(self):
         """绝对要求 #3(全自动纠偏): 决策核心——高置信恶意 skill 自动 deny、
-        人工处置绝不覆盖(冲突降级通知)、代码质量问题只通知不封、MCP 仅 critical。"""
+        人工处置绝不覆盖(冲突降级通知)、MCP ≥high 自动 deny、配置缺陷只通知不封。
+
+        ⚠️ 夹具严重度**必须取自终端真实产出**，不得凭空编造。本测试曾因夹具把
+        `incomplete_mcp_server` 写成 `critical`（aegis_agent.py:404 实发 `medium`）
+        而全绿，掩盖了"MCP 自动封禁在生产中一次都没触发过"的事实——因为旧门禁要求
+        `severity === 'critical'`，而名单里两个 kind 终端实发 high/medium，恒不满足。
+        真实严重度由 test_auto_deny_kinds_match_terminal_severities 跨语言钉死。
+        """
         import subprocess, json, tempfile as _tf, os as _os
         root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
         with _tf.TemporaryDirectory() as outdir:
@@ -1871,19 +1878,28 @@ console.log(JSON.stringify([...results, ...npResults]));
 const { decideRemediation } = require(%s);
 const labels = (arr) => arr.map(([t,k,d]) => ({asset_type:t, asset_key:k, disposition:d, tags:[], note:'', updated_by:'', updated_at:0}));
 const findings = [
-  // 恶意 skill(高置信) → 自动 deny
-  {device_id:'d1', kind:'hidden_instruction', severity:'critical', asset_type:'skill', asset_key:'evil-skill'},
-  // 人工已 allow 的恶意 skill → 冲突, 不覆盖
+  // 恶意 skill(高置信) → 自动 deny。severity 用 agent:345 的真实值 high（原夹具写 critical，属编造）
+  {device_id:'d1', kind:'hidden_instruction', severity:'high', asset_type:'skill', asset_key:'evil-skill'},
+  // 人工已 allow 的恶意 skill → 冲突, 不覆盖（agent:303 实发 high）
   {device_id:'d1', kind:'prompt_override', severity:'high', asset_type:'skill', asset_key:'human-allowed'},
-  // 人工已 deny → 无事可做
+  // 人工已 deny → 无事可做（agent:303 实发 high）
   {device_id:'d1', kind:'credential_access', severity:'high', asset_type:'skill', asset_key:'already-denied'},
-  // 代码质量 → 只通知
-  {device_id:'d2', kind:'dynamic_eval', severity:'high', asset_type:'path', asset_key:'~/x/a.py'},
-  // MCP medium → 不自动封(仅 critical), 归通知
-  {device_id:'d3', kind:'unapproved_mcp_transport', severity:'medium', asset_type:'mcp', asset_key:'weird-mcp'},
-  // MCP critical → 自动 deny
-  {device_id:'d3', kind:'incomplete_mcp_server', severity:'critical', asset_type:'mcp', asset_key:'bad-mcp'},
-  // 恶意 skill 但 medium → 不自动封, 归通知
+  // 代码质量 → agent:303 实发 **medium**（原夹具写 high，属编造）。
+  // 见下方"已知缺口"断言：medium 级代码质量发现当前既不封也**不通知**。
+  {device_id:'d2', kind:'dynamic_eval', severity:'medium', asset_type:'path', asset_key:'~/x/a.py'},
+  // MCP 传输不可信 → agent:370 实发 high（原夹具写 medium，属编造）。
+  // PM §P0-2 修法2 后门槛为 ≥high ⇒ 现在**自动 deny**（旧门禁下只通知）。
+  {device_id:'d3', kind:'unapproved_mcp_transport', severity:'high', asset_type:'mcp', asset_key:'weird-mcp'},
+  // MCP 配置缺陷 → agent:404 实发 medium（原夹具写 critical，属编造，正是掩盖 bug 的那一行）。
+  // 已从封禁名单移出（配错不等于恶意，自动 deny 属误伤）⇒ 只通知。
+  {device_id:'d3', kind:'incomplete_mcp_server', severity:'medium', asset_type:'mcp', asset_key:'bad-mcp'},
+  // 明文凭据外泄面 → agent:383/:420 实发 critical ⇒ 自动 deny（本次新纳入名单，必须有用例覆盖）
+  {device_id:'d3', kind:'literal_mcp_secret', severity:'critical', asset_type:'mcp', asset_key:'leaky-mcp'},
+  // URL 内含凭据 → agent:390 实发 critical ⇒ 自动 deny（本次新纳入名单）
+  {device_id:'d3', kind:'mcp_url_credentials', severity:'critical', asset_type:'mcp', asset_key:'cred-mcp'},
+  // 门槛逻辑用例：恶意 skill 但 medium → 不自动封, 归通知。
+  // 注：agent:336 对 context_poisoning 实发 high，此处刻意用 medium 只为验证
+  // "低于门槛不自动封"这条分支，不代表终端真实产出（真实值由奇偶测试钉死）。
   {device_id:'d4', kind:'context_poisoning', severity:'medium', asset_type:'skill', asset_key:'maybe-evil'},
 ];
 const d = decideRemediation(findings, labels([
@@ -1895,13 +1911,145 @@ console.log(JSON.stringify(d));
             self.assertEqual(out.returncode, 0, out.stderr[:400])
             d = json.loads(out.stdout.strip().splitlines()[-1])
             deny_keys = sorted(x["asset_key"] for x in d["denies"])
-            self.assertEqual(deny_keys, ["bad-mcp", "evil-skill"], f"auto-deny set wrong: {deny_keys}")
+            # evil-skill: 恶意 skill(high)；weird-mcp: MCP 传输不可信(high，门槛已降到 ≥high)；
+            # leaky-mcp / cred-mcp: 明文凭据(critical，本次新纳入)。
+            # bad-mcp **不再**被封（incomplete_mcp_server 属配置缺陷，改只通知）。
+            self.assertEqual(deny_keys, ["cred-mcp", "evil-skill", "leaky-mcp", "weird-mcp"],
+                             f"auto-deny set wrong: {deny_keys}")
             self.assertEqual(sorted(x["asset_key"] for x in d["conflicts"]), ["human-allowed"])
             notify_pairs = sorted((x["kind"], x["device_id"]) for x in d["notifies"])
-            self.assertIn(("dynamic_eval", "d2"), notify_pairs)
-            self.assertIn(("unapproved_mcp_transport", "d3"), notify_pairs)
+            # 配置缺陷(medium)必须仍进通知队列：移出封禁名单不等于静默丢弃。
+            self.assertIn(("incomplete_mcp_server", "d3"), notify_pairs)
             self.assertIn(("context_poisoning", "d4"), notify_pairs)
             self.assertNotIn(("hidden_instruction", "d1"), notify_pairs)  # 已封, 不再通知
+            # 语义反转：unapproved_mcp_transport 在 ≥high 门槛下现在是**封禁**而非通知。
+            self.assertNotIn(("unapproved_mcp_transport", "d3"), notify_pairs)
+            self.assertIn("weird-mcp", deny_keys)
+            # ── 已知缺口（如实断言，**不要**为了让它变绿而放宽）──────────────
+            # CODE_QUALITY_KINDS 在 lib/auto-remediation.ts 里被导出却**从未被任何
+            # 代码消费**：通知分支的条件是"critical/high 或命中封禁名单或命中
+            # NOTIFY_ONLY_KINDS"，压根没引用它。于是 medium 级代码质量发现
+            # （dynamic_eval / dependency_unpinned / missing_lockfile /
+            # oversized_file_skipped / project_scan_truncated 等，agent 实发均为 medium）
+            # 既不封禁也**不通知**，被整个静默丢弃。
+            # 修法（把 CODE_QUALITY_KINDS 接进通知条件）会显著增加通知量，属**产品裁定**
+            # 范畴，未获授权故此处不改；本断言锁定当前真实行为，修复后它会变红并
+            # 迫使改动者有意识地更新期望值（而不是让缺口继续隐身）。
+            self.assertNotIn(("dynamic_eval", "d2"), notify_pairs,
+                             "若本断言变红：说明 medium 级代码质量发现已开始通知（缺口已修）。"
+                             "请把期望改为 assertIn 并同步删除本注释——这是期望中的好事。")
+
+    def test_auto_deny_kinds_match_terminal_severities(self):
+        """跨语言奇偶：**自动封禁名单里的每个 kind，终端真实产出的严重度必须满足
+        控制台门禁判据**；否则该 kind 的封禁路径是死代码（生产零动作）。
+
+        这条断言直接针对本次事故的根因。旧名单 `{unapproved_mcp_transport,
+        incomplete_mcp_server}` 配旧门禁 `severity === 'critical'`，而终端实发
+        high(agent:370) / medium(agent:404) —— 两个都永远不等于 critical，于是
+        MCP 自动封禁从未触发过；单测却因夹具编造 `critical` 而全绿。
+        **测试证明的是"若终端产出这种数据，门禁会动"，却没人验证"终端会不会产出
+        这种数据"** —— 本断言补上后半截，两边脱钩即刻报红。
+
+        范式参照 test_openapi_parity（源级双向对齐）。严重度取自两端真实源码：
+        aegis_agent.py（macOS/Linux）与 aegis-windows.ps1（Windows），
+        因为双端一致性是本项目反复踩的坑。
+        """
+        import re as _re
+        RANK = {'low': 0, 'medium': 1, 'high': 2, 'critical': 3}
+        GATE_MIN = 2  # 门禁判据：severity ∈ {critical, high} ⇒ rank >= 2
+
+        ar = (ROOT / 'lib' / 'auto-remediation.ts').read_text(encoding='utf-8')
+
+        def ts_set(name):
+            m = _re.search(r'export const %s = new Set\(\[(.*?)\]\)' % name, ar, _re.S)
+            self.assertIsNotNone(m, f"{name} 解析不到（结构变了？请同步更新本测试）")
+            return set(_re.findall(r"'([^']+)'", m.group(1)))
+
+        skill_kinds = ts_set('AUTO_DENY_SKILL_KINDS')
+        mcp_kinds = ts_set('AUTO_DENY_MCP_KINDS')
+        notify_only = ts_set('NOTIFY_ONLY_KINDS')
+        self.assertEqual(len(skill_kinds), 4, f"skill 名单变了: {sorted(skill_kinds)}")
+        self.assertEqual(mcp_kinds, {'unapproved_mcp_transport', 'literal_mcp_secret',
+                                     'mcp_url_credentials'},
+                         f"MCP 名单与 PM §P0-2 修法2 裁定不符: {sorted(mcp_kinds)}")
+        # 门禁判据本身也钉死：两条封禁路径都必须是 >= high，不得被改回 critical-only。
+        # 按变量逐个提取判据表达式，而不是全文件数出现次数 —— 通知分支(:152)本来就
+        # 合法地含有同一个谓词，计数法会被注释与无关分支干扰（本项目已多次踩过
+        # "自己的注释/相邻代码触发自己的 grep 断言"这个坑）。
+        for var in ('skillHit', 'mcpHit'):
+            m = _re.search(r'const %s = ([\s\S]*?);' % var, ar)
+            self.assertIsNotNone(m, f"{var} 判据解析不到（结构变了？请同步更新本测试）")
+            self.assertIn("severity === 'critical' || severity === 'high'", m.group(1),
+                          f"{var} 必须使用 `critical || high` 判据；改回 `=== 'critical'` "
+                          "会让该封禁路径重新变成死代码（本次事故的根因）")
+        # 封禁名单与"只通知"名单不得重叠（重叠即语义自相矛盾）
+        self.assertEqual(notify_only & (skill_kinds | mcp_kinds), set(),
+                         "NOTIFY_ONLY_KINDS 与自动封禁名单重叠，语义冲突")
+
+        # ── 终端真实严重度（两端）───────────────────────────────────────
+        py = (DOWNLOADS / 'aegis_agent.py').read_text(encoding='utf-8')
+        ps = (DOWNLOADS / 'aegis-windows.ps1').read_text(encoding='utf-8')
+        py_sev, ps_sev = {}, {}
+        for k, s in _re.findall(r'"([a-z_]+)"\s*,\s*"(critical|high|medium|low)"', py):
+            py_sev.setdefault(k, set()).add(s)
+        for k, s in _re.findall(r"kind='([a-z_]+)';severity='(critical|high|medium|low)'", ps):
+            ps_sev.setdefault(k, set()).add(s)
+        self.assertGreater(len(py_sev), 40, "python 侧严重度解析疑似失效")
+        self.assertGreater(len(ps_sev), 20, "windows 侧严重度解析疑似失效")
+
+        dead, missing = [], []
+        for kind in sorted(skill_kinds | mcp_kinds):
+            sevs = py_sev.get(kind)
+            if not sevs:
+                # 终端根本不产出该 kind ⇒ 封禁路径同样是死的（信号永不出现）
+                missing.append(kind)
+                continue
+            if max(RANK[s] for s in sevs) < GATE_MIN:
+                dead.append(f"{kind}(终端实发 {sorted(sevs)}，门禁要求 >= high)")
+        self.assertEqual(dead, [],
+                         f"以下 kind 的终端真实严重度**满足不了**门禁判据 ⇒ 封禁路径是死代码: {dead}")
+
+        # 双端一致性：两端都产出的 kind，严重度必须相同（否则同一发现按 OS 得到不同处置）
+        mismatch = {k: (sorted(py_sev[k]), sorted(ps_sev[k]))
+                    for k in sorted(set(py_sev) & set(ps_sev)) if py_sev[k] != ps_sev[k]}
+        self.assertEqual(mismatch, {}, f"python 与 windows 严重度不一致: {mismatch}")
+
+        # ── 诚实边界：MCP 名单里的 kind 必须**双端**都产出 ──────────────────
+        # skill 名单的四个 kind 目前只有 python 侧产出（见下），MCP 名单则必须两端都有，
+        # 否则 Windows 终端的 MCP 明文凭据永远不会被自动封禁。
+        mcp_win_missing = sorted(k for k in mcp_kinds if k not in ps_sev)
+        self.assertEqual(mcp_win_missing, [],
+                         f"MCP 自动封禁名单里的 kind 在 Windows 端不产出，Windows 侧等于没有该防护: "
+                         f"{mcp_win_missing}")
+
+        # ── 已知缺口（如实钉死，Task #6 修复后本段应变红并被有意识地更新）──────
+        # skill 名单四个 kind 全部只由 scan_text() 产出，而 scan_text 的每个调用点
+        # 都被 `if m_code:`（= modules.code_scan，出厂 false）门控 ⇒ 现网终端不产生
+        # 这些信号，**skill 自动封禁路径当前零动作**；且这四个 kind 在 Windows 端
+        # 完全不产出。故"绝对要求 #3 全自动纠偏"目前只达成 MCP 一半，不得声称已达成。
+        scan_text_def = _re.search(r'^def scan_text\(', py, _re.M)
+        next_def = _re.search(r'^def (?!scan_text\b)\w+\(', py[scan_text_def.end():], _re.M)
+        body_end = scan_text_def.end() + next_def.start()
+        for kind in sorted(skill_kinds):
+            # 只认**产出点**：`finding("kind","sev"...)` 或规则表元组 `("kind","sev",r"...")`。
+            # 不能匹配裸字符串——agent 模块级的 CODE_QUALITY_KINDS(:1588-1591) 也列了这四个
+            # kind 名，那只是 report 兜底过滤清单，不是产出点。
+            hits = [m.start() for m in _re.finditer(
+                r'(?:finding\(|\()\s*"%s"\s*,\s*"(?:critical|high|medium|low)"' % kind, py)]
+            self.assertTrue(hits, f"{kind} 在 agent 中找不到产出点")
+            self.assertTrue(all(scan_text_def.start() <= h < body_end for h in hits),
+                            f"{kind} 的产出点不在 scan_text() 内——若 Task #6 已把治理组规则"
+                            f"拆出 code_scan 门控，请更新本段注释与断言（这是期望中的进展）")
+            self.assertNotIn(kind, ps_sev,
+                             f"{kind} 现在 Windows 端也产出了——请更新本段'诚实边界'描述")
+        # scan_text 的每个调用点都必须仍被 `if m_code:` 门控（一旦解开门控，上面结论即失效）
+        call_sites = [ln for ln in py.splitlines()
+                      if 'scan_text(' in ln and not ln.lstrip().startswith('def ')]
+        self.assertTrue(call_sites, "scan_text 调用点解析不到")
+        ungated = [ln.strip()[:110] for ln in call_sites if 'if m_code' not in ln]
+        self.assertEqual(ungated, [],
+                         f"scan_text 出现了不受 code_scan 门控的调用点——skill 自动封禁路径"
+                         f"可能已恢复产出信号，请更新本段'诚实边界'结论: {ungated}")
 
     def test_preset_allowlist_never_overrides_deny(self):
         """绝对要求 #4(2026-09-24): 封禁优先级 > 预置白名单(含内置市场技能)。
