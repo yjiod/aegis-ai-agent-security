@@ -129,17 +129,22 @@ Agent 会 fail-closed 拒载策略（保留上一份有效签名策略，但新�
 - 允许列表持久化：operator/developer 复用 settings 表（键名 `allowlist:operators` / `allowlist:developers`，
   免新表迁移）或新增表（随 1.x 迁移）；middleware 预热角色缓存（**此项已实现**）。
 
-> **上表与代码的已知偏差（务必注意）**：`ticket:write` 一行目前**未被服务端强制**。
-> `app/api/tickets/[id]/route.ts` 的 `PUT` / `DELETE` 没有任何会话或角色校验，
-> `GET /api/tickets`、`GET /api/summary`、`GET /api/devices/{id}/findings`、`GET /api/debug/sync`
-> 同样缺守卫；中间件只校验 Cookie 存在与过期、**不验签**，故伪造格式合法的 Cookie 即可读写。
-> 这是越权缺陷而非设计意图，修复随止血批次进行；修复完成前不要把上表当作实际权限边界对外声明。
+> **路由鉴权契约（强制，永久适用）**
+>
+> 1. **middleware 不验签**：它只校验 Cookie 的存在性、三段式结构与 expiry、以及会话吊销时间戳，作用是页面请求的重定向闸。签名校验（HMAC）**必须由每个路由自行完成**——`middleware.ts` 末尾对此有明示注释。
+> 2. 因此**每个非公开路由都必须调用会话验签闸**：`requireSession` / `requireAdmin` / `requireAuditor` / `requireDeviceWriter`，或直接 `getSession` / `parseSession` 并对 `null` 显式拒绝。
+> 3. **调了 `getSession` 不等于设了闸**：若 handler 取了 session 却没有 `null` 拒绝分支，伪造但格式合法的 Cookie 仍会放行。这是本项目实际踩过的形态，已作为**阳性对照**写进测试 docstring。
+> 4. 上述约束由 `tests/test_aegis.py` 的源级断言强制，新增路由不补门禁会直接测试失败：
+>    - `test_session_and_admin_api_routes_verify_signature`——遍历 `lib/openapi.ts` 契约表，断言每个 `access != public` 的路由源码含验签闸（等价写法集合见该文件的 `AUTH_GATES` 常量）。豁免仅限恒返回 501 的预留桩（`INERT_STUB_EXEMPTIONS`），且该豁免由 `test_reserved_stubs_stay_inert_501` **反向锁定**：一旦有人把桩点亮成真实实现，该测试立即失败并强制补门禁，防止豁免清单退化成永久后门。
+>    - `test_getsession_callers_all_have_a_rejection_branch`——handler 级断言，覆盖上述第 3 点。
+>    - `test_p0_3_five_endpoints_gate_levels`、`test_ticket_mutation_actor_is_session_attributable`——逐端点门禁档位，以及工单变更的 actor 必须取自运行时会话（不可由请求体自报）。
+> 5. 行为级证据由 `e2e/rbac.spec.ts` 与人工 curl 承担；源级断言只保证"门禁调用存在"，不保证"门禁逻辑正确"。
+>
+> 历史上曾因 e2e 的伪造 Cookie 用例只覆盖 `POST /api/tickets` 与审计读取、未覆盖单工单 `PUT`/`DELETE` 与若干只读端点，使缺守卫的路由长期未被发现；修复见提交 `db9dfd3`（`fix(api): close session-verification gap on six routes and fix triage correctness`，含 actor 归因）与 `abe574a`（`fix(api): gate GET /api/devices and add a handler-level gate assertion`）。**本节保留为契约与教训，不作为当前缺陷清单。**
 
 ### 2.3 风险
-- 门禁迁移面广（逐路由），漏改=越权；需 rbac e2e 全矩阵覆盖后才可上线。
-  **已发生的实例**：见 §2.2 末尾的偏差说明——e2e 的伪造 Cookie 用例只覆盖了 `POST /api/tickets` 与审计读取，
-  未覆盖单工单的 `PUT`/`DELETE` 与其余只读端点，故缺守卫长期未被发现。
-  建议补一条奇偶校验单测：遍历 `lib/openapi.ts` 契约表，断言每个 `access != public` 的路由源码含会话/角色门禁调用。
+- 门禁迁移面广（逐路由），漏改=越权。此项风险已由 §2.2 的契约与源级断言承接：新增路由若未补验签闸，`test_session_and_admin_api_routes_verify_signature` 会失败（豁免仅限被 `test_reserved_stubs_stay_inert_501` 反向锁定的惰性 501 桩）。
+- **源级断言的局限**：它只保证"门禁调用存在于源码中"，不保证门禁逻辑正确或覆盖全部方法。行为级验证仍依赖 `e2e/rbac.spec.ts` 全矩阵与人工 curl，两者不可互相替代。
 - developer 数据范围过滤若漏=横向越权；必须服务端强制+测试。
 
 ---
