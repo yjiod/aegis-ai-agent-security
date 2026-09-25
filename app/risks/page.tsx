@@ -264,6 +264,22 @@ function buildResponsePlaybook(ticket: Ticket): PlaybookStep[] {
   return steps;
 }
 
+/** 按资产类型聚合可处置资产（skill / mcp / path），供汇总工单逐项处置入口。 */
+function aggregateRemediable(findings: Array<Record<string, unknown>>): Array<{ asset_type: 'skill' | 'mcp' | 'path'; keys: string[]; kinds: string[] }> {
+  const byType = new Map<'skill' | 'mcp' | 'path', { keys: Set<string>; kinds: Set<string> }>();
+  for (const f of findings) {
+    const a = findingAsset(f as never);
+    if (!a) continue;
+    const slot = byType.get(a.asset_type) ?? { keys: new Set<string>(), kinds: new Set<string>() };
+    slot.keys.add(a.asset_key);
+    if (typeof f.kind === 'string') slot.kinds.add(f.kind);
+    byType.set(a.asset_type, slot);
+  }
+  return [...byType.entries()]
+    .map(([asset_type, v]) => ({ asset_type, keys: [...v.keys].sort(), kinds: [...v.kinds].sort() }))
+    .sort((a, b) => b.keys.length - a.keys.length);
+}
+
 interface DeviceIdent {
   serial: string;
   os_user: string;
@@ -310,6 +326,9 @@ export default function RisksPage() {
     disposition?: string;
     kind?: string;
     findingsTotal?: number;
+    /** 按资产类型聚合的可处置资产清单（用户要求：汇总工单也要有具体的处置方式——
+     *  哪个 skill、哪个 mcp、哪个代码路径，逐项直达处置）。 */
+    perCategory?: Array<{ asset_type: 'skill' | 'mcp' | 'path'; keys: string[]; kinds: string[] }>;
     state: 'loading' | 'ready' | 'error';
   } | null>(null);
   useEffect(() => {
@@ -339,7 +358,7 @@ export default function RisksPage() {
           ? (findingAsset(match as never) ?? { asset_type: 'path' as const, asset_key: String(match.path ?? '') })
           : null;
         if (!asset) {
-          if (alive) setLoopInfo({ state: 'ready', kind: String(match?.kind ?? ''), findingsTotal: findings.length });
+          if (alive) setLoopInfo({ state: 'ready', kind: String(match?.kind ?? ''), findingsTotal: findings.length, perCategory: aggregateRemediable(findings) });
           return;
         }
         const lr = await fetch('/api/labels', { cache: 'no-store' });
@@ -354,6 +373,7 @@ export default function RisksPage() {
             disposition: lab?.disposition,
             kind: String(match?.kind ?? ''),
             findingsTotal: findings.length,
+            perCategory: aggregateRemediable(findings),
           });
       } catch {
         if (alive) setLoopInfo({ state: 'error' });
@@ -1466,7 +1486,11 @@ export default function RisksPage() {
                           : loopInfo?.asset_key
                             ? `${loopInfo.asset_type}:${loopInfo.asset_key}`
                             : drawerTicket.source === 'aegis-collector.auto'
-                              ? `设备级汇总工单：关联该设备全部 ${loopInfo?.findingsTotal ?? '?'} 个发现，未锁定单一资产（点「查看发现」看明细）`
+                              ? <>设备级汇总工单：关联该设备全部 {loopInfo?.findingsTotal ?? '?'} 个发现，未锁定单一资产（
+                                <Link href={`/devices?focus=${encodeURIComponent(drawerTicket.device_id)}`} style={{ color: 'var(--ring)', textDecoration: 'none', borderBottom: '1px dashed currentColor' }}>
+                                  点此查看该设备发现明细
+                                </Link>
+                                ，或按下方资产分类逐项处置）</>
                               : '未匹配到发现'}
                       </span>
                       <span>当前处置</span>
@@ -1497,6 +1521,38 @@ export default function RisksPage() {
                         </>
                       )}
                     </div>
+                  ),
+                },
+                {
+                  // 资产处置入口（2026-09-25 用户要求："哪个 skill、哪个 mcp、哪个代码
+                  // 都应该有相应的处置"）：按发现分类聚合，每类一卡，逐项直达处置中心。
+                  label: '资产处置入口',
+                  content: loopInfo?.perCategory && loopInfo.perCategory.length > 0 ? (
+                    <div className="device-ident">
+                      {loopInfo.perCategory.map((cat) => (
+                        <div key={cat.asset_type} className="device-ident-row">
+                          <span className="device-ident-label">
+                            {cat.asset_type === 'skill' ? 'Skill' : cat.asset_type === 'mcp' ? 'MCP' : '代码路径'} · {cat.keys.length} 项可处置（规则：{cat.kinds.slice(0, 4).join('、')}{cat.kinds.length > 4 ? ' 等' : ''}）
+                          </span>
+                          <span className="device-ident-value" style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {cat.keys.slice(0, 30).map((k) => (
+                              <span key={k} style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                                <span style={{ wordBreak: 'break-all' }}>{k.length > 80 ? k.slice(0, 78) + '…' : k}</span>
+                                <Link
+                                  href={`/dispositions?type=${cat.asset_type}&asset=${encodeURIComponent(k)}`}
+                                  style={{ color: 'var(--ring)', textDecoration: 'none', borderBottom: '1px dashed currentColor', fontSize: 11, flexShrink: 0 }}
+                                >
+                                  去处置 →
+                                </Link>
+                              </span>
+                            ))}
+                            {cat.keys.length > 30 && <span>…另有 {cat.keys.length - 30} 项，点上方「查看该设备发现明细」</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: 0 }}>该工单无可处置资产（发现均无资产归属）。</p>
                   ),
                 },
                 {
