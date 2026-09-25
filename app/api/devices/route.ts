@@ -61,7 +61,7 @@ interface CollectorDevice {
  *
  * 修复前本文件内另有一份同名的本地抓取实现：单页硬编码 200 台上限、无游标续页，
  * 并且忽略调用方传入的 limit —— 舰队超过 200 台时 /api/devices 会**静默只返回前
- * 200 台**（总览页按 ?limit=2000 调它也一样被内部 200 覆盖），设备清单与 total
+ * 200 台**（总览页请求 2000 条时也一样被内部那个 200 覆盖），设备清单与 total
  * 双双失真。删除本地实现、统一走游标全量版本，消除双实现漂移。
  */
 async function fetchFleetDevices(): Promise<CollectorDevice[] | null> {

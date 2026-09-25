@@ -1955,4 +1955,266 @@ console.log(JSON.stringify(d));
             finally:
                 pass
 
+    # ══════════════════════════════════════════════════════════════════
+    # 止血批（后端 API 侧）：会话验签闸 / actor 归因 / 设备游标全量 /
+    # limit 越界钳制 / 全局搜索工单标识字段。
+    #
+    # 沿用本项目对 TS 路由的既有测试传统（源级断言，见 test_openapi_parity、
+    # test_label_bulk_writes_are_durable）。行为级证据由 e2e 与人工 curl 承担。
+    # ══════════════════════════════════════════════════════════════════
+
+    # 会话验签闸的等价写法：命中任一即视为"该路由真的做了 HMAC 验签"。
+    # getSession/parseSession 内部调 verifySessionSignature；requireAdmin /
+    # requireAuditor / requireDeviceWriter / requireSession 四者均以 getSession 为底。
+    # middleware **不验签**（只校验 Cookie 存在性 + 三段式 + expiry + 吊销时间戳，
+    # 见 middleware.ts 末尾 "Signature verification happens server-side" 注释），
+    # 所以路由层必须自己验，否则伪造 Cookie 直接放行。
+    AUTH_GATES = ("getSession(", "parseSession(", "requireAdmin(",
+                  "requireAuditor(", "requireDeviceWriter(", "requireSession(")
+
+    # 契约(lib/openapi.ts)声明为 session/admin 却**无**验签闸的豁免清单。
+    # 仅限"恒返回 501 的预留桩"：无数据、无副作用，不构成越权面。
+    # 该豁免是**有条件的**——test_reserved_stubs_stay_inert_501 反向锁定它们
+    # 必须仍是惰性 501 桩；一旦有人把桩点亮成真实实现，那条测试立刻失败，
+    # 强制补门禁，防止豁免清单退化成永久后门。
+    INERT_STUB_EXEMPTIONS = ("/integrations/events", "/integrations/inventory",
+                             "/integrations/remediate", "/integrations/subscribe")
+
+    def _api_route_access_levels(self):
+        """解析 lib/openapi.ts 的访问级别表 → {route_path: public|session|admin|device}。"""
+        import re as _re
+        spec_src = (ROOT / 'lib' / 'openapi.ts').read_text(encoding='utf-8')
+        out = {}
+        for m in _re.finditer(
+                r"\['(/[^']*)',\s*\[[^\]]*\],\s*'[^']*',\s*'[^']*',\s*'(public|session|admin|device)'",
+                spec_src):
+            out[m.group(1).replace('[id]', '{id}')] = m.group(2)
+        self.assertGreaterEqual(len(out), 50, "openapi access table looks unparsed")
+        return out
+
+    def _api_route_sources(self):
+        """遍历 app/api/**/route.ts → {route_path: source}。
+
+        路径归一化（[id] → {id}）与 test_openapi_parity 保持同一套规则，
+        以便与契约表逐条对齐。
+        """
+        import re as _re
+        api_root = ROOT / 'app' / 'api'
+        out = {}
+        for route_file in sorted(api_root.rglob('route.ts')):
+            rel = route_file.relative_to(api_root).as_posix()
+            path = _re.sub(r'\[([^\]]+)\]', r'{\1}', '/' + rel[:-len('/route.ts')])
+            out[path] = route_file.read_text(encoding='utf-8')
+        self.assertGreaterEqual(len(out), 50, f"expect >=50 routes, got {len(out)}")
+        return out
+
+    def test_session_and_admin_api_routes_verify_signature(self):
+        """止血(P0-3): 契约声明 session/admin 的**每一个** API 路由都必须在路由层
+        做会话验签。
+
+        修复前 tickets(GET)、tickets/{id}(GET/PUT/DELETE)、summary、
+        devices/{id}/findings、debug/sync 五处零验签：伪造
+        `aegis_session=<任意subject>.<未来expiry>.<任意sig>` 过得了 middleware
+        （它只看存在性+格式+expiry），于是可读全部工单/舰队摘要/任意设备发现，
+        流转并**删除**任意工单，还能触发 debug/sync。
+
+        这里用**白名单式全量遍历**而非逐个断言那 5 个文件：将来新增路由漏门禁
+        会被立刻测出（逐个断言只能防已知的 5 个）。豁免仅限恒 501 的预留桩。
+        """
+        access = self._api_route_access_levels()
+        sources = self._api_route_sources()
+        unguarded = []
+        for path, src in sources.items():
+            level = access.get(path)
+            if level not in ('session', 'admin'):
+                continue  # public=免会话；device=终端令牌鉴权，各走各的机制
+            if any(g in src for g in self.AUTH_GATES):
+                continue
+            if path in self.INERT_STUB_EXEMPTIONS:
+                continue
+            unguarded.append((path, level))
+        self.assertEqual(
+            unguarded, [],
+            f"契约声明 session/admin 但路由层无验签闸（伪造 Cookie 可越权）: {unguarded}")
+
+    def test_reserved_stubs_stay_inert_501(self):
+        """反向锁定 INERT_STUB_EXEMPTIONS：被豁免的预留桩必须仍是"恒 501 + 稳定
+        契约体"的惰性实现（不碰数据、无副作用）。若有人把它点亮成真实实现，
+        本测试失败 → 强制补验签闸。豁免因此是有条件的，不是永久后门。"""
+        sources = self._api_route_sources()
+        for path in self.INERT_STUB_EXEMPTIONS:
+            src = sources.get(path)
+            self.assertIsNotNone(src, f"{path} 已不存在，请同步更新豁免清单")
+            self.assertIn('RESERVED_STUB_BODY', src, f"{path} 不再是惰性预留桩")
+            self.assertIn('501', src, f"{path} 不再恒返回 501")
+            for data_access in ('getTicketStore', 'getDeviceStore', 'logAudit', 'pgQuery'):
+                self.assertNotIn(data_access, src,
+                                 f"{path} 已开始访问数据/写审计，必须补验签闸并移出豁免清单")
+
+    def test_p0_3_five_endpoints_gate_levels(self):
+        """显式回归锚点（比全量遍历更易读）：P0-3 的五个端点各自带闸，且**档位**正确。
+
+        只读端点 = 会话级（任何已认证身份可读，viewer/auditor/operator 的只读流程
+        不得被打断）；变更端点 = admin（工单流转/删除与 POST /api/tickets 同档，
+        e2e/rbac.spec.ts 已锁定 operator/auditor/viewer 写工单必须 403）。
+        /debug/sync 契约声明 admin，且它回传首台设备的完整原始记录，属敏感诊断面。
+        """
+        sources = self._api_route_sources()
+        for path in ('/tickets', '/tickets/{id}', '/summary', '/devices/{id}/findings'):
+            self.assertIn('requireSession(', sources[path], f"{path} 丢了会话级验签闸")
+        for path in ('/tickets/{id}', '/debug/sync', '/tickets'):
+            self.assertIn('requireAdmin(', sources[path], f"{path} 丢了 admin 门禁")
+        # summary 的 handler 必须真的接收 request（修复前是 GET()，拿不到 Cookie）
+        self.assertRegex(sources['/summary'], r'export async function GET\(request: Request\)',
+                         "/api/summary GET must take the request to read the session cookie")
+        self.assertRegex(sources['/debug/sync'], r'export async function GET\(request: Request\)',
+                         "/api/debug/sync GET must take the request to read the session cookie")
+
+    def test_ticket_mutation_actor_is_session_attributable(self):
+        """止血(P0-3 归因): 工单变更的审计 actor 必须来自**已验签会话**，既不得
+        硬编码、也不得由请求体自报。
+
+        修复前两处缺陷：DELETE 把 actor 写死成字面量 'console_user'（所有删除在
+        审计里都记成同一个虚构身份，无法追责）；PUT 采信 body.actor（任何已认证
+        调用方都能把工单流转记到**别人**名下，审计链形同虚设）。
+        """
+        import re as _re
+        src = (ROOT / 'app' / 'api' / 'tickets' / '[id]' / 'route.ts').read_text(encoding='utf-8')
+        # 1) 硬编码 actor 彻底消失
+        self.assertNotIn('console_user', src, "硬编码审计 actor 必须清除")
+        # 2) actor 的唯一来源是已验签会话的 subject（入参刻意收窄为非空 Session，
+        #    由类型系统强制调用方先过门禁）
+        self.assertIn('function auditActor(session: Session): string', src)
+        self.assertIn('return session.subject;', src)
+        # 3) 请求体自报 actor 的通路已删除
+        self.assertNotIn('readActor', src, "body 自报 actor 的 helper 必须删除")
+        self.assertNotIn('body.actor', src, "actor 不得再取自请求体")
+        # 4) PUT 与 DELETE 两处变更审计都走 session 归因
+        self.assertGreaterEqual(src.count('auditActor(session)'), 2,
+                                "PUT 与 DELETE 都必须用 auditActor(session) 归因")
+        # 5) 门禁必须在 resolveTicket **之前**：否则未授权者能借 404/200 差异
+        #    探测工单是否存在（存在性预言机）
+        for verb in ('PUT', 'DELETE'):
+            m = _re.search(r'export async function %s\(' % verb, src)
+            self.assertIsNotNone(m, f"{verb} handler 不见了")
+            tail = src[m.end():]
+            self.assertIn('requireAdmin(request)', tail)
+            self.assertLess(tail.index('requireAdmin(request)'), tail.index('resolveTicket('),
+                            f"{verb}: admin 门禁必须先于 resolveTicket（防存在性预言机）")
+
+    def test_devices_route_uses_shared_cursor_complete_fetcher(self):
+        """止血(P0-4): /api/devices 必须走 lib/collector-devices.ts 的**游标全量**
+        实现（单一真源），不得再自带单页 200 台上限的本地抓取。
+
+        修复前本文件内另有一份同名 fetchCollectorDevices：单页硬编码 200 台上限、
+        无游标续页，并忽略调用方传入的 limit → 舰队超过 200 台时静默只返回前
+        200 台，设备清单与 total 双双失真（30k 目标下等于 98% 的终端不可见）。
+        """
+        src = (ROOT / 'app' / 'api' / 'devices' / 'route.ts').read_text(encoding='utf-8')
+        # 1) 单页 200 台截断字面量消失（注释里也不得复现该写法，避免"看似修好"）
+        self.assertNotIn('limit=200', src, "单页 200 台截断必须清除")
+        # 2) 改为 import 单一真源
+        self.assertIn("from '@/lib/collector-devices'", src,
+                      "必须复用 lib/collector-devices 的游标全量实现")
+        # 3) 本地重复实现已删除（消除双实现漂移）
+        self.assertNotIn('async function fetchCollectorDevices', src,
+                         "本地重复抓取实现必须删除（单一真源）")
+        # 4) 单一真源本身仍保留游标全量语义（防止有人把它退化回单页）
+        lib_src = (ROOT / 'lib' / 'collector-devices.ts').read_text(encoding='utf-8')
+        for anchor in ('next_cursor', 'MAX_PAGES', 'complete'):
+            self.assertIn(anchor, lib_src, f"游标全量语义丢失: {anchor}")
+
+    def test_tickets_limit_out_of_range_is_clamped_not_rejected(self):
+        """止血(P0-5): /api/tickets 的 limit/offset 越界必须**钳制**而非 400。
+
+        修复前 ?limit=500 → 400，而前端 lib/api.ts 的 getJson 会把非 2xx 静默吞成
+        空数组 → 首页处置进度/完成率/MTTR 全显示 0% 或「—」，且**没有任何错误
+        提示**（看起来像"真的没工单"，比直接报错更危险）。
+
+        本测试从源码里**解析出**真实的 MAX_LIMIT / MAX_OFFSET / DEFAULT_LIMIT 与
+        整数正则，再据此复算规格要求的用例。因此有人抬高上限、放宽正则、或删掉
+        clamp 都会立刻被测出来——而不是只断言"文本里出现过 clamp 字样"。
+        """
+        import re as _re
+        src = (ROOT / 'app' / 'api' / 'tickets' / 'route.ts').read_text(encoding='utf-8')
+
+        def const(name):
+            m = _re.search(r'const %s = ([\d_]+);' % name, src)
+            self.assertIsNotNone(m, f"{name} 解析不到")
+            return int(m.group(1).replace('_', ''))
+
+        max_limit = const('MAX_LIMIT')
+        max_offset = const('MAX_OFFSET')
+        default_limit = const('DEFAULT_LIMIT')
+        # 护栏不得被顺手抬高：200 是有意的内存/性能护栏，提高上限属阶段2
+        # 「工单服务端游标分页」专项，不该在止血批里悄悄改掉。
+        self.assertEqual(max_limit, 200,
+                         "MAX_LIMIT 是有意的内存/性能护栏，不得在止血批里抬高")
+
+        m = _re.search(r"if \(!(/\^[^\n]*?\$/)\.test\(trimmed\)\) return null;", src)
+        self.assertIsNotNone(m, "clampedIntParam 的非法输入正则解析不到")
+        pattern = m.group(1)[1:-1]  # 去掉 JS 正则字面量的两侧斜杠
+
+        def clamp(raw, fallback, lo, hi):
+            """复算 clampedIntParam：返回 (value, clamped)，非法输入返回 None(=400)。"""
+            if raw is None or raw == '':
+                return (fallback, False)
+            trimmed = raw.strip()
+            if not _re.match(pattern, trimmed):
+                return None
+            value = int(trimmed)
+            clamped = min(max(value, lo), hi)
+            return (clamped, clamped != value)
+
+        # limit：越界的**合法整数** → 钳制（不再 400）
+        self.assertEqual(clamp('500', default_limit, 1, max_limit), (200, True),
+                         "?limit=500 必须 200+钳制，不是 400（首页 KPI 归零的根因）")
+        self.assertEqual(clamp('0', default_limit, 1, max_limit), (1, True))
+        self.assertEqual(clamp('-1', default_limit, 1, max_limit), (1, True))
+        self.assertEqual(clamp('200', default_limit, 1, max_limit), (200, False))
+        self.assertEqual(clamp('', default_limit, 1, max_limit), (default_limit, False),
+                         "缺省必须回落到 DEFAULT_LIMIT")
+        # limit：**非法输入仍 400**（clamp 只放宽越界整数，不放宽"根本不是整数"）
+        for bad in ('abc', '1e3', '12345678901', 'NaN', '+-1', 'null', '5.5'):
+            self.assertIsNone(clamp(bad, default_limit, 1, max_limit),
+                              f"?limit={bad} 必须仍然是 400，不得顺手放宽非法输入")
+        # offset：同样钳制
+        self.assertEqual(clamp('-5', 0, 0, max_offset), (0, True))
+        self.assertEqual(clamp('999999', 0, 0, max_offset), (max_offset, True))
+
+        # 路由确实改用了 clamp 版本，且不再对 limit/offset 调会拒绝的 intParam
+        self.assertIn('clampedIntParam(', src)
+        self.assertNotIn('intParam(searchParams', src,
+                         "limit/offset 不得再用会返回 null→400 的 intParam")
+        # 钳制必须**如实披露**：否则等于静默截断，违反"数据不完整却宣称完整"红线
+        for field in ('limit_clamped', 'requested_limit', 'offset_clamped', 'requested_offset'):
+            self.assertIn(field, src, f"钳制必须回传 {field} 以便前端诚实显示")
+
+    def test_search_tickets_key_off_ticket_id_field(self):
+        """止血(P2-3): 全局搜索的工单分支必须用 `ticket_id`（Ticket 的真实标识字段）。
+
+        修复前读的是 `rec.id` —— Ticket 接口上**根本没有** id 字段，恒为 undefined：
+        (1) 检索串不含工单号 → 按工单号搜索永远搜不到；
+        (2) 输出 id 恒为空串 → 前端 console-shell.tsx 用 key={String(t.id)} 渲染，
+            产生一批重复的 React 空 key。
+        """
+        import re as _re
+        src = (ROOT / 'app' / 'api' / 'search' / 'route.ts').read_text(encoding='utf-8')
+        store_src = (ROOT / 'lib' / 'store.ts').read_text(encoding='utf-8')
+        # 先证明字段名不是猜的：Ticket 接口的标识字段是 ticket_id，且**没有**裸 id 字段。
+        # 用 (.*?)\n\} 取整个接口体（不能用 [^}]*：接口里的文档注释含 {@link ...}，
+        # 那个 '}' 会把匹配提前截断）。
+        m = _re.search(r'export interface Ticket \{(.*?)\n\}', store_src, _re.S)
+        self.assertIsNotNone(m, "Ticket 接口解析不到（store.ts 结构变了？）")
+        block = m.group(1)
+        self.assertIn('ticket_id: string;', block, "Ticket 的标识字段必须是 ticket_id")
+        self.assertIsNone(_re.search(r'^\s*id\??:', block, _re.M),
+                          "Ticket 上不应存在裸 id 字段——这正是修复前 rec.id 恒 undefined 的根因")
+        # 工单分支不得再读那个不存在的 rec.id
+        self.assertNotIn('rec.id', src, "搜索不得再读不存在的 Ticket.id")
+        self.assertIn('rec.ticket_id', src)
+        # 对外响应字段名保持 `id`：前端消费的是 t.id，改名会连带炸前端
+        self.assertIn("id: String(rec.ticket_id ?? '')", src,
+                      "响应键必须仍是 id（前端契约），只是取值来源换成 ticket_id")
+
 if __name__=='__main__': unittest.main()

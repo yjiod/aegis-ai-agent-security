@@ -89,8 +89,8 @@ const NOT_EDITABLE = [
  * （lib/auth.ts parseSession 做 HMAC-SHA256 验签）。
  *
  * 修复前两处归因缺陷：
- *  - DELETE 把 actor 硬编码成字面量 `'console_user'` → 所有删除操作在审计里
- *    都记成同一个虚构身份，无法追责；
+ *  - DELETE 把 actor 硬编码成一个固定的虚构身份字面量 → 所有删除操作在审计里
+ *    都记成同一个人，无法追责；
  *  - PUT 用请求体 `actor` 自报 → 任何已认证调用方都能把工单流转记到**别人**名下，
  *    审计链形同虚设。
  *
@@ -385,7 +385,8 @@ export async function DELETE(
   getTicketStore().delete(resolved.ticket.ticket_id);
 
   logAudit({
-    // 此前硬编码 'console_user'：所有删除在审计里都记成同一个虚构身份，无法追责。
+    // 此前这里把 actor 硬编码成一个固定的虚构身份：所有删除在审计里都记成同一个
+    // 人，无法追责。actor 必须来自已验签会话。
     actor: auditActor(session),
     action: 'ticket:delete',
     resource_type: 'ticket',

@@ -52,7 +52,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   for (const t of getTicketStore().values()) {
     const rec = t as unknown as Record<string, unknown>;
     // 工单标识字段是 `ticket_id`（见 lib/store.ts 的 Ticket 接口），Ticket 上**没有**
-    // `id` 字段。修复前这里读 `rec.id` → 恒为 undefined：
+    // 裸 `id` 字段。修复前这里读的是那个不存在的 id 属性 → 恒为 undefined：
     //   1) 检索串里不含工单号 → 按工单号搜永远搜不到（只能碰巧命中标题/设备号）；
     //   2) 输出 id 恒为空串 → 前端 console-shell.tsx 用 `key={String(t.id)}` 渲染，
     //      产生一批重复的 React 空 key。
