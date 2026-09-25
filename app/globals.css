@@ -136,12 +136,13 @@
 [data-theme="light"] .brandmark { background: #1a9d6e; color: #fff; box-shadow: none; }
 [data-theme="light"] .sidebar { background: rgba(240,245,243,0.6); border-right-color: #d4e5df; }
 [data-theme="light"] .nav-item { color: #4a6d62; }
-/* 审计 #37：下一行的 .nav-item.active 已是青蓝（批1 的 #2 成果），而 hover 仍是
+/* 审计 #37：下一行的 .nav-item.active 已是青蓝（批1 的 #2 成果），而 hover 曾是
    硬编码绿——同一导航组件内"悬停=绿、选中=青蓝"，交互主色自相矛盾。
    改为青蓝微染 + 2px 能量条，与 .active 及本轮 .data-row:hover / .risk-row:hover
    的写法一致。
-   注：暗色侧 .nav-item:hover 仍是绿色渐变 + #49e8a5 族能量条，属本轮范围外的
-   遗留（见实施报告的暗色层发现项），修完后两主题即可对齐。 */
+   暗色侧已在 §9.2 一并收敛（见下方基类 .nav-item:hover 与其上方被删除的
+   remap 覆盖规则），两主题现已同源同语言——此处原先"暗色侧属本轮范围外遗留"
+   的说明已过期，故更新。 */
 [data-theme="light"] .nav-item:hover { background: color-mix(in srgb, var(--ring) 6%, transparent); color: #1a3d30; box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ring) 35%, transparent); }
 [data-theme="light"] .nav-item.active { background: var(--sentinel-surface-3); color: var(--sentinel-cyan); border-color: transparent; box-shadow: inset 2px 0 0 var(--sentinel-cyan); }
 /* 审计 #37：卡片底改平整实底（禁渐变填充），与暗色层 #5 的修法一致 */
@@ -212,14 +213,20 @@
    只把颜色换成 --ring 的 color-mix，不再各写一份绿字面值。
    注：暗色侧同两条规则仍是 rgba(73,232,165,*)（=#49e8a5 旧绿族）——那属批4
    已签收范围之外的遗留，本轮不动，已作为发现项记入实施报告提请 lead 裁定。 */
+/* 审计 §9.2：暗色侧同两条规则本轮已一并收敛（见下方 .icon-btn:hover /
+   .avatar:hover 的基类），故此处删掉带颜色的 `0 0 0 3px` hover 环以对齐两主题。
+   判据是"焦点环 vs 悬停光晕"：焦点环是无障碍必需（全局 :focus-visible 与
+   .form-input:focus 的 `0 0 0 2px color-mix(var(--ring) …)` 均保留，审计 #37 亦
+   明确要求保留），而 hover 上的彩色环属装饰性发光 → 删。
+   中性结构阴影 `0 4px 14px rgba(0,0,0,.08)` 保留（承担抬升，不涉色相）。 */
 [data-theme="light"] .icon-btn:hover {
   border-color: color-mix(in srgb, var(--ring) 45%, transparent);
   color: #0d1f1a;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 10%, transparent), 0 4px 14px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 [data-theme="light"] .avatar:hover {
   border-color: color-mix(in srgb, var(--ring) 45%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 10%, transparent);
+  box-shadow: none;
 }
 
 /* Selection: dark ink on pale green (base is near-white ink on pale green). */
@@ -658,10 +665,17 @@ button {
   place-items: center;
 }
 
+/* 审计 §9.2：hover 是交互态 → 青蓝（--ring），不再是旧绿 #49e8a5 族。
+   box-shadow 只保留纯结构阴影 `0 4px 14px rgba(0,0,0,.35)`（中性、承担抬升），
+   删掉带颜色的 `0 0 0 3px` 分量——它是"元素周围一圈彩色光"，属禁 glow。
+   键盘焦点可见性不受影响：另有全局 :focus-visible（:519）与 .nav-item/.module/.handle
+   的专用 :focus-visible（:525-527），hover 环从来不是焦点指示器。
+   hover 反馈仍由 border-color 变化 + transform 位移 + 中性抬升三者承担。
+   偏绿的近白前景 #dff7ee 一并改 var(--foreground)（去绿调）。 */
 .icon-btn:hover {
-  border-color: rgba(73, 232, 165, 0.35);
-  color: #dff7ee;
-  box-shadow: 0 0 0 3px rgba(73, 232, 165, 0.08), 0 4px 14px rgba(0, 0, 0, 0.35);
+  border-color: color-mix(in srgb, var(--ring) 35%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   transform: translateY(-1px);
 }
 
@@ -673,9 +687,12 @@ button {
   font-weight: 700;
 }
 
+/* 审计 §9.2：同 .icon-btn:hover —— 描边改青蓝 token，删掉唯一的彩色光环分量。
+   本元素没有中性结构阴影可保留，故 box-shadow 直接置 none（禁 glow）。
+   hover 反馈由 border-color 变化承担。 */
 .avatar:hover {
-  border-color: rgba(73, 232, 165, 0.35);
-  box-shadow: 0 0 0 3px rgba(73, 232, 165, 0.08);
+  border-color: color-mix(in srgb, var(--ring) 35%, transparent);
+  box-shadow: none;
 }
 
 /* ---------- 5. Shell layout ------------------------------- */
@@ -733,10 +750,15 @@ button {
     transform var(--dur) var(--ease-out);
 }
 
+/* 审计 §9.2：暗色侧导航 hover 收敛到与 .nav-item.active（批1 #2）及亮色侧
+   （批12 #37）同族的青蓝。改前三处问题叠在一起：绿色渐变填充（违反禁渐变）、
+   inset 3px 绿能量条（旧绿 #49e8a5 族）、以及偏绿的近白前景 #dff7ee。
+   能量条宽度同时由 3px 收到 2px，与 .active 及 .data-row:hover/.risk-row:hover
+   的既有语言一致。transform 位移保留（那是动效，不涉色彩）。 */
 .nav-item:hover {
-  background: linear-gradient(90deg, rgba(21, 60, 48, 0.55), rgba(14, 34, 28, 0.4));
-  color: #dff7ee;
-  box-shadow: inset 3px 0 0 rgba(73, 232, 165, 0.35);
+  background: color-mix(in srgb, var(--ring) 6%, transparent);
+  color: var(--foreground);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ring) 35%, transparent);
   transform: translateX(2px);
 }
 
@@ -1863,10 +1885,13 @@ button {
   background: none;
   box-shadow: none;
 }
-:root:not([data-theme='light']) .nav-item:hover {
-  background: #141c27;
-  color: var(--foreground);
-}
+/* 审计 §9.2：此处原有 `:root:not([data-theme='light']) .nav-item:hover
+   { background: #141c27; color: var(--foreground); }`，已删除。
+   它是暗色主题下 hover 背景的**实际生效者**（选择器特异性 0,2,1 高于基类 0,1,1，
+   且声明在后），所以只改基类是不够的——基类的 background/color 会被它整条盖掉，
+   只有 box-shadow 会漏下来。这正是审计 #28 记录的"CSS 三层同特异性互相覆盖"陷阱。
+   删除后基类（已改为 var(--ring) 6% 微染 + var(--foreground) + inset 2px 青蓝条）
+   在暗色下直接生效，顺带去掉一个硬编码石板色，且与亮色侧同源同值。 */
 
 :root:not([data-theme='light']) .panel,
 :root:not([data-theme='light']) .metric {
