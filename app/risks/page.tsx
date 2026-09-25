@@ -309,6 +309,7 @@ export default function RisksPage() {
     asset_key?: string;
     disposition?: string;
     kind?: string;
+    findingsTotal?: number;
     state: 'loading' | 'ready' | 'error';
   } | null>(null);
   useEffect(() => {
@@ -338,7 +339,7 @@ export default function RisksPage() {
           ? (findingAsset(match as never) ?? { asset_type: 'path' as const, asset_key: String(match.path ?? '') })
           : null;
         if (!asset) {
-          if (alive) setLoopInfo({ state: 'ready', kind: String(match?.kind ?? '') });
+          if (alive) setLoopInfo({ state: 'ready', kind: String(match?.kind ?? ''), findingsTotal: findings.length });
           return;
         }
         const lr = await fetch('/api/labels', { cache: 'no-store' });
@@ -352,6 +353,7 @@ export default function RisksPage() {
             asset_key: asset.asset_key,
             disposition: lab?.disposition,
             kind: String(match?.kind ?? ''),
+            findingsTotal: findings.length,
           });
       } catch {
         if (alive) setLoopInfo({ state: 'error' });
@@ -1464,7 +1466,7 @@ export default function RisksPage() {
                           : loopInfo?.asset_key
                             ? `${loopInfo.asset_type}:${loopInfo.asset_key}`
                             : drawerTicket.source === 'aegis-collector.auto'
-                              ? '设备级汇总工单：关联该设备全部 N 个发现，未锁定单一资产（点「查看发现」看明细）'
+                              ? `设备级汇总工单：关联该设备全部 ${loopInfo?.findingsTotal ?? '?'} 个发现，未锁定单一资产（点「查看发现」看明细）`
                               : '未匹配到发现'}
                       </span>
                       <span>当前处置</span>
