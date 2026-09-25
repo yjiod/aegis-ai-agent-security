@@ -471,7 +471,7 @@ export default function DispositionsPage() {
       <RiskSignalHelp />
 
       {error && (
-        <p style={{ color: '#ff685f', marginBottom: 12, fontSize: 13 }}>操作失败：{error}</p>
+        <p style={{ color: 'var(--sentinel-danger)', marginBottom: 12, fontSize: 13 }}>操作失败：{error}</p>
       )}
 
       {/* add asset */}
@@ -807,7 +807,7 @@ export default function DispositionsPage() {
         )}
 
         {publishMsg && (
-          <p style={{ fontSize: 12, marginBottom: 10, color: publishMsg.startsWith('发布失败') ? '#ff685f' : '#49e8a5' }}>
+          <p style={{ fontSize: 12, marginBottom: 10, color: publishMsg.startsWith('发布失败') ? 'var(--sentinel-danger)' : 'var(--sentinel-accent)' }}>
             {publishMsg}
           </p>
         )}

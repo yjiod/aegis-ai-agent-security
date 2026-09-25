@@ -672,11 +672,11 @@ export default function DevicesPage() {
               padding: '14px 16px',
               borderRadius: 11,
               background: 'var(--card)',
-              border: '1px solid color-mix(in srgb, #e8b449 40%, var(--border))',
-              borderLeft: '3px solid #e8b449',
+              border: '1px solid color-mix(in srgb, var(--sentinel-warning) 40%, var(--border))',
+              borderLeft: '3px solid var(--sentinel-warning)',
             }}
           >
-            <AlertTriangle size={18} style={{ color: '#e8b449', flexShrink: 0, marginTop: 1 }} />
+            <AlertTriangle size={18} style={{ color: 'var(--sentinel-warning)', flexShrink: 0, marginTop: 1 }} />
             <div style={{ minWidth: 0 }}>
               <strong style={{ display: 'block', marginBottom: 4 }}>舰队健康告警</strong>
               <p style={{ margin: 0, color: 'var(--muted-foreground)', fontSize: 13, lineHeight: 1.6 }}>
@@ -898,9 +898,9 @@ export default function DevicesPage() {
                             padding: '0 5px',
                             borderRadius: 5,
                             fontSize: 10,
-                            color: '#e8b449',
-                            background: 'color-mix(in srgb, #e8b449 14%, transparent)',
-                            border: '1px solid color-mix(in srgb, #e8b449 40%, transparent)',
+                            color: 'var(--sentinel-warning)',
+                            background: 'color-mix(in srgb, var(--sentinel-warning) 14%, transparent)',
+                            border: '1px solid color-mix(in srgb, var(--sentinel-warning) 40%, transparent)',
                           }}
                         >
                           漂移

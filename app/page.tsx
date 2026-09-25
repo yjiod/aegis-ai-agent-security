@@ -627,7 +627,7 @@ export default function Home() {
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Area type="linear" dataKey="reports" name="上报数" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.12} strokeWidth={2} />
                   <Line type="linear" dataKey="critical" name="严重" stroke="var(--destructive)" strokeWidth={2} dot={false} />
-                  <Line type="linear" dataKey="high" name="高危" stroke="#e8a33d" strokeWidth={2} dot={false} />
+                  <Line type="linear" dataKey="high" name="高危" stroke="var(--sentinel-warning)" strokeWidth={2} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -642,7 +642,7 @@ export default function Home() {
               </div>
               <div>
                 <div style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>高危（24h）</div>
-                <strong style={{ fontSize: 22, color: '#e8a33d' }}>{high24}</strong>
+                <strong style={{ fontSize: 22, color: 'var(--sentinel-warning)' }}>{high24}</strong>
               </div>
               {/* 计数层(stage-1)：舰队累计发现总数，读 summary.finding_totals（O(设备数)，零 body 解析） */}
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }}>
@@ -650,7 +650,7 @@ export default function Home() {
                 <strong style={{ fontSize: 18, fontVariantNumeric: 'tabular-nums' }}>
                   <span style={{ color: 'var(--destructive)' }}>{fleet?.finding_totals?.critical ?? 0}</span>
                   {' / '}
-                  <span style={{ color: '#e8a33d' }}>{fleet?.finding_totals?.high ?? 0}</span>
+                  <span style={{ color: 'var(--sentinel-warning)' }}>{fleet?.finding_totals?.high ?? 0}</span>
                 </strong>
               </div>
             </div>
@@ -1068,7 +1068,7 @@ export default function Home() {
                 <b>{posture?.both_mismatch ?? 0}</b>
               </p>
               <p>
-                <span className="score-dot" style={{ background: '#8a9a94' }} />
+                <span className="score-dot" style={{ background: 'var(--sentinel-text-3)' }} />
                 <span>未知</span>
                 <b>{posture?.unknown ?? 0}</b>
               </p>

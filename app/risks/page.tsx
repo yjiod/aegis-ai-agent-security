@@ -1097,7 +1097,7 @@ export default function RisksPage() {
             <Button
               size="sm"
               variant="outline"
-              style={{ color: 'var(--sentinel-danger)', borderColor: 'rgba(240,82,93,.5)' }}
+              style={{ color: 'var(--sentinel-danger)', borderColor: 'color-mix(in srgb, var(--sentinel-danger) 50%, transparent)' }}
               onClick={() => void batchLabel('deny')}
             >
               批量封禁（需确认）

@@ -28,7 +28,7 @@ export default function CatalogLayout({
           <ArrowLeft size={13} />
           返回控制台
         </Link>
-        <span className="text-[11px] text-[#5e7c73]">
+        <span className="text-[11px] text-[var(--sentinel-text-3)]">
           /catalog · 仅开发环境使用
         </span>
       </div>

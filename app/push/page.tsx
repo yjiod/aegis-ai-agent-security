@@ -190,7 +190,7 @@ export default function PushPage() {
 
       {error ? (
         <div className="panel" style={{ padding: 16 }}>
-          <p style={{ color: '#ff685f' }}>读取推送清单失败：{error}</p>
+          <p style={{ color: 'var(--sentinel-danger)' }}>读取推送清单失败：{error}</p>
         </div>
       ) : !index ? (
         <div className="panel" style={{ padding: 16 }}><p>加载推送清单…</p></div>

@@ -135,8 +135,8 @@ export default function BaselinesPage() {
         </div>
       </div>
 
-      {error && <p style={{ color: '#ff685f', marginBottom: 10, fontSize: 13 }}>{error}</p>}
-      {notice && <p style={{ color: '#49e8a5', marginBottom: 10, fontSize: 13 }}>{notice}</p>}
+      {error && <p style={{ color: 'var(--sentinel-danger)', marginBottom: 10, fontSize: 13 }}>{error}</p>}
+      {notice && <p style={{ color: 'var(--sentinel-accent)', marginBottom: 10, fontSize: 13 }}>{notice}</p>}
 
       {/* scan mode */}
       <div className="panel animate-entrance animate-entrance-2" style={{ padding: 14, marginBottom: 14 }}>

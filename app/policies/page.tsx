@@ -8,10 +8,23 @@ import { useRole } from '@/components/role-context';
 import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
 import { MODULE_LABELS, MODULE_HINTS, type ModuleKey } from '@/lib/modules';
 
+// TODO(#38): 改为 import lib/modules 的 MODULE_DEFAULTS 单一真源，本副本已知易漂移。
+// 截至本次修复，lib/modules.ts 尚未导出 MODULE_DEFAULTS / effectiveModules（后端所有权，
+// 已实测确认），故先做临时对齐：把 code_scan 从 true 改为 false。
+//
+// 审计 #38（P0，数据完整性）：此副本原为 code_scan: true，而两个权威源都是 false ——
+//   · lib/policy.ts:103        skill_scan: true, mcp_scan: true, code_scan: false, ...
+//   · public/downloads/aegis-policy.json  "code_scan": false
+// 后果是管理员在 /policies 操作面板看到「代码 / 密钥扫描 = 开」，而终端实际收到的是关，
+// 即管理决策面误报安全控制状态（code_scan 关闭是 2026-09-25 用户决策：代码扫描交由
+// 专业扫描器负责）。下方注释原先声称"与 aegis-policy.json 的 modules 一致"，实际并不一致；
+// 改完这一处后该声明才成立。
+// 后端导出单一真源后，应删除本副本并改用 effectiveModules(overrides) 取**有效值**。
 /** 模块开关出厂默认（与 public/downloads/aegis-policy.json 的 modules 一致）。
- *  执行类开关(skill_enforce/mcp_enforce)默认 false：deny 名单只报不封，打开才真封禁。 */
+ *  执行类开关(skill_enforce/mcp_enforce)默认 false：deny 名单只报不封，打开才真封禁。
+ *  code_scan 默认 false（2026-09-25 用户决策）：代码扫描交由专业扫描器负责。 */
 const MODULE_DEFAULTS: Record<string, boolean> = {
-  skill_scan: true, mcp_scan: true, code_scan: true, deps_scan: true,
+  skill_scan: true, mcp_scan: true, code_scan: false, deps_scan: true,
   baseline_install: true, network_collect: true, self_update: true,
   skill_enforce: false, mcp_enforce: false,
 };
@@ -45,7 +58,7 @@ function ModuleToggles({ isAdmin }: { isAdmin: boolean }) {
   };
   return (
     <>
-      {err && <p style={{ color: '#ff685f', fontSize: 12, margin: '0 0 8px' }}>{err}</p>}
+      {err && <p style={{ color: 'var(--sentinel-danger)', fontSize: 12, margin: '0 0 8px' }}>{err}</p>}
       {!loaded && <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>加载模块开关…</p>}
       {Object.keys(MODULE_DEFAULTS).map((key, index) => {
         const on = overrides[key] ?? MODULE_DEFAULTS[key];
@@ -284,7 +297,7 @@ export default function PoliciesPage() {
           签名密钥仅保存在服务端（AEGIS_POLICY_SIGNING_KEYS），绝不入库、绝不在此展示；此处仅显示指纹与治理状态。轮换时旧钥转「退役中」，重叠期内终端仍可用它验签，确认无生效策略依赖后再退役。
         </p>
         {keysMsg && (
-          <p style={{ fontSize: 12, marginBottom: 10, color: keysMsg.includes('失败') ? '#ff685f' : '#49e8a5' }}>{keysMsg}</p>
+          <p style={{ fontSize: 12, marginBottom: 10, color: keysMsg.includes('失败') ? 'var(--sentinel-danger)' : 'var(--sentinel-accent)' }}>{keysMsg}</p>
         )}
         {keys === null ? (
           <p className="empty-hint">加载签名密钥…</p>

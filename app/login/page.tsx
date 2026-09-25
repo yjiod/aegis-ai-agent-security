@@ -128,7 +128,7 @@ export default function LoginPage() {
         {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: 'var(--sentinel-surface-2, #0d202c)', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', display: 'grid', placeItems: 'center' }}>
-            <ShieldCheck size={28} color="#28e6a0" />
+            <ShieldCheck size={28} color="var(--sentinel-accent)" />
           </div>
           <h1 style={{ fontSize: 22, color: 'var(--sentinel-text, #edf7fb)', letterSpacing: '-0.02em', margin: '0 0 6px' }}>Aegis 安全控制台</h1>
           <p style={{ fontSize: 13, color: 'var(--sentinel-text-3, #6c8796)', margin: 0 }}>企业 AI Agent 安全治理平台</p>
@@ -152,9 +152,9 @@ export default function LoginPage() {
 
         {/* 4A · MFA 第二步（仅当服务端下发挑战时显示） */}
         {mfaToken ? (
-          <form onSubmit={handleMfaSubmit} style={{ background: 'linear-gradient(160deg, rgba(13, 32, 44, 0.92), rgba(8, 24, 34, 0.94))', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', borderRadius: 12, padding: 28, boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
+          <form onSubmit={handleMfaSubmit} style={{ background: 'var(--sentinel-surface)', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', borderRadius: 'var(--sentinel-radius-lg)', padding: 28, boxShadow: 'var(--shadow-overlay)' }}>
             {error && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: 'rgba(240, 82, 93, 0.12)', border: '1px solid rgba(240, 82, 93, 0.4)', color: '#ffb5b8', fontSize: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: 'color-mix(in srgb, var(--sentinel-danger) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--sentinel-danger) 40%, transparent)', color: 'var(--sentinel-danger)', fontSize: 12 }}>
                 <AlertTriangle size={14} /> {error}
               </div>
             )}
@@ -182,9 +182,9 @@ export default function LoginPage() {
           </form>
         ) : (
         /* Login form */
-        <form onSubmit={handleSubmit} style={{ background: 'linear-gradient(160deg, rgba(13, 32, 44, 0.92), rgba(8, 24, 34, 0.94))', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', borderRadius: 12, padding: 28, boxShadow: '0 24px 64px rgba(0,0,0,0.35)' }}>
+        <form onSubmit={handleSubmit} style={{ background: 'var(--sentinel-surface)', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', borderRadius: 'var(--sentinel-radius-lg)', padding: 28, boxShadow: 'var(--shadow-overlay)' }}>
           {error && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: 'rgba(240, 82, 93, 0.12)', border: '1px solid rgba(240, 82, 93, 0.4)', color: '#ffb5b8', fontSize: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 16, borderRadius: 8, background: 'color-mix(in srgb, var(--sentinel-danger) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--sentinel-danger) 40%, transparent)', color: 'var(--sentinel-danger)', fontSize: 12 }}>
               <AlertTriangle size={14} /> {error}
             </div>
           )}

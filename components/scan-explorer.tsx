@@ -520,7 +520,7 @@ export function ScanExplorer({
                           type="button"
                           className="sentinel-button"
                           disabled={disposing || (d === 'deny' && role !== 'admin')}
-                          style={{ marginRight: 6, marginBottom: 6, ...(d === 'deny' ? { color: 'var(--sentinel-danger)', borderColor: 'rgba(240,82,93,.5)' } : {}) }}
+                          style={{ marginRight: 6, marginBottom: 6, ...(d === 'deny' ? { color: 'var(--sentinel-danger)', borderColor: 'color-mix(in srgb, var(--sentinel-danger) 50%, transparent)' } : {}) }}
                           onClick={() => void disposeFinding(selectedFinding, d)}
                         >
                           {d === 'allow' ? '加白' : d === 'monitor' ? '观察' : '拉黑（需 admin）'}

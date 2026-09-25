@@ -143,7 +143,7 @@ export function EvidenceDialog({ onClose }: { onClose: () => void }) {
     // 目标守卫写法既让面板只保留 ARIA 契约、不挂事件，语义也更直白。
     // 外层 div 同时是对话框父容器，故不加 aria-hidden。
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: 'var(--overlay-bg)' }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -155,7 +155,7 @@ export function EvidenceDialog({ onClose }: { onClose: () => void }) {
         aria-labelledby="evidence-dialog-title"
         tabIndex={-1}
         className="animate-entrance"
-        style={{ width: '100%', maxWidth: 520, maxHeight: '88vh', overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, boxShadow: '0 24px 64px #00000055', color: 'var(--card-foreground)' }}
+        style={{ width: '100%', maxWidth: 520, maxHeight: '88vh', overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--sentinel-radius-lg)', padding: 24, boxShadow: 'var(--shadow-overlay)', color: 'var(--card-foreground)' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

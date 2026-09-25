@@ -102,7 +102,7 @@ export default function IntegrationsPage() {
         </div>
       </div>
 
-      {error && <p style={{ color: '#ff685f', marginBottom: 12, fontSize: 13 }}>加载失败：{error}</p>}
+      {error && <p style={{ color: 'var(--sentinel-danger)', marginBottom: 12, fontSize: 13 }}>加载失败：{error}</p>}
 
       <div className="panel animate-entrance animate-entrance-2" style={{ padding: 14, marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, color: 'var(--muted-foreground)' }}>
         <Plug size={15} />
@@ -169,7 +169,7 @@ export default function IntegrationsPage() {
                     {meta.label}
                   </Badge>
                   {(it.alerts ?? 0) > 0 && (
-                    <Badge variant="outline" style={{ borderColor: '#ff685f', color: '#ff685f' }}>
+                    <Badge variant="outline" style={{ borderColor: 'var(--sentinel-danger)', color: 'var(--sentinel-danger)' }}>
                       <AlertTriangle size={12} />
                       {it.alerts} 告警
                     </Badge>

@@ -315,6 +315,16 @@ export default function ConsoleShell({
                       height: 16,
                       borderRadius: 99,
                       background: 'var(--sentinel-danger)',
+                      // 豁免：危险色底上的角标数字用纯白，暗/亮主题皆然（团队 P0-2
+                      // 将 #fff/#000 列为唯一豁免例外）。此处标注是为了防止后续 token
+                      // 收敛（审计 #8）时被误改。
+                      // 实测（10px 等宽数字）：白字 on --sentinel-danger
+                      //   暗色 #f0525d = 3.46:1，亮色 #c0392b = 5.44:1
+                      // 若改用 var(--foreground) 反而更差：暗色 3.18:1、亮色 3.14:1
+                      // （亮色下 --foreground 是深色，深字压深红底读不出来）。
+                      // 故白字是该底色上的最优解，但暗色 3.46:1 仍低于 WCAG AA 的
+                      // 4.5:1 文本门槛——根因是暗色 --sentinel-danger 偏亮，
+                      // 已作为遗留项记入实施报告，不在本轮改 token（批2 已复验）。
                       color: '#fff',
                       font: '10px var(--sentinel-font-mono)',
                       display: 'grid',

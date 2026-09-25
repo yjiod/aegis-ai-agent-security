@@ -75,6 +75,11 @@
     0 20px 48px rgba(0, 0, 0, 0.5),
     0 4px 14px rgba(0, 0, 0, 0.3);
   --shadow-overlay: 0 24px 64px rgba(0, 0, 0, 0.55), 0 4px 16px rgba(0, 0, 0, 0.35);
+  /* 模态遮罩底色（审计 #8b）。此前 .drawer-backdrop、password-modal、evidence-dialog
+     三处各写一份遮罩色（drawer 是 rgba(4,11,18,.55)，两个模态是同一个 8 位 hex），
+     同一语义三套值。收敛为一个 token，两个主题共用同一压暗强度（遮罩的作用是让
+     背后页面退到次要层级，与主题色无关）。 */
+  --overlay-bg: rgba(4, 11, 18, 0.55);
 
   /* motion — Corporate personality (confirmed 2026-09-06) */
   --motion-easing: cubic-bezier(0.2, 0, 0, 1);
@@ -1938,7 +1943,7 @@ button {
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(4, 11, 18, 0.55);
+  background: var(--overlay-bg);
   z-index: 60;
 }
 .drawer {

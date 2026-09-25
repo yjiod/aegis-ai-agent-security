@@ -125,14 +125,21 @@ export default function EnginesPage() {
               <div>
                 <h3>{engine.name}</h3>
                 <p>{engine.vendor} · {engine.license} · 规则: {engine.rule_format}</p>
+                {/* 能力标签与规则源标签：裸色改 token（审计 #8a）。
+                    两类标签靠底色**色相**区分（绿=能力范围 / 青蓝=规则源），文字统一用
+                    --sentinel-text-2。刻意不用 accent/cyan 作文字色：实测 9px 字号下
+                    亮色主题只有 3.0:1 / 3.85:1（FAIL），而 text-2 在 12% 色染底上
+                    暗色 7.14–7.52:1、亮色 6.64–6.74:1，两套主题都稳过。
+                    旧值是深绿/深青实底 + 亮字，不跟随主题——亮色下会在白页面上
+                    留下两块深色标签。字号 9px 属审计 #20 范围，本轮不动。 */}
                 <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
                   {engine.scopes.map((s) => (
-                    <span key={s} style={{ fontSize: 9, padding: '2px 5px', borderRadius: 4, background: '#143329', color: '#6cebb7' }}>
+                    <span key={s} style={{ fontSize: 9, padding: '2px 5px', borderRadius: 'var(--sentinel-radius-sm)', background: 'color-mix(in srgb, var(--sentinel-accent) 12%, transparent)', color: 'var(--sentinel-text-2)' }}>
                       {SCOPE_LABELS[s] ?? s}
                     </span>
                   ))}
                   {engine.rule_update_url ? (
-                    <span style={{ fontSize: 9, padding: '2px 5px', borderRadius: 4, background: '#12262a', color: '#7fb8c9' }}>
+                    <span style={{ fontSize: 9, padding: '2px 5px', borderRadius: 'var(--sentinel-radius-sm)', background: 'color-mix(in srgb, var(--sentinel-cyan) 12%, transparent)', color: 'var(--sentinel-text-2)' }}>
                       规则源: {engine.rule_update_url}
                     </span>
                   ) : null}
@@ -223,7 +230,7 @@ export default function EnginesPage() {
                             fontSize: 9,
                             padding: '2px 6px',
                             borderRadius: 4,
-                            background: s.ok ? 'rgba(40,230,160,0.12)' : 'rgba(240,82,93,0.12)',
+                            background: s.ok ? 'color-mix(in srgb, var(--sentinel-accent) 12%, transparent)' : 'color-mix(in srgb, var(--sentinel-danger) 12%, transparent)',
                             color: s.ok ? 'var(--sentinel-accent)' : 'var(--sentinel-danger)',
                             display: 'inline-flex',
                             alignItems: 'center',

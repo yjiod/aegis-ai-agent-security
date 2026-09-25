@@ -60,7 +60,10 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
   // aria-hidden——那会把里面的 role="dialog" 一并对读屏隐藏。detail-drawer 能加是
   // 因为它的遮罩是对话框的兄弟节点，结构不同。
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8' }}>
+    // 全组件裸色收敛为 token（审计 #8b），使弹窗跟随主题切换。此前面板底是一段
+    // 旧绿主题渐变 + 三处硬编码绿，亮色主题下整块仍是深色，与页面脱节。
+    // 遮罩改用 --overlay-bg，与 .drawer-backdrop / evidence-dialog 同源。
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: 'var(--overlay-bg)' }}>
       <div
         ref={panelRef}
         role="dialog"
@@ -68,35 +71,44 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
         aria-labelledby="password-modal-title"
         tabIndex={-1}
         className="animate-entrance"
-        style={{ width: '100%', maxWidth: 380, background: 'linear-gradient(145deg, #0d1b18, #0a1613)', border: '1px solid #1e332d', borderRadius: 14, padding: 28, boxShadow: '0 24px 64px #00000055' }}
+        style={{ width: '100%', maxWidth: 380, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 'var(--sentinel-radius-lg)', padding: 28, boxShadow: 'var(--shadow-overlay)' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Lock size={18} style={{ color: '#49e8a5' }} />
-            <h2 id="password-modal-title" style={{ fontSize: 16, color: '#eaf7f2', margin: 0 }}>修改密码</h2>
+            {/* 头部图标用交互青蓝，与 evidence-dialog 的头部图标一致；
+                旧值是一个已废弃的绿 accent。图标属非文本元素，两主题实测
+                暗 7.92:1 / 亮 4.49:1，均远超 WCAG 1.4.11 非文本 3:1 门槛。 */}
+            <Lock size={18} style={{ color: 'var(--sentinel-cyan)' }} />
+            <h2 id="password-modal-title" style={{ fontSize: 16, color: 'var(--foreground)', margin: 0 }}>修改密码</h2>
           </div>
-          <button type="button" onClick={onClose} style={{ background: 'none', border: 0, color: '#5e7c73', cursor: 'pointer' }} aria-label="关闭">
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--muted-foreground)', cursor: 'pointer' }} aria-label="关闭">
             <X size={18} />
           </button>
         </div>
 
         {success ? (
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: 16, borderRadius: 10, background: '#143329', border: '1px solid #34765f', color: '#c9f5e4', fontSize: 13 }}>
-            <Check size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+          // 成功框：正文用 --foreground 而非 accent 绿。实测 accent 绿文字在亮色主题
+          // 的 12% 浅绿底上只有 3.0:1（FAIL），--foreground 则是暗 12.85:1 / 亮 14.9:1。
+          // 成功语义由绿色底染 + 绿色对勾图标承载，正文保持可读前景色。
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: 16, borderRadius: 'var(--sentinel-radius-md)', background: 'color-mix(in srgb, var(--sentinel-accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--sentinel-accent) 32%, transparent)', color: 'var(--foreground)', fontSize: 13 }}>
+            <Check size={16} style={{ flexShrink: 0, marginTop: 2, color: 'var(--sentinel-accent)' }} />
             <span>{serverMsg}</span>
           </div>
         ) : (
           <form onSubmit={handleSubmit}>
             {error && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 14, borderRadius: 8, background: '#2b1515', border: '1px solid #5c2626', color: '#ff9b94', fontSize: 12 }}>
+              // 错误框：文字用 --sentinel-danger 而非审计建议的 --sentinel-danger-2。
+              // danger-2 没有亮色 override，在亮色 12% 浅红底上只有 2.29:1（FAIL）；
+              // danger 两主题分别为 4.63:1 / 4.54:1，均 PASS。
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', marginBottom: 14, borderRadius: 'var(--sentinel-radius-md)', background: 'color-mix(in srgb, var(--sentinel-danger) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--sentinel-danger) 40%, transparent)', color: 'var(--sentinel-danger)', fontSize: 12 }}>
                 <AlertTriangle size={14} /> {error}
               </div>
             )}
-            <label style={{ display: 'block', fontSize: 12, color: '#86a39a', marginBottom: 6 }}>当前密码</label>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--sentinel-text-2)', marginBottom: 6 }}>当前密码</label>
             <input className="form-input" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required style={{ marginBottom: 14 }} />
-            <label style={{ display: 'block', fontSize: 12, color: '#86a39a', marginBottom: 6 }}>新密码（至少 8 位）</label>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--sentinel-text-2)', marginBottom: 6 }}>新密码（至少 8 位）</label>
             <input className="form-input" type="password" value={next} onChange={(e) => setNext(e.target.value)} required style={{ marginBottom: 14 }} />
-            <label style={{ display: 'block', fontSize: 12, color: '#86a39a', marginBottom: 6 }}>确认新密码</label>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--sentinel-text-2)', marginBottom: 6 }}>确认新密码</label>
             <input className="form-input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required style={{ marginBottom: 20 }} />
             <div style={{ display: 'flex', gap: 8 }}>
               <Button type="submit" disabled={submitting} style={{ flex: 1 }}>

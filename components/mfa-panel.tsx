@@ -22,6 +22,12 @@ function TotpQr({ uri }: { uri: string }) {
   const dim = (n + margin * 2) * scale;
   return (
     <div style={{ display: 'flex', justifyContent: 'center' }}>
+      {/* 豁免：QR 码必须纯黑白以保证扫码器识别率，不跟随主题 token。
+          任何 token 化（如亮色主题下变浅灰底 / 深灰模块）都会降低对比、导致
+          authenticator App 扫不出来——这是功能性约束，非设计疏漏。
+          团队 P0-2 硬编码颜色规则明确将 #fff/#000 列为唯一豁免例外，
+          本注释的存在是为了防止后续 token 收敛（审计 #8）时被误改。
+          下方 svg 的 background 与模块矩形的 fill 同属本豁免。 */}
       <svg
         viewBox={`0 0 ${dim} ${dim}`}
         width={220}

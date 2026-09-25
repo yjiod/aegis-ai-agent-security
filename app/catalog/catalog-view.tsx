@@ -135,7 +135,7 @@ function CatalogCategory({
           <h2 className="text-lg font-semibold tracking-tight text-[#eaf7f2]">
             {title}
           </h2>
-          <span className="font-mono text-[11px] text-[#4fe5a6]">{en}</span>
+          <span className="font-mono text-[11px] text-[var(--sentinel-accent)]">{en}</span>
         </div>
         <p className="mt-1 text-xs leading-relaxed text-[#78968c]">{summary}</p>
       </header>
@@ -192,7 +192,7 @@ function Variant({
   return (
     <div className="rounded-lg border border-[#172d26] bg-[#07110f] p-3">
       <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <p className="text-[11px] font-bold tracking-[0.1em] text-[#5e7c73] uppercase">
+        <p className="text-[11px] font-bold tracking-[0.1em] text-[var(--sentinel-text-3)] uppercase">
           {label}
         </p>
         {code ? (
@@ -709,7 +709,7 @@ export function CatalogView() {
             >
               <Variant label="尺寸与配色">
                 <Spinner />
-                <Spinner className="size-5 text-[#4fe5a6]" />
+                <Spinner className="size-5 text-[var(--sentinel-accent)]" />
                 <Spinner className="size-6 text-[#ff8f88]" />
                 <Button variant="outline" disabled>
                   <Spinner />
@@ -718,7 +718,7 @@ export function CatalogView() {
               </Variant>
               <Variant label="区域内联加载" vertical>
                 <div className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-[#172d26] bg-[#0a1714] px-3 py-2 text-xs text-[#78968c]">
-                  <Spinner className="size-3.5 text-[#4fe5a6]" />
+                  <Spinner className="size-3.5 text-[var(--sentinel-accent)]" />
                   正在拉取设备清单…
                 </div>
               </Variant>

@@ -222,10 +222,10 @@ export default function AuditPage() {
             ))}
           </>
         ) : denied ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#5e7c73' }}>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--sentinel-text-3)' }}>
             <ShieldCheck
               size={32}
-              style={{ margin: '0 auto 12px', display: 'block', color: '#49e8a5' }}
+              style={{ margin: '0 auto 12px', display: 'block', color: 'var(--sentinel-accent)' }}
             />
             <p style={{ fontSize: 13 }}>
               审计日志仅对「审计员 / 安全管理员」开放。
@@ -234,10 +234,10 @@ export default function AuditPage() {
             </p>
           </div>
         ) : entries.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#5e7c73' }}>
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--sentinel-text-3)' }}>
             <ShieldCheck
               size={32}
-              style={{ margin: '0 auto 12px', display: 'block', color: '#49e8a5' }}
+              style={{ margin: '0 auto 12px', display: 'block', color: 'var(--sentinel-accent)' }}
             />
             <p style={{ fontSize: 13 }}>当前筛选条件下没有审计记录</p>
           </div>

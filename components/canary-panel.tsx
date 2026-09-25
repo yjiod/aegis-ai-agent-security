@@ -264,11 +264,11 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
         <div
           style={{
             display: 'flex', alignItems: 'flex-start', gap: 8, padding: '10px 12px', marginBottom: 14,
-            borderRadius: 8, background: 'color-mix(in srgb, #e8b449 12%, transparent)',
-            border: '1px solid color-mix(in srgb, #e8b449 38%, transparent)', fontSize: 12, lineHeight: 1.6,
+            borderRadius: 8, background: 'color-mix(in srgb, var(--sentinel-warning) 12%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--sentinel-warning) 38%, transparent)', fontSize: 12, lineHeight: 1.6,
           }}
         >
-          <AlertTriangle size={14} style={{ color: '#e8b449', flexShrink: 0, marginTop: 2 }} />
+          <AlertTriangle size={14} style={{ color: 'var(--sentinel-warning)', flexShrink: 0, marginTop: 2 }} />
           <span style={{ color: 'var(--foreground)' }}>
             {dirty && <>有<strong>未保存</strong>的灰度修改。 </>}
             {pendingPublish && (
@@ -351,7 +351,7 @@ export function CanaryPanel({ latestAgentVersion }: { latestAgentVersion?: strin
       <div
         style={{
           display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12,
-          padding: '10px 12px', borderRadius: 8, background: 'rgba(40, 230, 160, 0.08)', border: '1px solid var(--border)',
+          padding: '10px 12px', borderRadius: 8, background: 'color-mix(in srgb, var(--sentinel-accent) 8%, transparent)', border: '1px solid var(--border)',
         }}
       >
         <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>推进门禁：</span>
