@@ -81,7 +81,7 @@ function ModuleToggles({ isAdmin }: { isAdmin: boolean }) {
       })}
       <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: '8px 0 0' }}>
         开关持久化在服务端，<b>下一次「处置中心」发布策略</b>后随签名策略下发终端生效。
-        「封禁执行」类开关默认关闭：deny 名单只报不封；打开后终端才真正隔离 Skill / 移除 MCP（带备份可回滚）。
+        「封禁执行」类开关默认关闭：deny 名单只报告不拦截；打开后终端才真正隔离 Skill / 移除 MCP（带备份可回滚）。
       </p>
     </>
   );

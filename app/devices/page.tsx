@@ -300,7 +300,7 @@ export default function DevicesPage() {
     }
   }
 
-  // 封禁豁免切换(开发主机等): 豁免设备只报不封、不自更; 清单存服务端 settings。
+  // 封禁豁免切换(开发主机等): 豁免设备只报告不拦截、不自更; 清单存服务端 settings。
   async function toggleExempt(dev: Device) {
     try {
       const r = await fetch('/api/settings/exempt', { cache: 'no-store' });
@@ -308,7 +308,7 @@ export default function DevicesPage() {
       const id = dev.device_id.toLowerCase();
       const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
       const p = await fetch('/api/settings/exempt', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ devices: next }) });
-      if (p.ok) notify(next.includes(id) ? '已加入封禁豁免：该设备只报不封、不自更' : '已移出封禁豁免', 'info');
+      if (p.ok) notify(next.includes(id) ? '已加入封禁豁免：该设备只报告不拦截、不自更' : '已移出封禁豁免', 'info');
       else notify(`豁免设置失败 HTTP ${p.status}`, 'error');
       await refresh();
     } catch (e) {
@@ -1111,7 +1111,7 @@ export default function DevicesPage() {
                           {device.pinned ? '移出自更保护' : '加入自更保护'}
                         </Button>
                         <span style={{ fontSize: 11, color: 'var(--muted-foreground)' }}>
-                          豁免=只报不封；自更保护=不自动更新；两者独立配置，随签名策略下发。
+                          豁免=只报告不拦截；自更保护=不自动更新；两者独立配置，随签名策略下发。
                         </span>
                       </div>
                     )}

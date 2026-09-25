@@ -85,7 +85,7 @@ export type Device = {
   /** 真实封禁能力：pf=连接级封禁可用; es=ES AUTH_EXEC 已点亮。未具备=false, 不夸大。 */
   capabilities?: { pf?: boolean; es?: boolean };
   scan_root?: string;
-  /** 封禁豁免设备（开发主机等）：只报不封。 */
+  /** 封禁豁免设备（开发主机等）：只报告不拦截。 */
   /** 自更保护(pinned)：不自动更新，只接受人工/桌管更新。与豁免分离。 */
   pinned?: boolean;
   exempt?: boolean;

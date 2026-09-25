@@ -175,7 +175,10 @@ const modules: Array<{
   desc: string;
   key: ModuleKey | null;
 }> = [
-  { icon: ScanLine, title: '终端 Agent 发现', desc: '清点已安装的 AI 编码工具', key: null },
+  // 卡 1 的 desc 采用 PM §7.1 定稿副标题（逐字），把"为何无独立开关"的解释放在
+  // **可见文本**里而非 title 属性——审计 #34 已确立 title 不进入无障碍名计算，
+  // 键盘与读屏用户拿不到，tooltip 只可作补充、不可作唯一载体。
+  { icon: ScanLine, title: '终端 Agent 发现', desc: '清点已安装的 AI 编码工具（Agent 常驻能力，无独立开关）', key: null },
   { icon: Sparkles, title: 'Skill 扫描器', desc: '权限、指令与依赖', key: 'skill_scan' },
   { icon: Network, title: 'MCP 扫描器', desc: '工具、密钥与外联', key: 'mcp_scan' },
   { icon: Code2, title: '代码质量扫描', desc: 'SAST、依赖与密钥', key: 'code_scan' },
@@ -264,25 +267,31 @@ export default function Home() {
    * tone 只有 'green'（确实在生效）与 'muted'（中性事实）两种：
    * 停用不是告警，故不用红、也不用琥珀（见审计 §10.1 语义色分配规则）。
    *
-   * `note` 只在"无独立开关"这一种情形返回，且**渲染为可见文本**而非 title 属性：
-   * 审计 #34 指出 title 不进入无障碍名计算、键盘用户也取不到，不能承载唯一说明。
-   * 接口失败的原因由面板级 role="alert" 可见提示承担，故不在每张卡上重复。
+   * 各态的**解释性文案一律落在可见文本**（desc / 面板级 role="alert"），不返回
+   * note 也不挂 title：审计 #34 指出 title 不进入无障碍名计算、键盘用户取不到，
+   * 不能承载唯一说明。
    */
   function moduleCardStatus(key: ModuleKey | null): {
     label: string;
     tone: 'green' | 'muted';
     check: boolean;
-    note?: string;
   } {
     // 无独立开关的基础能力：不是开关派生的实时状态，故不用绿色"已启用"。
-    // 口径对齐审计 #34（"框架已实现" vs "终端实时探测"）。文案待 PM 定稿。
+    // 口径对齐审计 #34（"框架已实现" vs "终端实时探测"），文案取 PM §7.1 定稿
+    // （2026-09-25 追加裁定，pm-product-review.md:1277-1292）。
+    //
+    // ⛔ 不得写 `已启用`，即便事实上它确实在跑：无法从接口派生的值写死，就是重新
+    // 引入 #32 要消灭的"静态常量冒充实时状态"——而**碰巧正确的硬编码比明显错误的
+    // 更危险**，因为没人会去修它。
+    //
+    // 选 `随 Agent 常驻` 而非 `常驻能力 · 无独立开关`：前者说清了**为什么**没有开关
+    // （Agent 在跑它就在跑），后者只陈述"没有开关"这一事实，且"无独立开关"对运营者
+    // 是无意义信息（他们从没以为它有开关），读起来还像辩解。
+    //
+    // 「为何无开关」的解释落在 desc（可见文本）里，不挂 title——审计 #34 已确立
+    // title 不进入无障碍名计算，键盘与读屏用户拿不到，不能作唯一载体。
     if (key === null) {
-      return {
-        label: '基础能力 · 无独立开关',
-        tone: 'muted',
-        check: false,
-        note: '该能力随终端 Agent 常驻运行，不由模块开关控制；因此这里不显示开关派生的实时状态。',
-      };
+      return { label: '随 Agent 常驻', tone: 'muted', check: false };
     }
     if (modsLoading) return { label: '读取中…', tone: 'muted', check: false };
     // 接口不可达：PM §7.1 要求中性灰 + 重试入口，禁用绿/红
@@ -1097,13 +1106,6 @@ export default function Home() {
                   <div>
                     <h3>{title}</h3>
                     <p>{codeScanOff ? CODE_SCAN_DISABLED_DESC : desc}</p>
-                    {/* 口径说明用**可见文本**，不用 title 属性（审计 #34：title 不进入
-                        无障碍名计算，键盘与读屏用户取不到，不能承载唯一说明） */}
-                    {st.note && (
-                      <p style={{ marginTop: 4, fontSize: 11, color: 'var(--muted-foreground)', lineHeight: 1.5 }}>
-                        {st.note}
-                      </p>
-                    )}
                   </div>
                   {/* ⛔ 停用/未知/加载中一律不渲染对勾（对勾 + 灰字自相矛盾） */}
                   <span className={`status ${st.tone}`}>
