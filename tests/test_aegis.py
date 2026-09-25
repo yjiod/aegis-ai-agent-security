@@ -1699,6 +1699,57 @@ console.log(JSON.stringify(cases.map(([f, want]) => {
             results = json.loads(out.stdout.strip().splitlines()[-1])
             self.assertEqual([x for x in results if x != "ok"], [], f"asset normalization failures: {results}")
 
+    def test_prefix_batch_ignore_suppression(self):
+        """目录前缀批量忽略(2026-09-25 用户需求): prefix 资产 allow 后, 该目录下全部
+        path 资产的发现被抑制; 前缀键归一化(尾斜杠强制/~/小写); 非目录形态拒绝;
+        同前缀兄弟目录不被误吞; skill/mcp 不做前缀展开。"""
+        import subprocess, json, tempfile as _tf, os as _os
+        root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        with _tf.TemporaryDirectory() as outdir:
+            compiled = _os.path.join(outdir, "labels.cjs")
+            stub = _os.path.join(outdir, "stub.cjs")
+            open(stub, "w").write("module.exports = { after: () => {} };\n")
+            r = subprocess.run(["npx", "esbuild", _os.path.join(root, "lib", "labels.ts"),
+                                "--bundle", "--platform=node", "--format=cjs",
+                                "--alias:next/server=" + stub,
+                                "--outfile=" + compiled],
+                               capture_output=True, text=True, cwd=root)
+            self.assertEqual(r.returncode, 0, r.stderr[:300])
+            script = """
+const { isFindingAllowed, normalizePrefixKey } = require(%s);
+// allowed set 模拟 labels allow 集合: 精确键 + prefix 键(用户加白 ~/.codex/.tmp/)
+const allowed = new Set(["prefix:~/.codex/.tmp/", "skill:ok-skill"]);
+const cases = [
+  // 前缀目录内文件被抑制
+  [{kind:"hardcoded_secret", path:"~/.codex/.tmp/plugins/x/scripts/build.sh"}, true],
+  // 深层嵌套同样抑制(逐级向上找前缀)
+  [{kind:"unbounded_shell", path:"~/.codex/.tmp/a/b/c/d/e.py"}, true],
+  // 前缀外不误伤
+  [{kind:"hardcoded_secret", path:"~/.codex/config.toml"}, false],
+  // 同前缀兄弟路径(~/.codex/.tmp-config/ 是不同目录)不被吞: 尾斜杠强制保证
+  [{kind:"hardcoded_secret", path:"~/.codex/.tmp-config/x.py"}, false],
+  // skill 精确匹配仍工作
+  [{kind:"unknown_skill", path:"~/.codex/skills/ok-skill/SKILL.md", message:"未批准的 Skill: ok-skill"}, true],
+  // skill 不做前缀展开(~/.codex/.tmp/ 下的 skill 不因前缀被吞——skill 名与目录无关)
+  [{kind:"unknown_skill", path:"~/.codex/.tmp/skills/other/SKILL.md", message:"未批准的 Skill: other"}, false],
+];
+const results = cases.map(([f, want]) => isFindingAllowed(f, allowed) === want ? "ok" : "FAIL:" + JSON.stringify({f, got: !want}));
+// normalizePrefixKey
+const np = [
+  ["~/.codex/.tmp/", "~/.codex/.tmp/"],
+  ["~/.codex/.tmp", null],           // 无尾斜杠=文件形态, 拒绝
+  ["/Users/alice/proj/", "~/proj/"], // ~折叠+小写
+  ["C:/Users/bob/App/", "~/app/"],  // Windows users 路径折叠为 ~(与 mac 同键, 跨端一致)
+  ["~", null], ["/", null], ["/Users/", null],  // 全量级拒绝
+];
+const npResults = np.map(([inp, want]) => JSON.stringify(normalizePrefixKey(inp)) === JSON.stringify(want) ? "ok" : "FAIL:" + JSON.stringify({inp, got: normalizePrefixKey(inp), want}));
+console.log(JSON.stringify([...results, ...npResults]));
+""" % json.dumps(compiled)
+            out = subprocess.run(["node", "-e", script], capture_output=True, text=True, cwd=root)
+            self.assertEqual(out.returncode, 0, out.stderr[:300])
+            results = json.loads(out.stdout.strip().splitlines()[-1])
+            self.assertEqual([x for x in results if x != "ok"], [], f"prefix suppression failures: {results}")
+
     def test_label_bulk_writes_are_durable(self):
         """生产事故回归(2026-09-25): 批量标签写必须走可等待的持久化路径
         (persistLabelsDurable/pgUpsertLabelsBatch 单事务), 禁止 fire-and-forget

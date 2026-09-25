@@ -19,7 +19,7 @@ import { RiskSignalHelp } from '@/components/risk-signal-help';
 import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
 
 interface Label {
-  asset_type: 'skill' | 'mcp' | 'path';
+  asset_type: 'skill' | 'mcp' | 'path' | 'prefix';
   asset_key: string;
   tags: string[];
   disposition: '' | 'allow' | 'monitor' | 'deny';
@@ -160,14 +160,14 @@ export default function DispositionsPage() {
   // 2026-09 改版（处置中心 IA）：自定义库按资产类型分组折叠 + 搜索/筛选 + 组内增量加载，
   // 应对几百上千条加白时的可读性与性能（旧版为单一平铺分页列表）。
   const [query, setQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'skill' | 'mcp' | 'path'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'skill' | 'mcp' | 'path' | 'prefix'>('all');
   const [dispFilter, setDispFilter] = useState<'all' | 'allow' | 'monitor' | 'deny'>('all');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [groupLimit, setGroupLimit] = useState<Record<string, number>>({});
   const GROUP_PAGE = 20;
 
   // add form
-  const [newType, setNewType] = useState<'skill' | 'mcp' | 'path'>('skill');
+  const [newType, setNewType] = useState<'skill' | 'mcp' | 'path' | 'prefix'>('skill');
   const [newKey, setNewKey] = useState('');
   const searchParams = useSearchParams();
 
@@ -175,7 +175,7 @@ export default function DispositionsPage() {
   useEffect(() => {
     const type = searchParams.get('type');
     const asset = searchParams.get('asset');
-    if (type === 'skill' || type === 'mcp' || type === 'path') setNewType(type);
+    if (type === 'skill' || type === 'mcp' || type === 'path' || type === 'prefix') setNewType(type);
     if (asset) setNewKey(asset);
   }, [searchParams]);
 
@@ -417,8 +417,8 @@ export default function DispositionsPage() {
       (dispFilter === 'all' || l.disposition === dispFilter) &&
       (!q || l.asset_key.toLowerCase().includes(q) || l.tags.some((t) => t.toLowerCase().includes(q))),
   );
-  const GROUP_ORDER: Array<'skill' | 'mcp' | 'path'> = ['skill', 'mcp', 'path'];
-  const GROUP_NAME: Record<'skill' | 'mcp' | 'path', string> = { skill: 'Skill 库', mcp: 'MCP 库', path: '代码路径库' };
+  const GROUP_ORDER: Array<'skill' | 'mcp' | 'path' | 'prefix'> = ['skill', 'mcp', 'path', 'prefix'];
+  const GROUP_NAME: Record<'skill' | 'mcp' | 'path' | 'prefix', string> = { skill: 'Skill 库', mcp: 'MCP 库', path: '代码路径库', prefix: '目录前缀（批量忽略）' };
   const groups = GROUP_ORDER.map((t) => ({ type: t, items: filteredUser.filter((l) => l.asset_type === t) })).filter(
     (g) => g.items.length > 0,
   );
@@ -477,12 +477,18 @@ export default function DispositionsPage() {
       {/* add asset */}
       {isAdmin && (
         <div className="panel animate-entrance animate-entrance-2" style={{ padding: 16, marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select value={newType} onChange={(e) => setNewType(e.target.value as 'skill' | 'mcp' | 'path')} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }}>
+          <select value={newType} onChange={(e) => setNewType(e.target.value as 'skill' | 'mcp' | 'path' | 'prefix')} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)' }}>
             <option value="skill">Skill</option>
             <option value="mcp">MCP</option>
             <option value="path">代码路径</option>
+            <option value="prefix">目录前缀（批量忽略）</option>
           </select>
-          <Input placeholder={newType === 'path' ? '文件路径（如 ~/docker-compose-langfuse.yml）' : '资产标识（如 skill 名 / MCP server 或命令）'} value={newKey} onChange={(e) => setNewKey(e.target.value)} style={{ maxWidth: 360 }} />
+          <Input
+            placeholder={newType === 'path' ? '文件路径（如 ~/docker-compose-langfuse.yml）' : newType === 'prefix' ? '目录前缀（以 / 结尾，如 ~/.codex/.tmp/）' : '资产标识（如 skill 名 / MCP server 或命令）'}
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            style={{ maxWidth: 360 }}
+          />
           <Button onClick={() => void addAsset()} disabled={busy || !newKey.trim()}>
             <Plus size={15} />
             添加资产
@@ -585,7 +591,7 @@ export default function DispositionsPage() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           <Input placeholder="搜索资产标识 / 标签…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ maxWidth: 260, fontSize: 12 }} />
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}>
-            <option value="all">全部类型</option><option value="skill">Skill</option><option value="mcp">MCP</option><option value="path">代码路径</option>
+            <option value="all">全部类型</option><option value="skill">Skill</option><option value="mcp">MCP</option><option value="path">代码路径</option><option value="prefix">目录前缀</option>
           </select>
           <select value={dispFilter} onChange={(e) => setDispFilter(e.target.value as typeof dispFilter)} style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12 }}>
             <option value="all">全部处置</option><option value="allow">加白</option><option value="monitor">观察</option><option value="deny">拉黑</option>

@@ -5,6 +5,7 @@ import {
   listLabels,
   setLabel,
   removeLabel,
+  normalizePrefixKey,
   DISPOSITIONS,
   type AssetType,
   type Disposition,
@@ -16,7 +17,7 @@ export const dynamic = 'force-dynamic';
 const NO_STORE = { 'Cache-Control': 'no-store' } as const;
 
 function isAssetType(v: unknown): v is AssetType {
-  return v === 'skill' || v === 'mcp' || v === 'path';
+  return v === 'skill' || v === 'mcp' || v === 'path' || v === 'prefix';
 }
 
 /** GET /api/labels — 列出资产标签/处置（登录即可读）。 */
@@ -41,7 +42,16 @@ export async function POST(request: Request) {
   const assetType = body.asset_type;
   const assetKey = String(body.asset_key ?? '').trim();
   if (!isAssetType(assetType)) return NextResponse.json({ error: 'invalid_asset_type' }, { status: 400, headers: NO_STORE });
-  if (!assetKey || (assetType === 'path' ? assetKey.length > 256 : assetKey.length > 128)) {
+  // prefix（目录前缀批量忽略）：归一化（~折叠/小写/尾斜杠强制）；非目录形态拒绝。
+  const normalizedKey = assetType === 'prefix' ? normalizePrefixKey(assetKey) : assetKey;
+  if (assetType === 'prefix' && !normalizedKey) {
+    return NextResponse.json(
+      { error: 'invalid_prefix', hint: '目录前缀必须以 / 或 \\ 结尾，且不能是根/家目录这类全量级路径' },
+      { status: 400, headers: NO_STORE },
+    );
+  }
+  const finalKey = normalizedKey ?? assetKey;
+  if (!finalKey || (assetType === 'path' || assetType === 'prefix' ? finalKey.length > 256 : finalKey.length > 128)) {
     return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
   }
   // skill/mcp 的 asset_key 是资产「名字」(skill 名 / MCP server 名)，不是文件路径。拒绝路径型
@@ -67,7 +77,7 @@ export async function POST(request: Request) {
   await ensureLabelsLoaded().catch(() => {});
   const rec = setLabel({
     asset_type: assetType,
-    asset_key: assetKey,
+    asset_key: finalKey,
     ...(tags !== undefined ? { tags } : {}),
     ...(rawDisp !== undefined ? { disposition: String(rawDisp) as Disposition } : {}),
     ...(typeof body.note === 'string' ? { note: body.note.slice(0, 500) } : {}),
@@ -77,7 +87,7 @@ export async function POST(request: Request) {
     actor: session?.subject ?? 'console',
     action: 'label:set',
     resource_type: 'system',
-    resource_id: `${assetType}:${assetKey}`,
+    resource_id: `${assetType}:${finalKey}`,
     detail: `disposition=${rec.disposition || 'unset'} tags=${rec.tags.join(',') || '-'}`,
   });
   return NextResponse.json({ label: rec }, { status: 200, headers: NO_STORE });
@@ -95,12 +105,13 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'invalid_params' }, { status: 400, headers: NO_STORE });
   }
   await ensureLabelsLoaded().catch(() => {});
-  const removed = removeLabel(assetType, assetKey);
+  const delKey = assetType === 'prefix' ? (normalizePrefixKey(assetKey) ?? assetKey) : assetKey;
+  const removed = removeLabel(assetType, delKey);
   logAudit({
     actor: session?.subject ?? 'console',
     action: 'label:remove',
     resource_type: 'system',
-    resource_id: `${assetType}:${assetKey}`,
+    resource_id: `${assetType}:${delKey}`,
     detail: removed ? 'removed' : 'not_found',
   });
   return NextResponse.json({ removed }, { headers: NO_STORE });

@@ -20,7 +20,10 @@ import {
   type AssetLabelRow,
 } from './pg-store';
 
-export type AssetType = 'skill' | 'mcp' | 'path';
+export type AssetType = 'skill' | 'mcp' | 'path' | 'prefix';
+/** prefix = 目录前缀批量忽略（2026-09-25 用户需求）：asset_key 形如 "~/.codex/.tmp/"，
+ * 抑制所有归一化后落在该前缀下的 path 资产发现。只作用于 path 类（skill/mcp 名
+ * 与目录无关，不做前缀展开，防止意外封禁面扩大）。 */
 export type Disposition = '' | 'allow' | 'monitor' | 'deny';
 
 export const DISPOSITIONS: Disposition[] = ['', 'allow', 'monitor', 'deny'];
@@ -173,7 +176,32 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
 /** 该 finding 是否命中加白资产（应被抑制/自动消除）。 */
 export function isFindingAllowed(f: FindingLike, allowed: Set<string>): boolean {
   const a = findingAsset(f);
-  return a !== null && allowed.has(mapKey(a.asset_type, a.asset_key));
+  if (a === null) return false;
+  if (allowed.has(mapKey(a.asset_type, a.asset_key))) return true;
+  // 目录前缀批量忽略：path 资产逐级匹配 allow 的 prefix 条目（"~/.codex/.tmp/" 覆盖
+  // 其下全部文件）。前缀键在 setLabel 时已归一化并强制尾斜杠（防 "~/.codex" 误吞
+  // "~/.codex-config.json" 这类同前缀不同目录的兄弟路径）。
+  if (a.asset_type !== 'path') return false;
+  // 逐级向上：先剥掉文件名与尾斜杠再找上一层（保留尾斜杠时 slice(0, i+1) 会得到
+  // 自身 → 死循环，真机教训：3 个 node 进程 85% CPU 转了几分钟）。
+  let dir = a.asset_key;
+  for (;;) {
+    const cut = dir.endsWith('/') ? dir.slice(0, -1) : dir;
+    const i = cut.lastIndexOf('/');
+    if (i <= 0) return false;
+    dir = cut.slice(0, i + 1);
+    if (allowed.has(`prefix:${dir}`)) return true;
+  }
+}
+
+/** 归一化目录前缀键：~折叠/小写/反斜杠统一/强制尾斜杠。非目录形态原样返回 null。 */
+export function normalizePrefixKey(raw: string): string | null {
+  const k = normalizePathKey(raw.trim());
+  if (!k || k === '~' || k === '/' || /^[a-z]:$/.test(k) || k === '/users' || k === '/home') return null;
+  // 必须是目录形态：输入以 / 或 \ 结尾（用户从"忽略此目录"入口传入的天然带尾斜杠）；
+  // 不带尾斜杠的裸文件路径不视为前缀。
+  if (!/[\\/]$/.test(raw.trim())) return null;
+  return k.endsWith('/') ? k : k + '/';
 }
 
 export interface SetLabelInput {

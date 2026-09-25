@@ -265,8 +265,8 @@ function buildResponsePlaybook(ticket: Ticket): PlaybookStep[] {
 }
 
 /** 按资产类型聚合可处置资产（skill / mcp / path），供汇总工单逐项处置入口。 */
-function aggregateRemediable(findings: Array<Record<string, unknown>>): Array<{ asset_type: 'skill' | 'mcp' | 'path'; keys: string[]; kinds: string[] }> {
-  const byType = new Map<'skill' | 'mcp' | 'path', { keys: Set<string>; kinds: Set<string> }>();
+function aggregateRemediable(findings: Array<Record<string, unknown>>): Array<{ asset_type: Exclude<import('@/lib/labels').AssetType, 'prefix'>; keys: string[]; kinds: string[] }> {
+  const byType = new Map<import('@/lib/labels').AssetType, { keys: Set<string>; kinds: Set<string> }>();
   for (const f of findings) {
     const a = findingAsset(f as never);
     if (!a) continue;
@@ -276,7 +276,7 @@ function aggregateRemediable(findings: Array<Record<string, unknown>>): Array<{ 
     byType.set(a.asset_type, slot);
   }
   return [...byType.entries()]
-    .map(([asset_type, v]) => ({ asset_type, keys: [...v.keys].sort(), kinds: [...v.kinds].sort() }))
+    .map(([asset_type, v]) => ({ asset_type: asset_type as Exclude<typeof asset_type, 'prefix'>, keys: [...v.keys].sort(), kinds: [...v.kinds].sort() }))
     .sort((a, b) => b.keys.length - a.keys.length);
 }
 
@@ -731,6 +731,8 @@ export default function RisksPage() {
 
   async function runBatchLabel(disposition: 'allow' | 'monitor' | 'deny') {
     const deviceIds = [...new Set(Array.from(selected, (id) => tickets.find((t) => t.ticket_id === id)?.device_id).filter((x): x is string => Boolean(x)))];
+    // 窄类型保留：批量打标入口只处理具体资产（findingAsset 永不返回 prefix，
+    // 断言收窄即可）；prefix 由处置中心单独管理。
     const assets = new Map<string, { asset_type: 'skill' | 'mcp' | 'path'; asset_key: string }>();
     for (const did of deviceIds) {
       try {
@@ -739,7 +741,7 @@ export default function RisksPage() {
         const d = (await r.json()) as { findings?: Array<Record<string, unknown>> };
         for (const f of d.findings ?? []) {
           const a = findingAsset(f as never);
-          if (a) assets.set(`${a.asset_type}:${a.asset_key}`, a);
+          if (a && a.asset_type !== 'prefix') assets.set(`${a.asset_type}:${a.asset_key}`, { asset_type: a.asset_type as 'skill' | 'mcp' | 'path', asset_key: a.asset_key });
         }
       } catch {
         /* 单设备拉取失败跳过，不伪造 */
@@ -1545,6 +1547,15 @@ export default function RisksPage() {
                                 >
                                   去处置 →
                                 </Link>
+                                {cat.asset_type === 'path' && (
+                                  <Link
+                                    href={`/dispositions?type=prefix&asset=${encodeURIComponent(k.slice(0, k.lastIndexOf('/') + 1))}`}
+                                    title="按目录前缀批量忽略：该目录下全部文件的发现不再出现在告警与处置面（可随时删除前缀恢复）"
+                                    style={{ color: 'var(--muted-foreground)', textDecoration: 'none', borderBottom: '1px dashed currentColor', fontSize: 11, flexShrink: 0 }}
+                                  >
+                                    忽略此目录
+                                  </Link>
+                                )}
                               </span>
                             ))}
                             {cat.keys.length > 30 && <span>…另有 {cat.keys.length - 30} 项，点上方「查看该设备发现明细」</span>}
