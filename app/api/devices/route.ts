@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { requireDeviceWriter, getSession, roleReadsAllDevices } from '@/lib/auth';
+import { requireDeviceWriter, getSession, roleReadsAllDevices, unauthenticated } from '@/lib/auth';
 import { fetchCollectorDevices } from '@/lib/collector-devices';
 import { getDeviceStore, logAudit } from '@/lib/store';
 import { exemptDevices, pinnedDevices } from '@/lib/exempt';
@@ -91,11 +91,25 @@ export async function GET(request: Request) {
   const search = url.searchParams.get('q')?.toLowerCase() ?? '';
   const statusFilter = url.searchParams.get('status');
 
+  // 会话验签闸（契约 lib/openapi.ts 声明 /devices = session）。middleware 只校验
+  // Cookie 的存在性+三段式+expiry，**不验签**（见 middleware.ts 末尾注释），
+  // 伪造 `aegis_session=<任意subject>.<未来expiry>.<任意sig>` 能穿过它；真正的
+  // HMAC-SHA256 验签只发生在 getSession -> parseSession -> verifySessionSignature。
+  //
   // capability RBAC：developer 档仅可读"本人"设备（owner/os_user == subject）。
+  //
+  // ⚠️ 这里刻意**不使用** `session ? ... : false` 这类把 null 当"不受限"的写法：
+  // 修复前正是那个三元把"验签失败"静默降级成"无需收窄"，于是伪造 Cookie 既读到
+  // **全量舰队**（device_id / hostname / owner / os_user / serial / local_ips /
+  // egress_ip / agent_version / skills / mcp_assets），又绕过了 developer 档的
+  // "仅本人设备"规则。POST/PUT/DELETE 走 requireDeviceWriter 一直有 401，
+  // 唯独 GET 是洞 —— 因为它调了 getSession 却没把它当门禁用。
+  // fail-closed：会话缺失一律 401，绝不回落成全量读。
   const session = getSession(request);
-  const scopeToSelf = session ? !roleReadsAllDevices(session.role) : false;
+  if (!session) return unauthenticated();
+  const scopeToSelf = !roleReadsAllDevices(session.role);
   const applyScope = <T extends { owner: string; os_user?: string }>(list: T[]): T[] =>
-    scopeToSelf && session
+    scopeToSelf
       ? list.filter((d) => d.owner === session.subject || (d.os_user ?? '') === session.subject)
       : list;
 

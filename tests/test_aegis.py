@@ -2051,6 +2051,91 @@ console.log(JSON.stringify(d));
                 self.assertNotIn(data_access, src,
                                  f"{path} 已开始访问数据/写审计，必须补验签闸并移出豁免清单")
 
+    def test_getsession_callers_all_have_a_rejection_branch(self):
+        """强断言：**调了 getSession 不等于设了闸** —— 每个自己解析身份的 handler
+        必须存在配套的拒绝分支。
+
+        为什么需要这条（test_session_and_admin_api_routes_verify_signature 的盲区）：
+        那条只断言"文件里出现过验签函数名"，对下面这种形态**天然假阴性**——
+
+            // 阳性对照：app/api/devices/route.ts 的 GET（修复前的真实写法）
+            const session = getSession(request);
+            const scopeToSelf = session ? !roleReadsAllDevices(session.role) : false;
+
+        它命中了 `getSession(`，所以文件级断言放行；但 `session === null`（伪造 Cookie
+        验签失败）时三元回落到 `false` = "不收窄" = **读全量舰队**，同时绕过 developer 档
+        "仅本人设备"的能力门禁。实测伪造 `aegis_session=fake.9999999999999.badsig`
+        可读到 450 台终端的 device_id / hostname / owner / os_user / serial /
+        local_ips / egress_ip / agent_version / skills / mcp_assets。
+
+        这是目前唯一已知的"调了 getSession 却没形成闸"形态。**将来谁照它抄，
+        就会被本测试抓住**：把 null 会话当成"不受限"是把鉴权失败静默升级成最高权限。
+
+        逐 handler（而非逐文件）检查，因为同一文件里 POST/PUT/DELETE 可能已有
+        `if (__denied)`，足以让文件级断言误判为安全 —— devices/route.ts 正是如此
+        （写操作走 requireDeviceWriter 一直有 401，唯独 GET 是洞）。
+
+        范围限定为契约声明 session/admin 的路由：public/device 档（如
+        /policy/artifact 终端免会话拉取、/enroll 零接触注册）本就可以选择性读取身份
+        用于留痕而不拒绝，不在此列。
+        """
+        import re as _re
+        access = self._api_route_access_levels()
+        sources = self._api_route_sources()
+
+        handler_re = _re.compile(r'export (?:async )?function (GET|POST|PUT|DELETE|PATCH)\b')
+        gate_calls = ('requireAdmin(', 'requireSession(', 'requireAuditor(',
+                      'requireDeviceWriter(')
+        # 拒绝分支：`if (!session)`，也接受复合条件如
+        # `if (!session && !collectorBearerOk(request))`（/settings/alerting 的
+        # 会话-或-终端令牌双通道鉴权），故用 [^)]* 允许条件里出现其它谓词。
+        session_reject = _re.compile(r'if \([^)]*!\s*\w*session\w*|if \(\s*\w*session\w* === null\)')
+        gate_reject = _re.compile(r'if \(\s*_?_?denied\s*\)')
+
+        # 唯一豁免：登出必须**在会话无效时依然可用**——它存在的意义就是清掉一个
+        # 过期/伪造/已吊销的 Cookie。若对它返回 401，用户将永远无法清除坏 Cookie。
+        # 该豁免由 test_logout_stays_callable_with_invalid_session 反向锁定。
+        exempt = {('/auth/logout', 'POST')}
+
+        offenders = []
+        inspected = 0
+        for path, src in sources.items():
+            if access.get(path) not in ('session', 'admin'):
+                continue
+            marks = [(m.start(), m.group(1)) for m in handler_re.finditer(src)]
+            for i, (pos, verb) in enumerate(marks):
+                end = marks[i + 1][0] if i + 1 < len(marks) else len(src)
+                body = src[pos:end]
+                derives = ('getSession(' in body) or ('parseSession(' in body)
+                has_gate = any(g in body for g in gate_calls)
+                if not (derives or has_gate):
+                    continue
+                inspected += 1
+                if (path, verb) in exempt:
+                    continue
+                if derives and not (has_gate or session_reject.search(body)):
+                    offenders.append(f"{verb} {path}: 调了 getSession/parseSession 却无 null 拒绝分支"
+                                     f"（null 会话被当成放行/不受限？）")
+                if has_gate and not gate_reject.search(body):
+                    offenders.append(f"{verb} {path}: 调了 requireXxx 门禁却没检查其返回值"
+                                     f"（门禁结果被丢弃 = 等于没有门禁）")
+        self.assertGreaterEqual(inspected, 60,
+                                f"handler 解析疑似失效：只检查到 {inspected} 个（应 >=60）")
+        self.assertEqual(offenders, [],
+                         "以下 handler 的鉴权形同虚设（详见本测试 docstring 的阳性对照）:\n  "
+                         + "\n  ".join(offenders))
+
+    def test_logout_stays_callable_with_invalid_session(self):
+        """反向锁定上面那条的唯一豁免：/api/auth/logout 必须**无条件**清 Cookie 并
+        返回成功，即使会话缺失/无效也要能用（否则用户无法摆脱一个坏 Cookie）。
+        若有人把它改成需要有效会话，本测试失败 → 强制重新评估豁免是否仍成立。"""
+        src = (ROOT / 'app' / 'api' / 'auth' / 'logout' / 'route.ts').read_text(encoding='utf-8')
+        self.assertIn('maxAge: 0', src, "logout 必须通过 maxAge:0 清除会话 Cookie")
+        self.assertIn('ok: true', src, "logout 必须无条件返回成功（幂等）")
+        self.assertNotIn('requireAdmin(', src, "logout 不得要求 admin")
+        self.assertNotIn('requireSession(', src,
+                         "logout 不得要求有效会话——那会让坏 Cookie 永远清不掉")
+
     def test_p0_3_five_endpoints_gate_levels(self):
         """显式回归锚点（比全量遍历更易读）：P0-3 的五个端点各自带闸，且**档位**正确。
 
