@@ -7,7 +7,12 @@
 已做的零风险加固（已上线）：
 - `NODE_ENV=production`（关 dev 重编译/热更开销）。
 - drop-in `MemoryHigh=1600M / MemoryMax=2400M`（给冷启留余量，仍受 cgroup 约束）。
-- 自愈看门狗 `aegis-console-healthcheck.timer`（60s 探活 + 240s boot grace，防冷启误杀成重启循环）。
+- 自愈看门狗 `aegis-console-healthcheck.timer`（60s 探活 + **600s boot grace + 3 次连续失败才重启**）。
+  2026-09-25 生产事故教训：冷启 /login 编译实测可达 150–310s，旧版"10s 探测 + 240s grace"在服务满 4 分钟后，
+  任何一次撞上冷编译窗口的探测超时都触发 restart → 新一轮冷编译 → 再超时，形成连环重启
+  （当日 40 分钟内 4 次），用户请求撞上冷窗口即 nginx 60s → HTTP 504。
+  新策略：探测 15s 超时、服务启动 600s 内失败不计数、连续 3 次失败（状态文件 /run/aegis-console-fail.count）
+  才重启——冷编译慢与真死锁可区分。
 - `ExecStartPost` 就绪轮询 + `TimeoutStartSec=360`（restart 阻塞到 worker 真可服务）。
 
 ## 候选方案
