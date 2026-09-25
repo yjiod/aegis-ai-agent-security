@@ -1141,10 +1141,20 @@ export default function RisksPage() {
                   <span className="device" style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
                     {ticket.device_id ? (
                       <>
-                        {/* 设备识别（用户反馈 2026-09-25）：序列号 + 用户，光哈希 ID 分不出机器 */}
+                        {/* 设备识别（用户反馈 2026-09-25 二次修正）：主机名优先（序列号不直观），
+                            悬停可见 序列号/device_id；无主机名回落序列号，再回落 device_id */}
                         <span style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <strong style={{ fontFamily: 'var(--sentinel-font-mono)' }} title={`device_id: ${ticket.device_id}`}>
-                            {deviceInfo[ticket.device_id]?.serial || ticket.device_id}
+                          <strong
+                            style={{ fontFamily: 'var(--sentinel-font-mono)' }}
+                            title={[
+                              deviceInfo[ticket.device_id]?.hostname ? `主机名: ${deviceInfo[ticket.device_id].hostname}` : '',
+                              deviceInfo[ticket.device_id]?.serial ? `序列号: ${deviceInfo[ticket.device_id].serial}` : '',
+                              `device_id: ${ticket.device_id}`,
+                            ].filter(Boolean).join('\n')}
+                          >
+                            {deviceInfo[ticket.device_id]?.hostname
+                              || deviceInfo[ticket.device_id]?.serial
+                              || ticket.device_id}
                           </strong>
                           {deviceInfo[ticket.device_id]?.os_user && (
                             <i className="handle" style={{ fontStyle: 'normal', fontSize: 11, color: 'var(--muted-foreground)' }}>
@@ -1336,10 +1346,35 @@ export default function RisksPage() {
                     <div className="kv">
                       <span>终端</span>
                       <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>
-                        {drawerTicket.device_id && (deviceInfo[drawerTicket.device_id]?.serial || drawerTicket.device_id)}
+                        {drawerTicket.device_id
+                          && (deviceInfo[drawerTicket.device_id]?.hostname
+                            || deviceInfo[drawerTicket.device_id]?.serial
+                            || drawerTicket.device_id)}
                         {drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.os_user
                           ? ` · ${deviceInfo[drawerTicket.device_id].os_user}`
                           : ''}
+                      </span>
+                      <span>序列号</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>
+                        {(drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.serial) || '—'}
+                      </span>
+                      <span>互联网 IP</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>
+                        {(drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.network?.egress_ip) || '—'}
+                      </span>
+                      <span>本地 IP</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)', whiteSpace: 'pre-line' }}>
+                        {(drawerTicket.device_id
+                          && deviceInfo[drawerTicket.device_id]?.network?.local_ips?.length
+                          && deviceInfo[drawerTicket.device_id].network?.local_ips?.join('\n')) || '—'}
+                      </span>
+                      <span>MAC</span>
+                      <span style={{ fontFamily: 'var(--sentinel-font-mono)', whiteSpace: 'pre-line' }}>
+                        {(drawerTicket.device_id
+                          && (deviceInfo[drawerTicket.device_id]?.network?.physical_nics?.length
+                            ? deviceInfo[drawerTicket.device_id].network?.physical_nics?.map((nic) => `${nic.name}: ${nic.mac}`).join('\n')
+                            : deviceInfo[drawerTicket.device_id]?.network?.macs?.join('\n')))
+                          || '—'}
                       </span>
                     </div>
                   ),
