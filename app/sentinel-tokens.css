@@ -234,7 +234,9 @@ body.sentinel-theme {
   color: #0c1a22;
 }
 [data-theme='light'] .sentinel-section-title { color: #0c1a22; }
-[data-theme='light'] .sentinel-section-title::before { background: #0f9d76; box-shadow: none; }
+/* 审计 #37：硬编码值与本块上方 --sentinel-accent 的亮色定义同值，改 token 引用
+   即等价，且不再随 token 漂移（语义绿用于"已生效"标记，属白名单内的合法绿）。 */
+[data-theme='light'] .sentinel-section-title::before { background: var(--sentinel-accent); box-shadow: none; }
 [data-theme='light'] .sentinel-metric-value { color: #0c1a22; }
 [data-theme='light'] .sentinel-status { color: #5b7280; }
 [data-theme='light'] .sentinel-table th,

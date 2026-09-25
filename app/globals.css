@@ -125,19 +125,29 @@
   --glow-primary-soft: rgba(13, 127, 176, 0.08);
   --glow-danger: rgba(220, 53, 69, 0.2);
   --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
-  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.08), 0 0 0 1px rgba(26,157,110,0.12), 0 8px 24px rgba(0,0,0,0.06);
+  /* 审计 #37：hover elevation 原带一圈绿色环，改中性线条 token（去染绿） */
+  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.08), 0 0 0 1px var(--sentinel-line), 0 8px 24px rgba(0,0,0,0.06);
   --shadow-overlay: 0 16px 48px rgba(0,0,0,0.12), 0 4px 12px rgba(0,0,0,0.06);
 }
 [data-theme="light"] body { background: var(--sentinel-bg); color: #0d1f1a; }
 [data-theme="light"] .topbar { background: rgba(248,250,249,0.92); border-bottom-color: #d4e5df; }
-[data-theme="light"] .brandmark { background: #1a9d6e; color: #fff; box-shadow: 0 0 16px rgba(26,157,110,0.25); }
+/* 审计 #37：brandmark 的 16px 外发光必须去（禁 glow）。底色保留品牌绿——logo 容器
+   属交互色规则的豁免位，但审计注明"是否保留品牌绿需产品确认"，本轮不动色相。 */
+[data-theme="light"] .brandmark { background: #1a9d6e; color: #fff; box-shadow: none; }
 [data-theme="light"] .sidebar { background: rgba(240,245,243,0.6); border-right-color: #d4e5df; }
 [data-theme="light"] .nav-item { color: #4a6d62; }
-[data-theme="light"] .nav-item:hover { background: #e8f5f0; color: #1a3d30; }
+/* 审计 #37：下一行的 .nav-item.active 已是青蓝（批1 的 #2 成果），而 hover 仍是
+   硬编码绿——同一导航组件内"悬停=绿、选中=青蓝"，交互主色自相矛盾。
+   改为青蓝微染 + 2px 能量条，与 .active 及本轮 .data-row:hover / .risk-row:hover
+   的写法一致。
+   注：暗色侧 .nav-item:hover 仍是绿色渐变 + #49e8a5 族能量条，属本轮范围外的
+   遗留（见实施报告的暗色层发现项），修完后两主题即可对齐。 */
+[data-theme="light"] .nav-item:hover { background: color-mix(in srgb, var(--ring) 6%, transparent); color: #1a3d30; box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ring) 35%, transparent); }
 [data-theme="light"] .nav-item.active { background: var(--sentinel-surface-3); color: var(--sentinel-cyan); border-color: transparent; box-shadow: inset 2px 0 0 var(--sentinel-cyan); }
-[data-theme="light"] .metric, [data-theme="light"] .panel { background: linear-gradient(145deg, #ffffff, #f8faf9); border-color: #d4e5df; box-shadow: var(--shadow-card); backdrop-filter: none; }
+/* 审计 #37：卡片底改平整实底（禁渐变填充），与暗色层 #5 的修法一致 */
+[data-theme="light"] .metric, [data-theme="light"] .panel { background: var(--sentinel-surface); border-color: #d4e5df; box-shadow: var(--shadow-card); backdrop-filter: none; }
 [data-theme="light"] .metric strong { color: #0d1f1a; text-shadow: none; }
-[data-theme="light"] .metric.danger { border-color: #f5c6cb; background: linear-gradient(145deg, #fff8f8, #ffffff); }
+[data-theme="light"] .metric.danger { border-color: #f5c6cb; background: var(--sentinel-surface); }
 [data-theme="light"] .demo-notice { background: #fff8e6; border-color: #f0d080; color: #7a6020; }
 [data-theme="light"] .demo-notice strong { color: #6f5416; }
 [data-theme="light"] .toast { background: #ffffff; border-color: #b8d4ca; color: #1a3d30; box-shadow: var(--shadow-overlay); }
@@ -147,17 +157,31 @@
 [data-theme="light"] .severity.orange { background: #fef3e2; color: #8a5a12; }
 [data-theme="light"] .severity.pass { color: #0f7a52; background: #e8f5f0; border-color: #b8d4ca; }
 [data-theme="light"] .data-row { border-bottom-color: #e8f0ed; }
-[data-theme="light"] .data-row:hover { background: linear-gradient(90deg, #f0f8f5, #e8f5f0, #f0f8f5); box-shadow: inset 3px 0 0 rgba(26,157,110,0.3); }
+/* 审计 #37：hover 态的绿色三段渐变 + 绿色能量条 → 青蓝纯色微染 + 2px 能量条。
+   既消解渐变（禁渐变填充），也与暗色层 nav.active 的 2px 能量条语言统一
+   （对齐 #2 的修法）。 */
+[data-theme="light"] .data-row:hover { background: color-mix(in srgb, var(--ring) 5%, transparent); box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ring) 35%, transparent); }
 [data-theme="light"] .icon-btn, [data-theme="light"] .avatar { border-color: #d4e5df; background: #ffffff; color: #4a6d62; }
 [data-theme="light"] .side-foot { border-color: #d4e5df; background: #ffffff; color: #527469; }
 [data-theme="light"] .module { border-color: #e0ece8; background: #f8faf9; }
 [data-theme="light"] .module-icon.green { background: #e0f2ec; color: #0f7a52; }
 [data-theme="light"] .module-icon.blue { background: #e0ecf5; color: #1f6f9c; }
-[data-theme="light"] .handle { border-color: #b8d4ca; background: #e8f5f0; color: #0f7a52; }
+/* 审计 #37：.handle 是按钮（31 处消费），交互主色必须是青蓝而非绿。
+   亮色主题自己的 --primary 已是 #0d7fb0，这处硬编码绿是在违背本主题的 token。 */
+[data-theme="light"] .handle { border-color: var(--sentinel-line-strong); background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--primary); }
 [data-theme="light"] .switch { background: #d4e5df; }
-[data-theme="light"] .switch.on { background: #1a9d6e; box-shadow: 0 0 10px rgba(26,157,110,0.3); }
-[data-theme="light"] .live-dot { background: #1a9d6e; box-shadow: 0 0 6px rgba(26,157,110,0.5); }
-[data-theme="light"] .demo-dot { background: #b8860b; box-shadow: 0 0 6px rgba(184,134,11,0.4); }
+/* 审计 #37：开关 on 态 = 交互态 → 青蓝；同时去掉 10px 外发光（禁 glow） */
+[data-theme="light"] .switch.on { background: var(--primary); box-shadow: none; }
+/* 审计 #37：状态点保留绿色**色相**（基线明列状态点=绿，属白名单），
+   只去掉 6px 外发光，与暗色层已做的 box-shadow:none 对齐。
+   底色刻意保留字面值而不用 var(--sentinel-accent)：亮色 token 的 accent 值
+   与此处字面值是两个不同的绿，换过去等于改色相——审计明确要求"保留"。
+   两者并存属遗留问题，已记入实施报告待设计师统一。
+   （本注释刻意不写出具体色号，避免按色号做的 grep 门禁命中注释产生假阳性。） */
+[data-theme="light"] .live-dot { background: #1a9d6e; box-shadow: none; }
+/* 审计 #37（禁 glow）：琥珀**色相**保留（demo/未接入属状态点语义，白名单内），
+   只去掉 6px 外发光，与上一行 .live-dot 的处理一致。 */
+[data-theme="light"] .demo-dot { background: #b8860b; box-shadow: none; }
 [data-theme="light"] .coverage-row .tool-logo { background: #f0f5f3; border-color: #d4e5df; color: #4a6d62; }
 [data-theme="light"] .flow { background: #f0f5f3; border-color: #d4e5df; color: #527469; }
 [data-theme="light"] .flow .safe { color: #0f7a52; }
@@ -166,7 +190,9 @@
 [data-theme="light"] .page-head p, [data-theme="light"] .panel-head p { color: #527469; }
 [data-theme="light"] .metric-top { color: #527469; }
 [data-theme="light"] .metric p { color: #527469; }
-[data-theme="light"] .metric em { color: #0f7a52; }
+/* 审计 #37：正向增量（em）暗色层用 var(--primary)（青蓝），亮色层原为绿 →
+   同一语义两主题不同色。统一为 var(--primary)。 */
+[data-theme="light"] .metric em { color: var(--primary); }
 [data-theme="light"] .metric i { color: #c0392b; }
 
 /* Page heading: the dark theme paints it with a near-white gradient text-fill,
@@ -180,14 +206,20 @@
 /* Topbar text + interactive states (base hover colours are near-white). */
 [data-theme="light"] .brand-muted { color: #527469; }
 [data-theme="light"] .system-ok { color: #4a6d62; }
+/* 审计 #37：hover 是交互态 → 交互主色青蓝，不用绿。亮色主题自身的 --ring 已是
+   #0d7fb0，这两处硬编码绿违背本主题的 token（正是 #37 的核心矛盾）。
+   `0 0 0 3px` 是 spread-only 的实心焦点/悬停环而非 blur 外发光，故保留其形状，
+   只把颜色换成 --ring 的 color-mix，不再各写一份绿字面值。
+   注：暗色侧同两条规则仍是 rgba(73,232,165,*)（=#49e8a5 旧绿族）——那属批4
+   已签收范围之外的遗留，本轮不动，已作为发现项记入实施报告提请 lead 裁定。 */
 [data-theme="light"] .icon-btn:hover {
-  border-color: rgba(18, 122, 84, 0.45);
+  border-color: color-mix(in srgb, var(--ring) 45%, transparent);
   color: #0d1f1a;
-  box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1), 0 4px 14px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 10%, transparent), 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 [data-theme="light"] .avatar:hover {
-  border-color: rgba(18, 122, 84, 0.45);
-  box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1);
+  border-color: color-mix(in srgb, var(--ring) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 10%, transparent);
 }
 
 /* Selection: dark ink on pale green (base is near-white ink on pale green). */
@@ -217,7 +249,9 @@
   color: #b03a2e;
   box-shadow: none;
 }
-[data-theme="light"] .side-foot:hover { border-color: rgba(18, 122, 84, 0.35); }
+/* 审计 #37：暗色基类 .side-foot:hover 已用 var(--sentinel-line-strong) token，
+   亮色这条却是硬编码绿——同一元素两主题不同源。收敛到同一 token。 */
+[data-theme="light"] .side-foot:hover { border-color: var(--sentinel-line-strong); }
 [data-theme="light"] .side-foot strong { color: #1a3d30; }
 
 /* Page-head actions — the first button is a dark glass surface by default. */
@@ -226,10 +260,13 @@
   background: #ffffff;
   color: #4a6d62;
 }
+/* 审计 #37：暗色基类 .head-actions button:first-child:hover 已是青蓝
+   rgba(39,184,243,*)（= --sentinel-cyan），亮色这条却是绿——同一按钮两主题相反。
+   收敛到 --ring token；`0 0 0 3px` 是 spread-only 实心环，保留形状。 */
 [data-theme="light"] .head-actions button:first-child:hover {
-  border-color: rgba(18, 122, 84, 0.45);
+  border-color: color-mix(in srgb, var(--ring) 45%, transparent);
   color: #0d1f1a;
-  box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1), 0 6px 18px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 10%, transparent), 0 6px 18px rgba(0, 0, 0, 0.08);
 }
 
 /* Panels. */
@@ -237,18 +274,22 @@
   border-color: #b8d4ca;
   box-shadow: var(--shadow-card-hover);
 }
+/* 审计 #37：panel-head 里的 badge / button / button:hover 属同一交互族，
+   原先三处都是硬编码绿。基类 button 改 var(--primary)（审计明确列出），
+   hover 与 badge 一并跟上——否则会出现"常态青蓝、悬停变绿"的割裂态。
+   底色统一用 --primary 的 color-mix 微染，不再各写一份绿底字面值。 */
 [data-theme="light"] .panel-head [data-slot="badge"] {
-  border-color: #b8d4ca;
-  background: #e8f5f0;
-  color: #0f7a52;
+  border-color: color-mix(in srgb, var(--primary) 32%, transparent);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: var(--primary);
   box-shadow: none;
 }
 [data-theme="light"] .panel-head [data-slot="badge"]:hover {
-  border-color: rgba(18, 122, 84, 0.45);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
   box-shadow: none;
 }
-[data-theme="light"] .panel-head button { color: #0f7a52; }
-[data-theme="light"] .panel-head button:hover { background: #e8f5f0; color: #0b5f40; }
+[data-theme="light"] .panel-head button { color: var(--primary); }
+[data-theme="light"] .panel-head button:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--primary); }
 
 /* Metric cards. */
 [data-theme="light"] .metric::before,
@@ -299,9 +340,12 @@
 
 /* Risk table. */
 [data-theme="light"] .risk-row { border-top-color: #e8f0ed; }
+/* 审计 #37：暗色基类 .risk-row:hover 已是青蓝微染 + inset 2px 青蓝能量条
+   （批1 的 #2 语言），亮色这条却是绿色渐变 + 3px 绿条——同一交互态两主题相反。
+   改为与暗色基类及本轮 .data-row:hover 完全一致的写法（纯色微染 + 2px，去渐变）。 */
 [data-theme="light"] .risk-row:hover {
-  background: linear-gradient(90deg, #f0f8f5, #e8f5f0);
-  box-shadow: inset 2px 0 0 rgba(18, 122, 84, 0.35);
+  background: color-mix(in srgb, var(--ring) 5%, transparent);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ring) 35%, transparent);
 }
 [data-theme="light"] .risk-main span,
 [data-theme="light"] .device,
@@ -312,11 +356,15 @@
 [data-theme="light"] .severity.critical { border-color: #f0bfba; }
 [data-theme="light"] .severity.red { border-color: #f0cdba; }
 [data-theme="light"] .severity.orange { border-color: #ecd3a3; }
+/* 审计 #37：.handle 基类本轮已改 var(--primary)（青蓝），hover 必须跟上，
+   否则会出现"常态青蓝、悬停变绿"的割裂态。暗色基类 .handle:hover 用的正是
+   青蓝 rgba(39,184,243,*)，故此举同时也是向暗色既有写法收敛。
+   `0 0 0 3px` 为 spread-only 实心环（非 blur 发光），保留形状、换 token 色。 */
 [data-theme="light"] .handle:hover {
-  border-color: rgba(18, 122, 84, 0.5);
-  background: #dff0e8;
-  color: #0b5f40;
-  box-shadow: 0 0 0 3px rgba(18, 122, 84, 0.1);
+  border-color: color-mix(in srgb, var(--primary) 50%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 /* Score breakdown list (light theme). */
@@ -1577,8 +1625,11 @@ button {
 }
 
 [data-theme="light"] .form-input { background: #fff; border-color: #d4e5df; color: #0d1f1a; }
-[data-theme="light"] .form-input:focus { border-color: #1a9d6e; box-shadow: 0 0 0 2px rgba(26,157,110,0.1); }
-[data-theme="light"] .filter-btn.active { background: #e0f2ec; border-color: #1a9d6e; color: #1a9d6e; }
+/* 审计 #37：焦点态与选中态必须是青蓝——亮色主题自己的 --ring / --primary 已经是
+   #0d7fb0，这两处硬编码绿是在违背本主题的 token，也让"焦点环=青蓝"的全站约定
+   在亮色下失效。 */
+[data-theme="light"] .form-input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 18%, transparent); }
+[data-theme="light"] .filter-btn.active { background: color-mix(in srgb, var(--ring) 10%, transparent); border-color: var(--ring); color: var(--ring); }
 
 /* ---------- 16. Responsive breakpoints -------------------- */
 @media (max-width: 1050px) {
@@ -2078,10 +2129,14 @@ button {
 .metric { min-height: 112px; padding: 14px 16px; }
 .top-meta { display: flex; align-items: center; gap: 14px; color: var(--sentinel-text-2); font-size: 12px; }
 
-[data-theme='light'] .shield-circle { border-color: rgba(15, 157, 118, 0.5); color: #0f9d76; box-shadow: none; }
+/* 审计 #37：shield-circle 属白名单里的**合法语义绿**（盾=防护生效），故保留绿色相，
+   只把与亮色 --sentinel-accent 同值的硬编码换成 token 引用（等价、且不再随 token 漂移）。
+   border 的 rgba(15,157,118,.5) 即 accent 的 50% 透明写法，改用 color-mix 同源。 */
+[data-theme='light'] .shield-circle { border-color: color-mix(in srgb, var(--sentinel-accent) 50%, transparent); color: var(--sentinel-accent); box-shadow: none; }
 [data-theme='light'] .mini { background: #ffffff; border-color: #d7e3ea; }
 [data-theme='light'] .mini label { color: #5b7280; }
-[data-theme='light'] .bar-spark { background: linear-gradient(180deg, transparent, rgba(15, 157, 118, 0.05)); }
+/* 审计 #37：去渐变填充，改青蓝纯色微染（sparkline 底板属装饰底，非语义绿） */
+[data-theme='light'] .bar-spark { background: color-mix(in srgb, var(--primary) 4%, transparent); }
 [data-theme='light'] .progress { background: #e1e9ee; }
 
 /* ---------- 风险页 KPI 卡密度/和谐度（视觉迭代 2026-09-23） ---------- */
@@ -2110,9 +2165,13 @@ button {
 }
 .detail-kpis article:nth-child(2) { border-left-color: var(--sentinel-cyan); }
 .detail-kpis article:nth-child(3) { border-left-color: var(--sentinel-danger); }
-[data-theme='light'] .detail-kpis article { border-left-color: #0f9d76; }
-[data-theme='light'] .detail-kpis article:nth-child(2) { border-left-color: #2790c4; }
-[data-theme='light'] .detail-kpis article:nth-child(3) { border-left-color: #c0392b; }
+/* 审计 #37：这三条亮色 override 是暗色层三个 token 的同值硬编码副本
+   （实测亮色 --sentinel-accent 与 --sentinel-danger 的取值与其逐字相同），
+   故直接删掉、由暗色层的 token 声明自动跟随主题即可——少一层可漂移的副本。
+   唯一例外是第 2 条：暗色层用 var(--sentinel-cyan)，亮色原硬编码值
+   与亮色 token 是两个不同的蓝，保留会让"同一语义两主题不同色"，
+   按 #37 "亮色 token 已经是对的，只需替换为 token 引用" 的原则一并删除。
+   （具体色号刻意不写进注释，避免按色号做的 grep 门禁命中注释产生假阳性。） */
 
 /* KPI 4 卡单行（消除 3+1 换行孤儿）；窄屏自动折行 */
 .detail-kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
