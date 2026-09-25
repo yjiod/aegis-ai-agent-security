@@ -140,6 +140,7 @@
 [data-theme="light"] .severity.red { background: #fdeee6; color: #b34a1f; }
 [data-theme="light"] .severity.critical { background: #fbdcd9; color: #9b1c12; border-color: #f0b4ad; }
 [data-theme="light"] .severity.orange { background: #fef3e2; color: #8a5a12; }
+[data-theme="light"] .severity.pass { color: #0f7a52; background: #e8f5f0; border-color: #b8d4ca; }
 [data-theme="light"] .data-row { border-bottom-color: #e8f0ed; }
 [data-theme="light"] .data-row:hover { background: linear-gradient(90deg, #f0f8f5, #e8f5f0, #f0f8f5); box-shadow: inset 3px 0 0 rgba(26,157,110,0.3); }
 [data-theme="light"] .icon-btn, [data-theme="light"] .avatar { border-color: #d4e5df; background: #ffffff; color: #4a6d62; }
@@ -1363,6 +1364,18 @@ button {
 .risk-row:hover .severity.orange {
   box-shadow: 0 0 16px rgba(246, 189, 109, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   border-color: rgba(246, 189, 109, 0.4);
+}
+
+/* 低危（tone="pass"）：语义绿芯片。此前 .severity.blue 类根本不存在，
+   低危徽章只剩 .severity 基础的透明边框、渲染成无样式空壳。
+   取值与 sentinel-tokens.css 的 .sentinel-badge[data-severity="low"] 对齐，
+   写法与上方 .severity.closed 的 color-mix 模式一致，避免第三套低危样式。
+   禁 glow：不加 box-shadow。 */
+.severity.pass {
+  color: var(--sentinel-accent);
+  background: color-mix(in srgb, var(--sentinel-accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--sentinel-accent) 32%, transparent);
+  box-shadow: none;
 }
 
 .risk-main {

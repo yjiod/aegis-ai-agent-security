@@ -49,6 +49,10 @@ import {
 import { useCollector } from '@/components/collector-context';
 import { ObservabilityPanel } from '@/components/observability-panel';
 import { SourceAttributionPanel } from '@/components/source-attribution-panel';
+/* 严重度映射的唯一权威源：ticket-detail 的 5 档（含 info）。
+   本页此前维护了一份 4 档本地副本，缺 info 且把低危映射成不存在的
+   `.severity.blue` 类，导致低危徽章渲染成无样式空壳、info 级误显橙色中危。 */
+import { severityMeta, type TicketSeverity } from '@/components/ticket-detail';
 
 /* ─── Animated number ──────────────────────────────────────────────────── */
 function useAnimatedNumber(target: number) {
@@ -83,13 +87,6 @@ const AGENT_LABEL: Record<string, string> = {
   codebuddy: 'CodeBuddy',
   workbuddy: 'WorkBuddy',
   other: '其他',
-};
-
-const SEVERITY_META: Record<string, { label: string; color: string }> = {
-  critical: { label: '严重', color: 'critical' },
-  high: { label: '高危', color: 'red' },
-  medium: { label: '中危', color: 'orange' },
-  low: { label: '低危', color: 'blue' },
 };
 
 const AUDIT_VERB: Record<string, string> = {
@@ -1020,10 +1017,10 @@ export default function Home() {
               <p className="empty-hint">暂无待处置风险事件；新的上报会自动进入该队列。</p>
             ) : (
               openTickets.map((t) => {
-                const meta = SEVERITY_META[t.severity] ?? { label: t.severity, color: 'orange' };
+                const meta = severityMeta(t.severity as TicketSeverity);
                 return (
                   <div className="risk-row" key={t.ticket_id}>
-                    <span className={`severity ${meta.color}`}>{meta.label}</span>
+                    <span className={`severity ${meta.tone}`}>{meta.label}</span>
                     <div className="risk-main">
                       <strong>{t.title}</strong>
                       <span>{t.ticket_id}</span>
