@@ -6,28 +6,19 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useRole } from '@/components/role-context';
 import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
-import { MODULE_LABELS, MODULE_HINTS, type ModuleKey } from '@/lib/modules';
-
-// TODO(#38): 改为 import lib/modules 的 MODULE_DEFAULTS 单一真源，本副本已知易漂移。
-// 截至本次修复，lib/modules.ts 尚未导出 MODULE_DEFAULTS / effectiveModules（后端所有权，
-// 已实测确认），故先做临时对齐：把 code_scan 从 true 改为 false。
+// 模块开关默认值与有效值一律取自 lib/modules.ts 的单一真源（#38，后端 commit a018870）。
 //
-// 审计 #38（P0，数据完整性）：此副本原为 code_scan: true，而两个权威源都是 false ——
-//   · lib/policy.ts:103        skill_scan: true, mcp_scan: true, code_scan: false, ...
-//   · public/downloads/aegis-policy.json  "code_scan": false
-// 后果是管理员在 /policies 操作面板看到「代码 / 密钥扫描 = 开」，而终端实际收到的是关，
-// 即管理决策面误报安全控制状态（code_scan 关闭是 2026-09-25 用户决策：代码扫描交由
-// 专业扫描器负责）。下方注释原先声称"与 aegis-policy.json 的 modules 一致"，实际并不一致；
-// 改完这一处后该声明才成立。
-// 后端导出单一真源后，应删除本副本并改用 effectiveModules(overrides) 取**有效值**。
-/** 模块开关出厂默认（与 public/downloads/aegis-policy.json 的 modules 一致）。
- *  执行类开关(skill_enforce/mcp_enforce)默认 false：deny 名单只报不封，打开才真封禁。
- *  code_scan 默认 false（2026-09-25 用户决策）：代码扫描交由专业扫描器负责。 */
-const MODULE_DEFAULTS: Record<string, boolean> = {
-  skill_scan: true, mcp_scan: true, code_scan: false, deps_scan: true,
-  baseline_install: true, network_collect: true, self_update: true,
-  skill_enforce: false, mcp_enforce: false,
-};
+// 审计 #38（P0，数据完整性）：此处原有一份本地 MODULE_DEFAULTS 副本，其中
+// code_scan: true 与两个权威源相反（lib/policy.ts 与 public/downloads/aegis-policy.json
+// 都是 false），而副本上方的注释却声称"与 aegis-policy.json 的 modules 一致"。
+// 后果是管理员在 /policies 操作面板看到「代码 / 密钥扫描 = 开」，而终端实际收到的是关
+// —— 管理决策面误报安全控制状态，比展示面误报（#32）更严重，因为管理员据此做的
+// 判断建立在错误前提上。code_scan 关闭是 2026-09-25 用户决策：代码扫描交由专业扫描器负责。
+//
+// 副本已删除。开关取值改用 effectiveModules(overrides) 的**有效值**：接口返回的
+// overrides 是 Partial（只含被显式改过的键），直接用 `overrides[k] ?? 本地默认` 的
+// 写法正是三份默认值得以漂移的成因。
+import { MODULE_KEYS, MODULE_LABELS, MODULE_HINTS, effectiveModules } from '@/lib/modules';
 
 /** 真实可开关的模块列表：状态持久化在服务端(/api/settings/modules)，
  *  随下一次签名策略发布下发终端。取代此前的只读假开关。 */
@@ -56,17 +47,22 @@ function ModuleToggles({ isAdmin }: { isAdmin: boolean }) {
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
     setBusy('');
   };
+  /** 终端将实际收到的**有效**开关 = 出厂默认（lib/modules.ts 单一真源）叠加服务端覆盖值。 */
+  const effective = effectiveModules(overrides);
   return (
     <>
       {err && <p style={{ color: 'var(--sentinel-danger)', fontSize: 12, margin: '0 0 8px' }}>{err}</p>}
       {!loaded && <p style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>加载模块开关…</p>}
-      {Object.keys(MODULE_DEFAULTS).map((key, index) => {
-        const on = overrides[key] ?? MODULE_DEFAULTS[key];
+      {/* 列表按 MODULE_KEYS 的权威顺序渲染；开关值取 effectiveModules() 的**有效值**
+          （出厂默认叠加服务端覆盖值），而不是 `overrides[key] ?? 本地默认`——
+          后者要求每个消费点各自持有一份默认值，正是 #38 三副本漂移的成因。 */}
+      {MODULE_KEYS.map((key, index) => {
+        const on = effective[key];
         return (
           <div className="setting-row animate-row-entrance" key={key} style={{ animationDelay: `${index * 30 + 200}ms` }}>
             <div>
-              <strong>{MODULE_LABELS[key as ModuleKey] ?? key}</strong>
-              <span>{MODULE_HINTS[key as ModuleKey] ?? ''}</span>
+              <strong>{MODULE_LABELS[key] ?? key}</strong>
+              <span>{MODULE_HINTS[key] ?? ''}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <i className={on ? 'pass' : 'warn'}>{on ? '开' : '关'}</i>
@@ -75,7 +71,7 @@ function ModuleToggles({ isAdmin }: { isAdmin: boolean }) {
                 disabled={!isAdmin || busy === key}
                 onClick={() => void toggle(key, !on)}
                 title={isAdmin ? '切换模块；下一次发布策略后随签名策略下发终端' : '仅管理员可切换'}
-                aria-label={MODULE_LABELS[key as ModuleKey] ?? key}
+                aria-label={MODULE_LABELS[key] ?? key}
               >
                 <span />
               </button>

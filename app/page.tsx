@@ -54,10 +54,10 @@ import { SourceAttributionPanel } from '@/components/source-attribution-panel';
    本页此前维护了一份 4 档本地副本，缺 info 且把低危映射成不存在的
    `.severity.blue` 类，导致低危徽章渲染成无样式空壳、info 级误显橙色中危。 */
 import { severityMeta, type TicketSeverity } from '@/components/ticket-detail';
-// 仅类型导入（编译期擦除，不产生运行时依赖）：ModuleKey 自 lib/modules.ts 首个
-// commit 起就已导出，故本行不依赖后端 #38 那批尚未提交的改动。
-// 值导入（MODULE_DEFAULTS / effectiveModules）要等后端 commit 后再加，见 TODO(#38)。
-import type { ModuleKey } from '@/lib/modules';
+// 模块开关的**有效值**由 lib/modules.ts 的单一真源计算（#38，后端 commit a018870）。
+// 该文件不 import node:crypto，客户端组件可安全引用；此前这里与 app/policies/page.tsx
+// 各有一份本地 MODULE_DEFAULTS 副本，副本正是三份默认值得以漂移的成因，现已删除。
+import { effectiveModules, type ModuleKey } from '@/lib/modules';
 
 /* ─── Animated number ──────────────────────────────────────────────────── */
 function useAnimatedNumber(target: number) {
@@ -156,45 +156,6 @@ interface TrendBucketLite {
 }
 
 /**
- * 模块开关出厂默认（审计 #32 / #38）。
- *
- * TODO(#38): 后端已在 `lib/modules.ts` 导出 `MODULE_DEFAULTS` 与 `effectiveModules`
- * （实测 :43 / :76，语义正是"默认叠加覆盖值、逐键校验 boolean"），但该改动尚未
- * commit；现在 import 会让本 commit 单独 checkout 时 tsc 红。待其 commit 后应删除
- * 本副本、改 import 单一真源，并与 `app/policies/page.tsx` 的同名副本一起清理。
- *
- * 值与两个权威源逐键一致（已实测核对）：`lib/policy.ts` 的 modules、
- * `public/downloads/aegis-policy.json` 的 modules。其中 code_scan 为 false
- * （2026-09-25 用户决策：代码扫描交由专业扫描器负责）。
- */
-const MODULE_DEFAULTS_LOCAL: Record<string, boolean> = {
-  skill_scan: true,
-  mcp_scan: true,
-  code_scan: false,
-  deps_scan: true,
-  baseline_install: true,
-  network_collect: true,
-  self_update: true,
-  skill_enforce: false,
-  mcp_enforce: false,
-};
-
-/**
- * 出厂默认叠加控制台覆盖值 → 终端将实际收到的**有效**开关。
- *
- * ⛔ 必须走这里，不能直接用接口返回值：`GET /api/settings/modules` 返回的是
- * `moduleOverrides()`，那是 **Partial**（只含被显式改过的键）。直接读它会把
- * "实际开着但从未被覆盖过"的模块报成关 —— 即 #32 谎言的反向版本。
- */
-function effectiveModulesLocal(overrides: Record<string, unknown>): Record<string, boolean> {
-  const out: Record<string, boolean> = { ...MODULE_DEFAULTS_LOCAL };
-  for (const [k, v] of Object.entries(overrides ?? {})) {
-    if (typeof v === 'boolean') out[k] = v;
-  }
-  return out;
-}
-
-/**
  * 能力卡定义（审计 #32）。
  *
  * ⛔ 状态**不得**在此硬编码。此前 4 张卡都写死 `status:'已启用', tone:'green'`，
@@ -279,7 +240,10 @@ export default function Home() {
       setMods(null);
       setModsError(MODULES_UNAVAILABLE_LABEL);
     } else {
-      setMods(effectiveModulesLocal(d.modules));
+      // effectiveModules 内部逐键校验 typeof === 'boolean'，故喂进未清洗的原始
+      // JSON 也不会把非布尔值渗进有效值（后端已在该函数文档中承诺此契约），
+      // 这里的断言是安全的。
+      setMods(effectiveModules(d.modules as Partial<Record<ModuleKey, boolean>>));
     }
     setModsLoading(false);
   }, []);
@@ -293,7 +257,8 @@ export default function Home() {
    *
    * ⛔ 三条陷阱（设计师明确警示，违反即重演 #32 的谎言）：
    *   1. **禁止 fail-open 到绿色** —— 加载中/接口失败一律中性灰，绝不回落"已启用"。
-   *   2. **必须用有效值** —— mods 已由 effectiveModulesLocal() 折算，不是 Partial 覆盖值。
+   *   2. **必须用有效值** —— mods 已由 lib/modules 的 effectiveModules() 折算，
+   *      不是接口返回的 Partial 覆盖值。
    *   3. **停用/未知/无开关态不渲染对勾** —— 对勾配灰字自相矛盾。
    *
    * tone 只有 'green'（确实在生效）与 'muted'（中性事实）两种：
