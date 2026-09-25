@@ -16,7 +16,7 @@
   "modules": {
     "skill_scan": true,
     "mcp_scan": true,
-    "code_scan": true,
+    "code_scan": false,
     "deps_scan": true,
     "baseline_install": true,
     "network_collect": true,

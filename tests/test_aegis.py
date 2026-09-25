@@ -187,8 +187,14 @@ class AegisTests(unittest.TestCase):
     def test_secret_detection_is_redacted(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'app.py'; p.write_text('token="sk-abcdefghijklmnopqrstuvwxyz123456"')
-            report=self.agent.build_report(Path(d),self.policy); f=next(x for x in report['findings'] if x['kind']=='hardcoded_secret')
+            # code_scan 默认关(2026-09-25): 出厂策略下 build_report 不产出 hardcoded_secret;
+            # 脱敏断言改在显式开启 code_scan 的策略下验证(脱敏逻辑本身不变)。
+            pol_on=dict(self.policy); pol_on['modules']=dict(self.policy.get('modules',{})); pol_on['modules']['code_scan']=True
+            report=self.agent.build_report(Path(d),pol_on); f=next(x for x in report['findings'] if x['kind']=='hardcoded_secret')
             self.assertEqual(f['severity'],'critical'); self.assertTrue(f['evidence'].endswith('…')); self.assertNotIn('abcdefghijklmnopqrstuvwxyz',f['evidence'])
+            # 出厂策略(关): 不产出即不上报
+            report_off=self.agent.build_report(Path(d),self.policy)
+            self.assertNotIn('hardcoded_secret',{x['kind'] for x in report_off['findings']})
     def test_baseline_is_additive_and_idempotent(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d); (root/'AGENTS.md').write_text('# Existing\nkeep me')
@@ -851,8 +857,14 @@ class AegisTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/'unapproved'; root.mkdir(); skill=root/'SKILL.md'; skill.write_text('# helper')
             (root/'run.py').write_text('token = "sk-abcdefghijklmnopqrstuvwxyz123456"')
+            # 出厂策略 code_scan=False(2026-09-25 用户决策): skill 身份仍扫, 代码质量不扫。
             findings,count=self.agent.scan_skill(skill,self.policy); kinds={f['kind'] for f in findings}
-            self.assertEqual(count,2); self.assertIn('unknown_skill',kinds); self.assertIn('hardcoded_secret',kinds)
+            self.assertEqual(count,2); self.assertIn('unknown_skill',kinds)
+            self.assertNotIn('hardcoded_secret',kinds)
+            # 显式开启 code_scan(预留能力): 包内代码质量扫描恢复。
+            pol_on=dict(self.policy); pol_on['modules']=dict(self.policy.get('modules',{})); pol_on['modules']['code_scan']=True
+            findings2,_=self.agent.scan_skill(skill,pol_on); kinds2={f['kind'] for f in findings2}
+            self.assertIn('unknown_skill',kinds2); self.assertIn('hardcoded_secret',kinds2)
         windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertLess(windows.index("$skillManifests=@(Get-ChildItem"),windows.index('$oversized=@(')); self.assertIn("kind='skill_scan_truncated'",windows); self.assertIn("kind='project_scan_truncated'",windows); self.assertIn("kind='skill_link_findings_truncated'",windows)
     def test_unknown_skill_finding_carries_match_provenance(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1372,6 +1384,34 @@ class AegisTests(unittest.TestCase):
                 self.assertIn('9.9.9', Path(d).joinpath('p.json').read_text())
             finally:
                 self.agent.server_override_path=orig_path; self.agent.enroll_to_server=orig_enroll
+
+    def test_code_scan_off_by_default_and_not_reported(self):
+        """代码扫描默认停用(2026-09-25 用户决策: 专业扫描器负责, 预留开关):
+        出厂策略/agent 缺省/终端 BASE_POLICY 三处 code_scan=False;
+        build_report 在 code_scan 关闭时剔除全部代码质量类发现(不上报)。"""
+        base=json.loads((DOWNLOADS/'aegis-policy.json').read_text())
+        self.assertFalse(base['modules']['code_scan'], "出厂策略 code_scan 必须默认 false")
+        self.assertFalse(self.agent.policy_module(base,'code_scan',False), "agent 缺省 False")
+        # 显式开启仍可用(预留能力)
+        on=dict(base); on['modules']=dict(base['modules']); on['modules']['code_scan']=True
+        self.assertTrue(self.agent.policy_module(on,'code_scan',False))
+        # report 兜底过滤: 构造含代码类发现的输入, code_scan 关闭时全部剔除
+        pol={'schema':'aegis.policy/v1','version':'1','modules':{'code_scan':False},
+             'allowed_skills':[],'enforcement':{'unknown_skill':'audit'}}
+        with tempfile.TemporaryDirectory() as td:
+            home=Path(td)/'home'; proj=home/'proj'; proj.mkdir(parents=True)
+            (proj/'a.py').write_text('import subprocess\nsubprocess.run("ls", shell=True)\n')
+            orig=self.agent.managed_homes; self.agent.managed_homes=lambda:[home]
+            try:
+                rep=self.agent.build_report(proj,pol)
+                kinds={f['kind'] for f in rep['findings']}
+                code_leak=[k for k in kinds if k in self.agent.CODE_QUALITY_KINDS]
+                self.assertEqual(code_leak, [], f"code_scan 关闭时不得上报代码类发现: {code_leak}")
+            finally:
+                self.agent.managed_homes=orig
+        # 终端控制台 BASE_POLICY 同步
+        pol_src=open('lib/policy.ts',encoding='utf-8').read()
+        self.assertIn('code_scan: false', pol_src, "BASE_POLICY code_scan 缺省必须 false")
 
     def test_policy_modules_deny_contract(self):
         base=json.loads((DOWNLOADS/'aegis-policy.json').read_text())

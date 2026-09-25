@@ -98,7 +98,9 @@ export const BASE_POLICY: Omit<PolicyBody, 'version' | 'allowed_skills' | 'allow
   },
   // 模块开关出厂默认：扫描类全开；封禁执行类默认关（deny 名单只报不封，打开才真封禁）。
   modules: {
-    skill_scan: true, mcp_scan: true, code_scan: true, deps_scan: true,
+    // code_scan 出厂默认 false（2026-09-25 用户决策）：代码扫描交给专业扫描器负责，
+    // 终端不做代码质量扫描、也不上报代码类发现；需要时在设置页打开开关即可恢复。
+    skill_scan: true, mcp_scan: true, code_scan: false, deps_scan: true,
     baseline_install: true, network_collect: true, self_update: true,
     skill_enforce: false, mcp_enforce: false,
   },

@@ -508,9 +508,12 @@ def skill_category(name):
     if any(k in n for k in ["qw-pages","supabase","media-generation","mini-program"]): return "cloud-service"
     if any(k in n for k in ["debug","test","standards","java","python","frontend","markdown-lint","bootstrapping","feature-council","deeplearning","create-adaptable","working-with"]): return "dev-assist"
     return "unknown"
-def scan_skill(skill_file,policy,max_files=500):
-    """Scan the complete Skill package without following links outside its root."""
+def scan_skill(skill_file,policy,max_files=500,m_code=None):
+    """Scan the complete Skill package without following links outside its root.
+    m_code=None 沿用 policy 缺省(code_scan 默认关); False=包内代码质量扫描关闭
+    (skill 身份/风险信号仍扫——那是 skill 治理, 不是代码质量)。"""
     root=skill_file.parent; out=[]; scanned=0; name=root.name
+    if m_code is None: m_code=policy_module(policy,"code_scan",False)
     allowed=set(policy.get("allowed_skills",[]))
     if "allowed_skills" in policy and name not in allowed:
         action=policy.get("enforcement",{}).get("unknown_skill","audit")
@@ -543,7 +546,8 @@ def scan_skill(skill_file,policy,max_files=500):
             try:
                 size=path.stat().st_size
                 if size<=max_file_bytes(policy):
-                    text=path.read_text(errors="ignore"); out.extend(scan_text(path,text,policy))
+                    text=path.read_text(errors="ignore")
+                    if m_code: out.extend(scan_text(path,text,policy))
                     if path.name in DEPENDENCY_MANIFESTS: out.extend(scan_dependency_manifest(path,text))
                 else: out.append(finding("oversized_file_skipped","medium",path,f"Skill 文件超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
             except OSError: out.append(finding("unreadable","low",path,"Skill 文件存在但无法读取"))
@@ -1011,7 +1015,9 @@ def scan(root,policy):
     findings=[]; homes=managed_homes(); inventory=discover_agent_tools(homes)
     # 模块开关(真实可关): 关掉的模块不扫描也不产出 findings。缺省全开, 向后兼容。
     m_skill=policy_module(policy,"skill_scan",True); m_mcp=policy_module(policy,"mcp_scan",True)
-    m_code=policy_module(policy,"code_scan",True); m_deps=policy_module(policy,"deps_scan",True)
+    # code_scan 缺省 False(2026-09-25 用户决策): 代码扫描由专业扫描器负责, 终端默认不扫代码
+    # 也不上报代码类发现; 控制台策略 modules.code_scan=true 可显式恢复(预留能力)。
+    m_code=policy_module(policy,"code_scan",False); m_deps=policy_module(policy,"deps_scan",True)
     skill_seen=set()
     for home in homes:
         for rel in AGENT_CONFIGS:
@@ -1576,10 +1582,21 @@ def collect_physical_network():
         return {"physical_nics":out,"macs":[n["mac"] for n in out],"local_ips":[i for n in out for i in n["ips"]]}
     except Exception:
         return {}
+# 代码质量类发现 kind 清单(code_scan 关闭时的 report 兜底过滤)。与 scan_text 的
+# checks/quality_checks/agentic_checks 对应; skill 治理类(unknown_skill/skill_symlink_escape)
+# 与运维类(project_scan_truncated 等)不在此列——关代码扫描≠关 skill 治理与运维可见性。
+CODE_QUALITY_KINDS={"prompt_override","credential_access","unbounded_shell","dynamic_eval",
+ "insecure_tls_verification","unsafe_deserialization","debug_mode_enabled","empty_exception_handler",
+ "context_poisoning","unvalidated_llm_execution","hardcoded_secret","weak_random_token",
+ "dependency_unpinned","missing_lockfile","blocked_command","hidden_instruction"}
 def build_report(root,policy):
     inventory,findings=scan(root,policy)
     baseline_inv,baseline_findings=verify_user_baselines()
     inventory.extend(baseline_inv); findings.extend(baseline_findings)
+    # code_scan 关闭(用户决策 2026-09-25: 代码扫描交专业扫描器): 代码质量类发现一律
+    # 不进 report——不管它们从哪条路径产生(策略显式开启/旧版本残留), 上报口径统一。
+    if not policy_module(policy,"code_scan",False):
+        findings=[f for f in findings if f.get("kind") not in CODE_QUALITY_KINDS]
     # 用户级安装已取消(2026-09): mac 非 root 运行=历史用户级安装, 能力受限(仅扫当前用户、
     # 无 pf 连接级封禁)。产出发现项让控制台可见, 驱动迁移到系统级 .pkg。(置于截断上限之前)
     if sys.platform=="darwin" and os.geteuid()!=0:

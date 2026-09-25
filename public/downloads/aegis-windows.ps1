@@ -49,6 +49,9 @@ try {
   $policy=$candidate
 } catch {$policyInvalid=$true}
 $script:policyAutoSync = if ($policy -and $policy.modules -and ($policy.modules.policy_auto_sync -eq $false)) { $false } else { $true }
+# code_scan 缺省关(2026-09-25 用户决策: 代码扫描交专业扫描器, 终端不扫代码不上报代码类发现;
+# 策略 modules.code_scan=true 可显式恢复——预留能力)。与 mac agent 同口径。
+$script:codeScan = if ($policy -and $policy.modules -and ($policy.modules.code_scan -eq $true)) { $true } else { $false }
 $maxFileBytes=1000000
 if($policy -and $policy.limits -and $policy.limits.max_file_bytes){$maxFileBytes=[Math]::Min([Math]::Max([int64]$policy.limits.max_file_bytes,65536),10000000)}
 $projectFileLimit=10000
@@ -445,7 +448,7 @@ foreach ($root in $roots) {
     if($candidates.Count -gt $projectFileLimit){$findings+=@{kind='project_scan_truncated';severity='medium';path=(Protect-AegisPath $root);message="项目候选文件超过扫描上限 $projectFileLimit"}}
     $candidates|Select-Object -First $projectFileLimit | ForEach-Object {
       $text = Get-Content -Encoding UTF8 $_.FullName -Raw
-      foreach ($rule in $patterns) {
+      foreach ($rule in $(if ($script:codeScan) { $patterns } else { @() })) {
         $matched = $false
         if ($rule.Kind -eq 'insecure_tls_verification') {
           # 与 mac agent 同口径：安全基线文档以"禁止…(verify=False, NODE_TLS_…=0)"禁用示例
@@ -803,6 +806,9 @@ function Invoke-AegisEnforce {
   return $actions
 }
 $enforceActions = @(Invoke-AegisEnforce -Policy $policy)
+# code_scan 关闭(用户决策 2026-09-25): 代码质量类发现一律不进 report, 无论产生路径。
+$codeQualityKinds = @('prompt_override','credential_access','unbounded_shell','dynamic_eval','insecure_tls_verification','unsafe_deserialization','debug_mode_enabled','empty_exception_handler','context_poisoning','unvalidated_llm_execution','hardcoded_secret','weak_random_token','dependency_unpinned','missing_lockfile','blocked_command','hidden_instruction')
+if (-not $script:codeScan) { $script:findings = @($script:findings | Where-Object { $codeQualityKinds -notcontains $_.kind }) }
 $report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); network=$networkInfo; enforcement=$enforceActions; run_mode='system'; capabilities=@{ pf=$true; es=$false }; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress

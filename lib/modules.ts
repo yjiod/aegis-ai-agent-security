@@ -60,7 +60,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
 export const MODULE_HINTS: Record<ModuleKey, string> = {
   skill_scan: '扫描各 AI 工具技能目录，产出未知/高危 Skill 发现',
   mcp_scan: '扫描 MCP 配置（传输/命令/域名/凭据），产出未批准 MCP 发现',
-  code_scan: '扫描代码与配置中的密钥、危险调用、弱随机等',
+  code_scan: '代码 / 密钥扫描（默认关：代码扫描交给专业扫描器，终端不上报代码类发现；打开即恢复终端扫描）',
   deps_scan: '扫描依赖清单的未固定版本与不可信来源',
   baseline_install: '向仓库/用户目录注入 Aegis 安全基线文件',
   network_collect: '采集物理网卡 MAC 与本机 IP（不含虚拟网卡）',
