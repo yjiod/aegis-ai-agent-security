@@ -103,6 +103,17 @@ async function syncTicketsFromCollector(): Promise<void> {
     // P1-4：游标翻页遍历全量舰队（旧实现 limit=500 单页 → 30k 下自动工单只覆盖前 500 台，
     // 2.95 万台无工单，正确性红线）。任一页失败即放弃本轮同步（绝不用半量误判/误闭环工单）。
     const devices: Array<Record<string, unknown>> = [];
+    // 设备显示名（用户口径 2026-09-25 第三轮）：序列号（过长截断）+ 主机名，不再用 device_id 哈希。
+    // 例: "R1NRKD01325701C (SHINESTRIX16)" / "Parallels-0E 3F… (M4-WIN)"。
+    const deviceLabel = (d: Record<string, unknown>): string => {
+      const serial = typeof d.serial === 'string' ? d.serial : '';
+      const hostname = typeof d.hostname === 'string' ? d.hostname : '';
+      const short = serial.length > 12 ? `${serial.slice(0, 10)}…` : serial;
+      if (serial && hostname) return `${short} (${hostname})`;
+      if (serial) return short;
+      if (hostname) return hostname;
+      return String(d.device_id ?? '未知设备');
+    };
     let cursor = '';
     for (let page = 0; page < 200; page += 1) {
       const qs = new URLSearchParams({ limit: '10000' });
@@ -174,7 +185,7 @@ async function syncTicketsFromCollector(): Promise<void> {
       if (adj && openAuto.length > 0 && critical + high > 0) {
         const nowU = Date.now();
         const severityU: TicketSeverity = critical > 0 ? 'critical' : 'high';
-        const titleU = `设备 ${deviceId} 存在 ${critical} 个 critical / ${high} 个 high 发现`;
+        const titleU = `设备 ${deviceLabel(d)} 存在 ${critical} 个 critical / ${high} 个 high 发现`;
         for (const t of openAuto) {
           if (t.title === titleU && t.severity === severityU) continue;
           const refreshed: Ticket = {
@@ -202,7 +213,7 @@ async function syncTicketsFromCollector(): Promise<void> {
       const now = Date.now();
       const ticket: Ticket = {
         ticket_id: nextTicketId(store, now),
-        title: `设备 ${deviceId} 存在 ${critical} 个 critical / ${high} 个 high 发现`,
+        title: `设备 ${deviceLabel(d)} 存在 ${critical} 个 critical / ${high} 个 high 发现`,
         severity,
         status: 'open',
         source: 'aegis-collector.auto',
