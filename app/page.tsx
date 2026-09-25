@@ -1105,7 +1105,7 @@ export default function Home() {
               <div
                 className="timeline-item animate-entrance"
                 key={event.id}
-                style={{ animationDelay: `${idx * 80 + 500}ms` }}
+                style={{ animationDelay: `${idx * 30 + 200}ms` }}
               >
                 <div className="timeline-marker">
                   <span className="timeline-dot">

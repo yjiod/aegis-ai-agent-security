@@ -161,7 +161,8 @@
 [data-theme="light"] .coverage-row .tool-logo { background: #f0f5f3; border-color: #d4e5df; color: #4a6d62; }
 [data-theme="light"] .flow { background: #f0f5f3; border-color: #d4e5df; color: #527469; }
 [data-theme="light"] .flow .safe { color: #0f7a52; }
-[data-theme="light"] .eyebrow { color: #0f7a52 !important; }
+/* .eyebrow 的亮色层 !important 已删除（审计 #31）：基类改用 var(--muted-foreground)
+   后，该 token 在本亮色块内已重定义，无需再逐类对抗。 */
 [data-theme="light"] .page-head p, [data-theme="light"] .panel-head p { color: #527469; }
 [data-theme="light"] .metric-top { color: #527469; }
 [data-theme="light"] .metric p { color: #527469; }
@@ -759,22 +760,31 @@ button {
   margin-bottom: 26px;
 }
 
+/* 审计 #31：此前本类用两个 !important 把硬编码绿锁死，导致暗色层（下方
+   :root:not([data-theme='light']) .eyebrow）想改成中性灰时被完全压制、三条声明
+   全部无效，亮色层也被迫用 !important 对抗——形成 !important 军备竞赛，且那个绿
+   既非 --sentinel-accent 也非 --sentinel-cyan，是第三套绿。
+   现改为单一基类 + token：21 处消费点自动跟随主题，两个主题层都不再需要 override。
+   letter-spacing 统一 0.08em（原 0.13em 与暗色层 0.08em 两值并存；0.13em 在 11px
+   小字上过松，0.08em 亦满足 ALL CAPS ≥0.06em 的规范下限）。 */
 .eyebrow {
-  color: #4fe5a6 !important;
-  font-size: 11px !important;
+  color: var(--muted-foreground);
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.08em;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   gap: 7px;
 }
 
+/* 装饰线改纯色（审计 #5 禁渐变填充）：原为 linear-gradient(90deg, transparent,
+   var(--primary))。用交互青蓝而非语义绿——分区标识属结构/交互语义，不是"已完成"。 */
 .eyebrow::before {
   content: "";
   width: 16px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--primary));
+  background: var(--sentinel-cyan);
 }
 
 .page-head h1 {
@@ -1827,12 +1837,9 @@ button {
   background: none;
   -webkit-text-fill-color: var(--foreground);
 }
-:root:not([data-theme='light']) .eyebrow {
-  color: var(--muted-foreground);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 11px;
-}
+/* .eyebrow 的暗色层重复声明已删除（审计 #31）：基类现直接用 var(--muted-foreground)
+   与 0.08em 字距，本段四条声明（color / text-transform / letter-spacing / font-size）
+   与基类完全同值，属冗余。此前它因基类的 !important 而从未生效过。 */
 
 :root:not([data-theme='light']) .data-row,
 :root:not([data-theme='light']) [class*='row'] { border-color: var(--border); }

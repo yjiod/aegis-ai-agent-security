@@ -202,7 +202,7 @@ export default function AuditPage() {
             <h2>操作记录</h2>
             <p>
               {loading
-                ? '加载中...'
+                ? '加载中…'
                 : denied
                   ? '需要审计员 / 管理员权限'
                   : `共 ${total} 条${filter ? `（筛选：${RESOURCE_LABEL[filter]}）` : ''}`}
@@ -280,7 +280,7 @@ export default function AuditPage() {
               <div style={{ padding: '14px 16px', textAlign: 'center' }}>
                 <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
                   <ScrollText size={16} />
-                  {loadingMore ? '加载中...' : '加载更多'}
+                  {loadingMore ? '加载中…' : '加载更多'}
                 </Button>
               </div>
             )}

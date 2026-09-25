@@ -112,7 +112,7 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
             <input className="form-input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required style={{ marginBottom: 20 }} />
             <div style={{ display: 'flex', gap: 8 }}>
               <Button type="submit" disabled={submitting} style={{ flex: 1 }}>
-                {submitting ? '提交中...' : '确认修改'}
+                {submitting ? '提交中…' : '确认修改'}
               </Button>
               <Button type="button" variant="outline" onClick={onClose}>取消</Button>
             </div>

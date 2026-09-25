@@ -170,7 +170,7 @@ export default function LoginPage() {
               required
             />
             <Button type="submit" disabled={submitting} style={{ width: '100%', height: 42 }}>
-              {submitting ? '验证中...' : '验证并登录'}
+              {submitting ? '验证中…' : '验证并登录'}
             </Button>
             <button
               type="button"
@@ -219,7 +219,7 @@ export default function LoginPage() {
           </div>
 
           <Button type="submit" disabled={submitting} style={{ width: '100%', height: 42 }}>
-            {submitting ? '验证中...' : '登录'}
+            {submitting ? '验证中…' : '登录'}
           </Button>
         </form>
         )}
