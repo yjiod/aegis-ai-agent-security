@@ -235,6 +235,26 @@ body.sentinel-theme {
 
 
 /* ---- light-theme fallbacks (keep the light toggle usable; sentinel is dark-first) ---- */
+/* Sentinel token 亮色重定义（token 层修复，非逐个组件补 override）：
+   .drawer / .batch-bar / .device-ident-row / .progress / .mini / .sentinel-table /
+   .sentinel-button 全部通过 var(--sentinel-*) 取值，改这一处即整体跟随亮色主题。
+   --sentinel-accent 亮值 #0f9d76 与本文件下方 :249/:255 及 globals.css 已用值一致，不引入新色。 */
+[data-theme='light'] {
+  --sentinel-surface: #ffffff;
+  --sentinel-surface-2: #f4f8fa;
+  --sentinel-surface-3: #e9f0f4;
+  --sentinel-bg: #f4f8fa;
+  --sentinel-bg-deep: #eef4f7;
+  --sentinel-line: #d7e3ea;
+  --sentinel-line-strong: #bcd2dc;
+  --sentinel-text: #0c1a22;
+  --sentinel-text-2: #40565f;
+  --sentinel-text-3: #5b7280;
+  --sentinel-accent: #0f9d76;
+  --sentinel-cyan: #0d7fb0;
+  --sentinel-warning: #b8860b;
+  --sentinel-danger: #c0392b;
+}
 [data-theme='light'] body.sentinel-theme {
   background: #f4f8fa;
   color: #0c1a22;
