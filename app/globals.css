@@ -292,9 +292,16 @@
 [data-theme="light"] .panel-head button:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); color: var(--primary); }
 
 /* Metric cards. */
+/* 审计 #37：这条绿色渐变装饰线只在亮色主题下**可见**——暗色层已被
+   `:root:not([data-theme='light']) .panel::before, .metric::before { display: none; }`
+   整条隐去，故基类那份绿色渐变在暗色下是死代码，亮色下却是活的违规
+   （同时踩"禁渐变填充"与"绿作装饰色"两条）。
+   改为中性线条 token 的平整实底：去掉渐变、去掉绿，同时保留亮色主题原有的
+   "卡片顶部一条细线"这一设计意图（不直接 display:none，那会移除亮色的既有观感）。
+   暗色隐藏 / 亮色保留细线的不对称属既有设计，未改动，已记入报告提请设计师确认。 */
 [data-theme="light"] .metric::before,
 [data-theme="light"] .panel::before {
-  background: linear-gradient(90deg, transparent, rgba(18, 122, 84, 0.35), transparent);
+  background: var(--sentinel-line);
 }
 [data-theme="light"] .metric:hover { border-color: #b8d4ca; }
 [data-theme="light"] .metric strong small { color: #527469; }
@@ -949,7 +956,8 @@ button {
   left: 0;
   right: 0;
   height: 2px;
-  background: rgba(73, 232, 165, 0.5);
+  /* background 已删除，理由同 .panel::before：暗色 display:none、亮色由
+     [data-theme="light"] .metric::before 覆盖，原旧绿裸值在任何主题下都不可达。 */
   pointer-events: none;
   transition: opacity var(--dur) ease;
   opacity: 0.7;
@@ -1091,7 +1099,11 @@ button {
   left: 20px;
   right: 20px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(73, 232, 165, 0.28), transparent);
+  /* background 已删除（原为旧绿 #49e8a5 族的横向渐变）：该声明在任何主题下都不可达——
+     暗色被下方 :root:not([data-theme='light']) .panel::before { display: none } 整条隐去，
+     亮色被上方 [data-theme="light"] .panel::before { background: var(--sentinel-line) }
+     覆盖（无 data-theme 时 :not([data-theme='light']) 亦命中，仍走暗色分支）。
+     保留只会让"已废弃旧绿体系"的裸值继续留在产物里。定位/尺寸声明保留，亮色仍需要。 */
   pointer-events: none;
 }
 
