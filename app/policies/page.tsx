@@ -8,9 +8,9 @@ import { useRole } from '@/components/role-context';
 import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
 // 模块开关默认值与有效值一律取自 lib/modules.ts 的单一真源（#38，后端 commit a018870）。
 //
-// 审计 #38（P0，数据完整性）：此处原有一份本地 MODULE_DEFAULTS 副本，其中
-// code_scan: true 与两个权威源相反（lib/policy.ts 与 public/downloads/aegis-policy.json
-// 都是 false），而副本上方的注释却声称"与 aegis-policy.json 的 modules 一致"。
+// 审计 #38（P0，数据完整性）：此处原有一份本地 MODULE_DEFAULTS 副本，其中 code_scan
+// 的取值与两个权威源**相反**（lib/policy.ts 与 public/downloads/aegis-policy.json
+// 都是关，副本写的是开），而副本上方的注释却声称"与 aegis-policy.json 的 modules 一致"。
 // 后果是管理员在 /policies 操作面板看到「代码 / 密钥扫描 = 开」，而终端实际收到的是关
 // —— 管理决策面误报安全控制状态，比展示面误报（#32）更严重，因为管理员据此做的
 // 判断建立在错误前提上。code_scan 关闭是 2026-09-25 用户决策：代码扫描交由专业扫描器负责。
@@ -18,6 +18,10 @@ import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
 // 副本已删除。开关取值改用 effectiveModules(overrides) 的**有效值**：接口返回的
 // overrides 是 Partial（只含被显式改过的键），直接用 `overrides[k] ?? 本地默认` 的
 // 写法正是三份默认值得以漂移的成因。
+//
+// 注：上文刻意用"开/关"描述、不写出被删掉的键值字面量。写了会让后续按该键名+取值
+// 组合做的 grep 门禁命中本注释，把已修复的 P0 误报成仍然存在（本轮实际踩过两次：
+// 一次是色号写进注释，一次是本条说明本身又把字面量带了回来）。
 import { MODULE_KEYS, MODULE_LABELS, MODULE_HINTS, effectiveModules } from '@/lib/modules';
 
 /** 真实可开关的模块列表：状态持久化在服务端(/api/settings/modules)，

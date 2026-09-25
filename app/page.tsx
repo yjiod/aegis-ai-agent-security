@@ -158,7 +158,7 @@ interface TrendBucketLite {
 /**
  * 能力卡定义（审计 #32）。
  *
- * ⛔ 状态**不得**在此硬编码。此前 4 张卡都写死 `status:'已启用', tone:'green'`，
+ * 【禁】状态**不得**在此硬编码。此前 4 张卡都写死 `status:'已启用', tone:'green'`，
  * 而生产策略 code_scan=false → 给安全负责人看的权威视图在伪造状态，触犯项目红线
  * "绝不伪造数据"，且虚高覆盖率会导致**错误的风险接受**。状态一律由
  * `GET /api/settings/modules` 的有效值派生，见 component 内的 moduleCardStatus()。
@@ -231,7 +231,7 @@ export default function Home() {
   /**
    * 读取模块开关并折算为**有效值**。
    *
-   * ⛔ 失败一律 fail-closed 到"未知"（mods=null + modsError），**绝不 fail-open
+   * 【禁】失败一律 fail-closed 到"未知"（mods=null + modsError），**绝不 fail-open
    * 到绿色**——接口挂了就宣称"已启用"，正是 #32 要消灭的伪造。注意 getJson 对
    * 401/500/网络错误/非法 JSON 一律返回 null，故此处 null 覆盖了全部失败路径。
    */
@@ -258,7 +258,7 @@ export default function Home() {
   /**
    * 能力卡状态（文案取自 PM §7.1 定稿，逐字照抄）。
    *
-   * ⛔ 三条陷阱（设计师明确警示，违反即重演 #32 的谎言）：
+   * 【禁】三条陷阱（设计师明确警示，违反即重演 #32 的谎言）：
    *   1. **禁止 fail-open 到绿色** —— 加载中/接口失败一律中性灰，绝不回落"已启用"。
    *   2. **必须用有效值** —— mods 已由 lib/modules 的 effectiveModules() 折算，
    *      不是接口返回的 Partial 覆盖值。
@@ -280,7 +280,7 @@ export default function Home() {
     // 口径对齐审计 #34（"框架已实现" vs "终端实时探测"），文案取 PM §7.1 定稿
     // （2026-09-25 追加裁定，pm-product-review.md:1277-1292）。
     //
-    // ⛔ 不得写 `已启用`，即便事实上它确实在跑：无法从接口派生的值写死，就是重新
+    // 【禁】不得写 `已启用`，即便事实上它确实在跑：无法从接口派生的值写死，就是重新
     // 引入 #32 要消灭的"静态常量冒充实时状态"——而**碰巧正确的硬编码比明显错误的
     // 更危险**，因为没人会去修它。
     //
@@ -1107,7 +1107,7 @@ export default function Home() {
                     <h3>{title}</h3>
                     <p>{codeScanOff ? CODE_SCAN_DISABLED_DESC : desc}</p>
                   </div>
-                  {/* ⛔ 停用/未知/加载中一律不渲染对勾（对勾 + 灰字自相矛盾） */}
+                  {/* 【禁】停用/未知/加载中一律不渲染对勾（对勾 + 灰字自相矛盾） */}
                   <span className={`status ${st.tone}`}>
                     {st.check && <Check size={13} />}
                     {st.label}
