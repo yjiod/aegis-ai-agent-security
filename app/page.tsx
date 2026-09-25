@@ -11,7 +11,7 @@
  *  - 近期动态    : /api/audit 真实审计条目。
  * 无数据时显示空状态, 绝不展示虚构数字。
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Laptop,
   Bot,
@@ -27,6 +27,7 @@ import {
   Activity,
   Rocket,
   ScanLine,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +54,10 @@ import { SourceAttributionPanel } from '@/components/source-attribution-panel';
    本页此前维护了一份 4 档本地副本，缺 info 且把低危映射成不存在的
    `.severity.blue` 类，导致低危徽章渲染成无样式空壳、info 级误显橙色中危。 */
 import { severityMeta, type TicketSeverity } from '@/components/ticket-detail';
+// 仅类型导入（编译期擦除，不产生运行时依赖）：ModuleKey 自 lib/modules.ts 首个
+// commit 起就已导出，故本行不依赖后端 #38 那批尚未提交的改动。
+// 值导入（MODULE_DEFAULTS / effectiveModules）要等后端 commit 后再加，见 TODO(#38)。
+import type { ModuleKey } from '@/lib/modules';
 
 /* ─── Animated number ──────────────────────────────────────────────────── */
 function useAnimatedNumber(target: number) {
@@ -149,12 +154,78 @@ interface TrendBucketLite {
   critical: number;
   high: number;
 }
-const modules = [
-  { icon: ScanLine, title: '终端 Agent 发现', desc: '清点已安装的 AI 编码工具', status: '已启用', tone: 'green' },
-  { icon: Sparkles, title: 'Skill 扫描器', desc: '权限、指令与依赖', status: '已启用', tone: 'green' },
-  { icon: Network, title: 'MCP 扫描器', desc: '工具、密钥与外联', status: '已启用', tone: 'green' },
-  { icon: Code2, title: '代码质量扫描', desc: 'SAST、依赖与密钥', status: '已启用', tone: 'green' },
+
+/**
+ * 模块开关出厂默认（审计 #32 / #38）。
+ *
+ * TODO(#38): 后端已在 `lib/modules.ts` 导出 `MODULE_DEFAULTS` 与 `effectiveModules`
+ * （实测 :43 / :76，语义正是"默认叠加覆盖值、逐键校验 boolean"），但该改动尚未
+ * commit；现在 import 会让本 commit 单独 checkout 时 tsc 红。待其 commit 后应删除
+ * 本副本、改 import 单一真源，并与 `app/policies/page.tsx` 的同名副本一起清理。
+ *
+ * 值与两个权威源逐键一致（已实测核对）：`lib/policy.ts` 的 modules、
+ * `public/downloads/aegis-policy.json` 的 modules。其中 code_scan 为 false
+ * （2026-09-25 用户决策：代码扫描交由专业扫描器负责）。
+ */
+const MODULE_DEFAULTS_LOCAL: Record<string, boolean> = {
+  skill_scan: true,
+  mcp_scan: true,
+  code_scan: false,
+  deps_scan: true,
+  baseline_install: true,
+  network_collect: true,
+  self_update: true,
+  skill_enforce: false,
+  mcp_enforce: false,
+};
+
+/**
+ * 出厂默认叠加控制台覆盖值 → 终端将实际收到的**有效**开关。
+ *
+ * ⛔ 必须走这里，不能直接用接口返回值：`GET /api/settings/modules` 返回的是
+ * `moduleOverrides()`，那是 **Partial**（只含被显式改过的键）。直接读它会把
+ * "实际开着但从未被覆盖过"的模块报成关 —— 即 #32 谎言的反向版本。
+ */
+function effectiveModulesLocal(overrides: Record<string, unknown>): Record<string, boolean> {
+  const out: Record<string, boolean> = { ...MODULE_DEFAULTS_LOCAL };
+  for (const [k, v] of Object.entries(overrides ?? {})) {
+    if (typeof v === 'boolean') out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * 能力卡定义（审计 #32）。
+ *
+ * ⛔ 状态**不得**在此硬编码。此前 4 张卡都写死 `status:'已启用', tone:'green'`，
+ * 而生产策略 code_scan=false → 给安全负责人看的权威视图在伪造状态，触犯项目红线
+ * "绝不伪造数据"，且虚高覆盖率会导致**错误的风险接受**。状态一律由
+ * `GET /api/settings/modules` 的有效值派生，见 component 内的 moduleCardStatus()。
+ *
+ * `key` 是该能力对应的模块开关；**null 表示没有独立开关的基础能力**（实测
+ * lib/modules.ts 的 9 个 ModuleKey 中无"Agent 发现 / 工具清点"一项，
+ * network_collect 是采集物理网卡 MAC/IP，语义不同）。这类卡不得伪装成
+ * 开关派生的实时状态 —— 已就口径向 lead 提请裁定，暂按"设计事实"处理
+ * （对齐审计 #34 对 engines 页"框架已实现适配器"的既有先例）。
+ */
+const modules: Array<{
+  icon: typeof ScanLine;
+  title: string;
+  desc: string;
+  key: ModuleKey | null;
+}> = [
+  { icon: ScanLine, title: '终端 Agent 发现', desc: '清点已安装的 AI 编码工具', key: null },
+  { icon: Sparkles, title: 'Skill 扫描器', desc: '权限、指令与依赖', key: 'skill_scan' },
+  { icon: Network, title: 'MCP 扫描器', desc: '工具、密钥与外联', key: 'mcp_scan' },
+  { icon: Code2, title: '代码质量扫描', desc: 'SAST、依赖与密钥', key: 'code_scan' },
 ];
+
+/** 代码质量扫描卡停用时的副标题（PM §7.1 定稿，逐字照抄，不得改写）。 */
+const CODE_SCAN_DISABLED_DESC =
+  '终端代码扫描已按策略停用；此页为外部专业扫描器接入后的统一视图，当前未接入来源。';
+
+/** 接口不可达时的整条状态文案（PM §7.1 定稿，逐字照抄）。 */
+const MODULES_UNAVAILABLE_LABEL = '状态未知 · 读取模块开关失败';
 
 /* ─── Typed fetch helper (avoids untyped r.json() '{}') ───────────────── */
 async function getJson<T>(url: string): Promise<T | null> {
@@ -187,6 +258,81 @@ export default function Home() {
     complete?: boolean;
     rule_stats?: Array<{ rule_id: string; category: string; critical: number; high: number; total: number }>;
   } | null>(null);
+  // 审计 #32：能力卡状态的真实数据源。null = 尚未取到有效值（加载中或失败），
+  // 此时任何卡都不得回落成绿色"已启用"。
+  const [mods, setMods] = useState<Record<string, boolean> | null>(null);
+  const [modsLoading, setModsLoading] = useState(true);
+  const [modsError, setModsError] = useState('');
+
+  /**
+   * 读取模块开关并折算为**有效值**。
+   *
+   * ⛔ 失败一律 fail-closed 到"未知"（mods=null + modsError），**绝不 fail-open
+   * 到绿色**——接口挂了就宣称"已启用"，正是 #32 要消灭的伪造。注意 getJson 对
+   * 401/500/网络错误/非法 JSON 一律返回 null，故此处 null 覆盖了全部失败路径。
+   */
+  const loadModules = useCallback(async () => {
+    setModsLoading(true);
+    setModsError('');
+    const d = await getJson<{ modules?: Record<string, unknown> }>('/api/settings/modules');
+    if (!d || typeof d.modules !== 'object' || d.modules === null) {
+      setMods(null);
+      setModsError(MODULES_UNAVAILABLE_LABEL);
+    } else {
+      setMods(effectiveModulesLocal(d.modules));
+    }
+    setModsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void loadModules();
+  }, [loadModules]);
+
+  /**
+   * 能力卡状态（文案取自 PM §7.1 定稿，逐字照抄）。
+   *
+   * ⛔ 三条陷阱（设计师明确警示，违反即重演 #32 的谎言）：
+   *   1. **禁止 fail-open 到绿色** —— 加载中/接口失败一律中性灰，绝不回落"已启用"。
+   *   2. **必须用有效值** —— mods 已由 effectiveModulesLocal() 折算，不是 Partial 覆盖值。
+   *   3. **停用/未知/无开关态不渲染对勾** —— 对勾配灰字自相矛盾。
+   *
+   * tone 只有 'green'（确实在生效）与 'muted'（中性事实）两种：
+   * 停用不是告警，故不用红、也不用琥珀（见审计 §10.1 语义色分配规则）。
+   *
+   * `note` 只在"无独立开关"这一种情形返回，且**渲染为可见文本**而非 title 属性：
+   * 审计 #34 指出 title 不进入无障碍名计算、键盘用户也取不到，不能承载唯一说明。
+   * 接口失败的原因由面板级 role="alert" 可见提示承担，故不在每张卡上重复。
+   */
+  function moduleCardStatus(key: ModuleKey | null): {
+    label: string;
+    tone: 'green' | 'muted';
+    check: boolean;
+    note?: string;
+  } {
+    // 无独立开关的基础能力：不是开关派生的实时状态，故不用绿色"已启用"。
+    // 口径对齐审计 #34（"框架已实现" vs "终端实时探测"）。文案待 PM 定稿。
+    if (key === null) {
+      return {
+        label: '基础能力 · 无独立开关',
+        tone: 'muted',
+        check: false,
+        note: '该能力随终端 Agent 常驻运行，不由模块开关控制；因此这里不显示开关派生的实时状态。',
+      };
+    }
+    if (modsLoading) return { label: '读取中…', tone: 'muted', check: false };
+    // 接口不可达：PM §7.1 要求中性灰 + 重试入口，禁用绿/红
+    if (modsError || mods === null) return { label: '状态未知', tone: 'muted', check: false };
+    // fail-closed：有效值里取不到该键就当作未启用，绝不默认绿
+    if (mods[key] !== true) {
+      // code_scan 的停用是 2026-09-25 用户决策（交由专业扫描器），有专用文案；
+      // 其余模块被管理员关掉属"停用（其他原因）"。
+      return key === 'code_scan'
+        ? { label: '已停用 · 交由专业扫描器', tone: 'muted', check: false }
+        : { label: '已停用', tone: 'muted', check: false };
+    }
+    // 唯一可以用绿的分支：确实读到该模块开着
+    return { label: '已启用', tone: 'green', check: true };
+  }
 
   useEffect(() => {
     let alive = true;
@@ -938,22 +1084,70 @@ export default function Home() {
               发行包可用
             </Badge>
           </div>
+          {/* 审计 #32：接口不可达时给出中性灰提示 + 重试入口（PM §7.1 要求，禁绿禁红）。
+              提示放在面板级而非 4 张卡各写一遍，避免同一句长文案重复四次；
+              卡内芯片同时显示"状态未知"，两处文案都是 PM 定稿原文。 */}
+          {modsError && (
+            <div
+              role="alert"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap',
+                margin: '0 0 12px',
+                padding: '10px 12px',
+                borderRadius: 'var(--sentinel-radius-md)',
+                background: 'color-mix(in srgb, var(--sentinel-text-2) 8%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--sentinel-text-2) 24%, transparent)',
+                color: 'var(--sentinel-text-2)',
+                fontSize: 12,
+              }}
+            >
+              <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 200 }}>
+                {MODULES_UNAVAILABLE_LABEL}
+                ；下方能力状态一律显示为未知，不会猜测为已启用。
+              </span>
+              <Button type="button" variant="outline" size="sm" onClick={() => void loadModules()} disabled={modsLoading}>
+                <RefreshCw size={13} className={modsLoading ? 'spin' : undefined} />
+                重试
+              </Button>
+            </div>
+          )}
           <div className="module-grid">
-            {modules.map(({ icon: Icon, title, desc, status, tone }) => (
-              <article className="module" key={title}>
-                <span className={`module-icon ${tone}`}>
-                  <Icon size={19} />
-                </span>
-                <div>
-                  <h3>{title}</h3>
-                  <p>{desc}</p>
-                </div>
-                <span className={`status ${tone}`}>
-                  <Check size={13} />
-                  {status}
-                </span>
-              </article>
-            ))}
+            {modules.map(({ icon: Icon, title, desc, key }) => {
+              const st = moduleCardStatus(key);
+              // 代码质量扫描卡停用时，副标题换成 PM §7.1 的逐字定稿文案：
+              // 继续写"SAST、依赖与密钥"会让读者以为这些扫描在跑。
+              // 加载中/未知态不套用该文案——那时并不知道它是否停用。
+              const codeScanOff =
+                key === 'code_scan' && !modsLoading && !modsError && mods !== null && mods.code_scan !== true;
+              return (
+                <article className="module" key={title}>
+                  {/* 图标底色跟随真实态：只有确实读到"开着"才用绿 */}
+                  <span className={`module-icon ${st.tone === 'green' ? 'green' : 'muted'}`}>
+                    <Icon size={19} />
+                  </span>
+                  <div>
+                    <h3>{title}</h3>
+                    <p>{codeScanOff ? CODE_SCAN_DISABLED_DESC : desc}</p>
+                    {/* 口径说明用**可见文本**，不用 title 属性（审计 #34：title 不进入
+                        无障碍名计算，键盘与读屏用户取不到，不能承载唯一说明） */}
+                    {st.note && (
+                      <p style={{ marginTop: 4, fontSize: 11, color: 'var(--muted-foreground)', lineHeight: 1.5 }}>
+                        {st.note}
+                      </p>
+                    )}
+                  </div>
+                  {/* ⛔ 停用/未知/加载中一律不渲染对勾（对勾 + 灰字自相矛盾） */}
+                  <span className={`status ${st.tone}`}>
+                    {st.check && <Check size={13} />}
+                    {st.label}
+                  </span>
+                </article>
+              );
+            })}
           </div>
           <div className="flow">
             <span>员工安装 AI Agent</span>
