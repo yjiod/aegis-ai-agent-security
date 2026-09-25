@@ -320,11 +320,18 @@
 
 /* ─── Empty State ───────────────────────────────────────── */
 .empty-detail {
-  min-height: 420px;
+  /* 审计 #21：原 min-height 是给"整页详情空态"设的 420px，但本类同时被列表内联
+     空态复用，会让工单列表为空时凭空撑出大片空白。降到 160px 并补齐 padding，
+     与 .state-block 的内边距一致（28px 16px），两种空态观感统一。
+     消费点此前靠内联 minHeight 逐个压制（6 处），已一并删除。 */
+  min-height: 160px;
+  padding: 28px 16px;
   display: grid;
   place-content: center;
   text-align: center;
-  color: #79998e;
+  /* 原为裸色中性灰，改走 token 跟随主题切换（旧色号刻意不写进注释，
+     否则按色号做的 grep 门禁会命中注释文本产生假阳性） */
+  color: var(--muted-foreground);
 }
 
 .empty-detail svg {
@@ -577,8 +584,12 @@
 [data-theme="light"] .switch:hover { box-shadow: 0 0 12px rgba(18, 122, 84, 0.18); }
 [data-theme="light"] .switch:focus-visible { outline-color: var(--primary); }
 
-[data-theme="light"] .empty-detail { color: #5a7d72; }
-[data-theme="light"] .empty-detail svg { color: #0f7a52; }
+/* .empty-detail 与 .empty-detail svg 的亮色 override 已删除（审计 #21）：
+   暗色侧改用 var(--muted-foreground) 与 var(--sentinel-cyan) 后，这两个 token
+   批2 已为亮色主题重定义，override 变成多余；且原 svg override 是一个语义绿，
+   与暗色侧"信息性图标用青蓝、不用语义绿"的决定直接矛盾——同一图标两主题两种色相。
+   （旧色号刻意不写进注释，避免按色号做的 grep 门禁命中注释产生假阳性。）
+   .empty-detail h2 保留：它是标题前景色，属正当的亮色 override。 */
 [data-theme="light"] .empty-detail h2 { color: #0d1f1a; }
 
 [data-theme="light"] .skeleton-row { border-bottom-color: #e8f0ed; }

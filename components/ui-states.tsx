@@ -15,9 +15,16 @@ export function LoadingState({ label = '加载中…' }: { label?: string }) {
   );
 }
 
+// 只挂 .state-block，不再叠加 .empty-detail（审计 #21）。
+// 两个类的声明互斥：.state-block 是 flex 纵向居中，.empty-detail 是
+// display:grid + place-content:center + min-height:420px + 裸色。layout.tsx 里
+// detail.css 在 globals.css 之后加载，同特异性下 .empty-detail 全胜 ——
+// 结果是 flex-direction 等 4 条声明静默失效，且 420px 最小高被强加到列表内联
+// 空态上（工单列表为空时凭空撑出 420px 空白）。.state-block 本就是为统一
+// 空/错/载/陈态设计的 token 化组件，保留它即可。
 export function EmptyState({ label = '暂无数据', hint }: { label?: string; hint?: string }) {
   return (
-    <div className="state-block empty-detail" role="status">
+    <div className="state-block" role="status">
       <Inbox size={18} />
       <span>{label}</span>
       {hint ? <small>{hint}</small> : null}
@@ -27,7 +34,7 @@ export function EmptyState({ label = '暂无数据', hint }: { label?: string; h
 
 export function ErrorState({ label = '加载失败', onRetry }: { label?: string; onRetry?: () => void }) {
   return (
-    <div className="state-block empty-detail" role="alert">
+    <div className="state-block" role="alert">
       <AlertTriangle size={18} style={{ color: 'var(--sentinel-warning)' }} />
       <span>{label}</span>
       <small>请稍后重试；若持续失败请联系管理员（详情见审计日志）。</small>

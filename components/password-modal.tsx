@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Lock, X, AlertTriangle, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -12,6 +12,19 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
   const [success, setSuccess] = useState(false);
   const [serverMsg, setServerMsg] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // 对话框契约（审计 #12），对齐项目内正例 components/detail-drawer.tsx：
+  // 挂载即把焦点移入容器，并监听 Escape 关闭。没有这两件事时，弹窗对键盘用户
+  // 是"焦点仍留在背后页面上"的状态——Tab 会在被遮挡的内容里游走，Esc 也无效。
+  useEffect(() => {
+    panelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,19 +54,28 @@ export function PasswordModal({ onClose }: { onClose: () => void }) {
     setSubmitting(false);
   }
 
+  // 遮罩**不**绑定 onClick 关闭：这是三段式密码表单，误点遮罩会直接丢弃已输入的
+  // 当前密码/新密码。关闭入口只有右上角 X、取消按钮与 Escape（三者均可键盘到达）。
+  // 注意外层这个 div 既是遮罩也是对话框的**父容器**（用 grid 居中），因此不能加
+  // aria-hidden——那会把里面的 role="dialog" 一并对读屏隐藏。detail-drawer 能加是
+  // 因为它的遮罩是对话框的兄弟节点，结构不同。
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8' }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8' }}>
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="password-modal-title"
+        tabIndex={-1}
         className="animate-entrance"
         style={{ width: '100%', maxWidth: 380, background: 'linear-gradient(145deg, #0d1b18, #0a1613)', border: '1px solid #1e332d', borderRadius: 14, padding: 28, boxShadow: '0 24px 64px #00000055' }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Lock size={18} style={{ color: '#49e8a5' }} />
-            <h2 style={{ fontSize: 16, color: '#eaf7f2', margin: 0 }}>修改密码</h2>
+            <h2 id="password-modal-title" style={{ fontSize: 16, color: '#eaf7f2', margin: 0 }}>修改密码</h2>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 0, color: '#5e7c73', cursor: 'pointer' }} aria-label="关闭">
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 0, color: '#5e7c73', cursor: 'pointer' }} aria-label="关闭">
             <X size={18} />
           </button>
         </div>

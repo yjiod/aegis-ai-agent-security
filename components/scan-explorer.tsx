@@ -293,7 +293,7 @@ export function ScanExplorer({
             ))}
           </div>
         ) : error ? (
-          <div className="empty-detail" style={{ minHeight: 160 }}>
+          <div className="empty-detail">
             <WifiOff size={32} />
             <h2>{status === 401 ? '会话已过期或未登录' : '读取失败'}</h2>
             <p>
@@ -310,7 +310,7 @@ export function ScanExplorer({
             )}
           </div>
         ) : !connected ? (
-          <div className="empty-detail" style={{ minHeight: 160 }}>
+          <div className="empty-detail">
             <WifiOff size={32} />
             <h2>接收器未连接</h2>
             <p>
@@ -320,7 +320,7 @@ export function ScanExplorer({
             </p>
           </div>
         ) : counts.total === 0 ? (
-          <div className="empty-detail" style={{ minHeight: 160 }}>
+          <div className="empty-detail">
             <Inbox size={32} />
             <h2>暂无该类发现</h2>
             <p>已连接接收器，但当前没有{title}相关的真实发现。新的上报会自动进入此列表。</p>

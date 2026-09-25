@@ -12,7 +12,7 @@
  * verbose 脱敏保留真实路径/IP/os_user，仅管理员可选；standard 伪名化个人标识。
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CircleCheck, Download, FileSearch, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRole } from '@/components/role-context';
@@ -62,6 +62,19 @@ export function EvidenceDialog({ onClose }: { onClose: () => void }) {
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [verifyError, setVerifyError] = useState('');
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // 对话框契约（审计 #12），对齐项目内正例 components/detail-drawer.tsx：
+  // 挂载即把焦点移入容器，并监听 Escape 关闭。此前两者皆无——读屏不把它识别为
+  // 对话框、焦点仍留在背后页面、Esc 也关不掉。
+  useEffect(() => {
+    panelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const query = useMemo(() => {
     const p = new URLSearchParams();
@@ -123,18 +136,33 @@ export function EvidenceDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8' }} onClick={onClose}>
+    // 遮罩保留点击关闭（本对话框无长表单，误触代价低；password-modal 则刻意不启用）。
+    // 用 e.target === e.currentTarget 判定"点的是遮罩本身"，而不是在内层面板上挂
+    // onClick + stopPropagation：内层已带 role="dialog"，再给它绑鼠标监听会触发
+    // jsx-a11y no-noninteractive-element-interactions（本轮 oxlint 实测报错）。
+    // 目标守卫写法既让面板只保留 ARIA 契约、不挂事件，语义也更直白。
+    // 外层 div 同时是对话框父容器，故不加 aria-hidden。
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'grid', placeItems: 'center', background: '#020806b8' }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="evidence-dialog-title"
+        tabIndex={-1}
         className="animate-entrance"
         style={{ width: '100%', maxWidth: 520, maxHeight: '88vh', overflowY: 'auto', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, padding: 24, boxShadow: '0 24px 64px #00000055', color: 'var(--card-foreground)' }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <FileSearch size={18} style={{ color: 'var(--ring)' }} />
-            <h2 style={{ fontSize: 16, margin: 0 }}>审计 / 证据导出包</h2>
+            <h2 id="evidence-dialog-title" style={{ fontSize: 16, margin: 0 }}>审计 / 证据导出包</h2>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--muted-foreground)', cursor: 'pointer' }} aria-label="关闭">
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--muted-foreground)', cursor: 'pointer' }} aria-label="关闭">
             <X size={18} />
           </button>
         </div>

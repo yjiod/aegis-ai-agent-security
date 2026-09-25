@@ -162,18 +162,32 @@ export default function EnginesPage() {
         </div>
 
         {/* Gate visualization — conceptual pipeline design, not live data */}
+        {/* 审计 #23：流程箭头此前是一个极暗的旧绿裸值，实测对比 2.45:1（面板底上仅
+            2.32:1），承担"门禁顺序"语义却几乎不可见 → 改 var(--sentinel-text-3)，
+            暗色 5.03:1 / 亮色 4.72–5.04:1，两套主题均 PASS。
+
+            两颗芯片此前各自内联 3 个旧绿裸值（背景 / 边框 / 文字），现改用设计系统的
+            .pass 芯片类。这是对审计建议写法的刻意偏差：审计建议内联 color-mix 取
+            --sentinel-accent 的 12%/32% 透明度，但该配方只在暗色成立——亮色主题下
+            accent 是较深的绿，12% 混白后文字对比仅 3.0:1，10px 字号 FAIL（阈值 4.5:1）。
+            而 .pass 已内置亮色 override，实测亮色 4.78:1 / 暗色 8.6:1，两套主题都达标，
+            且顺带消掉 6 个裸值与两份重复的内联排版声明。
+
+            注：本注释刻意不写出被删掉的旧色号，否则后续按色号做的 grep 门禁会命中注释
+            文本、产生假阳性（本批次已实际踩到一次）。完整色号与对比度计算见实施报告。 */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap' }}>
           {GATES.map((gate, i) => (
             <div key={gate} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, background: '#143329', border: '1px solid #24503f', color: '#6cebb7' }}>
+              <span className="pass">
                 {i + 1}. {gate}
               </span>
-              {i < GATES.length - 1 && <span style={{ color: '#37594e', fontSize: 12 }}>→</span>}
+              {i < GATES.length - 1 && <span style={{ color: 'var(--sentinel-text-3)', fontSize: 12 }}>→</span>}
             </div>
           ))}
-          <span style={{ color: '#37594e', fontSize: 12 }}>→</span>
-          <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, background: '#1a3d30', border: '1px solid #49e8a5', color: '#49e8a5', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            {/* P0-1：勾号改用 lucide <Check>，不用 U+2713 字符作功能图标 */}
+          <span style={{ color: 'var(--sentinel-text-3)', fontSize: 12 }}>→</span>
+          {/* 终态芯片保留 fontWeight:700 与 inline-flex（对齐 <Check> 图标），
+              其余全部由 .pass 提供。P0-1：勾号用 lucide <Check>，不用 U+2713 字符。 */}
+          <span className="pass" style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <Check size={12} />
             发布到客户端
           </span>
@@ -236,7 +250,7 @@ export default function EnginesPage() {
             </tbody>
           </table>
         ) : (
-          <div className="empty-detail" style={{ minHeight: 140 }}>
+          <div className="empty-detail">
             <Inbox size={32} />
             <h2>{telemetry?.connected ? '暂无管道活动' : '管道遥测未接入'}</h2>
             <p>

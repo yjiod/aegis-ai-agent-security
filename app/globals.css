@@ -275,7 +275,8 @@
 [data-theme="light"] .status.green { color: #0f7a52; text-shadow: none; }
 [data-theme="light"] .status.blue { color: #1f6f9c; text-shadow: none; }
 [data-theme="light"] .flow:hover { border-color: #b8d4ca; box-shadow: none; }
-[data-theme="light"] .flow b { color: #7d9c92; }
+/* .flow b 的亮色 override 已删除：原值实测 2.71:1 FAIL（暗色侧原值 2.38:1 亦 FAIL）。
+   基类改用 var(--sentinel-text-3) 后 token 自动跟随主题，亮色 4.58:1 PASS。 */
 
 /* Coverage rows. */
 [data-theme="light"] .coverage-row:hover { background: #f0f5f3; border-color: #d4e5df; }
@@ -1208,8 +1209,13 @@ button {
   box-shadow: inset 0 0 24px rgba(73, 232, 165, 0.04);
 }
 
+/* 审计 #23 的第二处（审计只列了 engines 页的内联箭头，漏了这条 CSS 规则）：
+   .flow b 承载的是"流程顺序"语义箭头，消费点为 app/page.tsx 与 app/risks/page.tsx
+   共 7 个 <b>→</b>。原值实测暗色 2.38:1、亮色 override 2.71:1 —— 两套主题都 FAIL，
+   而同容器内的正文却是 6.2:1 / 4.69:1 PASS，即"说明文字清晰、连接箭头几乎不可见"。
+   改走 token 后暗色 4.88:1 / 亮色 4.58:1，两套主题均 PASS，且亮色无需再写 override。 */
 .flow b {
-  color: #37594e;
+  color: var(--sentinel-text-3);
 }
 
 .flow .safe {

@@ -1190,7 +1190,7 @@ export default function DevicesPage() {
         <Pagination page={page} pageCount={paged.pageCount} onPage={setPage} total={visibleDevices.length} pageSize={PAGE_SIZE} />
 
         {source === 'error' && visibleDevices.length === 0 && (
-          <div className="empty-detail" style={{ minHeight: 180 }}>
+          <div className="empty-detail">
             <AlertTriangle size={36} />
             <h2>设备接口暂不可用</h2>
             <p>
@@ -1206,7 +1206,7 @@ export default function DevicesPage() {
         )}
 
         {source !== 'loading' && source !== 'error' && visibleDevices.length === 0 && (
-          <div className="empty-detail" style={{ minHeight: 180 }}>
+          <div className="empty-detail">
             <Laptop size={36} />
             <h2>{query ? '没有匹配的终端' : '注册表为空'}</h2>
             <p>
