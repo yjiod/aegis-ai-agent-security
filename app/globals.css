@@ -2094,8 +2094,13 @@ button.risk-row {
 .drawer-section-body { margin-top: 8px; font-size: 12px; color: var(--foreground); }
 .drawer-section-body .kv { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
 .drawer-section-body .kv span:first-child { color: var(--muted-foreground); flex-shrink: 0; }
-/* 设备识别信息（2026-09-25）：本地 IP/MAC 多行内容在窄抽屉里被裁切 → 限宽+溢出滚动可见 */
-.drawer-section-body .kv span:last-child { min-width: 0; max-width: 60%; overflow-x: auto; overflow-y: hidden; }
+
+/* 设备识别信息卡（2026-09-25 三轮反馈）：抽屉窄宽度下 kv 两列会把多值 IP/MAC 挤成
+   横向滚动（用户："要向右拉滑块，失去便利性"）→ 纵向行布局，值整行自然换行，零滚动。 */
+.device-ident { display: flex; flex-direction: column; gap: 6px; }
+.device-ident-row { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1, transparent); }
+.device-ident-label { color: var(--muted-foreground); font-size: 11px; }
+.device-ident-value { font-family: var(--sentinel-font-mono); font-size: 12px; word-break: break-all; }
 
 /* 批量操作条 */
 .batch-bar {

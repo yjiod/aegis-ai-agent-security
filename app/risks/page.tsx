@@ -1343,39 +1343,49 @@ export default function RisksPage() {
                 {
                   label: '资产',
                   content: (
-                    <div className="kv">
-                      <span>终端</span>
-                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>
-                        {drawerTicket.device_id
-                          && (deviceInfo[drawerTicket.device_id]?.hostname
-                            || deviceInfo[drawerTicket.device_id]?.serial
-                            || drawerTicket.device_id)}
-                        {drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.os_user
-                          ? ` · ${deviceInfo[drawerTicket.device_id].os_user}`
-                          : ''}
-                      </span>
-                      <span>序列号</span>
-                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>
-                        {(drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.serial) || '—'}
-                      </span>
-                      <span>互联网 IP</span>
-                      <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>
-                        {(drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.network?.egress_ip) || '—'}
-                      </span>
-                      <span>本地 IP</span>
-                      <span style={{ fontFamily: 'var(--sentinel-font-mono)', whiteSpace: 'pre-line' }}>
-                        {(drawerTicket.device_id
-                          && deviceInfo[drawerTicket.device_id]?.network?.local_ips?.length
-                          && deviceInfo[drawerTicket.device_id].network?.local_ips?.join('\n')) || '—'}
-                      </span>
-                      <span>MAC</span>
-                      <span style={{ fontFamily: 'var(--sentinel-font-mono)', whiteSpace: 'pre-line' }}>
-                        {(drawerTicket.device_id
-                          && (deviceInfo[drawerTicket.device_id]?.network?.physical_nics?.length
-                            ? deviceInfo[drawerTicket.device_id].network?.physical_nics?.map((nic) => `${nic.name}: ${nic.mac}`).join('\n')
-                            : deviceInfo[drawerTicket.device_id]?.network?.macs?.join('\n')))
-                          || '—'}
-                      </span>
+                    // 2026-09-25 用户三轮反馈：kv 两列布局把多值 IP/MAC 挤成横向滚动
+                    // （"要向右拉滑块，失去页面便利性"）→ 改纵向信息卡：标签一行、值自然换行。
+                    <div className="device-ident">
+                      <div className="device-ident-row">
+                        <span className="device-ident-label">终端</span>
+                        <span className="device-ident-value">
+                          {drawerTicket.device_id
+                            && (deviceInfo[drawerTicket.device_id]?.hostname
+                              || deviceInfo[drawerTicket.device_id]?.serial
+                              || drawerTicket.device_id)}
+                          {drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.os_user
+                            ? ` · ${deviceInfo[drawerTicket.device_id].os_user}`
+                            : ''}
+                        </span>
+                      </div>
+                      <div className="device-ident-row">
+                        <span className="device-ident-label">序列号</span>
+                        <span className="device-ident-value">
+                          {(drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.serial) || '—'}
+                        </span>
+                      </div>
+                      <div className="device-ident-row">
+                        <span className="device-ident-label">互联网 IP</span>
+                        <span className="device-ident-value">
+                          {(drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.network?.egress_ip) || '—'}
+                        </span>
+                      </div>
+                      <div className="device-ident-row">
+                        <span className="device-ident-label">本地 IP</span>
+                        <span className="device-ident-value">
+                          {(drawerTicket.device_id && deviceInfo[drawerTicket.device_id]?.network?.local_ips?.join(' / ')) || '—'}
+                        </span>
+                      </div>
+                      <div className="device-ident-row">
+                        <span className="device-ident-label">MAC</span>
+                        <span className="device-ident-value">
+                          {(drawerTicket.device_id
+                            && (deviceInfo[drawerTicket.device_id]?.network?.physical_nics?.length
+                              ? deviceInfo[drawerTicket.device_id].network?.physical_nics?.map((nic) => `${nic.name}: ${nic.mac}`).join('、')
+                              : deviceInfo[drawerTicket.device_id]?.network?.macs?.join('、')))
+                            || '—'}
+                        </span>
+                      </div>
                     </div>
                   ),
                 },
