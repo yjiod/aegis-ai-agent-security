@@ -324,11 +324,16 @@ export default function RisksPage() {
         const fr = await fetch(`/api/findings?device_id=${encodeURIComponent(t.device_id ?? '')}&limit=200`, { cache: 'no-store' });
         const fd = fr.ok ? ((await fr.json()) as { findings?: unknown }) : null;
         const findings = Array.isArray(fd?.findings) ? (fd.findings as Array<Record<string, unknown>>) : [];
-        const match =
-          findings.find((f) => `${String(f.kind)}:${(f.asset_key as string) || (f.path as string) || ''}` === t.finding_ref) ??
-          findings.find((f) => f.kind === t.source) ??
-          findings.find((f) => f.severity === t.severity) ??
-          null;
+        // 匹配链只允许精确级：finding_ref 命中 → kind 命中。**禁止**按 severity 兜底——
+        // 旧版第三级"取第一条同严重度发现"让每张设备级自动工单都关联到同一个随机
+        // 发现（用户抓包质疑"所有工单关联的都是这个？"，属实是误导）。设备级汇总
+        // 工单（source=aegis-collector.auto、无 finding_ref）就该诚实显示未关联单一资产。
+        const match: Record<string, unknown> | null =
+          (t.finding_ref
+            ? findings.find((f) => `${String(f.kind)}:${(f.asset_key as string) || (f.path as string) || ''}` === t.finding_ref)
+            : undefined)
+          ?? findings.find((f) => f.kind === t.source)
+          ?? null;
         const asset = match
           ? (findingAsset(match as never) ?? { asset_type: 'path' as const, asset_key: String(match.path ?? '') })
           : null;
@@ -1454,7 +1459,13 @@ export default function RisksPage() {
                       <span style={{ fontFamily: 'var(--sentinel-font-mono)' }}>{loopInfo?.kind || drawerTicket.source || '—'}</span>
                       <span>关联资产</span>
                       <span style={{ fontFamily: 'var(--sentinel-font-mono)', wordBreak: 'break-all' }}>
-                        {loopInfo?.state === 'loading' ? '解析中…' : loopInfo?.asset_key ? `${loopInfo.asset_type}:${loopInfo.asset_key}` : '未匹配到发现'}
+                        {loopInfo?.state === 'loading'
+                          ? '解析中…'
+                          : loopInfo?.asset_key
+                            ? `${loopInfo.asset_type}:${loopInfo.asset_key}`
+                            : drawerTicket.source === 'aegis-collector.auto'
+                              ? '设备级汇总工单：关联该设备全部 N 个发现，未锁定单一资产（点「查看发现」看明细）'
+                              : '未匹配到发现'}
                       </span>
                       <span>当前处置</span>
                       <span>
