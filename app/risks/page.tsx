@@ -1228,9 +1228,20 @@ export default function RisksPage() {
                               return n;
                             });
                           }}
-                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10, color: 'var(--muted-foreground)' }}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10, color: 'var(--muted-foreground)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                         >
-                          {netOpen.has(ticket.ticket_id) ? '▾ 收起 IP/MAC' : '▸ IP / MAC'}
+                          {/* 折叠指示符统一走 lucide（此前是 U+25BE/U+25B8 文本三角，且与
+                              risk-signal-help 的方向约定相反）。方向语义全站锁定：展开=朝上、
+                              收起=朝下，用 ChevronDown + rotate(180deg) 实现，与本文件下方
+                              工单详情展开按钮（aria-expanded 那颗）写法完全一致。 */}
+                          <ChevronDown
+                            size={12}
+                            style={{
+                              transform: netOpen.has(ticket.ticket_id) ? 'rotate(180deg)' : 'none',
+                              transition: 'transform 0.2s ease',
+                            }}
+                          />
+                          {netOpen.has(ticket.ticket_id) ? '收起 IP/MAC' : 'IP / MAC'}
                         </button>
                         {netOpen.has(ticket.ticket_id) && (
                           <span style={{ fontSize: 10, fontFamily: 'var(--sentinel-font-mono)', color: 'var(--muted-foreground)', lineHeight: 1.5 }}>

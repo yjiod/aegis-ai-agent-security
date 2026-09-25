@@ -137,9 +137,19 @@ export function SignalDetails({ matches }: { matches?: unknown }) {
         className="handle"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        style={{ fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: 0 }}
+        style={{ fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--primary)', padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}
       >
-        详细信息{open ? ' ▴' : ' ▾'}
+        {/* 折叠指示符统一走 lucide（此前是 U+25B4/U+25BE 文本三角，方向约定还与
+            risks 页相反，用户建立不起"三角方向=展开状态"的心智模型）。方向语义
+            全站锁定：展开=朝上、收起=朝下，与本文件上方那颗 ChevronDown 同写法。 */}
+        详细信息
+        <ChevronDown
+          size={12}
+          style={{
+            transform: open ? 'rotate(180deg)' : 'none',
+            transition: 'transform 0.2s ease',
+          }}
+        />
       </button>
       {open && (
         <div

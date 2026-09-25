@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Cpu, Inbox, RefreshCw, Zap } from 'lucide-react';
+import { Check, Cpu, Inbox, RefreshCw, X, Zap } from 'lucide-react';
 import { ObservabilityPanel } from '@/components/observability-panel';
 import { DetectionCoveragePanel } from '@/components/detection-coverage-panel';
 import { Button } from '@/components/ui/button';
@@ -172,8 +172,10 @@ export default function EnginesPage() {
             </div>
           ))}
           <span style={{ color: '#37594e', fontSize: 12 }}>→</span>
-          <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, background: '#1a3d30', border: '1px solid #49e8a5', color: '#49e8a5', fontWeight: 700 }}>
-            ✓ 发布到客户端
+          <span style={{ fontSize: 10, padding: '4px 10px', borderRadius: 6, background: '#1a3d30', border: '1px solid #49e8a5', color: '#49e8a5', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            {/* P0-1：勾号改用 lucide <Check>，不用 U+2713 字符作功能图标 */}
+            <Check size={12} />
+            发布到客户端
           </span>
         </div>
 
@@ -209,9 +211,14 @@ export default function EnginesPage() {
                             borderRadius: 4,
                             background: s.ok ? 'rgba(40,230,160,0.12)' : 'rgba(240,82,93,0.12)',
                             color: s.ok ? 'var(--sentinel-accent)' : 'var(--sentinel-danger)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
                           }}
                         >
-                          {s.ok ? '✓' : '✗'} {s.name}
+                          {/* P0-1：勾/叉改用 lucide <Check>/<X>，不用 U+2713 / U+2717 字符作功能图标 */}
+                          {s.ok ? <Check size={10} /> : <X size={10} />}
+                          {s.name}
                         </span>
                       ))}
                     </span>

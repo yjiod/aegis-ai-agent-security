@@ -2087,3 +2087,91 @@ button {
 
 /* KPI 4 卡单行（消除 3+1 换行孤儿）；窄屏自动折行 */
 .detail-kpis { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+
+/* ---------- 版本姿态图例 + 近期动态时间线（审计 #16） ----------
+   这 8 个类此前在 tsx 里被引用但 CSS 完全未定义，元素裸渲染：
+   .score-dot 没有 width/height/border-radius，只靠内联 background，
+   实测渲染为 0×0 不可见 → 总览页 5 个图例圆点的颜色语义（当前版本 /
+   Agent 不一致 / 策略不一致 / 两者 / 未知）全部丢失；时间线的容器、条目、
+   节点、连接线、头部 6 个类全无定义 → 退化为无节点无连接线的纯文字堆叠。
+   色值一律走 token，两套主题均成立。禁渐变、禁 glow。 */
+
+/* .score：版本姿态面板的语义修饰类。该面板只有图例列表、没有分数环，
+   而 .score-list p 默认是 justify-content: space-between，三子元素
+   （圆点 / 标签 / 计数）会被均分成"两端 + 居中"，标签浮在中间读不成一行。
+   这里把圆点与标签靠左成组、计数推到行尾，才是图例该有的读法。
+   作用域限定在 .score 内，不影响 .score-list 的其他潜在消费者。 */
+.score .score-list p { justify-content: flex-start; gap: 8px; }
+.score .score-list p b { margin-left: auto; }
+
+/* 图例圆点：尺寸/形状由类提供，颜色仍由 tsx 内联（每行语义色不同） */
+.score-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* 时间线：纵向节点列。连接线由 .timeline-line 逐段绘制（末项不画），
+   而不是靠容器 ::before 通栏一条——这样条目高度不等时线段才不会溢出。 */
+.timeline { display: flex; flex-direction: column; gap: 0; }
+
+.timeline-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+}
+
+/* 节点列：圆点在上、连接线在下，整体不随内容压缩 */
+.timeline-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.timeline-dot {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--sentinel-cyan);
+  flex-shrink: 0;
+}
+
+.timeline-line {
+  flex: 1;
+  width: 1px;
+  min-height: 12px;
+  background: var(--border);
+  margin-top: 4px;
+}
+
+.timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.timeline-header strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+/* .timeline-content / .timeline-time 已在 app/detail.css 定义并被
+   components/ticket-detail.tsx 活跃使用，此处不重复定义（避免又造第二套）。
+   只补本结构特有的正文段落——ticket-detail 的时间线正文是 <span>，
+   总览页是 <p>，两者不同元素，故这条后代选择器不会波及 ticket-detail。 */
+.timeline-content p {
+  margin: 3px 0 0;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}

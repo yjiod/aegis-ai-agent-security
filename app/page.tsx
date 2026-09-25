@@ -1078,7 +1078,13 @@ export default function Home() {
       </div>
 
       {/* ─── Recent Activity Timeline (real audit entries) ─────────── */}
-      <section className="panel activity-timeline animate-entrance animate-entrance-7">
+      {/* 不挂 .activity-timeline：那个类（app/detail.css）是给 ticket-detail 的
+          .timeline-entry 结构准备的——自带 padding-left:28px 与一条 ::before 通栏
+          竖线，竖线位置按 .timeline-entry::before 的 left:-23px 反推而来。本页用的是
+          .timeline / .timeline-marker / .timeline-line 这套自绘节点结构（审计 #16
+          刚补齐定义），若再继承那条 ::before 就会和 .timeline-line 并排出现两条竖线。
+          两套时间线类名的合并属后续专项（审计 #16 已注明），此处只保证本页单条竖线。 */}
+      <section className="panel animate-entrance animate-entrance-7">
         <div className="panel-head">
           <div>
             <h2>近期动态</h2>
