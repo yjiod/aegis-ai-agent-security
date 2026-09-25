@@ -421,6 +421,9 @@ foreach ($name in ($detected.Keys | Sort-Object)) {
 }
 foreach($repo in Get-ManagedRepos) { Install-AegisBaseline $repo; $roots += $repo; $inventory += @{type='managed_repository';path=(Protect-AegisPath $repo)} }
 foreach ($root in $roots) {
+  # 自免扫描(2026-09-25, 同 mac agent): Aegis 自身安装目录不参与扫描——
+  # 自己的 agent 含 Invoke-Expression 等是设计使然, 扫自己只会产噪音发现。
+  if ($root -match '\AegisAgent$') { continue }
   if (Test-Path $root) {
     $inventory += @{ type='agent_root'; path=(Protect-AegisPath $root) }
     $skillManifests=@(Get-ChildItem $root -Filter 'SKILL.md' -File -Recurse -Force|Select-Object -First 501)
