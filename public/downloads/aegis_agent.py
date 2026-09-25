@@ -1046,7 +1046,10 @@ def scan(root,policy):
     for current,dirs,files in os.walk(root,followlinks=False):
         # 剪枝：跳过 .git/node_modules 等、符号链接、以及**子目录挂载点**（网络/合成/
         # FUSE 文件系统可能无限期阻塞 opendir/open，曾导致 watch 模式挂死）。根目录本身不剪。
-        dirs[:]=[name for name in dirs if name not in [".git","node_modules","vendor","dist","build",".venv"] and not (Path(current)/name).is_symlink() and not os.path.ismount(os.path.join(current,name))]
+        # 自免扫描(2026-09-25 用户反馈): Aegis 自身安装目录不参与代码扫描——自己的
+        # agent 含 subprocess 调用是设计使然, 扫自己只会产出 unbounded_shell 等噪音。
+        _self_dirs={"aegis-agent","AegisAgent",".aegis-agent"}
+        dirs[:]=[name for name in dirs if name not in [".git","node_modules","vendor","dist","build",".venv"]+sorted(_self_dirs) and not (Path(current)/name).is_symlink() and not os.path.ismount(os.path.join(current,name))]
         for name in files:
             p=Path(current)/name
             if p.is_symlink() or not (p.suffix.lower() in suffixes or p.name in DEPENDENCY_MANIFESTS): continue
@@ -1062,7 +1065,9 @@ def scan(root,policy):
                 else: findings.append(finding("oversized_file_skipped","medium",p,f"代码或配置文件超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
             except OSError: pass
         if truncated: break
-    if truncated: findings.append(finding("project_scan_truncated","medium",root,f"项目候选文件超过扫描上限 {file_limit}"))
+    # 运维提示类(截断)发现: path 折叠为 ~ 形式(裸 /Users 会在控制台归一化成 "/users" 目录级
+    # 资产键, 用户质疑"加白 /users 是不是全加白了"); asset_type 置空表示**非可处置资产**。
+    if truncated: findings.append(finding("project_scan_truncated","medium",safe_path(root),f"项目候选文件超过扫描上限 {file_limit}"))
     return inventory,findings
 def safe_managed_target(root,path):
     """Reject symlinks and parent paths that resolve outside the managed root."""
