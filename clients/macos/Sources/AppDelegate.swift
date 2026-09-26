@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for item in menu.items where item.action != nil { item.target = self }
         statusItem.menu = menu
         timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshStatus() }
+            Task { @MainActor [weak self] in self?.refreshStatus() }
         }
         if let timer { RunLoop.main.add(timer, forMode: .common) }
         refreshStatus()
