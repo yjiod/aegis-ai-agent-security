@@ -73,6 +73,7 @@ spctl)
   fi
   [ "${AEGIS_TEST_ASSESSMENT_RC:-0}" = 0 ] || exit "$AEGIS_TEST_ASSESSMENT_RC"
   if [ "${AEGIS_TEST_TAMPER:-0}" = 1 ]; then for package do :; done; printf changed >> "$package"; fi
+  if [ -n "${AEGIS_TEST_LATE_LEGACY:-}" ]; then /bin/mkdir -p "${AEGIS_TEST_LATE_LEGACY%/*}"; printf synthetic > "$AEGIS_TEST_LATE_LEGACY"; fi
   /bin/cat "$AEGIS_TEST_ASSESSMENT";;
 installer)
   printf 'synthetic-private-installer-output\\n'
@@ -151,6 +152,16 @@ esac
             self.env.pop(field)
         self.assert_no_install()
         self.assertFalse(any(c[:2]==['pkgutil','--expand'] for c in self.records()))
+
+    def test_legacy_state_appearing_during_assessment_is_rechecked(self):
+        for relative,status in (('Users/fixture/Library/LaunchAgents/com.aegis.agent.plist','legacy_service_migration_required'),
+                                ('Library/Application Support/AegisAgent/watch-cleanup-pending.json','prior_cleanup_requires_verification')):
+            late=self.root/relative
+            self.env['AEGIS_TEST_LATE_LEGACY']=str(late)
+            result,value=self.run_script()
+            self.assertEqual(result.returncode,1);self.assertEqual(value['status'],status)
+            self.assertTrue(late.exists());late.unlink()
+        self.assert_no_install()
 
     def test_invalid_migration_mode_refused_before_download(self):
         for mode in ('true','yes','2','-1'):

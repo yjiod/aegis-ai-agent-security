@@ -28,7 +28,7 @@
 3. 验证整包 SHA-256，再要求系统 `pkgutil --check-signature` 成功，且签名链的首个证书为匹配固定 Team ID 的 Developer ID Installer。
 4. 要求系统安全评估已启用；使用 `spctl --assess --type install --raw --ignore-cache --no-cache` 获取结构化结果。只接受布尔允许、`Notarized Developer ID` 来源、无覆盖放行字段；存在下层判定时也必须为布尔允许。退出码为零或顶层允许均不足以单独证明可信。
 5. 再次校验整包摘要。显式启用用户迁移时，才用系统 `pkgutil --expand` 展开已批准包的元数据与脚本（不展开 Payload、不执行脚本），验证 `Scripts/aegis-package-capabilities.json`：固定 schema、包标识、`journaled-prepare-v1` 协议、布尔外部 Python 依赖为 false，并校验声明绑定的 postinstall SHA-256。能力文件和脚本必须为无链接/额外硬链接的常规文件，大小分别不超过 4 KiB/256 KiB；路径组件不能为符号链接。旧包缺失能力声明、声明错误或脚本摘要不符时，拒绝调用 Installer。
-6. 能力检查后再次验证完整包摘要，再调用系统 Installer。已批准包的 postinstall 使用原生候选执行旧用户服务准备；准备失败中止安装。Installer 成功仍需客户端诊断、入网及 Collector 接收证据。
+6. 能力检查后重新检查旧服务、启动文件和待清理状态，再次验证完整包摘要，然后调用系统 Installer。下载/评估期间出现的新文件不能绕过迁移开关；这是时点复核，包内准备流程仍负责重新校验与确认停服。已批准包的 postinstall 使用原生候选执行旧用户服务准备；准备失败中止安装。Installer 成功仍需客户端诊断、入网及 Collector 接收证据。
 
 能力声明属于批准发布者的包内契约，整包签名和固定摘要保护其来源；它不是独立的运行证明。postinstall 仍需客户端能力自检，双架构 CI 验证实际冻结程序与包。迁移只准备固定用户服务标签，不扩大到旧系统 daemon。详见 [准备与恢复契约](MACOS-LEGACY-SERVICES.md)。
 

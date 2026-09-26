@@ -82,24 +82,27 @@ fi
 
 # A fresh package must not silently run alongside a legacy scanner or overwrite
 # an installation whose previous child-process cleanup is still unconfirmed.
-if [ -e '/Library/Application Support/AegisAgent/watch-cleanup-pending.json' ] || [ -L '/Library/Application Support/AegisAgent/watch-cleanup-pending.json' ]; then
-  finish prior_cleanup_requires_verification 1
-fi
-if /bin/launchctl print system/com.company.aegis-agent >/dev/null 2>&1; then
-  finish legacy_service_migration_required 1
-else
-  legacy_result=$?
-  [ "$legacy_result" -eq 113 ] || finish legacy_service_state_unavailable 1
-fi
-for legacy in /Library/LaunchDaemons/com.company.aegis-agent.plist; do
-  if [ -e "$legacy" ] || [ -L "$legacy" ]; then finish legacy_service_migration_required 1; fi
-done
-for legacy in /Users/*/Library/LaunchAgents/com.aegis.agent.plist /Users/*/Library/LaunchAgents/com.company.aegis-agent.plist; do
-  if [ -e "$legacy" ] || [ -L "$legacy" ]; then
-    LEGACY_USERS=true
-    [ "$MIGRATION_REQUESTED" = true ] || finish legacy_service_migration_required 1
+check_legacy_state() {
+  if [ -e '/Library/Application Support/AegisAgent/watch-cleanup-pending.json' ] || [ -L '/Library/Application Support/AegisAgent/watch-cleanup-pending.json' ]; then
+    finish prior_cleanup_requires_verification 1
   fi
-done
+  if /bin/launchctl print system/com.company.aegis-agent >/dev/null 2>&1; then
+    finish legacy_service_migration_required 1
+  else
+    legacy_result=$?
+    [ "$legacy_result" -eq 113 ] || finish legacy_service_state_unavailable 1
+  fi
+  for legacy in /Library/LaunchDaemons/com.company.aegis-agent.plist; do
+    if [ -e "$legacy" ] || [ -L "$legacy" ]; then finish legacy_service_migration_required 1; fi
+  done
+  for legacy in /Users/*/Library/LaunchAgents/com.aegis.agent.plist /Users/*/Library/LaunchAgents/com.company.aegis-agent.plist; do
+    if [ -e "$legacy" ] || [ -L "$legacy" ]; then
+      LEGACY_USERS=true
+      [ "$MIGRATION_REQUESTED" = true ] || finish legacy_service_migration_required 1
+    fi
+  done
+}
+check_legacy_state
 
 for parent in /private /private/var /private/var/tmp; do
   [ -d "$parent" ] && [ ! -L "$parent" ] || finish staging_unavailable 1
@@ -170,8 +173,10 @@ if [ "$MIGRATION_REQUESTED" = true ]; then
   case "$POST_SHA" in ''|*[!0-9a-f]*) finish migration_capability_unavailable 1 ;; esac
   [ "${#POST_SHA}" -eq 64 ] || finish migration_capability_unavailable 1
   printf '%s  %s\n' "$POST_SHA" "$POSTINSTALL" | /usr/bin/shasum -a 256 -c - >/dev/null 2>&1 || finish migration_script_digest_mismatch 1
-  verify_digest || finish package_changed_after_assessment 1
 fi
+# Recheck state after download/assessment; new legacy files must not bypass opt-in.
+check_legacy_state
+verify_digest || finish package_changed_after_assessment 1
 ATTEMPTED=true
 /usr/sbin/installer -pkg "$PKG" -target / >"$STAGE/installer.log" 2>&1 || finish installer_failed_state_requires_verification 1
 SUCCEEDED=true
