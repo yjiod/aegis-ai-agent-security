@@ -1,21 +1,34 @@
 #!/bin/sh
 set -eu
-PLIST="/Library/LaunchDaemons/com.company.aegis-agent.plist"
-launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
-START='<!-- aegis-managed-user-baseline:start -->'
-END='<!-- aegis-managed-user-baseline:end -->'
-for home in /Users/*; do
-  [ -d "$home" ] || continue
-  for relative in '.codex/AGENTS.md' '.claude/CLAUDE.md'; do
-    file="$home/$relative"
-    [ -f "$file" ] && [ ! -L "$file" ] || continue
-    if /usr/bin/grep -Fq "$START" "$file" && /usr/bin/grep -Fq "$END" "$file"; then
-      temp="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/aegis-uninstall.XXXXXX")"
-      /usr/bin/awk -v start="$START" -v end="$END" '$0==start{managed=1;next}$0==end{managed=0;next}!managed{print}' "$file" > "$temp"
-      /bin/cat "$temp" > "$file"; /bin/rm -f "$temp"
-    fi
-  done
+# Service coordination and managed block cleanup live in the installed helper.
+INSTALL_DIR='/Library/Application Support/AegisAgent'
+if [ "$#" -ne 0 ]; then
+  echo 'The Aegis uninstaller accepts no arguments.' >&2
+  exit 2
+fi
+if [ "$(/usr/bin/id -u)" != 0 ]; then
+  echo 'Run the Aegis uninstaller with administrator privileges.' >&2
+  exit 2
+fi
+trusted_path() {
+  [ ! -L "$1" ] || return 1
+  [ "$(/usr/bin/stat -f '%u' "$1")" = 0 ] || return 1
+  mode=$(/usr/bin/stat -f '%Lp' "$1")
+  [ "$((0$mode & 022))" -eq 0 ]
+}
+for directory in /Library '/Library/Application Support' "$INSTALL_DIR"; do
+  if ! trusted_path "$directory"; then
+    echo 'Aegis installation ownership or permissions are invalid; uninstall refused.' >&2
+    exit 1
+  fi
 done
-rm -f "$PLIST"
-rm -rf "/Library/Application Support/AegisAgent"
-echo "Aegis runtime and managed user baseline blocks removed. Repository rule files remain under source control."
+if [ -x "$INSTALL_DIR/aegis-maintenance" ] && [ ! -L "$INSTALL_DIR/aegis-maintenance" ]; then
+  trusted_path "$INSTALL_DIR/aegis-maintenance" || exit 1
+  exec "$INSTALL_DIR/aegis-maintenance"
+fi
+if [ -x /usr/bin/python3 ] && [ -f "$INSTALL_DIR/aegis_macos_maintenance.py" ] && [ ! -L "$INSTALL_DIR/aegis_macos_maintenance.py" ]; then
+  trusted_path "$INSTALL_DIR/aegis_macos_maintenance.py" || exit 1
+  exec /usr/bin/python3 -I -B "$INSTALL_DIR/aegis_macos_maintenance.py"
+fi
+echo 'Aegis maintenance runtime is missing. Repair the installation before uninstalling; no files were removed.' >&2
+exit 1

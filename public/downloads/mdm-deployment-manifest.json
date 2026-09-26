@@ -59,7 +59,7 @@
     },
     "macos_uninstall": {
       "file": "uninstall-aegis-macos.sh",
-      "sha256": "ac1d1d6d010de04e36354654be96bfef5dbface03d4c3e369eb4fd8922a7236f"
+      "sha256": "816e8046123b25e388e22733a82f474ae09ec0e3af47104c2346a2beab2cd4d3"
     }
   },
   "deployment_order": [

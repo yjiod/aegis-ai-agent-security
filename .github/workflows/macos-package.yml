@@ -7,7 +7,11 @@ on:
       - public/downloads/aegis_agent.py
       - public/downloads/aegis_self_update.py
       - public/downloads/aegis-policy.json
+      - public/downloads/aegis_macos_maintenance.py
+      - public/downloads/uninstall-aegis-macos.sh
+      - public/downloads/MACOS-UNINSTALL.md
       - tests/test_macos_package.py
+      - tests/test_macos_maintenance.py
       - .github/workflows/macos-package.yml
   workflow_dispatch:
 
@@ -25,3 +29,5 @@ jobs:
           python-version: '3.12'
       - name: Build and expand real packages; run isolated lifecycle fixtures
         run: python3 -m unittest discover -s tests -p test_macos_package.py -v
+      - name: Validate uninstall files and a real isolated system launchd process
+        run: sudo env AEGIS_RUN_LAUNCHD_TESTS=1 "$(command -v python3)" -m unittest discover -s tests -p test_macos_maintenance.py -v
