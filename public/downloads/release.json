@@ -343,6 +343,7 @@
     "sha256_integrity_verification"
   ],
   "pending_client_changes": [
+    "watch_shutdown_group_cleanup_and_unconfirmed_fence_pending_native_rebuild",
     "macos_system_package_maintenance_pending_native_bundle_and_signed_release",
     "skill_governance_independent_of_code_scan_pending_native_rebuild"
   ]

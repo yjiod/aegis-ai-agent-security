@@ -205,6 +205,15 @@ class MaintenanceTests(unittest.TestCase):
         self.assertTrue(self.app.exists())
         self.assertTrue(plist.exists())
 
+    def test_unconfirmed_watch_cleanup_blocks_file_mutation(self):
+        p=self.baseline()
+        (self.app/"watch-cleanup-pending.json").write_text('{"state":"unconfirmed"}')
+        with self.assertRaisesRegex(m.MaintenanceError,"watch_cleanup_requires_verification"):
+            self.uninstall()
+        self.assertEqual(p.read_bytes(),self.data)
+        self.assertTrue(self.app.exists())
+        self.assertFalse((self.root/"AegisUninstallArchive").exists())
+
     def test_archive_source_symlink_is_not_followed(self):
         outside = self.root / "outside"
         outside.write_bytes(b"unchanged")

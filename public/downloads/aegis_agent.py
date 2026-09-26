@@ -603,33 +603,153 @@ def scan_sleep_seconds(interval,rng=None):
     base=max(int(interval),60)
     rand=rng if rng is not None else random.uniform
     return base*rand(0.9,1.1)
-def run_scan_cycle(child_argv,budget,grace=15):
-    """扫描看门狗单周期监督（watch 父进程调用）。
+_DARWIN_WAITID=None
+def _darwin_scan_exited(pid):
+    # macOS system Python 3.9 exposes the wait constants but not os.waitid.
+    # Darwin sys/signal.h puts si_pid at the fourth int in siginfo_t; reserve an
+    # aligned 256-byte buffer (the supported 64-bit Darwin ABI uses 104 bytes).
+    import ctypes
+    global _DARWIN_WAITID
+    if _DARWIN_WAITID is None:
+        fn=ctypes.CDLL("/usr/lib/libSystem.B.dylib",use_errno=True).waitid
+        fn.argtypes=(ctypes.c_int,ctypes.c_uint32,ctypes.c_void_p,ctypes.c_int)
+        fn.restype=ctypes.c_int
+        _DARWIN_WAITID=fn
+    info=(ctypes.c_uint64*32)()
+    if _DARWIN_WAITID(os.P_PID,pid,ctypes.byref(info),os.WEXITED|os.WNOHANG|os.WNOWAIT)!=0:
+        raise OSError(ctypes.get_errno(),"scan_wait_failed")
+    return ctypes.cast(info,ctypes.POINTER(ctypes.c_int))[3]==pid
 
-    真机事故(2026-09-24): 子进程阻塞在 hung/网络挂载目录的 open() 进入不可中断 IO，
-    SIGKILL 也杀不掉；旧实现 subprocess.run(timeout=...) 在超时后 kill-then-**wait**，
-    父进程因此永久阻塞 → 后续所有周期(含上报与自更新)停摆 → 控制台把在线终端误判
-    "过期/离线"。本实现超时后先 kill 整个进程组，grace 内仍不退出则**放弃等待并脱离**
-    (泄漏一个挂死子进程远好于整台终端停报)，守护循环继续下一周期。"""
+def _scan_exited(process):
+    # Keep a POSIX child waitable until the final group signal has been sent.
+    # Reaping first would release its PID and allow signalling a reused group ID.
+    if os.name=="posix":
+        try:
+            if hasattr(os,"waitid"):
+                return os.waitid(os.P_PID,process.pid,os.WEXITED|os.WNOHANG|os.WNOWAIT) is not None
+            if sys.platform=="darwin": return _darwin_scan_exited(process.pid)
+            raise OSError("nonreaping_wait_unavailable")
+        except InterruptedError:
+            return False
+    return process.poll() is not None
+
+def _await_scan_exit(process,seconds):
+    deadline=time.monotonic()+max(0,seconds)
+    while True:
+        if _scan_exited(process): return True
+        remaining=deadline-time.monotonic()
+        if remaining<=0: return False
+        time.sleep(min(0.05,remaining))
+
+def _signal_scan(process,force):
     try:
-        p=subprocess.Popen(child_argv,start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        if os.name=="posix":
+            # Popen(start_new_session=True) makes the child's PID its group ID.
+            os.killpg(process.pid,signal.SIGKILL if force else signal.SIGTERM)
+        elif force: process.kill()
+        else: process.terminate()
+        return True
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+
+def _await_scan_group_gone(process,seconds):
+    if os.name!="posix": return process.returncode is not None
+    deadline=time.monotonic()+max(0,seconds)
+    while True:
+        try: os.killpg(process.pid,0)  # Probe only; never signal after reaping.
+        except ProcessLookupError: return True
+        except OSError:
+            # Darwin may briefly return EPERM for a group whose remaining
+            # members are zombies awaiting launchd reaping. Retry, never infer
+            # absence from a permission/observation error.
+            if time.monotonic()>=deadline: return False
+        remaining=deadline-time.monotonic()
+        if remaining<=0: return False
+        time.sleep(min(0.05,remaining))
+
+def _finish_scan(process,reason,grace):
+    try:
+        if reason=="scan_stopped":
+            _signal_scan(process,False)
+            _await_scan_exit(process,grace)
+        # Even if the leader exited, descendants may still be running or ignoring
+        # TERM. Its unreaped PID pins the group identity until this final signal.
+        # macOS can reject a signal to a group containing only a zombie leader.
+        # Exit/group-disappearance checks below determine cleanup, not send status.
+        _signal_scan(process,True)
+        if not _await_scan_exit(process,grace): return "scan_cleanup_unconfirmed"
+        result=process.wait(timeout=grace)
+        if not _await_scan_group_gone(process,grace): return "scan_cleanup_unconfirmed"
+        if reason=="completed": return "ok" if result==0 else "scan_failed"
+        return reason
+    except (OSError,subprocess.TimeoutExpired):
+        return "scan_cleanup_unconfirmed"
+
+def run_scan_cycle(child_argv,budget,grace=5,stop_requested=None):
+    """Bounded supervision; stop requests clean the owned process group.
+
+    A child stuck in kernel I/O can outlive SIGKILL. Return an explicit incomplete
+    result after bounded waits instead of reporting success or waiting forever.
+    POSIX groups cover descendants that remain in the scanner's session; the
+    Windows Python fallback controls the direct child only.
+    """
+    stopped=stop_requested or (lambda: False)
+    if stopped(): return "scan_stopped"
+    try:
+        process=subprocess.Popen(child_argv,start_new_session=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     except OSError:
         return "spawn_failed"
+    deadline=time.monotonic()+max(0,budget)
     try:
-        p.wait(timeout=budget)
-        return "ok"
-    except subprocess.TimeoutExpired:
-        pass
+        while True:
+            if stopped(): return _finish_scan(process,"scan_stopped",grace)
+            if _scan_exited(process): return _finish_scan(process,"completed",grace)
+            remaining=deadline-time.monotonic()
+            if remaining<=0: return _finish_scan(process,"scan_timeout",grace)
+            time.sleep(min(0.05,remaining))
+    except OSError:
+        # Losing wait ownership means group identity is no longer safe to signal.
+        return "scan_cleanup_unconfirmed"
+
+def run_watch_loop(child_argv,budget,interval,grace=5,failure_marker=None):
+    import select
+    if failure_marker is not None and (Path(failure_marker).exists() or Path(failure_marker).is_symlink()):
+        print("aegis prior scan cleanup requires verification; watch not started",file=sys.stderr)
+        return 1
+    stop_signal=[0]
+    previous={}
+    reader,writer=socket.socketpair()
+    reader.setblocking(False); writer.setblocking(False)
+    previous_wakeup=None
+    def request_stop(signum,_frame):
+        stop_signal[0]=signum  # No I/O, waits or locks inside a signal handler.
     try:
-        os.killpg(os.getpgid(p.pid),signal.SIGKILL)
-    except (OSError,ProcessLookupError):
-        try: p.kill()
-        except OSError: pass
-    try:
-        p.wait(timeout=grace)
-        return "scan_timeout"
-    except subprocess.TimeoutExpired:
-        return "scan_timeout_wedged_detached"
+        previous_wakeup=signal.set_wakeup_fd(writer.fileno())
+        for signum in (signal.SIGTERM,signal.SIGINT):
+            previous[signum]=signal.signal(signum,request_stop)
+        while not stop_signal[0]:
+            status=run_scan_cycle(child_argv,budget,grace,lambda: bool(stop_signal[0]))
+            if status=="scan_cleanup_unconfirmed":
+                if failure_marker is not None:
+                    try:
+                        _atomic_write_json(Path(failure_marker),{"schema":"aegis.watch-cleanup/v1","state":"unconfirmed","at":int(time.time())},mode=0o600)
+                    except OSError:
+                        print("aegis could not persist scan cleanup failure",file=sys.stderr)
+                print("aegis scan cleanup unconfirmed; watch stopped",file=sys.stderr)
+                return 1
+            if stop_signal[0] or status=="scan_stopped": return 0
+            if status!="ok": print("aegis scan cycle "+status,file=sys.stderr)
+            deadline=time.monotonic()+scan_sleep_seconds(interval)
+            while not stop_signal[0] and time.monotonic()<deadline:
+                ready,_,_=select.select([reader],[],[],max(0,deadline-time.monotonic()))
+                if ready: reader.recv(4096)
+        return 0
+    finally:
+        if previous_wakeup is not None: signal.set_wakeup_fd(previous_wakeup)
+        for signum,handler in previous.items(): signal.signal(signum,handler)
+        reader.close(); writer.close()
 def quarantine_dir():
     return Path(os.path.expanduser("~"))/QUARANTINE_DIRNAME
 def _atomic_write_json(path,obj,mode=None):
@@ -1873,11 +1993,7 @@ def main():
         try: budget=min(max(int(os.getenv("AEGIS_SCAN_BUDGET_SECONDS","1800")),60),86400)
         except (TypeError,ValueError): budget=1800
         child_argv=([sys.executable] if getattr(sys,"frozen",False) else [sys.executable,str(Path(__file__).resolve())])+[a for a in sys.argv[1:] if a!="--watch"]
-        while True:
-            status=run_scan_cycle(child_argv,budget)
-            if status!="ok":
-                print(f"aegis scan cycle {status}; will retry next interval",file=sys.stderr)
-            time.sleep(scan_sleep_seconds(args.interval))
+        return run_watch_loop(child_argv,budget,args.interval,failure_marker=BASE_DIR/"watch-cleanup-pending.json")
     host_device_id=hardware_device_id()
     # 每设备入网凭据优先：显式 --enrollment-config > --enrollment-dir/<本机device_id>.json > 全网 reporting.json(向后兼容)。
     enroll_path=args.enrollment_config
