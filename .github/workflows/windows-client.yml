@@ -44,3 +44,14 @@ jobs:
       - name: Record scoped evidence
         shell: pwsh
         run: Get-Content -LiteralPath ./artifacts/client/evidence.json | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+      - name: Verify policy envelope interoperability with ephemeral keys
+        shell: pwsh
+        env:
+          CLIENT_RID: ${{ matrix.rid }}
+        run: |
+          node --experimental-strip-types --no-warnings scripts/test-policy-envelope.mjs artifacts/policy-envelope-vectors.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet publish tests/windows-policy-envelope/EnvelopeTests.csproj --configuration Release --runtime $env:CLIENT_RID --self-contained true --output artifacts/envelope-tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./artifacts/envelope-tests/EnvelopeTests.exe artifacts/policy-envelope-vectors.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
