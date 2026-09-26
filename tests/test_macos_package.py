@@ -36,7 +36,7 @@ class MacPackageTests(unittest.TestCase):
         # Shell fixtures validate selection only; they are not native artifacts.
         for arch in ("arm64", "x64"):
             binary = cls.downloads / f"aegis-agent-darwin-{arch}"
-            binary.write_text('#!/bin/sh\n# fixture: ' + arch + '\n[ "$1" = --selftest ]\n')
+            binary.write_text('#!/bin/sh\n# fixture: ' + arch + '\n[ "$1" = --selftest ] || [ "$1" = --maintenance-selftest ]\n')
             binary.chmod(0o755)
         cls.native_package = cls.build_package("native-fixtures")
 
@@ -144,6 +144,14 @@ if command == "uname":
         self.prepare()
         self.assertEqual(self.run_postinstall().returncode, 0)
         self.assertEqual(self.policy.read_bytes(), (self.app / "aegis-policy.factory.json").read_bytes())
+
+    def test_native_without_embedded_maintenance_cannot_register_service(self):
+        self.prepare(native=True)
+        (self.app / "aegis-agent-darwin-arm64").write_text('#!/bin/sh\n[ "$1" = --selftest ]\n')
+        result = self.run_postinstall()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("embedded maintenance", result.stderr)
+        self.assertEqual(self.launch_calls(), [])
 
     def test_enrollment_failure_is_deferred_but_service_registration_is_checked(self):
         self.prepare(enrolled=False)

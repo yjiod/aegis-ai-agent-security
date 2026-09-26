@@ -249,13 +249,19 @@ def uninstall(app, daemon_dir, homes, archive_parent, services):
             return journal
 
 
-def main():
-    if sys.argv[1:] == ["--selftest"]:
-        if strip_managed_block(b"personal\n" + START + b"\nmanaged\n" + END + b"\n") != b"personal\n":
+def selftest():
+    """Pure, side-effect-free check also embedded in the frozen client."""
+    return strip_managed_block(b"personal\n" + START + b"\nmanaged\n" + END + b"\n") == b"personal\n"
+
+
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args == ["--selftest"]:
+        if not selftest():
             return 1
         print("aegis-maintenance-selftest-ok")
         return 0
-    if sys.argv[1:] or sys.platform != "darwin" or os.geteuid() != 0:
+    if args or sys.platform != "darwin" or os.geteuid() != 0:
         print("Aegis uninstall requires macOS, administrator privileges and no arguments", file=sys.stderr)
         return 2
     try:

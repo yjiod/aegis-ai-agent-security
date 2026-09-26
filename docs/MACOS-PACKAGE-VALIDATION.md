@@ -13,7 +13,8 @@ active policy and reporting configuration. Changing enrollment can still replace
 the policy with the policy returned by the server.
 
 Native packages require both ARM64 and x64 artifacts. The installation selects
-the current architecture and requires its self-test to succeed. Script packages
+the current architecture and requires both the client and embedded maintenance
+self-tests to succeed before enrollment and service registration. Script packages
 include the self-update module and select a Python interpreter that passes the
 packaged agent's self-test; that exact interpreter is written to the service
 configuration. Script packages still require an available Python installation
@@ -53,3 +54,22 @@ sleep process, confirms its PID, stops its KeepAlive job, and confirms both
 registration and process disappear. macOS CI runs that isolated case in the
 system domain. This is evidence for service control, not a production Aegis
 uninstall or a proof that every detached scanner child exits.
+
+The frozen client embeds maintenance behind exclusive `--maintenance-selftest`
+and `--uninstall-system` modes. Mixed flags fail before service or file access.
+The uninstall wrapper requires a trusted installed client and a successful
+maintenance capability check; no external Python or legacy helper fallback remains.
+This means a script-only development package cannot perform supported uninstall.
+
+`test_macos_native_maintenance.py` covers dispatch, missing capability, ownership,
+permissions and symlink refusals. With `AEGIS_FROZEN_AGENT` set to a built artifact,
+it also runs the binary without sibling runtime modules, under hostile Python
+environment variables, and under a macOS sandbox that denies other executables,
+network access and external runtime locations. A negative control proves the
+sandbox refuses a different executable. These self-tests are deliberately free
+of real uninstall, enrollment and scanning side effects: they establish embedded
+maintenance availability, not a complete clean-machine lifecycle.
+
+The freeze workflow runs these cases on native ARM64 and Intel x64 runners.
+See [the locked build toolchain review](MACOS-FREEZE-DEPENDENCIES.md). Signing,
+final-package installation and all other R7 release gates remain outstanding.
