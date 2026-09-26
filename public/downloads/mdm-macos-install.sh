@@ -22,6 +22,23 @@ cleanup() {
 trap cleanup EXIT
 trap 'finish interrupted 130' INT
 trap 'finish interrupted 143' TERM
+# The same entry is used by MDM (protected environment) and an administrator
+# running a reviewed local script (public artifact identity arguments only).
+SEEN=' '
+while [ "$#" -gt 0 ]; do
+  case "$1" in -PkgSha256|-TeamId|-PkgUrl|-PkgPath) ;; *) finish unexpected_arguments 2 ;; esac
+  case "$SEEN" in *" $1 "*) finish duplicate_argument 2 ;; esac
+  SEEN="$SEEN$1 "
+  [ "$#" -ge 2 ] && [ -n "$2" ] || finish missing_argument_value 2
+  case "$2" in -*) finish missing_argument_value 2 ;; esac
+  case "$1" in
+    -PkgSha256) AEGIS_MACOS_PKG_SHA256=$2 ;;
+    -TeamId) AEGIS_MACOS_TEAM_ID=$2 ;;
+    -PkgUrl) AEGIS_MACOS_PKG_URL=$2 ;;
+    -PkgPath) AEGIS_MACOS_PKG_PATH=$2 ;;
+  esac
+  shift 2
+done
 [ "$#" -eq 0 ] || finish unexpected_arguments 2
 [ "$(/usr/bin/id -u)" = 0 ] || finish administrator_required 2
 [ "$(/usr/bin/uname -s)" = Darwin ] || finish macos_required 2

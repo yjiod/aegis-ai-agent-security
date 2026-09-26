@@ -1361,11 +1361,12 @@ export default function DevicesPage() {
           <div style={{ margin: '12px 16px 4px', padding: '10px 12px', borderRadius: 8, background: 'var(--sentinel-surface-2, #0d202c)', border: '1px solid var(--sentinel-line, rgba(111,173,204,0.22))', fontSize: 12, color: 'var(--sentinel-text-2, #a5bdc9)' }}>
             <strong style={{ color: 'var(--sentinel-text, #edf7fb)' }}>无法自动更新的终端（旧二进制在自更新前崩溃/离线）</strong>
             <p style={{ margin: '6px 0', color: 'var(--sentinel-text-3, #6c8796)' }}>
-              在该终端上以管理员身份运行一次一键脚本即可解锁自更新（保留既有入网配置；之后恢复自动热更）：
+              安装完成后还需确认服务和上报恢复，才能认定终端已上线。
             </p>
-            <code style={{ display: 'block', fontSize: 11, wordBreak: 'break-all', background: 'var(--sentinel-surface-3, #102a37)', padding: '6px 8px', borderRadius: 6 }}>
-              {`curl -fsSL ${typeof window !== 'undefined' ? window.location.origin : ''}/downloads/aegis-install-macos-oneclick.sh | bash`}
-            </code>
+            <p style={{ margin: '6px 0' }}>
+              Mac：由管理员分发已批准的签名安装包，通过包摘要和发布者验证后安装。无需预装 Python；发现旧服务时先完成迁移。
+              {' '}<a href="/downloads/MACOS-INSTALL.md" download>下载 Mac 安装说明</a>
+            </p>
             <code style={{ display: 'block', marginTop: 6, fontSize: 11, wordBreak: 'break-all', background: 'var(--sentinel-surface-3, #102a37)', padding: '6px 8px', borderRadius: 6 }}>
               {`powershell -ExecutionPolicy Bypass -Command "iwr ${typeof window !== 'undefined' ? window.location.origin : ''}/downloads/aegis-install-windows-oneclick.ps1 -OutFile $env:TEMP\\a.ps1; & $env:TEMP\\a.ps1"`}
             </code>

@@ -72,8 +72,8 @@ Agent 通过**只读文件标记**识别下列工具（不启动、不执行被�
 > 路线：签名策略强制 + 非对称验签密钥分发（Ed25519 公钥内嵌/公开端点分发、enroll 下发签名策略、每设备可吊销令牌）见设计稿 [`docs/4A-POLICY-INTEGRITY-DESIGN.md`](docs/4A-POLICY-INTEGRITY-DESIGN.md)，按 dual-sign → 强制两阶段灰度推进。
 
 ```bash
-# macOS —— 原生 .pkg（双击安装；postinstall 自动入网 + 系统 LaunchDaemon，开机自启）
-sudo installer -pkg aegis-agent-macos.pkg -target /
+# macOS —— 运行企业审核的本地安装脚本，提供已批准的包及发布者信息
+sudo /bin/sh ./aegis-install-macos-oneclick.sh -PkgUrl "$APPROVED_PACKAGE_URL" -PkgSha256 "$APPROVED_PACKAGE_SHA256" -TeamId "$APPROVED_PUBLISHER_TEAM_ID"
 
 # Windows —— 原生 .msi（双击或 msiexec 安装 → 注册 SCM 服务 AegisAgent，安装时零接触入网）
 #   从控制台 /downloads/aegis-agent-windows.msi 获取（已烘焙你的服务器地址；wixl 交叉构建、自包含 .NET 服务壳）

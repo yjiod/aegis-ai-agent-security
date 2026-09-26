@@ -65,7 +65,7 @@ installer)
 *) exit 99;;
 esac
 '''
-        source = SCRIPT.read_text()
+        source = getattr(self, "script_path", SCRIPT).read_text()
         for tool, location in (("id", "/usr/bin/id"), ("stat", "/usr/bin/stat"), ("curl", "/usr/bin/curl"),
                                ("pkgutil", "/usr/sbin/pkgutil"), ("spctl", "/usr/sbin/spctl"), ("installer", "/usr/sbin/installer"),
                                ("launchctl", "/bin/launchctl")):
@@ -133,6 +133,27 @@ esac
         self.assertEqual(result.returncode, 0)
         self.assertNotIn("curl", [x[0] for x in self.records()])
         self.assertEqual(self.package.read_bytes(), before)
+
+    def test_administrator_arguments_require_pins_and_preserve_validation(self):
+        digest = self.env.pop("AEGIS_MACOS_PKG_SHA256")
+        self.env.pop("AEGIS_MACOS_TEAM_ID")
+        self.env["AEGIS_MACOS_PKG_URL"] = ""
+        result, value = self.run_script("-PkgSha256", digest, "-TeamId", TEAM,
+                                        "-PkgUrl", "https://aegis.example.test/approved.pkg")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(value["status"], "installed_health_pending")
+        self.assertEqual(value["artifact_sha256"], digest)
+
+    def test_ambiguous_or_legacy_arguments_do_not_touch_services_or_download(self):
+        for args, status in ((("-PkgUrl",), "missing_argument_value"),
+                             (("-TeamId", "",), "missing_argument_value"),
+                             (("-PkgUrl", "-TeamId"), "missing_argument_value"),
+                             (("-TeamId", TEAM, "-TeamId", TEAM), "duplicate_argument"),
+                             (("-Server", "https://aegis.example.test"), "unexpected_arguments")):
+            result, value = self.run_script(*args)
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(value["status"], status)
+        self.assertEqual(self.records(), [])
 
     def test_platform_missing_key_stdout_cannot_pollute_public_result(self):
         probe = self.bin / "plutil"
@@ -275,6 +296,10 @@ exit "$code"
         self.assertEqual(result.returncode, 1)
         self.assertEqual(value["status"], "package_signature_rejected")
         self.assert_no_install()
+
+
+class MacInteractiveInstallTests(MacMdmInstallTests):
+    script_path = ROOT / "public/downloads/aegis-install-macos-oneclick.sh"
 
 
 if __name__ == "__main__":
