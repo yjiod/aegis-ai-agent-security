@@ -44,6 +44,22 @@ rollback() {
     || echo "  ⚠ 回滚后服务未 active，需人工介入: ssh $SERVER 'systemctl status $SERVICE'" >&2
 }
 
+# ── 构建基线断言（2026-09-26 事故护栏，勿删）────────────────────────────────
+# 真事故：部署窗口内另一名成员并发提交，使仓库 HEAD 在本次构建之后前移。那次侥幸
+# 无害，但时序若颠倒就会把未授权内容推上生产而脚本毫无察觉。故部署前固定基线并拒绝
+# 脏树，部署后复验 HEAD 未变。失败一律中止报错：不重试、不忽略、不降级为告警。
+HEAD_BEFORE=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo "")
+if [ -z "$HEAD_BEFORE" ]; then
+  fail "无法取得 git HEAD（$ROOT 不是 git 仓库？），构建基线无法固定，拒绝部署" 2
+fi
+DIRTY=$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null || echo "")
+if [ -n "$DIRTY" ]; then
+  echo "  ✗ 工作区存在【已跟踪文件】的未提交改动，拒绝部署（上线内容无法追溯到某个 commit）：" >&2
+  echo "$DIRTY" | sed "s/^/      /" >&2
+  fail "请先 commit 或 stash 后重试（未跟踪的构建产物目录不受影响）" 2
+fi
+echo "  ✓ 构建基线 HEAD = $(git -C "$ROOT" rev-parse --short HEAD)，无未提交的已跟踪改动"
+
 echo "═══ [1/7] 本地冒烟: py_compile + release_verify ═══"
 [ -f "$SRC" ] || fail "找不到源文件: $SRC"
 /usr/bin/python3 -m py_compile "$SRC" || fail "本地 py_compile 失败，拒绝部署"
@@ -70,7 +86,7 @@ STAGING="/tmp/aegis_collector.py.$TS"
 scp $SCP_OPTS "$SRC" "$SERVER:$STAGING" || fail "scp 上传失败"
 # 远端 py_compile 失败即中止，绝不触碰现网文件。staging 残留在 /tmp（临时目录，
 # 系统自会清理）；刻意不用 rm，遵循「不对文件做破坏性删除」的安全约束。
-ssh $SSH_OPTS "$SERVER" "python3 -m py_compile '$STAGING'" || fail "远端 py_compile 失败，未触碰现网文件（staging 留在 $STAGING）"
+ssh $SSH_OPTS "$SERVER" "python3 -m py_compile '$STAGING'" || fail "远端 py_compile 失败，未触碰现网文件（staging 留在 ${STAGING}）"
 echo "  ✓ staging 语法校验通过"
 
 echo "═══ [6/7] 就位 + 单次重启 $SERVICE ═══"
@@ -99,4 +115,16 @@ if [ -z "$OK" ]; then
   fail "部署后采集器不健康，已尝试回滚"
 fi
 echo "  ✓ /health = ok，服务 active"
+
+# ── 部署后 HEAD 复验（构建基线断言的后半，勿删）──────────────────────────────
+# 放在"部署完成"之前：HEAD 若在部署期间被并发提交推进，就不能宣称部署完成，
+# 因为此刻仓库状态已无法代表线上正在跑的采集器。
+HEAD_AFTER=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo "")
+if [ "$HEAD_AFTER" != "$HEAD_BEFORE" ]; then
+  echo "  ✗ HEAD 在部署期间发生变化：$(echo "$HEAD_BEFORE" | cut -c1-7) → $(echo "$HEAD_AFTER" | cut -c1-7)" >&2
+  echo "    线上工件对应基线 ${HEAD_BEFORE}，当前仓库 HEAD 已不是它。" >&2
+  fail "请人工核对该区间提交是否被授权上线，必要时重新部署。不自动重试。" 3
+fi
+echo "  ✓ HEAD 未变（部署前 = 部署后 = $(git -C "$ROOT" rev-parse --short HEAD)）"
+
 echo "═══ 采集器部署完成 ($SERVICE @ $PORT) ═══"

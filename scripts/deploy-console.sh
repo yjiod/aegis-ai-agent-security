@@ -33,6 +33,27 @@ case "$AEGIS_PUBLIC_ORIGIN" in *aegis.example.com*) echo "✗ AEGIS_PUBLIC_ORIGI
 if [ "$SERVER" = "root@aegis.example.com" ]; then echo "✗ 未指定部署主机（AEGIS_DEPLOY_SERVER 或参数1），拒绝部署" >&2; exit 2; fi
 echo "  ✓ 前置守卫通过（origin/host 已设置）"
 
+# ── 构建基线断言（2026-09-26 事故护栏，勿删）────────────────────────────────
+# 真事故：部署窗口内另一名成员并发提交了一个 commit，使仓库 HEAD 在本次构建之后前移。
+# 那次侥幸无害（构建早于提交 18 分钟，且改的是 md，不进 bundle），但**时序若颠倒，
+# 就会把未经授权的内容部署上生产而毫无察觉**——脚本不会报错，验证也可能全绿。
+# 因此：构建前固定基线并拒绝脏树，部署后复验 HEAD 未变。
+# 断言失败一律中止并报错（exit 2/3）：不自动重试、不忽略、不降级为告警。
+HEAD_BEFORE=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo "")
+if [ -z "$HEAD_BEFORE" ]; then
+  echo "✗ 无法取得 git HEAD（$ROOT 不是 git 仓库？），拒绝部署：构建基线无法固定" >&2
+  exit 2
+fi
+DIRTY=$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null || echo "")
+if [ -n "$DIRTY" ]; then
+  echo "✗ 工作区存在【已跟踪文件】的未提交改动，拒绝部署——此时构建产物不等于任何 commit，" >&2
+  echo "  上线内容无法被追溯与复现：" >&2
+  echo "$DIRTY" | sed "s/^/    /" >&2
+  echo "  请先 commit 或 stash 后重试（未跟踪的构建产物目录不受影响）。" >&2
+  exit 2
+fi
+echo "  ✓ 构建基线 HEAD = $(git -C "$ROOT" rev-parse --short HEAD)，无未提交的已跟踪改动"
+
 echo "═══ 构建控制台 ═══"
 cd "$ROOT"
 # vinext build 不清理 dist/，反复本地构建会累积陈旧的 hash 命名 chunk（旧页面代码，
@@ -156,9 +177,21 @@ echo "  ✓ wrangler.json 权限收紧为 600"
 systemctl restart aegis-console
 sleep 6
 systemctl is-active aegis-console
-# 冷编译预热(2026-09-25 504 事故根因之一): vinext 冷启动 /login 编译实测 150-310s,
+# 冷编译预热(2026-09-25 504 事故根因之一): vinext 冷启动 /login 编译, 单元级实测 358s
+# (2026-09-26 11:00:11 → 11:06:09), 而非早先注释所称 150-310s。慢的主因是内存软限节流:
+# cgroup 计数器 memory.peak=1678598144 (1.563 GiB) 顶穿了当时的 MemoryHigh=1600M
+# (1677721600), 编译期被限速。现已由入仓 drop-in 修正 —— 见
+# ops/aegis-console.service.d/limits.conf (MemoryHigh=2000M) 与
+# ops/aegis-console.service.d/startup-timeout.conf (TimeoutStartSec=900)。
 # 部署后若不预热, 用户首批请求会撞上冷窗口(此前 60s nginx 超时 → 504"删除失败")。
-# nginx 读超时已放宽到 360s 兜底; 此处主动把冷编译跑完, "部署完成"即热服务。
+# nginx 读超时已放宽到 360s 兜底。注意生效值来自 sites-enabled/aegis(360s), 而
+# sites-available/aegis 仍是 60s —— 两者是**独立文件而非软链接**, 已漂移一行, 详见
+# ops/README.md。别只改 sites-available, 那不会生效。
+# 此处主动把冷编译跑完, "部署完成"即热服务。
+# 注: TimeoutStartSec 提到 900 后, 上面的 systemctl restart 会阻塞到单元真正就绪
+# (含单元自带 ExecStartPost 就绪轮询, 最坏 600s), 故下面这段预热通常退化为
+# "确认性"的立即 200, 不再是主要等待点; 保留它是为了在 ExecStartPost 被改动或
+# 单元未走 drop-in 时仍能兜住。
 echo "  预热(冷编译 /login, 最长约 310s)…"
 for i in \$(seq 1 60); do
   code=\$(curl -s -o /dev/null -w '%{http_code}' -m 320 http://127.0.0.1:8787/login 2>/dev/null)
@@ -167,6 +200,19 @@ for i in \$(seq 1 60); do
 done
 [ "\$code" = "200" ] || echo "  ⚠ 预热未在 320s 内完成——请人工检查控制台状态"
 '
+
+# ── 部署后 HEAD 复验（构建基线断言的后半，勿删）──────────────────────────────
+# 放在"部署完成"之前：若 HEAD 在部署期间被并发提交推进，就**不能**宣称部署完成，
+# 因为此刻仓库状态已无法代表线上正在跑的工件。
+HEAD_AFTER=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo "")
+if [ "$HEAD_AFTER" != "$HEAD_BEFORE" ]; then
+  echo "✗ HEAD 在部署期间发生变化：$(echo "$HEAD_BEFORE" | cut -c1-7) → $(echo "$HEAD_AFTER" | cut -c1-7)" >&2
+  echo "  线上工件对应的基线是 ${HEAD_BEFORE}，当前仓库 HEAD 已不是它。" >&2
+  echo "  请人工核对该区间提交是否被授权上线，必要时重新部署。不自动重试。" >&2
+  exit 3
+fi
+echo "  ✓ HEAD 未变（部署前 = 部署后 = $(git -C "$ROOT" rev-parse --short HEAD)）"
+
 echo "═══ 部署完成 ══"
 echo "  控制台: https://aegis.example.com"
 echo "  凭据文件: /etc/aegis/console.env (独立维护, 部署不覆盖)"
