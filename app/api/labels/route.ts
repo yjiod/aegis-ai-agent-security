@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
 import {
-  ensureLabelsLoaded,
   listLabels,
   setLabel,
   removeLabel,
@@ -11,6 +10,7 @@ import {
   type Disposition,
 } from '@/lib/labels';
 import { logAudit } from '@/lib/store';
+import { labelsReadyFor } from '@/lib/label-readiness';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +24,9 @@ function isAssetType(v: unknown): v is AssetType {
 export async function GET(request: Request) {
   const session = getSession(request);
   if (!session) return NextResponse.json({ error: 'unauthenticated' }, { status: 401, headers: NO_STORE });
-  await ensureLabelsLoaded().catch(() => {});
+  if (!(await labelsReadyFor('labels:read', session.subject))) {
+    return NextResponse.json({ error: 'labels_unavailable' }, { status: 503, headers: NO_STORE });
+  }
   return NextResponse.json({ labels: listLabels() }, { headers: NO_STORE });
 }
 
@@ -74,7 +76,9 @@ export async function POST(request: Request) {
   }
   const tags = Array.isArray(body.tags) ? (body.tags as unknown[]).map((t) => String(t)).filter(Boolean).slice(0, 20) : undefined;
 
-  await ensureLabelsLoaded().catch(() => {});
+  if (!(await labelsReadyFor('labels:write', session?.subject ?? 'console'))) {
+    return NextResponse.json({ error: 'labels_unavailable' }, { status: 503, headers: NO_STORE });
+  }
   const rec = setLabel({
     asset_type: assetType,
     asset_key: finalKey,
@@ -104,7 +108,9 @@ export async function DELETE(request: Request) {
   if (!isAssetType(assetType) || !assetKey) {
     return NextResponse.json({ error: 'invalid_params' }, { status: 400, headers: NO_STORE });
   }
-  await ensureLabelsLoaded().catch(() => {});
+  if (!(await labelsReadyFor('labels:delete', session?.subject ?? 'console'))) {
+    return NextResponse.json({ error: 'labels_unavailable' }, { status: 503, headers: NO_STORE });
+  }
   const delKey = assetType === 'prefix' ? (normalizePrefixKey(assetKey) ?? assetKey) : assetKey;
   const removed = removeLabel(assetType, delKey);
   logAudit({

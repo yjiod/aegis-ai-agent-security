@@ -14,5 +14,5 @@ export async function POST(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
   const result = await runAutoRemediationSweep('console-manual');
-  return NextResponse.json(result, { headers: NO_STORE });
+  return NextResponse.json(result, { status: result.reason === 'labels_unavailable' ? 503 : 200, headers: NO_STORE });
 }

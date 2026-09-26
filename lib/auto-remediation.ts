@@ -21,7 +21,8 @@
  * 配置（PG settings `remediation_json`）：{enabled, auto_deny, notify}，默认全开
  * （用户要求"全自动纠偏"；可在设置页关闭）。
  */
-import { ensureLabelsLoaded, listLabels, setLabelInMemory, persistLabelsDurable, findingAsset, type AssetLabel, type AssetType } from '@/lib/labels';
+import { listLabels, setLabelInMemory, persistLabelsDurable, findingAsset, type AssetLabel, type AssetType } from '@/lib/labels';
+import { labelsReadyFor } from '@/lib/label-readiness';
 import { getSetting } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
 import { getAlertConfig } from '@/lib/alerting';
@@ -280,7 +281,9 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
   const token = process.env.AEGIS_COLLECTOR_TOKEN ?? '';
   if (!base || !token) return { ran: false, reason: 'collector_unconfigured', findings: 0, denied: [], conflicts: [], notified: 0 };
 
-  await ensureLabelsLoaded().catch(() => {});
+  if (!(await labelsReadyFor('remediation:auto_sweep', actor))) {
+    return { ran: false, reason: 'labels_unavailable', findings: 0, denied: [], conflicts: [], notified: 0 };
+  }
   const findings = await fetchAllFindings();
   const decision = decideRemediation(findings, listLabels());
   const denied: SweepResult['denied'] = [];

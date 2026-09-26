@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
-import { ensureLabelsLoaded, listLabels } from '@/lib/labels';
+import { listLabels } from '@/lib/labels';
+import { labelsReadyFor } from '@/lib/label-readiness';
 import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
 import { ensurePolicyReleasesLoaded, ensureSigningKeysLoaded, publishPolicyRelease, signingKeyId, enforceableRuleIds, BLAST_CAP_ASSETS, BLAST_CAP_PCT, BLAST_ABS_CAP_ASSETS, BLAST_ABS_CAP_PCT, BLAST_OVERRIDE_PHRASE } from '@/lib/policy';
@@ -30,9 +31,11 @@ export async function POST(request: Request) {
   }
   const note = typeof body.note === 'string' ? body.note.slice(0, 500) : '';
 
+  if (!(await labelsReadyFor('policy:publish', session?.subject ?? 'console'))) {
+    return NextResponse.json({ error: 'labels_unavailable' }, { status: 503, headers: NO_STORE });
+  }
   await ensurePolicyReleasesLoaded().catch(() => {});
   await ensureSigningKeysLoaded().catch(() => {});
-  await ensureLabelsLoaded().catch(() => {});
   await ensureBaselinesLoaded().catch(() => {});
 
   const scanMode = getScanMode();

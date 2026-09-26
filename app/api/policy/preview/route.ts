@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/auth';
-import { ensureLabelsLoaded, listLabels } from '@/lib/labels';
+import { requireAdmin, getSession } from '@/lib/auth';
+import { listLabels } from '@/lib/labels';
+import { labelsReadyFor } from '@/lib/label-readiness';
 import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baselines';
 import { computePolicyBody, listPolicyReleases, ensurePolicyReleasesLoaded, policyVersionString, enforceableRuleIds } from '@/lib/policy';
 import { moduleOverrides } from '@/lib/modules';
@@ -20,7 +21,9 @@ const NO_STORE = { 'Cache-Control': 'no-store' } as const;
 export async function GET(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
-  await ensureLabelsLoaded().catch(() => {});
+  if (!(await labelsReadyFor('policy:preview', getSession(request)?.subject ?? 'console'))) {
+    return NextResponse.json({ error: 'labels_unavailable' }, { status: 503, headers: NO_STORE });
+  }
   await ensurePolicyReleasesLoaded().catch(() => {});
   await ensureBaselinesLoaded().catch(() => {});
   const scanMode = getScanMode();
