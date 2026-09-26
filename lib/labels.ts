@@ -165,7 +165,7 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
   // 引入 path 资产类型后，可按路径加白/观察/拉黑以抑制该路径上的发现（FP 处置通道）。
   // 注意：path 仅在 skill/mcp 均判不出时回落，绝不抢占显式/派生的 skill·mcp 身份。
   //
-  // 归一化（绝对要求 #5, 2026-09-24）：同分类+同实际片段视为同一资产——事件 ID/行号/盘符
+  // 文件路径归一化（不等于分类＋片段指纹去重）：事件 ID/行号/盘符
   // 大小写/用户主目录前缀（~ 与 绝对路径）/尾部斜杠的差异不得产生不同的资产键，否则
   // 加白后同文件的新发现（ID 不同）仍会重复告警。归一化规则：
   //   1. 统一分隔符为 /（已在上文 f.path 处理）；
@@ -192,7 +192,7 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
     // 二进制/图片类同样不可代码处置（旧终端把它们当文本读出乱码后偶发误报）。
     // 正向白名单：只接受真代码/配置扩展——新文件类型默认不产资产(保守, 防再犯)。
     const CODE_EXT = /\.(py|js|mjs|cjs|ts|tsx|jsx|mts|cts|go|java|rb|php|sh|bash|zsh|fish|ps1|psm1|bat|cmd|json|jsonc|toml|yaml|yml|ini|cfg|conf|env|sql|html|htm|css|scss|vue|svelte|rs|c|h|cpp|hpp|cs|kt|swift|dart|scala|pl|lua|r|m|mm)$/i;
-    if (!CODE_EXT.test(path)) return null;
+    if (!CODE_EXT.test(key)) return null;
     // Aegis 自身文件（2026-09-25 用户再次抓到"新工单仍显示 aegis_agent.py"）：终端侧已
     // 自免扫描（新报告不再产出），但**旧报告/离线设备的最新报告**仍被 /api/findings 聚合，
     // 控制台侧必须同样排除——.aegis-agent/、/Library/Application Support/AegisAgent/、
@@ -209,20 +209,27 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
 export function isFindingAllowed(f: FindingLike, allowed: Set<string>): boolean {
   const a = findingAsset(f);
   if (a === null) return false;
-  if (allowed.has(mapKey(a.asset_type, a.asset_key))) return true;
+  const assetKey = mapKey(a.asset_type, a.asset_key);
+  // Always consult the current deny decision, including when a caller retains
+  // an allow snapshot from before the asset was denied.
+  if (store().get(assetKey)?.disposition === 'deny') return false;
+  let matchedAllow = allowed.has(assetKey);
   // 目录前缀批量忽略：path 资产逐级匹配 allow 的 prefix 条目（"~/.codex/.tmp/" 覆盖
   // 其下全部文件）。前缀键在 setLabel 时已归一化并强制尾斜杠（防 "~/.codex" 误吞
   // "~/.codex-config.json" 这类同前缀不同目录的兄弟路径）。
-  if (a.asset_type !== 'path') return false;
+  if (a.asset_type !== 'path') return matchedAllow;
   // 逐级向上：先剥掉文件名与尾斜杠再找上一层（保留尾斜杠时 slice(0, i+1) 会得到
   // 自身 → 死循环，真机教训：3 个 node 进程 85% CPU 转了几分钟）。
   let dir = a.asset_key;
   for (;;) {
     const cut = dir.endsWith('/') ? dir.slice(0, -1) : dir;
     const i = cut.lastIndexOf('/');
-    if (i <= 0) return false;
+    if (i <= 0) return matchedAllow;
     dir = cut.slice(0, i + 1);
-    if (allowed.has(`prefix:${dir}`)) return true;
+    // A broad or narrow deny wins regardless of where an allow was found.
+    // Continue to the outermost applicable directory before suppressing.
+    if (store().get(`prefix:${dir}`)?.disposition === 'deny') return false;
+    if (allowed.has(`prefix:${dir}`)) matchedAllow = true;
   }
 }
 

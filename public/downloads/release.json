@@ -3,7 +3,8 @@
   "channel": "pilot",
   "pending_console_changes": [
     "label_namespace_preservation_retry_and_concurrent_edit_protection",
-    "label_load_failure_blocks_mutation_and_policy_publication"
+    "label_load_failure_blocks_mutation_and_policy_publication",
+    "deny_first_finding_suppression_and_prefix_rule_api"
   ],
   "published_at": "2026-09-20T08:11:35+08:00",
   "features": [

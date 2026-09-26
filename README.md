@@ -129,7 +129,7 @@ Collector（受认证报告汇聚，/v1/*，SQLite，速率限制 + 审计）
 厂商 EDR / 桌管 / 开源安全栈
 ```
 
-详见[架构与信任边界](docs/ARCHITECTURE.md)。
+详见[架构与信任边界](docs/ARCHITECTURE.md)及[产品硬约束与验收契约](docs/PRODUCT-REQUIREMENTS.md)。后者包含长期高可用与容量、完整 API、全自动纠偏、封禁优先级和问题去重要求。当前开源版保留 4A 接口，不强制接入、不继续扩展；未来企业版仍需完成 4A 对接。这些要求不代表能力已全部验收。
 
 ---
 

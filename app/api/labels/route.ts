@@ -11,6 +11,7 @@ import {
 } from '@/lib/labels';
 import { logAudit } from '@/lib/store';
 import { labelsReadyFor } from '@/lib/label-readiness';
+import { normalizePathKey } from '@/lib/path-key';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +46,8 @@ export async function POST(request: Request) {
   const assetKey = String(body.asset_key ?? '').trim();
   if (!isAssetType(assetType)) return NextResponse.json({ error: 'invalid_asset_type' }, { status: 400, headers: NO_STORE });
   // prefix（目录前缀批量忽略）：归一化（~折叠/小写/尾斜杠强制）；非目录形态拒绝。
-  const normalizedKey = assetType === 'prefix' ? normalizePrefixKey(assetKey) : assetKey;
+  const normalizedKey = assetType === 'prefix' ? normalizePrefixKey(assetKey)
+    : assetType === 'path' ? normalizePathKey(assetKey) : assetKey;
   if (assetType === 'prefix' && !normalizedKey) {
     return NextResponse.json(
       { error: 'invalid_prefix', hint: '目录前缀必须以 / 或 \\ 结尾，且不能是根/家目录这类全量级路径' },
@@ -66,7 +68,7 @@ export async function POST(request: Request) {
     if (!assetKey.startsWith('~') && !assetKey.startsWith('/') && !/^[A-Za-z]:/.test(assetKey)) {
       return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
     }
-  } else if (/[/\\]/.test(assetKey) || assetKey.startsWith('~')) {
+  } else if (assetType !== 'prefix' && (/[/\\]/.test(assetKey) || assetKey.startsWith('~'))) {
     return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
   }
 
@@ -111,7 +113,8 @@ export async function DELETE(request: Request) {
   if (!(await labelsReadyFor('labels:delete', session?.subject ?? 'console'))) {
     return NextResponse.json({ error: 'labels_unavailable' }, { status: 503, headers: NO_STORE });
   }
-  const delKey = assetType === 'prefix' ? (normalizePrefixKey(assetKey) ?? assetKey) : assetKey;
+  const delKey = assetType === 'prefix' ? (normalizePrefixKey(assetKey) ?? assetKey)
+    : assetType === 'path' ? normalizePathKey(assetKey) : assetKey;
   const removed = removeLabel(assetType, delKey);
   logAudit({
     actor: session?.subject ?? 'console',
