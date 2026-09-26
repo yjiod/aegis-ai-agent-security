@@ -16,6 +16,7 @@
 //              使公开包能在装机时指向真实控制台而不把域名烘进包里。
 //   --uninstall  委派 Install-Aegis-Windows.ps1 -Uninstall：停止并删除服务
 //   --once       前台跑一次扫描（排障用）
+//   --selftest   验证本机运行时与健康报告序列化，不启动扫描或安装服务
 //
 // macOS 不使用本壳：macOS 由 .pkg + LaunchDaemon 直接驱动 Python Agent（已是服务级）。
 using System.ComponentModel;
@@ -74,6 +75,7 @@ internal static class Program
         if (args.Length != 1) return BadUsage();
         return args[0] switch
         {
+            "--selftest" => SelfTest(),
             "--service" => RunWindowsService(),
             "--uninstall" => await DelegateAsync("Install-Aegis-Windows.ps1", new[] { "-Uninstall" }),
             "--once" => await RunAsync(once: true, CancellationToken.None),
@@ -81,7 +83,48 @@ internal static class Program
         };
     }
 
-    private static int BadUsage() { Console.Error.WriteLine("usage: AegisServiceHost --service|--install [AEGIS_SERVER_URL=<https origin>]|--uninstall|--once"); return 64; }
+    // This probe must remain independent of configuration, user files and SCM.
+    // Run the published, trimmed executable to catch serializer/runtime failures.
+    private static int SelfTest()
+    {
+        try
+        {
+            var sample = new ServiceHealth
+            {
+                Schema = HealthSchema,
+                HostVersion = HostVersion,
+                State = "selftest",
+                Scanner = "windows-powershell",
+            };
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(sample, ServiceHealthJsonContext.Default.ServiceHealth);
+            var restored = JsonSerializer.Deserialize(bytes, ServiceHealthJsonContext.Default.ServiceHealth);
+            using var document = JsonDocument.Parse(bytes);
+            var body = document.RootElement;
+            var ok = restored is not null && restored.Schema == HealthSchema
+                && restored.HostVersion == HostVersion && restored.State == "selftest"
+                && body.GetProperty("last_scan_started_at").ValueKind == JsonValueKind.Null
+                && body.GetProperty("error").ValueKind == JsonValueKind.Null
+                && body.GetProperty("last_scan_exit_code").GetInt32() == 0
+                && !body.GetProperty("contains_secrets").GetBoolean()
+                && !body.GetProperty("arbitrary_command_enabled").GetBoolean();
+            Console.WriteLine(JsonSerializer.Serialize(new ClientSelfTest
+            {
+                Ok = ok,
+                HostVersion = HostVersion,
+                OsArchitecture = RuntimeInformation.OSArchitecture.ToString(),
+                ProcessArchitecture = RuntimeInformation.ProcessArchitecture.ToString(),
+                HealthSerialization = ok,
+            }, ServiceHealthJsonContext.Default.ClientSelfTest));
+            return ok ? 0 : 1;
+        }
+        catch (Exception)
+        {
+            Console.Error.WriteLine("client_selftest_failed");
+            return 1;
+        }
+    }
+
+    private static int BadUsage() { Console.Error.WriteLine("usage: AegisServiceHost --service|--install [AEGIS_SERVER_URL=<https origin>]|--uninstall|--once|--selftest"); return 64; }
 
     /// <summary>
     /// 把 <c>--install AEGIS_SERVER_URL=&lt;origin&gt;</c> 翻译成脚本的 <c>-ServerUrl</c>。
@@ -355,6 +398,17 @@ internal sealed class ServiceHealth
 }
 
 [JsonSerializable(typeof(ServiceHealth))]
+[JsonSerializable(typeof(ClientSelfTest))]
 internal sealed partial class ServiceHealthJsonContext : JsonSerializerContext
 {
+}
+
+internal sealed class ClientSelfTest
+{
+    [JsonPropertyName("schema")] public string Schema { get; set; } = "aegis.client-selftest/v1";
+    [JsonPropertyName("ok")] public bool Ok { get; set; }
+    [JsonPropertyName("host_version")] public string HostVersion { get; set; } = string.Empty;
+    [JsonPropertyName("os_architecture")] public string OsArchitecture { get; set; } = string.Empty;
+    [JsonPropertyName("process_architecture")] public string ProcessArchitecture { get; set; } = string.Empty;
+    [JsonPropertyName("health_serialization")] public bool HealthSerialization { get; set; }
 }
