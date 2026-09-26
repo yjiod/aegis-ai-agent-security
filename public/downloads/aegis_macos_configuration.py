@@ -98,7 +98,7 @@ def existing_state(parent, owner):
         os.close(fd)
 
 
-def read_config(path, owner=None):
+def read_private_json(path, owner=None):
     """Read one protected snapshot; never reopen a pathname after validation."""
     path = Path(path)
     owner = os.geteuid() if owner is None else owner
@@ -137,7 +137,11 @@ def read_config(path, owner=None):
         raise
     except (ValueError, UnicodeError, RecursionError):
         raise ConfigurationError("invalid_json") from None
-    return validate_config(value)
+    return value
+
+
+def read_config(path, owner=None):
+    return validate_config(read_private_json(path, owner))
 
 
 def write_config(root, value, owner=0, expected_state=...):

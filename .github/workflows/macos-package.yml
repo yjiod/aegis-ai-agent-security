@@ -5,6 +5,7 @@ on:
     paths:
       - public/downloads/aegis_macos_enrollment.py
       - tests/test_macos_enrollment.py
+      - tests/test_macos_migration.py
       - scripts/build-macos-pkg.sh
       - public/downloads/aegis_agent.py
       - public/downloads/aegis_self_update.py
@@ -60,3 +61,5 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_macos_mdm_install.py -v
       - name: Validate native enrollment contract and state preservation
         run: python3 -m unittest discover -s tests -p test_macos_enrollment.py -v
+      - name: Validate protected runtime migration
+        run: python3 -m unittest discover -s tests -p test_macos_migration.py -v
