@@ -23,7 +23,7 @@ class FrozenPackageTests(unittest.TestCase):
             downloads.mkdir(parents=True)
             (root / "scripts").mkdir()
             shutil.copy2(ROOT / "scripts/build-macos-pkg.sh", root / "scripts/build-macos-pkg.sh")
-            for name in ("aegis_agent.py", "uninstall-aegis-macos.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md"):
+            for name in ("aegis_agent.py", "uninstall-aegis-macos.sh", "mdm-macos-compliance.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md"):
                 shutil.copy2(ROOT / "public/downloads" / name, downloads / name)
             for suffix in ("arm64", "x64"):
                 name = "aegis-agent-darwin-" + suffix
@@ -76,7 +76,7 @@ class FrozenPackageTests(unittest.TestCase):
             self.assertIn("print system/com.aegis.agent", calls.read_text().splitlines())
             suffix = "arm64" if platform.machine() == "arm64" else "x64"
             self.assertEqual((app / "aegis-agent").read_bytes(), (downloads / ("aegis-agent-darwin-" + suffix)).read_bytes())
-            for flag in ("--selftest", "--maintenance-selftest"):
+            for flag in ("--selftest", "--maintenance-selftest", "--diagnostics-selftest"):
                 result = subprocess.run([str(app / "aegis-agent"), flag], env=env, capture_output=True, timeout=30)
                 self.assertEqual(result.returncode, 0)
 

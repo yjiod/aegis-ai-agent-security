@@ -252,4 +252,4 @@ def check_and_apply(
     except Exception as e:  # noqa: BLE001
         _safe_remove(staging)
         return {"updated": False, "reason": "apply_failed:" + type(e).__name__, "latest": offered}
-    return {"updated": True, "from": current_version, "to": offered, "reason": "ok"}
+    return {"updated": True, "from": current_version, "to": offered, "reason": "ok", "sha256": applied_sha}

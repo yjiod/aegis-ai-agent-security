@@ -95,6 +95,7 @@ class SelfUpdateRobustnessTests(unittest.TestCase):
             res = su.check_and_apply("file://" + str(man), "0.36.3", "dev1", "aegis_agent.py", str(target), preflight=lambda p: True)
             self.assertTrue(res["updated"])
             self.assertEqual(res["to"], "0.99.0")
+            self.assertEqual(res["sha256"], sha(new.read_bytes()))
             self.assertEqual(target.read_text(), 'print("v99")')
 
     def test_preflight_hook_exception_is_fail_closed(self):

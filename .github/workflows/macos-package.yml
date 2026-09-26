@@ -12,6 +12,9 @@ on:
       - public/downloads/MACOS-UNINSTALL.md
       - tests/test_macos_package.py
       - tests/test_macos_maintenance.py
+      - tests/test_macos_diagnostics.py
+      - public/downloads/aegis_macos_diagnostics.py
+      - public/downloads/mdm-macos-compliance.sh
       - tests/test_macos_native_maintenance.py
       - tests/test_watch_lifecycle.py
       - .github/workflows/macos-package.yml
@@ -41,3 +44,5 @@ jobs:
         run: sudo env AEGIS_RUN_LAUNCHD_TESTS=1 "$(command -v python3)" -m unittest discover -s tests -p test_watch_lifecycle.py -v
       - name: Validate embedded maintenance dispatch and trusted uninstall wrapper
         run: python3 -m unittest discover -s tests -p test_macos_native_maintenance.py -v
+      - name: Validate diagnostics with synthetic state
+        run: python3 -m unittest discover -s tests -p test_macos_diagnostics.py -v

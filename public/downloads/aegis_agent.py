@@ -1898,8 +1898,19 @@ def maybe_self_update(policy, report_url):
             preflight=preflight,
         )
         if res.get("updated"):
+            receipt_status = "ok"
+            if frozen and sys.platform == "darwin":
+                try:
+                    digest = res.get("sha256")
+                    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                        raise ValueError("invalid_applied_digest")
+                    write_private_atomic(BASE_DIR / "aegis-update-receipt.json", json.dumps({
+                        "schema": "aegis.update-receipt/v1", "artifact": artifact_name,
+                        "agent_version": res.get("to"), "sha256": digest}))
+                except (OSError, ValueError):
+                    receipt_status = "updated_receipt_unavailable"
             print(f"aegis agent self-updated {res.get('from')} -> {res.get('to')}; next run uses new version", file=sys.stderr)
-            _SELF_UPDATE_RESULT = {"updated": True, "reason": "ok", "from": res.get("from"), "to": res.get("to"), "at": int(time.time())}
+            _SELF_UPDATE_RESULT = {"updated": True, "reason": receipt_status, "from": res.get("from"), "to": res.get("to"), "at": int(time.time())}
         elif res.get("reason") not in ("up_to_date", "already_current", "not_in_rollout", None):
             # 让 preflight 拒绝 / 自动回滚 / 应用失败这些"非例行"结果在服务日志里可见（运维/应急据此排查），
             # 但不刷屏例行的 up_to_date/already_current/not_in_rollout。同时记入 _SELF_UPDATE_RESULT 随报告上报。
@@ -1969,6 +1980,9 @@ def run_selftest():
             import aegis_macos_maintenance as _maintenance
             if not _maintenance.selftest():
                 raise ValueError("maintenance_selftest_failed")
+            import aegis_macos_diagnostics as _diagnostics
+            if not _diagnostics.selftest():
+                raise ValueError("diagnostics_selftest_failed")
         for fn in (build_report, hardware_device_id, _su.check_and_apply, _su.in_rollout):
             if not callable(fn):
                 raise ValueError("missing_callable:%r" % (fn,))
@@ -1988,6 +2002,22 @@ def run_selftest():
 
 
 def main():
+    diagnostic_flags = ("--diagnostics", "--diagnostics-selftest")
+    if any(arg.split("=", 1)[0] in diagnostic_flags for arg in sys.argv[1:]):
+        if len(sys.argv) != 2 or sys.argv[1] not in diagnostic_flags or sys.platform != "darwin":
+            print("Aegis diagnostics requires macOS and one exclusive mode", file=sys.stderr)
+            return 2
+        try:
+            import aegis_macos_diagnostics as diagnostics
+            if sys.argv[1] == "--diagnostics-selftest":
+                if not diagnostics.selftest():
+                    return 1
+                print("aegis-diagnostics-selftest-ok")
+                return 0
+            return diagnostics.main(BASE_DIR, AGENT_VERSION, validate_policy)
+        except (ImportError, AttributeError):
+            print("Aegis diagnostics runtime is unavailable", file=sys.stderr)
+            return 1
     # Maintenance is an exclusive mode. Reject mixed arguments before parsing
     # scan/enrollment options or touching machine identity, services or files.
     maintenance_flags = ("--maintenance-selftest", "--uninstall-system")
