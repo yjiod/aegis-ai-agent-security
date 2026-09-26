@@ -84,3 +84,22 @@ test('openapi and remediation endpoints are session-gated', async ({ request }) 
   const r3 = await request.put('/api/settings/remediation', { data: { enabled: false }, maxRedirects: 0 });
   expect([401, 307]).toContain(r3.status());
 });
+
+test('blocked sweep shows saved rules without claiming endpoint enforcement', async ({ page }) => {
+  await authedPage(page);
+  await page.route('**/api/remediation/auto-sweep', (route) => route.fulfill({
+    json: {
+      ran: true, findings: 1, denied: [{ asset_type: 'skill', asset_key: 'fixture-skill' }],
+      conflicts: [], notified: 1, publish_blocked: 'blast_radius',
+      status: { deny_rules: 'saved', policy: 'blocked', endpoint: 'unverified' },
+    },
+  }));
+  await page.goto('/settings');
+  await page.getByRole('button', { name: '立即执行一轮' }).click();
+  const result = page.getByText('扫描 1 条发现 → 已保存拒绝规则 1 项', { exact: false });
+  await expect(result).toBeVisible();
+  await expect(result).toContainText('发布被拦截：blast_radius');
+  await expect(result).toContainText('终端执行未验证');
+  await expect(result).not.toContainText('已封禁');
+  await expect(result).not.toContainText('策略已发布');
+});

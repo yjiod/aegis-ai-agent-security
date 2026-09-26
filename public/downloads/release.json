@@ -1,6 +1,9 @@
 {
   "release": "0.73.3",
   "channel": "pilot",
+  "pending_console_changes": [
+    "remediation_control_plane_status_and_unverified_endpoint_receipt"
+  ],
   "published_at": "2026-09-20T08:11:35+08:00",
   "features": [
     "self_update_preflight_and_auto_rollback",
