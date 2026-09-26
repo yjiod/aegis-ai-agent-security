@@ -14,6 +14,14 @@ Files are opened read-only with bounded sizes; symlinks, hardlinks, nonregular
 files, unexpected ownership and unsafe permissions are rejected. Credentials and
 upload receipts require private permissions. Diagnostics never repairs state.
 
+Reporting configuration uses the same descriptor-based reader and validation as
+the Mac scanner and native writer. Extended ACLs on its file or directory,
+duplicate JSON fields, concurrent file mutation, invalid UTF-8 and input over
+32 KiB are refused. A rejected configuration also leaves reporting health false,
+even if an old successful upload receipt exists. Other diagnostic files retain
+their existing bounded readers; this is not a claim of ACL validation for every
+file in the installation.
+
 | Field | Meaning |
 | --- | --- |
 | `AegisInstalled` | A nonempty canonical client could be read safely; not an authenticity claim |

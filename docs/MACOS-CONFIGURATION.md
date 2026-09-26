@@ -62,6 +62,26 @@ the collector hostname is unchanged. Older receipts without fingerprints remain
 unconfirmed until the new client successfully uploads. The fingerprint never
 appears in the public health summary and is not a publisher-authentication proof.
 
+On macOS the scanner and health diagnostics share a protected configuration
+reader with the writer's schema, URL and credential validation. Each read opens
+directory components and the final file without following links, checks owner,
+permissions, single-link regular-file status and extended ACLs on descriptors,
+then reads at most 32 KiB. This accommodates maximum credentials even when JSON
+escaping expands them. Duplicate fields, non-UTF-8 input, excessive nesting and
+oversized input produce fixed errors. Permissions/ACLs and file size/timestamps
+are checked again after reading; concurrent mutation or replacement can cause a
+refused read and must not count as accepted configuration. Reads do not acquire
+the write lock or modify credentials, and do not guarantee the pathname stays
+unchanged after a validated snapshot is returned.
+
+The directory must be owned by the caller (root for the system service), not
+writable by group/others and free of extended ACLs. Ancestor links are refused;
+custom paths must identify a protected physical directory. Previously readable
+but broadly accessible configuration can now be refused. Provision through the
+native writer and verify new accepted uploads before rollout. Linux's legacy
+reader, per-device enrollment files and old installer/enrollment writers remain
+outside this change and require separate consistency work.
+
 Native ARM64/Intel CI exercises the frozen configuration mode against synthetic,
 root-owned installations with other executables and network denied. This is not
 the full no-Python endpoint lifecycle acceptance. The [MDM bootstrap](MACOS-MDM-INSTALL.md)

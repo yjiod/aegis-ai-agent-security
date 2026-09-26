@@ -839,7 +839,7 @@ class AegisTests(unittest.TestCase):
         windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertIn('Collector acknowledgement contract is invalid',windows); self.assertIn("accepted,duplicate,report_id,severity",windows); self.assertIn('$ackBytes -gt 4096',windows)
     def test_reporting_config_requires_private_file_and_strict_contract(self):
         with tempfile.TemporaryDirectory() as d:
-            root=Path(d); path=root/'reporting.json'; value={'schema':'aegis.reporting/v1','report_url':'https://collector.example.internal/v1/reports','report_token':'t'*32,'signing_secret':'s'*32}
+            root=Path(d).resolve(); path=root/'reporting.json'; value={'schema':'aegis.reporting/v1','report_url':'https://collector.example.internal/v1/reports','report_token':'t'*32,'signing_secret':'s'*32}
             path.write_text(json.dumps(value)); path.chmod(0o600); self.assertEqual(self.agent.load_reporting_config(path),value)
             path.chmod(0o644)
             with self.assertRaisesRegex(ValueError,'reporting_config_permissions'): self.agent.load_reporting_config(path)

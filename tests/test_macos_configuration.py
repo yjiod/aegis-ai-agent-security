@@ -171,12 +171,110 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(json.loads(self.path.read_text()), self.value)
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertNotIn("synthetic", result.stdout + result.stderr)
+        diagnostic = subprocess.run(command + [str(binary), "--diagnostics"], env=env, capture_output=True, text=True, timeout=30)
+        self.assertTrue(json.loads(diagnostic.stdout)["AegisReportingConfigured"])
+        subprocess.run(["/bin/chmod", "+a", "everyone allow read", str(self.path)], check=True, capture_output=True)
+        try:
+            diagnostic = subprocess.run(command + [str(binary), "--diagnostics"], env=env, capture_output=True, text=True, timeout=30)
+            self.assertFalse(json.loads(diagnostic.stdout)["AegisReportingConfigured"])
+            self.assertNotIn("synthetic", diagnostic.stdout + diagnostic.stderr)
+        finally: subprocess.run(["/bin/chmod", "-N", str(self.path)], check=True, capture_output=True)
         env["AEGIS_REPORT_TOKEN"] = "invalid"
         before = self.path.read_bytes()
         result = subprocess.run(command + [str(binary), "--configure-reporting"], env=env, capture_output=True, text=True, timeout=30)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(json.loads(result.stdout)["applied"])
         self.assertEqual(before, self.path.read_bytes())
+
+
+class ConfigurationReadTests(unittest.TestCase):
+    def setUp(self):
+        self.work = tempfile.TemporaryDirectory(prefix="aegis-config-read-")
+        self.addCleanup(self.work.cleanup)
+        self.root = Path(self.work.name).resolve()
+        self.path = self.root / "reporting.json"
+        self.value = fixture()
+        config.write_config(self.root, self.value, os.geteuid())
+
+    def read(self, path=None, owner=None):
+        return config.read_config(path or self.path, os.geteuid() if owner is None else owner)
+
+    def test_reads_writer_snapshot_without_changing_state(self):
+        before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.root.iterdir()}
+        self.assertEqual(self.read(), self.value)
+        self.assertEqual(before, {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.root.iterdir()})
+
+    def test_maximum_escaped_credentials_roundtrip_through_writer_and_reader(self):
+        value = {**self.value, "report_token": '"' * 4096, "signing_secret": '\\' * 4096}
+        config.write_config(self.root, value, os.geteuid())
+        self.assertGreater(self.path.stat().st_size, 16384)
+        self.assertEqual(self.read(), value)
+
+    def test_links_fifo_unsafe_modes_and_owner_are_refused(self):
+        original = self.root / "original"
+        self.path.rename(original)
+        for kind in ("symlink", "hardlink", "fifo", "directory", "permissions"):
+            with self.subTest(kind=kind):
+                if kind == "symlink": self.path.symlink_to(original)
+                elif kind == "hardlink": os.link(original, self.path)
+                elif kind == "fifo": os.mkfifo(self.path)
+                elif kind == "directory": self.path.mkdir()
+                else: self.path.write_bytes(original.read_bytes()); self.path.chmod(0o644)
+                with self.assertRaises((OSError, config.ConfigurationError)): self.read()
+                if self.path.is_dir(): self.path.rmdir()
+                else: self.path.unlink()
+        original.rename(self.path)
+        with self.assertRaises(config.ConfigurationError): self.read(owner=os.geteuid()+1)
+
+    def test_linked_or_writable_parent_directory_is_refused(self):
+        alias = self.root / "alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaises((OSError, config.ConfigurationError)): self.read(alias / "reporting.json")
+        self.root.chmod(0o777)
+        try:
+            with self.assertRaises(config.ConfigurationError): self.read()
+        finally: self.root.chmod(0o700)
+
+    def test_duplicate_oversized_deep_and_non_utf8_json_are_fixed_errors(self):
+        normal = json.dumps(self.value)
+        for data in ((normal[:-1]+',"report_token":"replacement"}').encode(),
+                     b' ' * (config.MAX_CONFIG_BYTES+1), b'[' * 2000 + b']' * 2000, b'\xff'):
+            self.path.write_bytes(data)
+            with self.assertRaises(config.ConfigurationError) as caught: self.read()
+            self.assertNotIn("synthetic", str(caught.exception))
+            self.assertNotIn(str(self.root), str(caught.exception))
+
+    def test_mutation_during_read_is_refused(self):
+        original = config.require_private_file
+        calls = 0
+        def check(fd, owner):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                with self.path.open("ab") as stream: stream.write(b" ")
+            return original(fd, owner)
+        with patch.object(config, "require_private_file", side_effect=check):
+            with self.assertRaisesRegex(config.ConfigurationError, "configuration_changed"): self.read()
+
+    def test_reader_uses_same_url_and_credential_validation_as_writer(self):
+        for change in ({"report_url": "https://aegis.example.test:99999"},
+                       {"report_token": "x" * 32 + "\n"}, {"signing_secret": "密" * 32},
+                       {"signing_secret": self.value["report_token"]}):
+            value = {**self.value, **change}
+            self.path.write_text(json.dumps(value))
+            with self.assertRaises(config.ConfigurationError): self.read()
+            with self.assertRaises(config.ConfigurationError): config.write_config(self.root, value, os.geteuid())
+
+    @unittest.skipUnless(sys.platform == "darwin", "Mac runtime dispatch and actual ACLs")
+    def test_client_reader_and_acl_rejection_use_the_shared_contract(self):
+        with patch.dict(sys.modules, {"aegis_macos_configuration": config}):
+            self.assertEqual(agent.load_reporting_config(self.path), self.value)
+            for path in (self.path, self.root):
+                subprocess.run(["/bin/chmod", "+a", "everyone allow read", str(path)], check=True, capture_output=True)
+                try:
+                    with self.assertRaisesRegex(config.ConfigurationError, "extended_acl_not_supported"): self.read()
+                    with self.assertRaises(ValueError): agent.load_reporting_config(self.path)
+                finally: subprocess.run(["/bin/chmod", "-N", str(path)], check=True, capture_output=True)
 
 
 class ConfigurationDispatchTests(unittest.TestCase):
