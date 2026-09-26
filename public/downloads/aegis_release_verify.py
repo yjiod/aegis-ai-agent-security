@@ -11,6 +11,7 @@ HASH_CONSUMERS={
     "aegis-security-baseline.md":("install-aegis.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
+    "aegis_macos_service_migration.py",
     "aegis_macos_enrollment.py",
     "aegis-install-macos-oneclick.sh","MACOS-INSTALL.md",
     "DEPLOYMENT-GUIDE.md","aegis-policy.json","aegis-security-baseline.md","aegis-report.schema.json",

@@ -78,3 +78,13 @@ should be accepted as a released client until all applicable gates pass.
 
 Build dependencies and licenses are recorded in
 [the freeze toolchain review](MACOS-FREEZE-DEPENDENCIES.md).
+
+## Legacy user launch configuration preparation
+
+Postinstall now requires the embedded service-migration capability. When legacy
+user plists or its journal are present, the candidate prepares them before
+canonical replacement and enrollment. Preparation failure is fatal; the old
+unchecked shell bootout/rename loop is removed. The payload may already have
+been installed, so this is not full Installer rollback. See
+[legacy service preparation](MACOS-LEGACY-SERVICES.md) for checkpoints, explicit
+file restoration and remaining activation/MDM/child-process boundaries.

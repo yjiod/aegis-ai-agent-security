@@ -153,6 +153,16 @@ esac
 chmod 755 "$BIN_SRC"
 "$BIN_SRC" --selftest >/dev/null 2>&1 || { echo "Aegis runtime self-test failed" >&2; exit 1; }
 "$BIN_SRC" --maintenance-selftest >/dev/null 2>&1 || { echo "Aegis embedded maintenance self-test failed" >&2; exit 1; }
+"$BIN_SRC" --service-migration-selftest >/dev/null 2>&1 || { echo "Aegis service migration self-test failed" >&2; exit 1; }
+# Retire old user launch configurations only after confirmed service removal.
+# Use the new candidate before replacing the canonical runtime or enrolling.
+LEGACY=0
+for legacy in /Users/*/Library/LaunchAgents/com.aegis.agent.plist /Users/*/Library/LaunchAgents/com.company.aegis-agent.plist; do
+  if [ -e "$legacy" ] || [ -L "$legacy" ]; then LEGACY=1; fi
+done
+if [ "$LEGACY" = 1 ] || [ -e "$INSTALL_DIR/legacy-service-migration.json" ] || [ -L "$INSTALL_DIR/legacy-service-migration.json" ]; then
+  "$BIN_SRC" --prepare-legacy-services || { echo "Aegis legacy service preparation requires recovery" >&2; exit 1; }
+fi
 AGENT="$INSTALL_DIR/aegis-agent"
 cp -f "$BIN_SRC" "$AGENT"
 xattr -d com.apple.quarantine "$AGENT" 2>/dev/null || true
@@ -180,14 +190,7 @@ fi
 if [ -f "$INSTALL_DIR/enroll-pending" ]; then
   osascript -e 'display dialog "Aegis 入网暂失败。安装程序将尝试注册服务；请检查网络，并在控制台确认终端上报状态。" with title "Aegis 安装提示" buttons {"知道了"} default button 1' 2>/dev/null || true
 fi
-# 互斥：装了系统级就停用任何用户级 LaunchAgent（同 device_id 会双重上报：scan_root 在 /Users 与 ~
-# 之间来回跳、令牌翻倍）。bootout + 改名禁用（不删、可恢复；改名防下次登录又被 launchd 自动加载）。
-for _up in /Users/*/Library/LaunchAgents/com.aegis.agent.plist; do
-  [ -f "$_up" ] || continue
-  _u=$(echo "$_up" | awk -F/ '{print $3}'); _uid=$(id -u "$_u" 2>/dev/null || true)
-  if [ -n "$_uid" ]; then launchctl bootout "gui/$_uid/com.aegis.agent" 2>/dev/null || true; fi
-  mv -f "$_up" "$_up.disabled-by-system-install" 2>/dev/null || true
-done
+# Prepared user configurations remain available for explicit recovery.
 chown -R root:wheel "$INSTALL_DIR" 2>/dev/null || true
 launchctl bootout system "$PLIST" 2>/dev/null || true
 if ! launchctl bootstrap system "$PLIST" 2>/dev/null; then

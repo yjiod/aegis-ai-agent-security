@@ -43,6 +43,8 @@ int main(int argc, char **argv) {
   if (argc == 9 && strcmp(argv[1], "--install-config") == 0) return getenv("AEGIS_TEST_ENROLL_OK") ? 0 : 3;
   if (argc != 2) return 3;
   if (strcmp(argv[1], "--selftest") == 0) return getenv("AEGIS_TEST_RUNTIME_FAIL") ? 7 : 0;
+  if (strcmp(argv[1], "--prepare-legacy-services") == 0) return getenv("AEGIS_TEST_MIGRATION_FAIL") ? 9 : 0;
+  if (strcmp(argv[1], "--service-migration-selftest") == 0) return 0;
   if (strcmp(argv[1], "--maintenance-selftest") == 0) return getenv("AEGIS_TEST_MAINTENANCE_FAIL") ? 7 : 0;
   return 3;
 }
@@ -108,8 +110,10 @@ if command == "uname":
         # Relocate the extracted script for this test only. No production override
         # allows callers to redirect a privileged installation.
         source = script.read_text()
+        source = source.replace("/Users/*/Library/", "__AEGIS_USER_LIBRARY__")
         source = source.replace("/Library/", str(self.target / "Library") + "/")
         source = source.replace("/Users/", str(self.target / "Users") + "/")
+        source = source.replace("__AEGIS_USER_LIBRARY__", str(self.target / "Users") + "/*/Library/")
         self.script = self.case / "postinstall"
         self.script.write_text(source)
         return payload
@@ -182,6 +186,20 @@ if command == "uname":
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.app / "enroll-pending").exists())
         self.assertIn(["print", "system/com.aegis.agent"], self.launch_calls())
+
+    def test_legacy_preparation_failure_prevents_canonical_replacement_and_service_start(self):
+        self.prepare()
+        legacy = self.target / "Users/synthetic-user/Library/LaunchAgents/com.aegis.agent.plist"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_bytes(b"synthetic legacy configuration")
+        canonical = self.app / "aegis-agent"
+        canonical.write_bytes(b"synthetic existing runtime")
+        self.env["AEGIS_TEST_MIGRATION_FAIL"] = "1"
+        result = self.run_postinstall()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(canonical.read_bytes(), b"synthetic existing runtime")
+        self.assertEqual(legacy.read_bytes(), b"synthetic legacy configuration")
+        self.assertEqual(self.launch_calls(), [])
 
     def test_service_registration_failure_is_not_install_success(self):
         self.prepare()

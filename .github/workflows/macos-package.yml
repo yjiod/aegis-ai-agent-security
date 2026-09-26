@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - public/downloads/aegis_macos_enrollment.py
+      - public/downloads/aegis_macos_service_migration.py
+      - tests/test_macos_service_migration.py
       - tests/test_macos_enrollment.py
       - tests/test_macos_migration.py
       - scripts/build-macos-pkg.sh
@@ -63,3 +65,5 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_macos_enrollment.py -v
       - name: Validate protected runtime migration
         run: python3 -m unittest discover -s tests -p test_macos_migration.py -v
+      - name: Validate legacy service preparation and recovery
+        run: python3 -m unittest discover -s tests -p test_macos_service_migration.py -v
