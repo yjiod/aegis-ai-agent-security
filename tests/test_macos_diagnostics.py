@@ -15,6 +15,8 @@ import unittest
 from unittest.mock import patch
 
 DL = Path(__file__).resolve().parents[1] / "public/downloads"
+# Standalone CI invocations must resolve every embedded sibling module.
+sys.path.insert(0, str(DL))
 
 
 def load(name, filename):
