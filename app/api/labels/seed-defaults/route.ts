@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
-import { ensureLabelsLoaded, listLabels, setLabelInMemory, persistLabelsDurable, type AssetLabel } from '@/lib/labels';
+import { listLabels, setLabelInMemory, persistLabelsDurable, type AssetLabel } from '@/lib/labels';
 import { defaultBundledEntries } from '@/lib/default-allowlist';
 import { logAudit } from '@/lib/store';
+import { labelsReadyFor } from '@/lib/label-readiness';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,9 +24,11 @@ export async function POST(request: Request) {
   const denied = requireAdmin(request);
   if (denied) return denied;
 
-  await ensureLabelsLoaded().catch(() => {});
-  const existing = new Map(listLabels().map((l) => [`${l.asset_type}:${l.asset_key}`, l]));
   const actor = getSession(request)?.subject ?? 'admin';
+  if (!(await labelsReadyFor('labels:seed_defaults', actor))) {
+    return NextResponse.json({ error: 'labels_unavailable' }, { status: 503, headers: NO_STORE });
+  }
+  const existing = new Map(listLabels().map((l) => [`${l.asset_type}:${l.asset_key}`, l]));
   let seeded = 0;
   let skipped = 0;
   const pending: AssetLabel[] = [];
