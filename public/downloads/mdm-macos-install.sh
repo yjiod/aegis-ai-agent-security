@@ -103,7 +103,8 @@ verdict=$(/usr/bin/plutil -extract 'assessment:verdict' raw -expect bool -o - "$
 [ "$verdict" = true ] || finish package_assessment_rejected 1
 source=$(/usr/bin/plutil -extract 'assessment:authority.assessment:authority:source' raw -expect string -o - "$STAGE/assessment.plist" 2>/dev/null) || finish invalid_package_assessment 1
 [ "$source" = 'Notarized Developer ID' ] || finish package_notarization_unconfirmed 1
-if /usr/bin/plutil -extract 'assessment:authority.assessment:authority:override' raw -o /dev/null "$STAGE/assessment.plist" 2>/dev/null; then
+# Older plutil versions can print a missing-key error to stdout despite -o.
+if /usr/bin/plutil -extract 'assessment:authority.assessment:authority:override' raw -o /dev/null "$STAGE/assessment.plist" >/dev/null 2>&1; then
   finish package_assessment_override_refused 1
 fi
 if /usr/bin/plutil -type 'assessment:authority.assessment:authority:verdict' "$STAGE/assessment.plist" >/dev/null 2>&1; then

@@ -134,6 +134,20 @@ esac
         self.assertNotIn("curl", [x[0] for x in self.records()])
         self.assertEqual(self.package.read_bytes(), before)
 
+    def test_platform_missing_key_stdout_cannot_pollute_public_result(self):
+        probe = self.bin / "plutil"
+        probe.write_text('''#!/bin/sh
+/usr/bin/plutil "$@"
+code=$?
+[ "$code" = 0 ] || printf 'synthetic-private-missing-key-error\\n'
+exit "$code"
+''')
+        probe.chmod(0o755)
+        self.wrapper.write_text(self.wrapper.read_text().replace("/usr/bin/plutil", '"' + str(probe) + '"'))
+        result, value = self.run_script()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(value["status"], "installed_health_pending")
+
     def test_missing_digest_publisher_and_privilege_refused_before_staging(self):
         for field, replacement in (("AEGIS_MACOS_PKG_SHA256", ""), ("AEGIS_MACOS_PKG_SHA256", 'invalid"input'),
                                    ("AEGIS_MACOS_TEAM_ID", ""), ("AEGIS_MACOS_TEAM_ID", "bad.*"), ("AEGIS_TEST_UID", "501")):
