@@ -1,156 +1,192 @@
 #!/bin/sh
-# ═══════════════════════════════════════════════════════════════════════
-# aegis-agent-macos-enroll.sh — 用户级 macOS 终端入网 / 重入网（无需 sudo）。
-#
-# 与需要 root 的 LaunchDaemon 安装器不同，本脚本把 Agent 装到用户目录并注册
-# **用户级 LaunchAgent**（~/Library/LaunchAgents），普通用户即可运行，适合：
-#   - 新机器快速接入；
-#   - 令牌轮转 / Collector 地址变更后给已掉线终端"重入网"。
-#
-# 它做四件事：
-#   1) 从 BASE_URL 下载 Agent 运行时并用 CHECKSUMS.sha256 校验完整性；
-#   2) 写入上报配置 config.json / reporting.json（0600），report_url 指向
-#      公网 HTTPS 入口 ${COLLECTOR_URL}/v1/reports（nginx 反代 /aegis/*→Collector）；
-#   3) 安装用户级 LaunchAgent，开机自启 + 周期上报；
-#   4) 立即跑一次首报，确认能连通 Collector。
-#
-# 令牌是敏感凭据：只经环境变量 AEGIS_COLLECTOR_TOKEN 传入，绝不写进脚本/日志。
-# 管理员从控制台或服务器 /etc/aegis/.collector-token-current(0600) 取得当前令牌。
-#
-# 用法：
-#   AEGIS_COLLECTOR_TOKEN='<令牌>' sh aegis-agent-macos-enroll.sh
-#   # 可选覆盖： AEGIS_COLLECTOR_URL(默认 https://aegis.example.com/aegis)
-#   #           AEGIS_BASE_URL(默认 https://aegis.example.com/downloads)
-#   #           AEGIS_SCAN_INTERVAL(秒,默认3600) AEGIS_DEVICE_ID
-#   # 卸载： AEGIS_ENROLL_UNINSTALL=1 sh aegis-agent-macos-enroll.sh
-# ═══════════════════════════════════════════════════════════════════════
+# Bootstrap a self-contained system package. No interpreter install/fallback.
 set -eu
-
-BASE_URL="${AEGIS_BASE_URL:-https://aegis.example.com/downloads}"
-COLLECTOR_URL="${AEGIS_COLLECTOR_URL:-https://aegis.example.com/aegis}"
-TOKEN="${AEGIS_COLLECTOR_TOKEN:-}"
-# Agent 的 load_reporting_config 强制 signing_secret 为 32+ 字符且不同于 token，否则
-# 本轮拒绝上报。生产 Collector 处于 pilot 显式允许未签名模式（AEGIS_ALLOW_UNSIGNED_REPORTS=1
-# 且未配置 AEGIS_REPORT_SIGNING_SECRETS），它只校验 Bearer 令牌、忽略报告签名，因此这里
-# 用 CSPRNG 生成本机独立的 signing_secret 即可满足契约。若日后 Collector 启用强制验签
-# （配置 AEGIS_REPORT_SIGNING_SECRETS 且关闭 allow-unsigned），改用 AEGIS_REPORT_SIGNING_SECRET
-# 传入与服务端一致密钥即可。
-SIGNING_SECRET="${AEGIS_REPORT_SIGNING_SECRET:-$(python3 -c 'import secrets;print(secrets.token_hex(32))')}"
-INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
-DEVICE_ID="${AEGIS_DEVICE_ID:-MAC-$(hostname | cut -c1-12 | tr '[:lower:]' '[:upper:]' | tr ' ' '-')}"
-INSTALL_DIR="${AEGIS_INSTALL_DIR:-$HOME/Library/Application Support/AegisAgent}"
-PLIST="$HOME/Library/LaunchAgents/com.aegis.agent.plist"
-# 选一个"真能执行"的 python3: 优先系统通用二进制; command -v 可能返回坏 CPU 类型的
-# 第三方二进制(实测 /usr/local/bin/python3 在 ARM 机 bad CPU type 致 LaunchAgent 崩溃循环)。
-PYTHON_BIN=""
-for cand in /usr/bin/python3 "$(command -v python3 || true)"; do
-  if [ -n "$cand" ] && [ -x "$cand" ] && "$cand" -c 'pass' >/dev/null 2>&1; then PYTHON_BIN="$cand"; break; fi
-done
-RUNTIME_FILES="aegis_agent.py aegis-policy.json aegis-security-baseline.md"
-
-# ─── 卸载分支（用户级，无需 sudo）─────────────────────────────────────
-if [ "${AEGIS_ENROLL_UNINSTALL:-0}" = "1" ]; then
-  launchctl bootout "gui/$(id -u)/com.aegis.agent" 2>/dev/null || true
-  [ -f "$PLIST" ] && mv -f "$PLIST" "$HOME/.Trash/" 2>/dev/null || true
-  echo "已卸载用户级 LaunchAgent；运行时目录保留在 $INSTALL_DIR（如需清理请手动移入废纸篓）。"
-  exit 0
-fi
-
-if [ -z "$TOKEN" ]; then
-  echo "错误: 需要 AEGIS_COLLECTOR_TOKEN。管理员从控制台或服务器 /etc/aegis/.collector-token-current 获取。" >&2
-  exit 1
-fi
-# 提前拦下占位符/过短令牌：Agent 上报契约要求 token 为 32–4096 字符。若直接写进
-# reporting.json，Agent 只会回一句晦涩的"受保护上报配置…契约无效"，难以定位。这里
-# 明确告诉用户是令牌本身不对（例如把示例里的 <令牌> 原样粘进来了）。
-case "$TOKEN" in
-  *"<"*">"*|*'<令牌>'*|*'TOKEN'*)
-    echo "错误: AEGIS_COLLECTOR_TOKEN 看起来是占位符（如 '<令牌>'），不是真实令牌。" >&2
-    echo "      请填入服务器 /etc/aegis/.collector-token-current 里的 64 位十六进制令牌。" >&2
-    exit 1 ;;
-esac
-if [ "${#TOKEN}" -lt 32 ] || [ "${#TOKEN}" -gt 4096 ]; then
-  echo "错误: AEGIS_COLLECTOR_TOKEN 长度为 ${#TOKEN}，不在 32–4096 之间（Agent 上报契约要求）。" >&2
-  echo "      你很可能把示例命令里的 '<令牌>' 原样粘了进来；请替换为真实令牌后重试。" >&2
-  exit 1
-fi
-if [ -z "$PYTHON_BIN" ]; then echo "错误: 需要 python3" >&2; exit 1; fi
-
-echo "═══ Aegis 终端入网（用户级，无需 sudo）═══"
-echo "  设备 ID    : $DEVICE_ID"
-echo "  Collector  : $COLLECTOR_URL"
-echo "  安装目录   : $INSTALL_DIR"
-
-mkdir -p "$INSTALL_DIR" "$HOME/Library/LaunchAgents"
-chmod 700 "$INSTALL_DIR"
-
-echo "═══ 1. 下载并校验 Agent 运行时 ═══"
-curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/CHECKSUMS.sha256" -o "$INSTALL_DIR/CHECKSUMS.sha256"
-for name in $RUNTIME_FILES; do
-  curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$INSTALL_DIR/$name"
-done
-# 用发布的 CHECKSUMS 校验三个运行时文件（仅校验本目录内的这三项）。
-( cd "$INSTALL_DIR" && grep -E "($(echo "$RUNTIME_FILES" | tr ' ' '|'))\$" CHECKSUMS.sha256 > .verify.sha256 \
-  && if command -v shasum >/dev/null 2>&1; then shasum -a 256 -c .verify.sha256; else sha256sum -c .verify.sha256; fi )
-chmod 700 "$INSTALL_DIR/aegis_agent.py"
-chmod 600 "$INSTALL_DIR/aegis-policy.json" "$INSTALL_DIR/aegis-security-baseline.md"
-echo "  ✓ 运行时已校验"
-
-echo "═══ 2. 写入上报配置（0600）═══"
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+LC_ALL=C
+export PATH LC_ALL
 umask 077
-cat > "$INSTALL_DIR/config.json" <<CFGEOF
-{
-  "collectorURL": "${COLLECTOR_URL}",
-  "reportURL": "${COLLECTOR_URL}/v1/reports",
-  "deviceId": "${DEVICE_ID}",
-  "token": "${TOKEN}",
-  "hmacSecret": "${SIGNING_SECRET}",
-  "scanIntervalSeconds": ${INTERVAL},
-  "scanRoot": null
+STAGE=''
+DIGEST=''
+ATTEMPTED=false
+SUCCEEDED=false
+MIGRATION_REQUESTED=false
+LEGACY_USERS=false
+finish() {
+  printf '{"schema":"aegis.mdm-install-result/v1","status":"%s","installation_attempted":%s,"installer_succeeded":%s,"health_verified":false,"artifact_sha256":"%s","legacy_user_migration_requested":%s,"legacy_user_launch_files_detected":%s}\n' "$1" "$ATTEMPTED" "$SUCCEEDED" "$DIGEST" "$MIGRATION_REQUESTED" "$LEGACY_USERS"
+  exit "$2"
 }
-CFGEOF
-cat > "$INSTALL_DIR/reporting.json" <<RPTEOF
-{"schema":"aegis.reporting/v1","report_url":"${COLLECTOR_URL}/v1/reports","report_token":"${TOKEN}","signing_secret":"${SIGNING_SECRET}"}
-RPTEOF
-chmod 600 "$INSTALL_DIR/config.json" "$INSTALL_DIR/reporting.json"
-echo "  ✓ config.json / reporting.json 已写入"
+cleanup() {
+  if [ -n "$STAGE" ]; then
+    /bin/rm -f "$STAGE/candidate.pkg" "$STAGE/download.log" "$STAGE/signature.log" "$STAGE/assessment.plist" "$STAGE/assessment.log" "$STAGE/status.log" "$STAGE/installer.log"
+    /bin/rm -f "$STAGE/expansion.log"
+    /bin/rm -rf "$STAGE/expanded"
+    /bin/rmdir "$STAGE" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+trap 'finish interrupted 130' INT
+trap 'finish interrupted 143' TERM
+# Historical enrollment settings describe a different operation/layout. Check
+# presence without expanding credential values, before any external command.
+# In particular, an old uninstall request must never become a package install.
+if [ "${AEGIS_ENROLL_UNINSTALL+x}" = x ]; then
+  finish legacy_uninstall_setting_requires_maintenance 2
+fi
+if [ "${AEGIS_COLLECTOR_URL+x}${AEGIS_COLLECTOR_TOKEN+x}${AEGIS_REPORT_SIGNING_SECRET+x}${AEGIS_SCAN_INTERVAL+x}${AEGIS_DEVICE_ID+x}${AEGIS_INSTALL_DIR+x}" != '' ]; then
+  finish legacy_enrollment_settings_not_supported 2
+fi
+# The same entry is used by MDM (protected environment) and an administrator
+# running a reviewed local script (public artifact identity arguments only).
+SEEN=' '
+while [ "$#" -gt 0 ]; do
+  case "$1" in -PkgSha256|-TeamId|-PkgUrl|-PkgPath|-MigrateUserServices) ;; *) finish unexpected_arguments 2 ;; esac
+  case "$SEEN" in *" $1 "*) finish duplicate_argument 2 ;; esac
+  SEEN="$SEEN$1 "
+  [ "$#" -ge 2 ] && [ -n "$2" ] || finish missing_argument_value 2
+  case "$2" in -*) finish missing_argument_value 2 ;; esac
+  case "$1" in
+    -PkgSha256) AEGIS_MACOS_PKG_SHA256=$2 ;;
+    -TeamId) AEGIS_MACOS_TEAM_ID=$2 ;;
+    -PkgUrl) AEGIS_MACOS_PKG_URL=$2 ;;
+    -PkgPath) AEGIS_MACOS_PKG_PATH=$2 ;;
+    -MigrateUserServices) AEGIS_MACOS_MIGRATE_USER_SERVICES=$2 ;;
+  esac
+  shift 2
+done
+[ "$#" -eq 0 ] || finish unexpected_arguments 2
+[ "$(/usr/bin/id -u)" = 0 ] || finish administrator_required 2
+[ "$(/usr/bin/uname -s)" = Darwin ] || finish macos_required 2
+case "${AEGIS_MACOS_MIGRATE_USER_SERVICES:-0}" in
+  0) ;; 1) MIGRATION_REQUESTED=true ;; *) finish invalid_migration_mode 2 ;;
+esac
 
-echo "═══ 3. 安装用户级 LaunchAgent ═══"
-cat > "$PLIST" <<PLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key><string>com.aegis.agent</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${PYTHON_BIN}</string>
-        <string>${INSTALL_DIR}/aegis_agent.py</string>
-        <string>${HOME}</string>
-        <string>--policy</string><string>${INSTALL_DIR}/aegis-policy.json</string>
-        <string>--report-config</string><string>${INSTALL_DIR}/reporting.json</string>
-        <string>--output</string><string>${INSTALL_DIR}/last-report.json</string>
-        <string>--auto-enroll</string>
-        <string>--watch</string><string>--interval</string><string>${INTERVAL}</string>
-    </array>
-    <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
-    <key>StandardOutPath</key><string>${INSTALL_DIR}/agent.log</string>
-    <key>StandardErrorPath</key><string>${INSTALL_DIR}/agent-error.log</string>
-    <key>EnvironmentVariables</key>
-    <dict><key>AEGIS_REPORT_TOKEN</key><string>${TOKEN}</string></dict>
-</dict>
-</plist>
-PLISTEOF
-chmod 600 "$PLIST"
-launchctl bootout "gui/$(id -u)/com.aegis.agent" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>/dev/null || launchctl load "$PLIST" 2>/dev/null || true
-echo "  ✓ LaunchAgent 已加载（开机自启 + 每 ${INTERVAL}s 上报）"
+EXPECTED="${AEGIS_MACOS_PKG_SHA256:-}"
+TEAM="${AEGIS_MACOS_TEAM_ID:-}"
+case "$EXPECTED" in ''|*[!0-9a-fA-F]*) finish trusted_digest_required 2 ;; esac
+[ "${#EXPECTED}" -eq 64 ] || finish trusted_digest_required 2
+DIGEST=$(printf '%s' "$EXPECTED" | /usr/bin/tr 'A-F' 'a-f')
+case "$TEAM" in ''|*[!A-Z0-9]*) finish publisher_required 2 ;; esac
+[ "${#TEAM}" -eq 10 ] || finish publisher_required 2
 
-echo "═══ 4. 立即首报并确认连通 ═══"
-# 不带 --watch 即单次扫描并上报（--watch 才进入周期循环，交给 LaunchAgent 负责）。
-AEGIS_REPORT_TOKEN="$TOKEN" "$PYTHON_BIN" "$INSTALL_DIR/aegis_agent.py" "$HOME" \
-  --policy "$INSTALL_DIR/aegis-policy.json" \
-  --report-config "$INSTALL_DIR/reporting.json" \
-  --output "$INSTALL_DIR/last-report.json" --auto-enroll 2>&1 | tail -6 || echo "  （首报返回非零，见 $INSTALL_DIR/agent-error.log）"
-echo "═══ 完成。控制台顶栏应很快显示该终端在线。═══"
+LOCAL="${AEGIS_MACOS_PKG_PATH:-}"
+URL="${AEGIS_MACOS_PKG_URL:-}"
+[ -z "$LOCAL" ] || [ -z "$URL" ] || finish ambiguous_package_source 2
+if [ -n "$LOCAL" ]; then
+  case "$LOCAL" in /*.pkg) ;; *) finish invalid_local_package 2 ;; esac
+  [ -f "$LOCAL" ] && [ ! -L "$LOCAL" ] || finish invalid_local_package 2
+  [ "$(/usr/bin/stat -f '%u' "$LOCAL" 2>/dev/null)" = 0 ] || finish unsafe_local_package 2
+  [ "$(/usr/bin/stat -f '%l' "$LOCAL" 2>/dev/null)" = 1 ] || finish unsafe_local_package 2
+  mode=$(/usr/bin/stat -f '%Lp' "$LOCAL" 2>/dev/null) || finish unsafe_local_package 2
+  [ "$((0$mode & 022))" -eq 0 ] || finish unsafe_local_package 2
+  size=$(/usr/bin/stat -f '%z' "$LOCAL" 2>/dev/null) || finish unsafe_local_package 2
+  [ "$size" -gt 0 ] && [ "$size" -le 134217728 ] || finish package_size_refused 2
+else
+  [ -n "$URL" ] || URL="${AEGIS_BASE_URL:-https://aegis.example.com/downloads}/aegis-agent-macos.pkg"
+  # No credentials, queries, redirects, whitespace or shell-interpreted input.
+  [ "${#URL}" -le 2048 ] || finish invalid_package_url 2
+  printf '%s\n' "$URL" | /usr/bin/grep -Eq '^https://([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?/[A-Za-z0-9._~%/-]+$' || finish invalid_package_url 2
+  case "$URL" in *'
+'*) finish invalid_package_url 2 ;; esac
+fi
+
+# A fresh package must not silently run alongside a legacy scanner or overwrite
+# an installation whose previous child-process cleanup is still unconfirmed.
+check_legacy_state() {
+  if [ -e '/Library/Application Support/AegisAgent/watch-cleanup-pending.json' ] || [ -L '/Library/Application Support/AegisAgent/watch-cleanup-pending.json' ]; then
+    finish prior_cleanup_requires_verification 1
+  fi
+  if /bin/launchctl print system/com.company.aegis-agent >/dev/null 2>&1; then
+    finish legacy_service_migration_required 1
+  else
+    legacy_result=$?
+    [ "$legacy_result" -eq 113 ] || finish legacy_service_state_unavailable 1
+  fi
+  for legacy in /Library/LaunchDaemons/com.company.aegis-agent.plist; do
+    if [ -e "$legacy" ] || [ -L "$legacy" ]; then finish legacy_service_migration_required 1; fi
+  done
+  for legacy in /Users/*/Library/LaunchAgents/com.aegis.agent.plist /Users/*/Library/LaunchAgents/com.company.aegis-agent.plist; do
+    if [ -e "$legacy" ] || [ -L "$legacy" ]; then
+      LEGACY_USERS=true
+      [ "$MIGRATION_REQUESTED" = true ] || finish legacy_service_migration_required 1
+    fi
+  done
+}
+check_legacy_state
+
+for parent in /private /private/var /private/var/tmp; do
+  [ -d "$parent" ] && [ ! -L "$parent" ] || finish staging_unavailable 1
+done
+STAGE=$(/usr/bin/mktemp -d /private/var/tmp/aegis-mdm.XXXXXXXX) || finish staging_unavailable 1
+/bin/chmod -N "$STAGE" && /bin/chmod 700 "$STAGE" || finish staging_unavailable 1
+PKG="$STAGE/candidate.pkg"
+if [ -n "$LOCAL" ]; then
+  (ulimit -f 131072; /bin/cp -P -X "$LOCAL" "$PKG") 2>"$STAGE/download.log" || finish package_copy_failed 1
+else
+  (ulimit -f 131072; /usr/bin/curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --fail --silent --show-error --connect-timeout 15 --max-time 120 --max-filesize 134217728 \
+    "$URL" -o "$PKG") >"$STAGE/download.log" 2>&1 || finish package_download_failed 1
+fi
+[ -f "$PKG" ] && [ ! -L "$PKG" ] || finish invalid_staged_package 1
+/bin/chmod -N "$PKG" && /bin/chmod 600 "$PKG" || finish staging_unavailable 1
+size=$(/usr/bin/stat -f '%z' "$PKG")
+[ "$size" -gt 0 ] && [ "$size" -le 134217728 ] || finish package_size_refused 1
+verify_digest() {
+  printf '%s  %s\n' "$DIGEST" "$PKG" | /usr/bin/shasum -a 256 -c - >/dev/null 2>&1
+}
+verify_digest || finish package_digest_mismatch 1
+/usr/sbin/pkgutil --check-signature "$PKG" >"$STAGE/signature.log" 2>&1 || finish package_signature_rejected 1
+/usr/bin/grep -Eq "^[[:space:]]*1[.] Developer ID Installer: .+ [(]$TEAM[)][[:space:]]*$" "$STAGE/signature.log" || finish package_publisher_mismatch 1
+if ! /usr/sbin/spctl --status >"$STAGE/status.log" 2>&1; then
+  /usr/bin/grep -Fxq 'assessments disabled' "$STAGE/status.log" && finish platform_assessment_disabled 1
+  finish platform_assessment_unavailable 1
+fi
+/usr/bin/grep -Fxq 'assessments enabled' "$STAGE/status.log" || finish platform_assessment_disabled 1
+/usr/sbin/spctl --assess --type install --raw --ignore-cache --no-cache "$PKG" >"$STAGE/assessment.plist" 2>"$STAGE/assessment.log" || finish package_assessment_rejected 1
+verdict=$(/usr/bin/plutil -extract 'assessment:verdict' raw -expect bool -o - "$STAGE/assessment.plist" 2>/dev/null) || finish invalid_package_assessment 1
+[ "$verdict" = true ] || finish package_assessment_rejected 1
+source=$(/usr/bin/plutil -extract 'assessment:authority.assessment:authority:source' raw -expect string -o - "$STAGE/assessment.plist" 2>/dev/null) || finish invalid_package_assessment 1
+[ "$source" = 'Notarized Developer ID' ] || finish package_notarization_unconfirmed 1
+# Older plutil versions can print a missing-key error to stdout despite -o.
+if /usr/bin/plutil -extract 'assessment:authority.assessment:authority:override' raw -o /dev/null "$STAGE/assessment.plist" >/dev/null 2>&1; then
+  finish package_assessment_override_refused 1
+fi
+if /usr/bin/plutil -type 'assessment:authority.assessment:authority:verdict' "$STAGE/assessment.plist" >/dev/null 2>&1; then
+  authority=$(/usr/bin/plutil -extract 'assessment:authority.assessment:authority:verdict' raw -expect bool -o - "$STAGE/assessment.plist" 2>/dev/null) || finish invalid_package_assessment 1
+  [ "$authority" = true ] || finish package_assessment_rejected 1
+fi
+# Recheck bytes after all assessors, immediately before Installer gets the package.
+verify_digest || finish package_changed_after_assessment 1
+if [ "$MIGRATION_REQUESTED" = true ]; then
+  # The approved, signed package declares its preparation protocol and binds it
+  # to its postinstall bytes. Expand metadata/scripts only; never execute them.
+  (ulimit -f 131072; /usr/sbin/pkgutil --expand "$PKG" "$STAGE/expanded") >"$STAGE/expansion.log" 2>&1 || finish migration_package_expansion_failed 1
+  for component in "$STAGE/expanded" "$STAGE/expanded/Scripts"; do
+    [ -d "$component" ] && [ ! -L "$component" ] || finish migration_capability_unavailable 1
+  done
+  CAPABILITY="$STAGE/expanded/Scripts/aegis-package-capabilities.json"
+  POSTINSTALL="$STAGE/expanded/Scripts/postinstall"
+  for component in "$CAPABILITY" "$POSTINSTALL"; do
+    [ -f "$component" ] && [ ! -L "$component" ] || finish migration_capability_unavailable 1
+    [ "$(/usr/bin/stat -f '%l' "$component")" = 1 ] || finish migration_capability_unavailable 1
+  done
+  size=$(/usr/bin/stat -f '%z' "$CAPABILITY")
+  [ "$size" -gt 0 ] && [ "$size" -le 4096 ] || finish migration_capability_unavailable 1
+  size=$(/usr/bin/stat -f '%z' "$POSTINSTALL")
+  [ "$size" -gt 0 ] && [ "$size" -le 262144 ] || finish migration_capability_unavailable 1
+  schema=$(/usr/bin/plutil -extract schema raw -expect string -o - "$CAPABILITY" 2>/dev/null) || finish migration_capability_unavailable 1
+  identifier=$(/usr/bin/plutil -extract package_identifier raw -expect string -o - "$CAPABILITY" 2>/dev/null) || finish migration_capability_unavailable 1
+  protocol=$(/usr/bin/plutil -extract legacy_user_services raw -expect string -o - "$CAPABILITY" 2>/dev/null) || finish migration_capability_unavailable 1
+  external=$(/usr/bin/plutil -extract external_python_required raw -expect bool -o - "$CAPABILITY" 2>/dev/null) || finish migration_capability_unavailable 1
+  [ "$schema" = aegis.macos-package-capabilities/v1 ] && [ "$identifier" = com.aegis.agent ] && [ "$protocol" = journaled-prepare-v1 ] && [ "$external" = false ] || finish migration_capability_unavailable 1
+  POST_SHA=$(/usr/bin/plutil -extract postinstall_sha256 raw -expect string -o - "$CAPABILITY" 2>/dev/null) || finish migration_capability_unavailable 1
+  case "$POST_SHA" in ''|*[!0-9a-f]*) finish migration_capability_unavailable 1 ;; esac
+  [ "${#POST_SHA}" -eq 64 ] || finish migration_capability_unavailable 1
+  printf '%s  %s\n' "$POST_SHA" "$POSTINSTALL" | /usr/bin/shasum -a 256 -c - >/dev/null 2>&1 || finish migration_script_digest_mismatch 1
+fi
+# Recheck state after download/assessment; new legacy files must not bypass opt-in.
+check_legacy_state
+verify_digest || finish package_changed_after_assessment 1
+ATTEMPTED=true
+/usr/sbin/installer -pkg "$PKG" -target / >"$STAGE/installer.log" 2>&1 || finish installer_failed_state_requires_verification 1
+SUCCEEDED=true
+finish installed_health_pending 0

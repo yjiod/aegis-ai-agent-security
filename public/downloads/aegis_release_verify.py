@@ -105,10 +105,11 @@ def verify(downloads):
     if "python3" in mac_config: errors.append("external_python_macos_reporting_config")
     try: mac_installer=(downloads/"mdm-macos-install.sh").read_text()
     except OSError: mac_installer=""
-    try: mac_interactive=(downloads/"aegis-install-macos-oneclick.sh").read_text()
-    except OSError: mac_interactive=""
-    if not mac_installer or mac_interactive!=mac_installer:
-        errors.append("macos_install_entry_drift")
+    for name in ("aegis-install-macos-oneclick.sh", "aegis-agent-macos-enroll.sh"):
+        try: mac_entry=(downloads/name).read_text()
+        except OSError: mac_entry=""
+        if not mac_installer or mac_entry!=mac_installer:
+            errors.append("macos_install_entry_drift")
     for directive in ("AEGIS_MACOS_PKG_SHA256", "AEGIS_MACOS_TEAM_ID", "--check-signature",
                       "--assess --type install --raw --ignore-cache --no-cache"):
         if directive not in mac_installer: errors.append(f"unsafe_macos_package_bootstrap:{directive}")

@@ -13,7 +13,7 @@
 
 从企业受信任发布渠道取得经过审核的本地安装脚本、已批准安装包的完整 SHA-256 和发布者 Team ID。保护脚本及配置，不能从同一待验证下载地址临时获取信任摘要。包应为本企业正确服务端地址构建。
 
-`aegis-install-macos-oneclick.sh` 和 `mdm-macos-install.sh` 内容完全一致，使用相同的安装验证和失败处理。以前直接下载并执行脚本的管道命令已不再作为控制台推荐流程；脚本不会自行重新下载提权副本或提前停止现有服务。
+`aegis-install-macos-oneclick.sh`、`mdm-macos-install.sh` 和保留的历史文件名 `aegis-agent-macos-enroll.sh` 内容完全一致，使用相同的原生系统包安装验证和失败处理。历史文件名现在要求管理员身份和批准包配置，不再安装用户级 Python 运行时。以前直接下载并执行脚本的管道命令已不再作为控制台推荐流程；脚本不会自行重新下载提权副本或提前停止现有服务。
 
 以管理员身份运行本地经过审核的脚本。以下变量只代表公开工件身份，不是上报凭据，应先由管理员填入已批准的真实值：
 
@@ -32,6 +32,15 @@ MDM 无需命令行参数，通过受保护的 `AEGIS_MACOS_PKG_SHA256`、`AEGIS
 
 旧 `-Server` 参数已移除，不再写入服务器覆盖配置。使用为正确服务端构建的包；存量服务器覆盖文件的检查与清理仍属于待完成的迁移工作，不能假定重装会自动修正其内容。
 
+## 历史入网命令迁移
+
+旧 `AEGIS_COLLECTOR_URL`、`AEGIS_COLLECTOR_TOKEN`、`AEGIS_REPORT_SIGNING_SECRET`、`AEGIS_SCAN_INTERVAL`、`AEGIS_DEVICE_ID`、`AEGIS_INSTALL_DIR` 任一变量仍存在时，三个安装入口都会在外部命令及任何安装动作之前返回 `legacy_enrollment_settings_not_supported`（退出 2）。空值也算存在；不会回显值、生成替代签名密钥、覆盖用户配置或默默忽略设置。管理员应重新配置部署任务，明确选择以下操作：
+
+- 新安装或迁移：移除旧入网变量，按上方批准包流程安装。迁移旧用户服务须显式增加 `-MigrateUserServices 1`；包内原生入网写入系统配置。下载根变量 `AEGIS_BASE_URL` 仍只表示包下载根地址，不会改变 Collector。
+- 系统客户端凭据轮转：使用已安装的 `aegis-configure-macos.sh` 和受保护的原生配置变量；不要运行安装入口轮转凭据。随后核对新配置对应的成功上报。
+- 更换 Collector：使用受保护的管理员迁移流程，不能靠旧环境变量改变服务器。迁移不会自动迁移离线队列或吊销原服务器注册。
+- 卸载：使用 [原生卸载说明](MACOS-UNINSTALL.md)。只要 `AEGIS_ENROLL_UNINSTALL` 存在（包括 0 或空值），安装入口返回 `legacy_uninstall_setting_requires_maintenance`，不调用 Installer、不停服；不要直接清除变量并重跑同一命令。旧用户单独卸载尚未提供等价自动入口，需先明确退役范围；系统卸载会处理多用户，不能冒充单用户卸载。
+
 ## 安装结果
 
 入口必须确认完整摘要、批准的 Developer ID Installer 发布者、已启用且无覆盖放行的公证评估；安装前再次复核摘要。任一步失败均不调用 Installer，不回退 Python 或关闭系统验证。
@@ -44,4 +53,4 @@ MDM 无需命令行参数，通过受保护的 `AEGIS_MACOS_PKG_SHA256`、`AEGIS
 
 下载限制为 15 秒连接超时、120 秒总时限及 128 MiB。系统公证评估和 Installer 不受该网络时限覆盖；任务中断或超时后应核实状态。历史 Python 三文件回滚脚本不适用于原生包。
 
-上报配置由已安装客户端的 `aegis-configure-macos.sh` 写入；健康检查使用 `mdm-macos-compliance.sh`。这些能力均使用客户端自带运行时。旧用户级入网、完整原生包回滚和实际签名发布验收仍在推进，不能将本入口测试通过当作全生命周期验收完成。
+上报配置由已安装客户端的 `aegis-configure-macos.sh` 写入；健康检查使用 `mdm-macos-compliance.sh`。这些能力均使用客户端自带运行时。旧用户服务真实切换/激活、单用户退役、完整原生包回滚和实际签名发布验收仍在推进，不能将本入口测试通过当作全生命周期验收完成。

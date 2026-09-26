@@ -17,6 +17,9 @@ on:
       - public/downloads/MACOS-UNINSTALL.md
       - public/downloads/mdm-macos-install.sh
       - public/downloads/aegis-install-macos-oneclick.sh
+      - public/downloads/aegis-agent-macos-enroll.sh
+      - public/downloads/aegis_release_build.py
+      - public/downloads/aegis_release_verify.py
       - tests/test_macos_mdm_install.py
       - tests/test_macos_package.py
       - tests/test_macos_maintenance.py

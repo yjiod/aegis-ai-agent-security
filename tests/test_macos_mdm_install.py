@@ -100,6 +100,10 @@ esac
                     "AEGIS_MACOS_PKG_PATH": "", "AEGIS_TEST_PACKAGE": str(self.package),
                     "AEGIS_TEST_CALLS": str(self.calls), "AEGIS_TEST_ASSESSMENT": str(self.assessment),
                     "PATH": "/nonexistent", "PYTHONHOME": "/nonexistent", "PYTHONPATH": "/nonexistent"}
+        for name in ("AEGIS_ENROLL_UNINSTALL", "AEGIS_COLLECTOR_URL", "AEGIS_COLLECTOR_TOKEN",
+                     "AEGIS_REPORT_SIGNING_SECRET", "AEGIS_SCAN_INTERVAL", "AEGIS_DEVICE_ID", "AEGIS_INSTALL_DIR",
+                     "AEGIS_BASE_URL"):
+            self.env.pop(name, None)
         self.postinstall = self.root / "postinstall-fixture"
         self.postinstall.write_bytes(b'#!/bin/sh\nexit 99\n')
         self.capability = self.root / "capability.json"
@@ -255,6 +259,38 @@ esac
         install = next(x for x in self.records() if x[0] == "installer")
         self.assertEqual(install[1], "-pkg")
         self.assertEqual(install[-2:], ["-target", "/"])
+
+    def test_historical_uninstall_setting_never_installs_or_changes_services(self):
+        for setting in ("1", "0", "", "synthetic-private-invalid"):
+            with self.subTest(setting=setting):
+                self.env['AEGIS_ENROLL_UNINSTALL'] = setting
+                result, value = self.run_script('-MigrateUserServices', '1')
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(value['status'], 'legacy_uninstall_setting_requires_maintenance')
+                self.assertFalse(value['installation_attempted'])
+        self.assertEqual(self.records(), [])
+
+    def test_old_enrollment_environment_is_not_ignored_or_disclosed(self):
+        for name in ('AEGIS_COLLECTOR_URL', 'AEGIS_COLLECTOR_TOKEN', 'AEGIS_REPORT_SIGNING_SECRET',
+                     'AEGIS_SCAN_INTERVAL', 'AEGIS_DEVICE_ID', 'AEGIS_INSTALL_DIR'):
+            for setting in ('', 'synthetic-private-value\n$(exit 99)'):
+                with self.subTest(name=name, empty=not setting):
+                    self.env[name] = setting
+                    result, value = self.run_script()
+                    self.assertEqual(result.returncode, 2)
+                    self.assertEqual(value['status'], 'legacy_enrollment_settings_not_supported')
+                    self.assertFalse(value['installation_attempted'])
+                    self.env.pop(name)
+        self.assertEqual(self.records(), [])
+
+    def test_base_url_retains_only_package_download_root_semantics(self):
+        self.env['AEGIS_MACOS_PKG_URL'] = ''
+        self.env['AEGIS_BASE_URL'] = 'https://aegis.example.test/approved'
+        result, value = self.run_script()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(value['status'], 'installed_health_pending')
+        download = next(c for c in self.records() if c[0] == 'curl')
+        self.assertIn('https://aegis.example.test/approved/aegis-agent-macos.pkg', download)
 
     def test_local_cache_does_not_download_or_modify_source(self):
         self.env.update(AEGIS_MACOS_PKG_URL="", AEGIS_MACOS_PKG_PATH=str(self.package))
@@ -430,6 +466,10 @@ exit "$code"
 
 class MacInteractiveInstallTests(MacMdmInstallTests):
     script_path = ROOT / "public/downloads/aegis-install-macos-oneclick.sh"
+
+
+class MacHistoricalEnrollEntryTests(MacMdmInstallTests):
+    script_path = ROOT / "public/downloads/aegis-agent-macos-enroll.sh"
 
 
 if __name__ == "__main__":
