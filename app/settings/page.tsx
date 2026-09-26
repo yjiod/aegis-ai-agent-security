@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { useCollector } from '@/components/collector-context';
 import { useRole } from '@/components/role-context';
 import { ActionConfirmDialog } from '@/components/action-confirm-dialog';
+import { formatRemediationSummary, type RemediationSummary } from '@/lib/remediation-status';
 
 /**
  * 系统设置。诚实原则：只有真正接了后端的项才呈现为"可管理/实时"，其余项
@@ -504,17 +505,8 @@ function RemediationPanel() {
     setSweepResult('');
     try {
       const r = await fetch('/api/remediation/auto-sweep', { method: 'POST' });
-      const j = (await r.json().catch(() => ({}))) as {
-        ran?: boolean; reason?: string; findings?: number; denied?: Array<{ asset_key: string }>;
-        conflicts?: Array<{ asset_key: string }>; notified?: number; published_version?: number; publish_blocked?: string;
-      };
-      if (!j.ran) setSweepResult(`未执行：${j.reason ?? '未知原因'}`);
-      else setSweepResult(
-        `扫描 ${j.findings ?? 0} 条发现 → 自动封禁 ${(j.denied ?? []).length} 项${(j.denied ?? []).length ? `（${(j.denied ?? []).map((d) => d.asset_key).slice(0, 5).join('、')}${(j.denied ?? []).length > 5 ? '…' : ''}）` : ''}`
-        + `；人工冲突 ${(j.conflicts ?? []).length}；通知 ${j.notified ?? 0}`
-        + (j.published_version ? `；策略已发布 v${j.published_version}` : '')
-        + (j.publish_blocked ? `；发布被拦截：${j.publish_blocked}` : ''),
-      );
+      const j = (await r.json().catch(() => ({}))) as RemediationSummary;
+      setSweepResult(r.ok ? formatRemediationSummary(j) : '执行失败：服务端未完成请求');
     } catch {
       setSweepResult('执行失败：网络错误');
     }
@@ -527,7 +519,7 @@ function RemediationPanel() {
       <div className="panel-head">
         <div>
           <h2>自动纠偏（Auto Remediation）</h2>
-          <p>每 5 分钟扫描全量发现：高置信恶意 Skill（隐藏指令/提示词覆盖/凭据访问/上下文投毒， critical|high）与不可信 MCP（critical）自动拉黑并发布策略；人工处置永不覆盖（冲突转人工裁决）；代码质量问题与中低置信信号走通知（webhook 走「告警推送」通道）。自动发布永不使用爆炸半径 override。</p>
+          <p>每 5 分钟扫描发现：符合自动处置条件的 Skill/MCP 保存拒绝规则，并尝试通过发布门禁；人工处置冲突转人工裁决。规则保存、策略发布与终端执行分别确认，终端执行以回执为准。通知经「告警推送」通道发送。</p>
         </div>
       </div>
       <div className="setting-row">
@@ -547,7 +539,7 @@ function RemediationPanel() {
       <div className="setting-row">
         <div>
           <strong>自动封禁（deny）</strong>
-          <span>高置信恶意信号自动拉黑并发布；关闭则只通知不封</span>
+          <span>符合条件时保存拒绝规则并尝试发布；终端是否执行取决于执行模块、下发范围与回执</span>
         </div>
         <button
           className={`switch ${cfg.auto_deny ? 'on' : ''}`}
@@ -561,7 +553,7 @@ function RemediationPanel() {
       <div className="setting-row">
         <div>
           <strong>推送通知</strong>
-          <span>封禁结果/人工冲突/待修复项经告警 webhook 推送</span>
+          <span>规则保存与发布状态、人工冲突、待修复项经告警 webhook 推送</span>
         </div>
         <button
           className={`switch ${cfg.notify ? 'on' : ''}`}

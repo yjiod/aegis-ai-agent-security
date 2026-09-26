@@ -34,6 +34,7 @@ import { exemptDevices, pinnedDevices } from '@/lib/exempt';
 import { getRollout } from '@/lib/rollout';
 import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baselines';
 import { enforceableRuleIds } from '@/lib/policy';
+import { remediationStatus, type RemediationStatus } from '@/lib/remediation-status';
 
 /**
  * 高置信恶意信号 → skill 资产自动 deny（severity critical|high）。
@@ -265,7 +266,9 @@ export interface SweepResult {
   ran: boolean;
   reason?: string;
   findings: number;
+  /** Compatibility field: saved deny rules, not endpoint execution receipts. */
   denied: Array<{ asset_type: string; asset_key: string }>;
+  status: RemediationStatus;
   conflicts: Array<{ asset_type: string; asset_key: string; disposition: string }>;
   notified: number;
   published_version?: number;
@@ -275,10 +278,10 @@ export interface SweepResult {
 /** 执行一轮自动纠偏（API 手动触发 + 后台循环共用）。 */
 export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promise<SweepResult> {
   const cfg = remediationConfig();
-  if (!cfg.enabled) return { ran: false, reason: 'disabled', findings: 0, denied: [], conflicts: [], notified: 0 };
+  if (!cfg.enabled) return { ran: false, reason: 'disabled', findings: 0, denied: [], conflicts: [], notified: 0, status: remediationStatus() };
   const base = (process.env.AEGIS_COLLECTOR_URL ?? '').replace(/\/$/, '');
   const token = process.env.AEGIS_COLLECTOR_TOKEN ?? '';
-  if (!base || !token) return { ran: false, reason: 'collector_unconfigured', findings: 0, denied: [], conflicts: [], notified: 0 };
+  if (!base || !token) return { ran: false, reason: 'collector_unconfigured', findings: 0, denied: [], conflicts: [], notified: 0, status: remediationStatus() };
 
   await ensureLabelsLoaded().catch(() => {});
   const findings = await fetchAllFindings();
@@ -302,12 +305,12 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
     );
     try {
       await persistLabelsDurable(denyRows);
-    } catch (e) {
+    } catch {
       logAudit({
         actor,
         action: 'remediation:auto_sweep',
         resource_type: 'policy',
-        detail: `deny 落库失败，本轮不发布：${e instanceof Error ? e.message : String(e)}`,
+        detail: '拒绝规则保存失败，本轮未发布；终端执行未验证（deny_persistence_failed）',
       });
       return {
         ran: true,
@@ -315,7 +318,8 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
         denied: [],
         conflicts: decision.conflicts,
         notified: 0,
-        publish_blocked: `deny 落库失败（${e instanceof Error ? e.message : String(e)}）——已放弃自动发布，等待下轮重试`,
+        publish_blocked: 'deny_persistence_failed',
+        status: remediationStatus(0, undefined, 'deny_persistence_failed', true),
       };
     }
     for (const d of decision.denies) {
@@ -347,6 +351,7 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
     }
   }
 
+  const status = remediationStatus(denied.length, publishedVersion, publishBlocked);
   // 通知（webhook，复用告警通道配置；未配置则只留审计）
   let notified = 0;
   if (cfg.notify && (denied.length > 0 || decision.conflicts.length > 0 || decision.notifies.length > 0)) {
@@ -359,11 +364,12 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
               text: {
                 content: [
                   'Aegis 自动纠偏',
-                  ...denied.map((d) => `- 已封禁 ${d.asset_type}: ${d.asset_key}`),
+                  ...denied.map((d) => `- 已保存拒绝规则 ${d.asset_type}: ${d.asset_key}`),
                   ...decision.conflicts.map((c) => `- 冲突待裁决: ${c.asset_key}（人工${c.disposition}，检测到恶意信号）`),
                   ...decision.notifies.slice(0, 10).map((n) => `- 待修复[${n.severity}] ${n.device_id.slice(0, 12)} ${n.kind}${n.asset_key ? ` ${n.asset_key}` : ''}`),
                   ...(publishedVersion ? [`- 策略已发布 v${publishedVersion}`] : []),
                   ...(publishBlocked ? [`- 发布被拦截: ${publishBlocked}`] : []),
+                  '- 终端执行未验证，请核对终端回执',
                 ].join('\n'),
               },
             }
@@ -371,6 +377,7 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
               schema: 'aegis.remediation/v1',
               at: Date.now(),
               denied,
+              status,
               conflicts: decision.conflicts,
               notifies: decision.notifies.slice(0, 50),
               published_version: publishedVersion,
@@ -392,13 +399,14 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
     actor,
     action: 'remediation:auto_sweep',
     resource_type: 'policy',
-    detail: `发现 ${findings.length} → 自动封禁 ${denied.length}（${denied.map((d) => `${d.asset_type}:${d.asset_key}`).slice(0, 10).join(', ')}）冲突 ${decision.conflicts.length} 通知项 ${decision.notifies.length} 发布 ${publishedVersion ?? '—'}${publishBlocked ? ` 拦截=${publishBlocked}` : ''}`,
+    detail: `发现 ${findings.length} → 已保存拒绝规则 ${denied.length}（${denied.map((d) => `${d.asset_type}:${d.asset_key}`).slice(0, 10).join(', ')}）冲突 ${decision.conflicts.length} 通知项 ${decision.notifies.length} 发布 ${publishedVersion ?? '—'}${publishBlocked ? ` 拦截=${publishBlocked}` : ''}；终端执行未验证`,
   });
 
   return {
     ran: true,
     findings: findings.length,
     denied,
+    status,
     conflicts: decision.conflicts,
     notified,
     ...(publishedVersion ? { published_version: publishedVersion } : {}),
