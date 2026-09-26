@@ -1922,6 +1922,13 @@ def maybe_self_update(policy, report_url):
         artifact_name = "aegis_agent.py"
         target = str(BASE_DIR / "aegis_agent.py")
         preflight = None  # 脚本形态：用 check_and_apply 内置的 .py 语法解析 preflight
+    def record_applied(result):
+        digest = result.get("sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("invalid_applied_digest")
+        write_private_atomic(BASE_DIR / "aegis-update-receipt.json", json.dumps({
+            "schema": "aegis.update-receipt/v1", "artifact": artifact_name,
+            "agent_version": result.get("to"), "sha256": digest}))
     try:
         res = su.check_and_apply(
             manifest_url,
@@ -1931,19 +1938,10 @@ def maybe_self_update(policy, report_url):
             target,
             rollout_percent=int(cfg.get("rollout_percent", 100)),
             preflight=preflight,
+            on_applied=record_applied if frozen and sys.platform == "darwin" else None,
         )
         if res.get("updated"):
-            receipt_status = "ok"
-            if frozen and sys.platform == "darwin":
-                try:
-                    digest = res.get("sha256")
-                    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-                        raise ValueError("invalid_applied_digest")
-                    write_private_atomic(BASE_DIR / "aegis-update-receipt.json", json.dumps({
-                        "schema": "aegis.update-receipt/v1", "artifact": artifact_name,
-                        "agent_version": res.get("to"), "sha256": digest}))
-                except (OSError, ValueError):
-                    receipt_status = "updated_receipt_unavailable"
+            receipt_status = res.get("receipt_status", "ok")
             print(f"aegis agent self-updated {res.get('from')} -> {res.get('to')}; next run uses new version", file=sys.stderr)
             _SELF_UPDATE_RESULT = {"updated": True, "reason": receipt_status, "from": res.get("from"), "to": res.get("to"), "at": int(time.time())}
         elif res.get("reason") not in ("up_to_date", "already_current", "not_in_rollout", None):
@@ -2029,6 +2027,9 @@ def run_selftest():
             import aegis_macos_service_migration as _service_migration
             if not _service_migration.selftest():
                 raise ValueError("service_migration_selftest_failed")
+            import aegis_macos_lifecycle as _lifecycle
+            if not _lifecycle.selftest():
+                raise ValueError("lifecycle_selftest_failed")
             import aegis_macos_runtime_activation as _activation
             if not _activation.selftest():
                 raise ValueError("runtime_activation_selftest_failed")

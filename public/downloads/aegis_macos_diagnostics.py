@@ -217,6 +217,14 @@ def collect(root, version, validate_policy, owner=0, now=None, probe=service_sta
         result["AegisLaunchDaemonHealthy"] = False
         issues.append("native_activation_state_unavailable")
     try:
+        from aegis_macos_lifecycle import state
+        if state(root, owner) not in (None, "ready"):
+            result["AegisLaunchDaemonHealthy"] = False
+            issues.append("system_maintenance_pending")
+    except failures:
+        result["AegisLaunchDaemonHealthy"] = False
+        issues.append("system_maintenance_state_unavailable")
+    try:
         with directory(root) as parent:
             os.stat("watch-cleanup-pending.json", dir_fd=parent, follow_symlinks=False)
         result["AegisLaunchDaemonHealthy"] = False

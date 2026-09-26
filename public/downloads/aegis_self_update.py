@@ -17,6 +17,9 @@ Aegis 客户端自更新（无桌管环境兜底通道）。
 from __future__ import annotations
 
 import ast
+import contextlib
+import sys
+from pathlib import Path
 import hashlib
 import json
 import os
@@ -182,7 +185,42 @@ def default_preflight(target_path: str, staging: str) -> bool:
     return True
 
 
-def check_and_apply(
+def _maintenance_context(target_path):
+    if sys.platform == "darwin" and Path(target_path).parent == Path("/Library/Application Support/AegisAgent"):
+        from aegis_macos_lifecycle import APP, LifecycleError, lease
+        if Path(target_path).parent == APP:
+            if Path(target_path).name != "aegis-agent":
+                raise LifecycleError("unsupported_system_update_target")
+            return lease(APP, "update")
+    return contextlib.nullcontext()
+
+
+def check_and_apply(manifest_url, current_version, device_id, artifact_name, target_path,
+                    rollout_percent=100, preflight=None, on_applied=None):
+    """Serialize installed Mac updates through verification and receipt writing."""
+    try:
+        with _maintenance_context(target_path):
+            result = _check_and_apply(manifest_url, current_version, device_id, artifact_name,
+                                      target_path, rollout_percent, preflight)
+            if result.get("updated") and on_applied is not None:
+                try:
+                    on_applied(result)
+                except Exception:
+                    # Bytes have already changed. Preserve that fact and report
+                    # missing bookkeeping instead of pretending update rolled back.
+                    result["receipt_status"] = "updated_receipt_unavailable"
+            return result
+    except Exception as error:
+        # Maintenance refusals happen before fetching a manifest or writing bytes.
+        # Do not expose path-bearing I/O errors or arbitrary exception contents.
+        from_error = type(error).__name__
+        lifecycle_error = getattr(sys.modules.get("aegis_macos_lifecycle"), "LifecycleError", ())
+        if isinstance(error, lifecycle_error):
+            return {"updated": False, "reason": str(error)}
+        return {"updated": False, "reason": "maintenance_unavailable:" + from_error}
+
+
+def _check_and_apply(
     manifest_url: str,
     current_version: str,
     device_id: str,
