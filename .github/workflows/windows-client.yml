@@ -1,0 +1,46 @@
+name: windows-client-runtime
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-client-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-runtime:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            rid: win-x64
+            architecture: X64
+          - runner: windows-11-arm
+            rid: win-arm64
+            architecture: Arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Publish existing client with installed SDK
+        shell: pwsh
+        env:
+          CLIENT_RID: ${{ matrix.rid }}
+        run: |
+          dotnet publish client/host/AegisServiceHost.csproj --configuration Release --runtime $env:CLIENT_RID --self-contained true --output artifacts/client
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify native runtime and rejected arguments
+        shell: powershell
+        env:
+          EXPECTED_ARCH: ${{ matrix.architecture }}
+        run: |
+          & ./scripts/test-windows-client.ps1 -BinaryPath ./artifacts/client/AegisServiceHost.exe -ExpectedArchitecture $env:EXPECTED_ARCH -EvidencePath ./artifacts/client/evidence.json
+          if (-not $?) { exit 1 }
+      - name: Record scoped evidence
+        shell: pwsh
+        run: Get-Content -LiteralPath ./artifacts/client/evidence.json | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append

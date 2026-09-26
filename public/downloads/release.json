@@ -1,6 +1,9 @@
 {
   "release": "0.73.3",
   "channel": "pilot",
+  "pending_client_changes": [
+    "windows_arm64_x64_runtime_selftest_and_native_verification"
+  ],
   "published_at": "2026-09-20T08:11:35+08:00",
   "features": [
     "self_update_preflight_and_auto_rollback",
