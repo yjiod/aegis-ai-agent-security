@@ -3,6 +3,9 @@ name: macos-package-lifecycle
 on:
   pull_request:
     paths:
+      - 'clients/macos/**'
+      - public/downloads/aegis_macos_desktop_status.py
+      - tests/test_macos_desktop_status.py
       - public/downloads/aegis_macos_lifecycle.py
       - tests/test_macos_lifecycle.py
       - public/downloads/aegis_macos_runtime_activation.py
@@ -81,6 +84,23 @@ jobs:
       - name: Validate legacy service preparation and recovery
         run: python3 -m unittest discover -s tests -p test_macos_service_migration.py -v
 
+      - name: Validate Swift status reader against a synthetic publisher snapshot
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/aegis-desktop-fixture"
+          AEGIS_TEST_DESKTOP_DIR="$RUNNER_TEMP/aegis-desktop-fixture" python3 - <<'PYCODE'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'public/downloads')
+          import aegis_macos_desktop_status as desktop
+          app = Path(os.environ['AEGIS_TEST_DESKTOP_DIR']).resolve()
+          health = {source: True for source in desktop.CHECKS.values()}
+          health['AegisPolicyVersion'] = '1.2.3'
+          desktop.publish(app, desktop.snapshot(health, '0.37.3', 1800000000), owner=os.getuid())
+          PYCODE
+          AEGIS_TEST_DESKTOP_SNAPSHOT="$RUNNER_TEMP/aegis-desktop-fixture/desktop-status.json" \
+            swift test --package-path clients/macos --scratch-path "$RUNNER_TEMP/aegis-swift-tests"
+      - name: Validate redacted desktop snapshot publication
+        run: python3 -m unittest discover -s tests -p test_macos_desktop_status.py -v
       - name: Validate shared Mac maintenance serialization
         run: python3 -m unittest discover -s tests -p test_macos_lifecycle.py -v
       - name: Validate native runtime replacement and recovery

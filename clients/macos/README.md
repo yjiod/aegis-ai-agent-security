@@ -1,64 +1,27 @@
-# Aegis Agent for macOS
+# Aegis macOS 状态界面
 
-企业 AI Coding 安全治理终端客户端 — macOS 菜单栏应用。
+Swift 菜单栏界面只读取受管系统服务的公开状态快照。扫描、治理、策略验证和上报由统一后台引擎执行。界面不会生成设备身份、存储凭据、读取原始报告或独立联网。
 
-## 要求
+终端最低 macOS 14；无需 Python、Swift、Homebrew 或开发工具。构建机使用 Swift 5.9+ 和 macOS SDK。客户端遵守 [R7 零外部 Python 契约](../../docs/MACOS-RUNTIME-CONTRACT.md)。
 
-- macOS 14 (Sonoma) 或更高
-- Swift 5.9+
-- 注意：本机 SwiftPM 沙箱被系统禁用，构建必须加 `--disable-sandbox`
+## 开发构建
 
-## 构建与运行
+在仓库根目录执行：
 
-```bash
-swift build --disable-sandbox
-swift run --disable-sandbox
+```sh
+swift test --package-path clients/macos
+sh clients/macos/build-app.sh /absolute/path/to/new-output-directory
 ```
 
-运行后在菜单栏出现盾牌图标，右键菜单：
-- 状态：显示当前连接状态和最近扫描结果
-- 立即扫描：手动触发一次完整扫描
-- 查看最近报告：显示上次扫描的 JSON 报告摘要
-- 偏好设置：显示配置文件路径和当前参数
-- 退出
+输出原生 `Aegis.app` 和 `Aegis.app.zip`，目录必须尚不存在。构建过程不安装依赖、不关闭 SwiftPM 沙箱。ARM64 与 Intel x64 分别由原生 CI runner 构建和测试；产物尚未完成正式签名公证。
 
-## 配置文件
+## 界面行为
 
-`~/Library/Application Support/AegisAgent/config.json`
+- 菜单显示最近检查状态，支持刷新和查看七项服务检查。
+- 服务每 60 秒发布快照，界面每 30 秒刷新。超过 150 秒或明显来自未来的快照显示过期；缺失、不可信或格式错误的文件不显示正常。
+- 退出界面不会停止系统服务。界面不要求管理员权限。
+- 暂不提供手动扫描、配置编辑、自动启动和告警通知；这些能力需要受保护服务接口，不能另起一套扫描和凭据管理流程。
 
-```json
-{
-  "collectorURL": "http://127.0.0.1:8931",
-  "deviceId": "MAC-YOUR-HOSTNAME",
-  "token": "<collector-bearer-token>",
-  "hmacSecret": "<hmac-signing-secret>",
-  "scanIntervalSeconds": 3600,
-  "scanRoot": "/path/to/projects"
-}
-```
+开发候选界面目前独立产出，尚未并入系统安装包及更新事务。完整客户端交付仍需完成该集成、签名公证和无外部 Python 环境下的生命周期验收，不能将独立 app 构建成功视为完成。
 
-## 策略文件
-
-`~/Library/Application Support/AegisAgent/policy.json`
-
-由 MDM 或手动部署。支持热重载（修改后自动生效），解析失败时保留 last-known-good。
-
-## 部署 (MDM)
-
-使用 `public/downloads/mdm-macos-install.sh` 脚本，将编译产物放到：
-`/Library/Application Support/AegisAgent/AegisAgent`
-
-LaunchDaemon plist 负责开机自启和周期保活。
-
-## 项目结构
-
-```
-Sources/
-├── main.swift              # 入口：NSApplication + accessory 模式
-├── AppDelegate.swift       # 菜单栏 UI + 周期扫描调度
-└── Agent/
-    ├── Scanner.swift       # 发现 + Skill/MCP/代码扫描
-    ├── Reporter.swift      # HTTPS 上报 + HMAC 签名 + 离线队列
-    ├── PolicyLoader.swift  # 策略热重载 + last-known-good
-    └── Config.swift        # 配置加载与默认值
-```
+状态文件、安全边界及验证范围见 [桌面状态契约](../../docs/MACOS-DESKTOP-STATUS.md)。

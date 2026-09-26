@@ -2027,6 +2027,9 @@ def run_selftest():
             import aegis_macos_service_migration as _service_migration
             if not _service_migration.selftest():
                 raise ValueError("service_migration_selftest_failed")
+            import aegis_macos_desktop_status as _desktop_status
+            if not _desktop_status.selftest():
+                raise ValueError("desktop_status_selftest_failed")
             import aegis_macos_lifecycle as _lifecycle
             if not _lifecycle.selftest():
                 raise ValueError("lifecycle_selftest_failed")
@@ -2171,6 +2174,10 @@ def main():
         try: budget=min(max(int(os.getenv("AEGIS_SCAN_BUDGET_SECONDS","1800")),60),86400)
         except (TypeError,ValueError): budget=1800
         child_argv=([sys.executable] if getattr(sys,"frozen",False) else [sys.executable,str(Path(__file__).resolve())])+[a for a in sys.argv[1:] if a!="--watch"]
+        if sys.platform == "darwin":
+            import aegis_macos_desktop_status as desktop_status
+            with desktop_status.watch(BASE_DIR, AGENT_VERSION, validate_policy):
+                return run_watch_loop(child_argv,budget,args.interval,failure_marker=BASE_DIR/"watch-cleanup-pending.json")
         return run_watch_loop(child_argv,budget,args.interval,failure_marker=BASE_DIR/"watch-cleanup-pending.json")
     host_device_id=hardware_device_id()
     # 每设备入网凭据优先：显式 --enrollment-config > --enrollment-dir/<本机device_id>.json > 全网 reporting.json(向后兼容)。
