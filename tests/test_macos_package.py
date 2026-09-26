@@ -40,6 +40,7 @@ class MacPackageTests(unittest.TestCase):
         fixture.write_text("""#include <stdlib.h>
 #include <string.h>
 int main(int argc, char **argv) {
+  if (argc == 9 && strcmp(argv[1], "--install-config") == 0) return getenv("AEGIS_TEST_ENROLL_OK") ? 0 : 3;
   if (argc != 2) return 3;
   if (strcmp(argv[1], "--selftest") == 0) return getenv("AEGIS_TEST_RUNTIME_FAIL") ? 7 : 0;
   if (strcmp(argv[1], "--maintenance-selftest") == 0) return getenv("AEGIS_TEST_MAINTENANCE_FAIL") ? 7 : 0;
@@ -94,13 +95,15 @@ if command == "uname":
             path.chmod(0o755)
 
     def prepare(self, enrolled=True):
+        if enrolled: self.env["AEGIS_TEST_ENROLL_OK"] = "1"
+        else: self.env.pop("AEGIS_TEST_ENROLL_OK", None)
         payload, script = self.package
         shutil.copytree(payload, self.target, dirs_exist_ok=True)
         self.app = self.target / "Library/Application Support/AegisAgent"
         self.policy = self.app / "aegis-policy.json"
         self.reporting = self.app / "reporting.json"
         if enrolled:
-            self.reporting.write_text(json.dumps({"report_url": ORIGIN + "/aegis/v1/reports", "report_token": "fixture-" * 8}))
+            self.reporting.write_text(json.dumps({"schema": "aegis.reporting/v1", "report_url": ORIGIN + "/aegis/v1/reports", "report_token": "fixture-" * 8, "signing_secret": "synthetic-signing-" * 4}))
             self.reporting.chmod(0o600)
         # Relocate the extracted script for this test only. No production override
         # allows callers to redirect a privileged installation.

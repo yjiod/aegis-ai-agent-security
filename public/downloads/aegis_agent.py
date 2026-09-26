@@ -1936,10 +1936,15 @@ def maybe_self_update(policy, report_url):
 
 
 def install_config(argv):
-    """安装期一次性配置（去-python 化 B）：手动令牌校验 或 零接触自动入网，写 config.json /
-    reporting.json（0600），服务端下发策略则覆盖包内出厂策略。安装器(.run/.pkg) 以冻结二进制
-    `aegis-agent --install-config <7 args>` 调用本函数，从而**安装期也无需系统 python3**。
-    逻辑与原安装器内嵌的 python heredoc 完全一致（argv 顺序也一致）。"""
+    """Mac enrollment uses the protected embedded reporting writer.
+
+    Non-Mac legacy callers retain their existing configuration behavior.
+    """
+    if sys.platform == "darwin":
+        if not getattr(sys, "frozen", False) and str(BASE_DIR) not in sys.path:
+            sys.path.insert(0, str(BASE_DIR))
+        from aegis_macos_enrollment import main as enroll_main
+        return enroll_main(argv, BASE_DIR)
     import socket, secrets, urllib.error
     install_dir, collector_url, enroll_url, device_id, interval, token, agent_ver = argv[:7]
     interval = int(interval); manual = bool(token)
@@ -1998,6 +2003,9 @@ def run_selftest():
             import aegis_macos_configuration as _configuration
             if not _configuration.selftest():
                 raise ValueError("configuration_selftest_failed")
+            import aegis_macos_enrollment as _enrollment
+            if not _enrollment.selftest():
+                raise ValueError("enrollment_selftest_failed")
             import aegis_macos_diagnostics as _diagnostics
             if not _diagnostics.selftest():
                 raise ValueError("diagnostics_selftest_failed")
@@ -2020,6 +2028,11 @@ def run_selftest():
 
 
 def main():
+    if sys.platform == "darwin" and any(arg.split("=", 1)[0] == "--install-config" for arg in sys.argv[1:]):
+        if len(sys.argv) != 9 or sys.argv[1] != "--install-config":
+            print('{"schema":"aegis.enrollment-result/v1","status":"invalid_install_invocation","applied":false,"health_verified":false}')
+            return 2
+        return install_config(sys.argv[2:])
     configuration_flags = ("--configure-reporting", "--configuration-selftest")
     if any(arg.split("=", 1)[0] in configuration_flags for arg in sys.argv[1:]):
         if len(sys.argv) != 2 or sys.argv[1] not in configuration_flags or sys.platform != "darwin":
