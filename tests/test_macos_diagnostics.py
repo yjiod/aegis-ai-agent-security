@@ -38,7 +38,8 @@ class DiagnosticsTests(unittest.TestCase):
     def setUp(self):
         self.work = tempfile.TemporaryDirectory(prefix="aegis-health-fixture-")
         self.addCleanup(self.work.cleanup)
-        self.root = Path(self.work.name).resolve()
+        self.root = Path(self.work.name).resolve() / "app"
+        self.root.mkdir()
         self.version = agent.AGENT_VERSION
         self.artifact = "aegis-agent-darwin-" + ("arm64" if os.uname().machine == "arm64" else "x64")
         self.now = 2000000000
@@ -288,8 +289,8 @@ class ProbeAndDispatchTests(unittest.TestCase):
 
     def test_update_receipt_records_applied_digest_and_reports_write_failure(self):
         result = {"updated": True, "from": "1.0.0", "to": "1.1.0", "sha256": "a" * 64}
-        updater = types.SimpleNamespace(check_and_apply=lambda *a, **kw: result)
-        with patch.dict(sys.modules, {"aegis_self_update": updater}), patch.object(sys, "platform", "darwin"), patch.object(sys, "frozen", True, create=True), patch.object(agent, "hardware_device_id", return_value="fixture"), patch.object(agent, "write_private_atomic") as write:
+        updater = load("diagnostic_update", "aegis_self_update.py")
+        with patch.object(updater, "_check_and_apply", side_effect=lambda *a, **kw: dict(result)), patch.object(updater, "_maintenance_context", return_value=contextlib.nullcontext()), patch.dict(sys.modules, {"aegis_self_update": updater}), patch.object(sys, "platform", "darwin"), patch.object(sys, "frozen", True, create=True), patch.object(agent, "hardware_device_id", return_value="fixture"), patch.object(agent, "write_private_atomic") as write:
             policy = {"agent_self_update": {"enabled": True}}
             agent.maybe_self_update(policy, "https://aegis.example.test/aegis/v1/reports")
             self.assertEqual(json.loads(write.call_args.args[1])["sha256"], result["sha256"])

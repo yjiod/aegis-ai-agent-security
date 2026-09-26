@@ -42,7 +42,8 @@ class RuntimeActivationTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.app = Path(self.temp.name).resolve()
+        self.app = Path(self.temp.name).resolve() / "app"
+        self.app.mkdir()
         self.owner = os.getuid()
         self.services = Services()
         self.old = b'synthetic-previous-runtime'

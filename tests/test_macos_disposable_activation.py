@@ -5,6 +5,7 @@ skips before inspecting production paths. Test services only sleep or self-test;
 they never scan users, enroll, upload or inject a baseline.
 """
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,8 @@ ENABLED = (sys.platform == 'darwin' and os.environ.get('AEGIS_DISPOSABLE_SYSTEM_
 APP = Path('/Library/Application Support/AegisAgent')
 LABELS = ('com.aegis.agent', 'com.company.aegis-agent')
 JOURNAL = 'native-runtime-activation.json'
+SHARED_LOCK = '.aegis-system-lifecycle.lock'
+SHARED_STATE = '.aegis-system-lifecycle.json'
 PROFILE = '''(version 1)
 (allow default)
 (deny network*)
@@ -51,6 +54,9 @@ class DisposableNativeActivationTests(unittest.TestCase):
         # fixture. This must fail the opted-in gate, not silently skip coverage.
         self.assertEqual(self.launch('print', 'system').returncode, 0)
         self.assertFalse(APP.exists() or APP.is_symlink(), 'system installation already exists')
+        for name in (SHARED_LOCK, SHARED_STATE):
+            path = APP.parent / name
+            self.assertFalse(path.exists() or path.is_symlink(), 'shared maintenance state already exists')
         self.plists = {label: Path('/Library/LaunchDaemons') / (label + '.plist') for label in LABELS}
         for label, path in self.plists.items():
             self.assertFalse(path.exists() or path.is_symlink(), 'system plist already exists')
@@ -116,6 +122,20 @@ class DisposableNativeActivationTests(unittest.TestCase):
         self.assertTrue(stat.S_ISDIR(info.st_mode))
         self.assertEqual((info.st_dev, info.st_ino), self.app_identity)
         shutil.rmtree(APP)
+        for name in (SHARED_STATE, SHARED_LOCK):
+            path = APP.parent / name
+            if path.exists():
+                info = path.lstat()
+                self.assertTrue(stat.S_ISREG(info.st_mode))
+                self.assertEqual(info.st_uid, 0)
+                self.assertEqual(info.st_nlink, 1)
+                self.assertEqual(info.st_mode & 0o777, 0o600)
+                if name == SHARED_STATE:
+                    self.assertEqual(json.loads(path.read_text())['schema'], 'aegis.system-lifecycle/v1')
+                else:
+                    self.assertEqual(info.st_size, 0)
+                path.unlink()
+
 
     def native(self, flag, expected=0):
         result = subprocess.run(self.sandbox + [str(self.candidate), flag], cwd=APP, env=self.env,
@@ -186,6 +206,14 @@ class DisposableNativeActivationTests(unittest.TestCase):
         self.assertEqual(sha(self.canonical), self.target_digest)
         self.assertEqual(sha(APP / '.native-runtime-previous'), self.previous_digest)
         self.assertEqual(self.journal()['status'], 'staged')
+        # A different process owns the shared lock. The frozen CLI must refuse
+        # before starting another stage or touching the canonical/backup bytes.
+        with (APP.parent / SHARED_LOCK).open('r+') as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(self.status('--stage-native-runtime', expected=1), 'maintenance_busy')
+            self.assertEqual(sha(self.canonical), self.target_digest)
+            self.assertEqual(sha(APP / '.native-runtime-previous'), self.previous_digest)
+
         self.assertEqual(self.status('--confirm-native-runtime', expected=1), 'service_registration_unconfirmed')
         self.assertEqual(self.status('--stage-native-runtime'), 'staged')
         self.assertEqual(sha(APP / '.native-runtime-previous'), self.previous_digest)
@@ -207,7 +235,7 @@ class DisposableNativeActivationTests(unittest.TestCase):
         evidence = {'schema': 'aegis.disposable-native-maintenance/v1', 'architecture': self.arch,
                     'agent_version': self.version, 'candidate_sha256': self.target_digest,
                     'fixed_system_path': True, 'actual_launchd_and_old_process_exit': True,
-                    'native_atomic_stage_and_restore': True, 'registration_confirmed': True,
+                    'native_atomic_stage_and_restore': True, 'registration_confirmed': True, 'shared_maintenance_contention_verified': True,
                     'external_executables_denied_except_candidate_and_launchctl': True,
                     'user_directory_reads_denied': True, 'network_denied': True,
                     'full_installer_lifecycle_verified': False, 'production_health_verified': False}

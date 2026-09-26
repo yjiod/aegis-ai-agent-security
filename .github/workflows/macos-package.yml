@@ -3,6 +3,8 @@ name: macos-package-lifecycle
 on:
   pull_request:
     paths:
+      - public/downloads/aegis_macos_lifecycle.py
+      - tests/test_macos_lifecycle.py
       - public/downloads/aegis_macos_runtime_activation.py
       - tests/test_macos_runtime_activation.py
       - public/downloads/aegis_macos_user_retirement.py
@@ -79,6 +81,8 @@ jobs:
       - name: Validate legacy service preparation and recovery
         run: python3 -m unittest discover -s tests -p test_macos_service_migration.py -v
 
+      - name: Validate shared Mac maintenance serialization
+        run: python3 -m unittest discover -s tests -p test_macos_lifecycle.py -v
       - name: Validate native runtime replacement and recovery
         run: python3 -m unittest discover -s tests -p test_macos_runtime_activation.py -v
       - name: Validate current-user retirement and historical launcher

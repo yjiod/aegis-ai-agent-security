@@ -109,7 +109,8 @@ def stopped(parent, services):
 def change(app, services, mode, version, arch, owner=0):
     if mode not in {"stage", "confirm", "restore"} or arch not in {"arm64", "x86_64"}:
         raise ActivationError("invalid_activation_request")
-    with directory(app) as parent:
+    from aegis_macos_lifecycle import lease
+    with lease(app, mode, owner), directory(app) as parent:
         protected_directory(parent, owner)
         lock = os.open(".native-runtime-activation.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
                        0o600, dir_fd=parent)

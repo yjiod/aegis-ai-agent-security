@@ -187,6 +187,12 @@ def save_journal(archive, journal):
 
 
 def uninstall(app, daemon_dir, homes, archive_parent, services):
+    from aegis_macos_lifecycle import lease
+    with lease(app, "uninstall", os.geteuid()):
+        return _uninstall_locked(app, daemon_dir, homes, archive_parent, services)
+
+
+def _uninstall_locked(app, daemon_dir, homes, archive_parent, services):
     """Stop every service before editing user files or moving any runtime."""
     for label in SYSTEM_LABELS:
         services.stop("system", label)
