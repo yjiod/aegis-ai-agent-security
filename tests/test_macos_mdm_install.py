@@ -53,6 +53,7 @@ pkgutil)
     if [ "${AEGIS_TEST_REAL_EXPAND:-0}" = 1 ]; then exec /usr/sbin/pkgutil "$@"; fi
     [ "${AEGIS_TEST_EXPANSION_RC:-0}" = 0 ] || exit "$AEGIS_TEST_EXPANSION_RC"
     /bin/mkdir -p "$3/Scripts"
+    if [ -n "${AEGIS_TEST_PACKAGE_INFO:-}" ]; then /bin/cp "$AEGIS_TEST_PACKAGE_INFO" "$3/PackageInfo"; fi
     /bin/cp "$AEGIS_TEST_CAPABILITY" "$3/Scripts/aegis-package-capabilities.json"
     /bin/cp "$AEGIS_TEST_POSTINSTALL" "$3/Scripts/postinstall"
     case "${AEGIS_TEST_EXPANSION_KIND:-normal}" in
@@ -74,6 +75,7 @@ spctl)
   [ "${AEGIS_TEST_ASSESSMENT_RC:-0}" = 0 ] || exit "$AEGIS_TEST_ASSESSMENT_RC"
   if [ "${AEGIS_TEST_TAMPER:-0}" = 1 ]; then for package do :; done; printf changed >> "$package"; fi
   if [ -n "${AEGIS_TEST_LATE_LEGACY:-}" ]; then /bin/mkdir -p "${AEGIS_TEST_LATE_LEGACY%/*}"; printf synthetic > "$AEGIS_TEST_LATE_LEGACY"; fi
+  if [ -n "${AEGIS_TEST_CHANGE_CURRENT:-}" ]; then printf changed >> "$AEGIS_TEST_CHANGE_CURRENT"; fi
   /bin/cat "$AEGIS_TEST_ASSESSMENT";;
 installer)
   printf 'synthetic-private-installer-output\\n'
@@ -93,6 +95,8 @@ esac
         source = source.replace("/Library/Application Support/AegisAgent", str(self.root / "Library/Application Support/AegisAgent"))
         source = source.replace("/Library/LaunchDaemons", str(self.root / "Library/LaunchDaemons"))
         source = source.replace("/Users/", str(self.root / "Users") + "/")
+        source = source.replace(" /Library ", ' "'+str(self.root/"Library")+'" ')
+        source = source.replace("'/Library/Application Support'", "'"+str(self.root/"Library/Application Support")+"'")
         self.wrapper = self.root / "mdm.sh"
         self.wrapper.write_text(source)
         self.env = {**os.environ, "AEGIS_MACOS_PKG_SHA256": hashlib.sha256(self.package.read_bytes()).hexdigest(),
@@ -102,7 +106,7 @@ esac
                     "PATH": "/nonexistent", "PYTHONHOME": "/nonexistent", "PYTHONPATH": "/nonexistent"}
         for name in ("AEGIS_ENROLL_UNINSTALL", "AEGIS_COLLECTOR_URL", "AEGIS_COLLECTOR_TOKEN",
                      "AEGIS_REPORT_SIGNING_SECRET", "AEGIS_SCAN_INTERVAL", "AEGIS_DEVICE_ID", "AEGIS_INSTALL_DIR",
-                     "AEGIS_BASE_URL"):
+                     "AEGIS_BASE_URL", "AEGIS_MACOS_ROLLBACK_CURRENT_SHA256", "AEGIS_MACOS_ROLLBACK_TARGET_VERSION"):
             self.env.pop(name, None)
         self.postinstall = self.root / "postinstall-fixture"
         self.postinstall.write_bytes(b'#!/bin/sh\nexit 99\n')

@@ -111,6 +111,10 @@ def verify(downloads):
         except OSError: mac_entry=""
         if not mac_installer or mac_entry!=mac_installer:
             errors.append("macos_install_entry_drift")
+    try: mac_rollback=(downloads/"rollback-aegis-macos.sh").read_text()
+    except OSError: mac_rollback=""
+    if mac_installer.count("OPERATION=install\n") != 1 or mac_rollback != mac_installer.replace("OPERATION=install\n", "OPERATION=rollback\n", 1):
+        errors.append("macos_rollback_entry_drift")
     for directive in ("AEGIS_MACOS_PKG_SHA256", "AEGIS_MACOS_TEAM_ID", "--check-signature",
                       "--assess --type install --raw --ignore-cache --no-cache"):
         if directive not in mac_installer: errors.append(f"unsafe_macos_package_bootstrap:{directive}")

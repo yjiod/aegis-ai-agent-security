@@ -39,7 +39,7 @@
     },
     "macos_install": {
       "file": "mdm-macos-install.sh",
-      "sha256": "726e3979466bc73a6edd0e06f8d72062a7b2ae19a2968f93a23680d281e3f2d0"
+      "sha256": "4210bc8c914db1483f3642a864f8abc012f372160efdc4825f4535ce739dba1b"
     },
     "macos_compliance_discovery": {
       "file": "mdm-macos-compliance.sh",
@@ -55,7 +55,7 @@
     },
     "macos_rollback": {
       "file": "rollback-aegis-macos.sh",
-      "sha256": "c91f373eb056a9965875f9dbf82cfb32d42543c42143d110417c08b181ce3933"
+      "sha256": "f04a8efc558057da78a5818ecf830167b10445170aea936be753b066e5585fc8"
     },
     "macos_uninstall": {
       "file": "uninstall-aegis-macos.sh",

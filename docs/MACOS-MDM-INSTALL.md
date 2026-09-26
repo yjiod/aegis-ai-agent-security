@@ -54,4 +54,4 @@
 | 摘要、签名、公证、覆盖放行或包变化拒绝 | 不调用 Installer，保留已安装客户端状态，检查发布供应链与部署配置 |
 | `installer_failed_state_requires_verification` | Installer 已运行，可能部分更改系统；核实状态，不能承诺旧版完整或自动回滚 |
 
-健康检查使用 `mdm-macos-compliance.sh` 调用客户端内嵌诊断；受保护上报配置使用 [原生配置入口](MACOS-CONFIGURATION.md)。历史 `rollback-aegis-macos.sh` 管理的是 Python 三文件安装布局，不能用于本原生包。原生安装回滚、真实旧用户服务切换/激活恢复、真实签名公证及完整生命周期验收仍为发布前待办，见 [R7 契约](MACOS-RUNTIME-CONTRACT.md)。
+健康检查使用 `mdm-macos-compliance.sh` 调用客户端内嵌诊断；受保护上报配置使用 [原生配置入口](MACOS-CONFIGURATION.md)。`rollback-aegis-macos.sh` 现由同一入口源码生成，固定为回滚操作，要求当前程序摘要或明确缺失状态、目标版本和完整受信任原生包，见 [回滚与修复说明](MACOS-PACKAGE-RECOVERY.md)。它不再复制 Python 三文件。自动安装事务回滚、真实旧用户服务切换/激活恢复、真实签名公证及完整生命周期验收仍为发布前待办，见 [R7 契约](MACOS-RUNTIME-CONTRACT.md)。
