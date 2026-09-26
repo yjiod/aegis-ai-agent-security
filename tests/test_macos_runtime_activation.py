@@ -146,6 +146,16 @@ class RuntimeActivationTests(unittest.TestCase):
         with self.assertRaises(activation.ActivationError):
             self.change('confirm')
 
+    def test_empty_broken_canonical_can_be_repaired_without_executing_it(self):
+        self.canonical.write_bytes(b'')
+        self.assertEqual(self.change(), 'staged')
+        self.assertEqual(self.canonical.read_bytes(), self.new)
+        self.assertEqual((self.app / activation.BACKUP).read_bytes(), b'')
+        self.assertEqual(self.journal()['previous_sha256'], activation.digest(b''))
+        self.assertEqual(self.change('restore'), 'restored_activation_pending')
+        self.assertEqual(self.canonical.read_bytes(), b'')
+        self.assertFalse(self.services.registered)
+
     def test_fresh_install_has_no_invented_prior_runtime(self):
         self.canonical.unlink()
         self.change()

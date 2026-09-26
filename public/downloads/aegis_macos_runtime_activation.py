@@ -32,7 +32,7 @@ def fingerprint(info):
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
-def read(parent, name, owner, limit=LIMIT, private=False, optional=False):
+def read(parent, name, owner, limit=LIMIT, private=False, optional=False, allow_empty=False):
     try:
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
     except FileNotFoundError:
@@ -42,7 +42,8 @@ def read(parent, name, owner, limit=LIMIT, private=False, optional=False):
     with os.fdopen(fd, "rb") as stream:
         info = os.fstat(stream.fileno())
         if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != owner
-                or info.st_mode & (0o077 if private else 0o022) or not 0 < info.st_size <= limit):
+                or info.st_mode & (0o077 if private else 0o022) or not 0 <= info.st_size <= limit
+                or info.st_size == 0 and not allow_empty):
             raise ActivationError("unsafe_runtime_file")
         require_no_acl(stream.fileno())
         value = stream.read(limit + 1)
@@ -130,20 +131,20 @@ def locked_change(app, parent, services, mode, version, arch, owner):
         journal = None
     if journal is not None and not valid_journal(journal):
         raise ActivationError("activation_journal_invalid")
-    current = read(parent, CANONICAL, owner, optional=True)
+    current = read(parent, CANONICAL, owner, optional=True, allow_empty=True)
     current_sha = digest(current)
     if mode == "restore":
         if journal is None or journal["previous_sha256"] is None:
             raise ActivationError("previous_runtime_unavailable")
         if current_sha not in {journal["target_sha256"], journal["previous_sha256"]}:
             raise ActivationError("runtime_changed_recovery_required")
-        backup = read(parent, BACKUP, owner, private=True)
+        backup = read(parent, BACKUP, owner, private=True, allow_empty=True)
         if digest(backup) != journal["previous_sha256"]:
             raise ActivationError("previous_runtime_integrity_failed")
         journal["status"] = "restoring"
         save(parent, journal)
         stopped(parent, services)
-        if digest(read(parent, CANONICAL, owner, optional=True)) != current_sha:
+        if digest(read(parent, CANONICAL, owner, optional=True, allow_empty=True)) != current_sha:
             raise ActivationError("runtime_changed_recovery_required")
         write(parent, CANONICAL, backup, 0o755)
         journal["status"] = "restored_activation_pending"
@@ -181,7 +182,7 @@ def locked_change(app, parent, services, mode, version, arch, owner):
         # A crash after canonical replacement but before checkpoint is resumable
         # only with the exact retained backup and the same approved candidate.
         if current_sha == target_sha and journal["previous_sha256"] is not None:
-            if digest(read(parent, BACKUP, owner, private=True)) != journal["previous_sha256"]:
+            if digest(read(parent, BACKUP, owner, private=True, allow_empty=True)) != journal["previous_sha256"]:
                 raise ActivationError("previous_runtime_integrity_failed")
     else:
         journal = {"schema": SCHEMA, "status": "preparing", "previous_sha256": current_sha,
@@ -189,18 +190,18 @@ def locked_change(app, parent, services, mode, version, arch, owner):
         if not valid_journal(journal):
             raise ActivationError("invalid_activation_request")
         # Refuse an unsafe retained file even though replace() would not follow it.
-        read(parent, BACKUP, owner, private=True, optional=True)
+        read(parent, BACKUP, owner, private=True, optional=True, allow_empty=True)
         save(parent, journal)
     stopped(parent, services)
-    if digest(read(parent, CANONICAL, owner, optional=True)) != current_sha:
+    if digest(read(parent, CANONICAL, owner, optional=True, allow_empty=True)) != current_sha:
         raise ActivationError("runtime_changed_recovery_required")
-    read(parent, BACKUP, owner, private=True, optional=True)
+    read(parent, BACKUP, owner, private=True, optional=True, allow_empty=True)
     if current_sha != target_sha or not pending:
         if current is not None:
             write(parent, BACKUP, current)
     if digest(read(parent, artifact, owner)) != target_sha:
         raise ActivationError("candidate_changed")
-    if digest(read(parent, CANONICAL, owner, optional=True)) != current_sha:
+    if digest(read(parent, CANONICAL, owner, optional=True, allow_empty=True)) != current_sha:
         raise ActivationError("runtime_changed_recovery_required")
     write(parent, CANONICAL, candidate, 0o755)
     journal["status"] = "staged"
