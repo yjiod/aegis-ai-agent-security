@@ -4,6 +4,7 @@ launchd, enrollment and hardware discovery are test doubles. These checks do not
 claim privileged installation, daemon health or signing. Compiled native test
 executables exercise packaging; they are not the production frozen client.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME = ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md")
+RUNTIME = ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh", "mdm-macos-compliance.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md")
 ORIGIN = "https://aegis.example.test"
 
 
@@ -125,6 +126,15 @@ if command == "uname":
         self.assertEqual((self.app / "uninstall-aegis-macos.sh").read_bytes(), (ROOT / "public/downloads/uninstall-aegis-macos.sh").read_bytes())
         result = subprocess.run(["sh", str(self.app / "uninstall-aegis-macos.sh"), "--unexpected"], capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 2)
+
+    def test_package_inventory_matches_both_runtimes_and_baseline(self):
+        self.prepare()
+        manifest = json.loads((self.app / "aegis-runtime-manifest.json").read_text())
+        self.assertEqual(manifest["schema"], "aegis.macos-runtime/v1")
+        self.assertEqual(set(manifest["files"]), {"aegis-agent-darwin-arm64", "aegis-agent-darwin-x64", "aegis-security-baseline.md"})
+        for name, digest in manifest["files"].items():
+            self.assertEqual(hashlib.sha256((self.app / name).read_bytes()).hexdigest(), digest)
+        self.assertEqual((self.app / "mdm-macos-compliance.sh").read_bytes(), (ROOT / "public/downloads/mdm-macos-compliance.sh").read_bytes())
 
     def test_upgrade_payload_and_postinstall_preserve_active_state(self):
         payload = self.prepare()

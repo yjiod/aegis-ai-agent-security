@@ -1096,23 +1096,23 @@ class AegisTests(unittest.TestCase):
     def test_mdm_macos_compliance_contract(self):
         manifest={line.split()[1]:line.split()[0] for line in (DOWNLOADS/'CHECKSUMS.sha256').read_text().splitlines()}
         discovery=(DOWNLOADS/'mdm-macos-compliance.sh').read_text(); rules=json.loads((DOWNLOADS/'mdm-macos-compliance-policy.json').read_text())['Rules']
-        for name in ('aegis_agent.py','aegis-policy.json','aegis-security-baseline.md'): self.assertIn(manifest[name],discovery)
+        self.assertIn('--diagnostics',discovery); self.assertNotIn('python3',discovery)
         names={rule['SettingName'] for rule in rules}; self.assertTrue({'AegisInstalled','AegisIntegrityValid','AegisLaunchDaemonHealthy','AegisReportingConfigured','AegisReportingHealthy','AegisPolicyVersion','AegisReportValid','AegisScanRecent','AegisCriticalFindings','AegisHighFindings'}.issubset(names))
         self.assertTrue(all('en_US' in {s['Language'] for s in rule['RemediationStrings']} for rule in rules))
         version=next(rule['Operand'] for rule in rules if rule['SettingName']=='AegisPolicyVersion'); self.assertEqual(version,self.policy['version'])
         with zipfile.ZipFile(DOWNLOADS/'aegis-enterprise-bundle.zip') as bundle:
             self.assertTrue({'mdm-macos-compliance.sh','mdm-macos-compliance-policy.json'}.issubset(bundle.namelist()))
     def test_macos_compliance_recomputes_report_summary(self):
-        script=(DOWNLOADS/'mdm-macos-compliance.sh').read_text().split("<<'PY'\n",1)[1].split("\nPY",1)[0]
-        self.assertIn('info.st_uid==0',script); script=script.replace('info.st_uid==0','info.st_uid==info.st_uid')
-        with tempfile.TemporaryDirectory() as d:
-            root=Path(d); policy=root/'policy.json'; report=root/'report.json'; reporting=root/'reporting.json'; upload=root/'upload-status.json'; now=int(time.time()); policy.write_text(json.dumps(self.policy)); reporting.write_text(json.dumps({'schema':'aegis.reporting/v1','report_url':'https://collector.invalid/v1/reports','report_token':'t'*32,'signing_secret':'s'*32})); reporting.chmod(0o600); upload.write_text(json.dumps({'schema':'aegis.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            value={'schema':'aegis.report/v1','agent_version':'0.30.0','policy_version':self.policy['version'],'device_id':'abcdef123456','scanned_at':now,'summary':{'critical':0,'high':1,'medium':0,'low':0},'findings':[{'kind':'test','severity':'high','path':'x','message':'test'}]}; report.write_text(json.dumps(value))
-            result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); parsed=json.loads(result.stdout); self.assertTrue(parsed['AegisReportValid']); self.assertTrue(parsed['AegisReportingConfigured']); self.assertTrue(parsed['AegisReportingHealthy'])
-            upload.write_text(json.dumps({'schema':'aegis.upload-status/v1','status':'accepted','last_success':now,'collector_host':'old.invalid'})); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportingHealthy']); upload.write_text(json.dumps({'schema':'aegis.upload-status/v1','status':'accepted','last_success':now,'collector_host':'collector.invalid'}))
-            reporting.chmod(0o644); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportingConfigured']); reporting.chmod(0o600)
-            value['summary']['high']=0; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportValid'])
-            value['summary']['high']=1; value['agent_version']='0.22.0'; report.write_text(json.dumps(value)); result=subprocess.run(['python3','-',str(policy),str(report),str(reporting),str(upload),'true','true','true'],input=script,text=True,capture_output=True,check=True); self.assertFalse(json.loads(result.stdout)['AegisReportValid'])
+        # The implementation now lives in the embedded diagnostics module.
+        spec=importlib.util.spec_from_file_location('macos_health_contract',DOWNLOADS/'aegis_macos_diagnostics.py')
+        module=importlib.util.module_from_spec(spec)
+        with patch.dict('sys.modules',{'aegis_macos_maintenance':load('health_maintenance','aegis_macos_maintenance.py')}): spec.loader.exec_module(module)
+        value={'schema':'aegis.report/v1','device_id':'012345abcdef','agent_version':'1.2.3','policy_version':'1.0.0','scanned_at':1,
+               'summary':{'critical':0,'high':1,'medium':0,'low':0},
+               'findings':[{'kind':'test','severity':'high','path':'fixture','message':'fixture'}]}
+        self.assertTrue(module.valid_report(value,'1.2.3','1.0.0'))
+        value['summary']['high']=0
+        self.assertFalse(module.valid_report(value,'1.2.3','1.0.0'))
         windows=(DOWNLOADS/'mdm-compliance-discovery.ps1').read_text(); self.assertIn('$actualCritical',windows); self.assertIn('AegisReportValid=$reportValid',windows)
     def test_windows_scanner_covers_codex_toml_mcp_contract(self):
         script=(DOWNLOADS/'aegis-windows.ps1').read_text()

@@ -86,16 +86,11 @@ launchctl kickstart -k system/com.aegis.agent 2>/dev/null || log "kickstart 失�
 log "等待首报(~60s)…"
 sleep 60
 
-# 6) 验收
+# 6) 只输出客户端生成的受限健康摘要；不打印原始报告、主机身份或配置。
 D="/Library/Application Support/AegisAgent"
-if launchctl print system/com.aegis.agent >/dev/null 2>&1; then
-  log "服务: $(launchctl print system/com.aegis.agent 2>/dev/null | awk '/^\tstate/{print $3}')"
+if [ -f "$D/mdm-macos-compliance.sh" ]; then
+  /bin/sh "$D/mdm-macos-compliance.sh"
 else
-  log "系统域服务未加载: 检查 installer 输出或重跑本脚本"
+  log "健康诊断入口缺失，请使用新版自包含客户端修复安装。"
+  exit 1
 fi
-if [ -f "$D/upload-status.json" ]; then log "upload-status: $(cat "$D/upload-status.json")";
-else log "upload-status 尚未生成(首报需一个周期, 或配置不可读)"; fi
-if [ -f "$D/last-report.json" ]; then
-  log "last-report: $(python3 -c "import json;d=json.load(open('$D/last-report.json'));print(d.get('agent_version'), d.get('serial'), d.get('os_user'))" 2>/dev/null || echo '解析失败')"
-fi
-log "完成。刷新控制台应出现/更新该设备(序列号 + 版本 + 工具列)。"

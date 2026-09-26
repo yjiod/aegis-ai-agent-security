@@ -151,7 +151,7 @@ class FrozenMaintenanceTests(unittest.TestCase):
             # sandbox evidence, not a claim that the host has no Python installed.
             denied = subprocess.run(command + ["/bin/sh", "-c", "exit 0"], capture_output=True, timeout=20)
             self.assertNotEqual(denied.returncode, 0)
-            for flag in ("--selftest", "--maintenance-selftest"):
+            for flag in ("--selftest", "--maintenance-selftest", "--diagnostics-selftest"):
                 result = subprocess.run(command + [str(binary), flag], cwd=temp, capture_output=True, text=True, timeout=45)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -168,7 +168,7 @@ class FrozenMaintenanceTests(unittest.TestCase):
                 (root / name).write_text('raise RuntimeError("sibling module must not load")\n')
             env = {**os.environ, "PATH": "/nonexistent", "PYTHONHOME": str(poison), "PYTHONPATH": str(poison),
                    "PYTHONUSERBASE": str(poison), "PYTHONSTARTUP": str(poison / "sitecustomize.py")}
-            for flag, marker in (("--selftest", "aegis-selftest-ok"), ("--maintenance-selftest", "aegis-maintenance-selftest-ok")):
+            for flag, marker in (("--selftest", "aegis-selftest-ok"), ("--maintenance-selftest", "aegis-maintenance-selftest-ok"), ("--diagnostics-selftest", "aegis-diagnostics-selftest-ok")):
                 result = subprocess.run([str(binary), flag], cwd=poison, env=env, capture_output=True, text=True, timeout=45)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(marker, result.stdout)
