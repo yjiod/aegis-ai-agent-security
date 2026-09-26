@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     if (!assetKey.startsWith('~') && !assetKey.startsWith('/') && !/^[A-Za-z]:/.test(assetKey)) {
       return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
     }
-  } else if (/[/\\]/.test(assetKey) || assetKey.startsWith('~')) {
+  } else if (assetType !== 'prefix' && (/[/\\]/.test(assetKey) || assetKey.startsWith('~'))) {
     return NextResponse.json({ error: 'invalid_asset_key' }, { status: 400, headers: NO_STORE });
   }
 
