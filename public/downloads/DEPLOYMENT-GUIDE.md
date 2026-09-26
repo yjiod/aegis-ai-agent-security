@@ -22,7 +22,7 @@
 
 将 `mdm-macos-install.sh` 作为 macOS Shell Script 下发，以 root 运行。入口不依赖外部 Python，要求 MDM 受保护配置提供已批准整包摘要 `AEGIS_MACOS_PKG_SHA256`、发布者 `AEGIS_MACOS_TEAM_ID`，以及 HTTPS 地址 `AEGIS_MACOS_PKG_URL` 或受保护本地包路径 `AEGIS_MACOS_PKG_PATH`（二选一）。它验证完整 pkg、发布者签名及无覆盖放行的公证评估结果后才调用系统 Installer；不会改写系统安全设置。安装器成功返回 `installed_health_pending`，仍需单独验证服务、入网和上报。旧服务或未确认清理状态会在下载前拒绝继续。当前 CI 包未签名，不能通过此入口；真实签名公证正向验收及原生包回滚尚未完成。详见仓库 `docs/MACOS-MDM-INSTALL.md`。
 
-macOS 自定义合规使用 `mdm-macos-compliance.sh` 与 `mdm-macos-compliance-policy.json`，以具备读取 root 保护状态权限的上下文执行。发现脚本调用客户端内嵌诊断，不调用外部 Python；验证安装清单完整性、实际运行的系统服务、版本、两小时内有效报告及绑定当前上报配置的成功回执，并重算 critical/high 数量。缺件或能力自检失败返回不健康，不回退源码。安装清单完整性不能替代安装前的签名和公证。微软当前文档支持 macOS POSIX Shell 自定义合规，但特殊云支持另有限制；导入前应核对所在租户能力和脚本执行配置，不能将本地夹具验证当作真实 MDM 联调验收。参见 [微软自定义合规文档](https://learn.microsoft.com/en-us/intune/device-security/compliance/custom-settings)及仓库 `docs/MACOS-DIAGNOSTICS.md`。
+macOS 自定义合规使用 `mdm-macos-compliance.sh` 与 `mdm-macos-compliance-policy.json`，以具备读取 root 保护状态权限的上下文执行。发现脚本调用客户端内嵌诊断，不调用外部 Python；验证安装清单完整性、实际运行的系统服务、版本、两小时内有效报告及绑定当前上报配置的成功回执，并重算 critical/high 数量。缺件或能力自检失败返回不健康，不回退源码。安装清单完整性不能替代安装前的签名和公证。导入前应核对所在 MDM 租户是否支持 macOS POSIX Shell 自定义合规，以及脚本执行权限、时限和大小限制；不能将本地夹具验证当作真实 MDM 联调验收。诊断字段及边界见仓库 `docs/MACOS-DIAGNOSTICS.md`。
 
 ## 厂商 EDR
 
