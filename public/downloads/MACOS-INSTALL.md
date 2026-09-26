@@ -39,7 +39,7 @@ MDM 无需命令行参数，通过受保护的 `AEGIS_MACOS_PKG_SHA256`、`AEGIS
 - 新安装或迁移：移除旧入网变量，按上方批准包流程安装。迁移旧用户服务须显式增加 `-MigrateUserServices 1`；包内原生入网写入系统配置。下载根变量 `AEGIS_BASE_URL` 仍只表示包下载根地址，不会改变 Collector。
 - 系统客户端凭据轮转：使用已安装的 `aegis-configure-macos.sh` 和受保护的原生配置变量；不要运行安装入口轮转凭据。随后核对新配置对应的成功上报。
 - 更换 Collector：使用受保护的管理员迁移流程，不能靠旧环境变量改变服务器。迁移不会自动迁移离线队列或吊销原服务器注册。
-- 卸载：使用 [原生卸载说明](MACOS-UNINSTALL.md)。只要 `AEGIS_ENROLL_UNINSTALL` 存在（包括 0 或空值），安装入口返回 `legacy_uninstall_setting_requires_maintenance`，不调用 Installer、不停服；不要直接清除变量并重跑同一命令。旧用户单独卸载尚未提供等价自动入口，需先明确退役范围；系统卸载会处理多用户，不能冒充单用户卸载。
+- 卸载：使用 [原生卸载说明](MACOS-UNINSTALL.md)。只要 `AEGIS_ENROLL_UNINSTALL` 存在（包括 0 或空值），安装入口返回 `legacy_uninstall_setting_requires_maintenance`，不调用 Installer、不停服；不要直接清除变量并重跑同一命令。当前用户旧服务退役可使用经过审核的新 `.run --uninstall` 维护入口，由可信已安装原生客户端执行，保留运行数据和基线。它不等于完整单用户卸载；系统卸载会处理多用户，不能冒充单用户卸载。
 
 ## 安装结果
 

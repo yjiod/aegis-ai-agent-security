@@ -196,14 +196,15 @@ def locked_change(app, parent, locations, services, restore, owner):
     return {"status": journal["status"], "items": len(items)}
 
 
-def exclusive_rename(parent, source, destination):
+def exclusive_rename(parent, source, destination, destination_parent=None):
     import ctypes
     if sys.platform != "darwin":
         raise MigrationError("macos_required")
     libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
     libc.renameatx_np.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
     libc.renameatx_np.restype = ctypes.c_int
-    if libc.renameatx_np(parent, os.fsencode(source), parent, os.fsencode(destination), 4) != 0:  # RENAME_EXCL
+    target = parent if destination_parent is None else destination_parent
+    if libc.renameatx_np(parent, os.fsencode(source), target, os.fsencode(destination), 4) != 0:  # RENAME_EXCL
         raise MigrationError("legacy_rename_failed")
 
 

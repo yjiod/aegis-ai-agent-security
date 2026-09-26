@@ -17,7 +17,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME = ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh", "aegis-configure-macos.sh", "mdm-macos-compliance.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md")
+RUNTIME = ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh", "retire-aegis-user-macos.sh", "aegis-configure-macos.sh", "mdm-macos-compliance.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md")
 ORIGIN = "https://aegis.example.test"
 
 
@@ -131,6 +131,7 @@ if command == "uname":
         for name in ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py"):
             self.assertFalse((self.app / name).exists())
         self.assertEqual((self.app / "uninstall-aegis-macos.sh").read_bytes(), (ROOT / "public/downloads/uninstall-aegis-macos.sh").read_bytes())
+        self.assertEqual((self.app / "retire-aegis-user-macos.sh").read_bytes(), (ROOT / "public/downloads/retire-aegis-user-macos.sh").read_bytes())
         result = subprocess.run(["sh", str(self.app / "uninstall-aegis-macos.sh"), "--unexpected"], capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 2)
 

@@ -11,6 +11,10 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - public/downloads/aegis_macos_user_retirement.py
+      - tests/test_macos_user_retirement.py
+      - public/downloads/retire-aegis-user-macos.sh
+      - scripts/build-macos-standalone.sh
       - public/downloads/aegis_macos_enrollment.py
       - public/downloads/aegis_macos_service_migration.py
       - tests/test_macos_service_migration.py
@@ -63,7 +67,7 @@ jobs:
       - name: Freeze agent (--onefile, self-contained)
         run: |
           python3 -m PyInstaller --onefile --name "aegis-agent-darwin-${{ matrix.arch }}" \
-            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance --hidden-import aegis_macos_diagnostics --hidden-import aegis_macos_configuration --hidden-import aegis_macos_enrollment --hidden-import aegis_macos_service_migration \
+            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance --hidden-import aegis_macos_diagnostics --hidden-import aegis_macos_configuration --hidden-import aegis_macos_enrollment --hidden-import aegis_macos_service_migration --hidden-import aegis_macos_user_retirement \
             --paths public/downloads \
             --distpath dist-bin --workpath build-bin --specpath build-bin \
             public/downloads/aegis_agent.py
@@ -101,6 +105,10 @@ jobs:
       - name: Validate legacy service preparation with root-owned synthetic files
         run: |
           sudo env AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" "$(command -v python3)" -m unittest discover -s tests -p test_macos_service_migration.py -v
+      - name: Validate user retirement capability and exclusive refusal paths
+        run: |
+          AEGIS_MACOS_TEST_BINARY="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" \
+            python3 -m unittest discover -s tests -p test_macos_user_retirement.py -v
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
