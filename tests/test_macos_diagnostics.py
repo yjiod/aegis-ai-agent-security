@@ -38,7 +38,8 @@ class DiagnosticsTests(unittest.TestCase):
     def setUp(self):
         self.work = tempfile.TemporaryDirectory(prefix="aegis-health-fixture-")
         self.addCleanup(self.work.cleanup)
-        self.root = Path(self.work.name).resolve()
+        self.root = Path(self.work.name).resolve() / "app"
+        self.root.mkdir()
         self.version = agent.AGENT_VERSION
         self.artifact = "aegis-agent-darwin-" + ("arm64" if os.uname().machine == "arm64" else "x64")
         self.now = 2000000000

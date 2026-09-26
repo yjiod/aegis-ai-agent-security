@@ -153,6 +153,19 @@ class MacLifecycleTests(unittest.TestCase):
         self.assertFalse(value['AegisLaunchDaemonHealthy'])
         self.assertIn('system_maintenance_state_unavailable', value['AegisDiagnosticIssues'])
 
+    def test_writable_parent_is_refused_even_when_state_file_is_absent(self):
+        self.root.chmod(0o777)
+        try:
+            with self.assertRaisesRegex(lifecycle.LifecycleError, 'unsafe_maintenance_directory'):
+                with self.lease('update'):
+                    self.fail('unprotected parent accepted')
+            value = diagnostics.collect(self.app, '1.2.3', lambda value: value, self.owner,
+                                        probe=lambda root: (True, True), legacy_probe=lambda: False)
+            self.assertFalse(value['AegisLaunchDaemonHealthy'])
+            self.assertIn('system_maintenance_state_unavailable', value['AegisDiagnosticIssues'])
+        finally:
+            self.root.chmod(0o700)
+
     def test_cleanup_marker_blocks_update(self):
         (self.app / 'watch-cleanup-pending.json').symlink_to(self.root / 'missing')
         with self.assertRaisesRegex(lifecycle.LifecycleError, 'watch_cleanup'):
