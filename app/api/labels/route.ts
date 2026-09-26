@@ -7,6 +7,7 @@ import {
   normalizePrefixKey,
   DISPOSITIONS,
   type AssetType,
+  type AssetLabel,
   type Disposition,
 } from '@/lib/labels';
 import { logAudit } from '@/lib/store';
@@ -87,14 +88,20 @@ export async function POST(request: Request) {
   if (!(await labelsReadyFor('labels:write', session?.subject ?? 'console'))) {
     return NextResponse.json({ error: 'labels_unavailable' }, { status: 503, headers: NO_STORE });
   }
-  const rec = setLabel({
-    asset_type: assetType,
-    asset_key: finalKey,
-    ...(tags !== undefined ? { tags } : {}),
-    ...(rawDisp !== undefined ? { disposition: String(rawDisp) as Disposition, decision_source: 'manual' as const } : {}),
-    ...(typeof body.note === 'string' ? { note: body.note.slice(0, 500) } : {}),
-    updated_by: session?.subject ?? 'console',
-  });
+  let rec: AssetLabel;
+  try {
+    rec = await setLabel({
+      asset_type: assetType,
+      asset_key: finalKey,
+      ...(tags !== undefined ? { tags } : {}),
+      ...(rawDisp !== undefined ? { disposition: String(rawDisp) as Disposition, decision_source: 'manual' as const } : {}),
+      ...(typeof body.note === 'string' ? { note: body.note.slice(0, 500) } : {}),
+      updated_by: session?.subject ?? 'console',
+    });
+  } catch {
+    logAudit({ actor: session?.subject ?? 'console', action: 'label:write_unconfirmed', resource_type: 'system', resource_id: `${assetType}:${finalKey}` });
+    return NextResponse.json({ error: 'labels_write_unconfirmed' }, { status: 503, headers: NO_STORE });
+  }
   logAudit({
     actor: session?.subject ?? 'console',
     action: 'label:set',
@@ -121,7 +128,13 @@ export async function DELETE(request: Request) {
   }
   const delKey = assetType === 'prefix' ? (normalizePrefixKey(assetKey) ?? assetKey)
     : assetType === 'path' ? normalizePathKey(assetKey) : assetKey;
-  const removed = removeLabel(assetType, delKey);
+  let removed: boolean;
+  try {
+    removed = await removeLabel(assetType, delKey);
+  } catch {
+    logAudit({ actor: session?.subject ?? 'console', action: 'label:delete_unconfirmed', resource_type: 'system', resource_id: `${assetType}:${delKey}` });
+    return NextResponse.json({ error: 'labels_write_unconfirmed' }, { status: 503, headers: NO_STORE });
+  }
   logAudit({
     actor: session?.subject ?? 'console',
     action: 'label:remove',

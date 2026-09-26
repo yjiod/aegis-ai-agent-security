@@ -11,7 +11,7 @@ exports.pgEnabled = () => true;
 exports.pgLoadLabels = () => globalThis.fixtureLoad();
 exports.pgUpsertLabel = () => {};
 exports.pgUpsertLabelsBatch = async rows => rows.length;
-exports.pgDeleteLabel = () => {};
+exports.pgDeleteLabel = async () => true;
 """
 
 RUNNER = r"""
@@ -21,7 +21,7 @@ const labels = require(compiled);
 const row = (asset_type, asset_key, disposition = 'allow') => ({
   asset_type, asset_key, disposition, tags: '[]', note: '', updated_by: 'fixture-operator', updated_at: 1,
 });
-const edit = (asset_type, asset_key, disposition = 'deny') => labels.setLabel({
+const edit = (asset_type, asset_key, disposition = 'deny') => labels.setLabelInMemory({
   asset_type, asset_key, disposition, updated_by: 'fixture-operator',
 });
 (async () => {
@@ -64,11 +64,11 @@ const edit = (asset_type, asset_key, disposition = 'deny') => labels.setLabel({
     const first = labels.ensureLabelsLoaded();
     const second = labels.ensureLabelsLoaded();
     edit('skill', 'changed', 'monitor');
-    labels.removeLabel('skill', 'deleted');
+    await labels.removeLabel('skill', 'deleted');
     // Deletion must also protect a database row absent from the initial memory.
-    labels.removeLabel('mcp', 'not-yet-loaded');
+    await labels.removeLabel('mcp', 'not-yet-loaded');
     edit('path', '~/fixture/transient.py');
-    labels.removeLabel('path', '~/fixture/transient.py');
+    await labels.removeLabel('path', '~/fixture/transient.py');
     resolve([
       row('skill', 'changed'), row('skill', 'deleted'), row('mcp', 'not-yet-loaded'),
       row('path', '~/fixture/transient.py'), row('mcp', 'untouched'),

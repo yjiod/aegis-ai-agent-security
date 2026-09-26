@@ -77,7 +77,8 @@ async function withClient<T>(label: string, fn: (client: Client) => Promise<T>):
     return { ok: true, value };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[pg] ${label} failed:`, msg);
+    if (['loadLabels', 'applyLabels', 'deleteLabel'].includes(label)) console.error(`[pg] ${label} failed`);
+    else console.error(`[pg] ${label} failed:`, msg);
     return { ok: false, error: msg };
   } finally {
     if (client) {
@@ -256,53 +257,84 @@ export async function pgLoadLabels(): Promise<AssetLabelRow[] | null> {
   return r.ok ? (r.value.rows as AssetLabelRow[]) : null;
 }
 
-export function pgUpsertLabel(row: AssetLabelRow): void {
-  scheduleWrite('upsertLabel', (c) =>
-    c.query(
-      `INSERT INTO asset_labels(asset_type,asset_key,tags,disposition,note,updated_by,updated_at,decision_source)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT(asset_type,asset_key) DO UPDATE SET tags=$3,disposition=$4,note=$5,updated_by=$6,updated_at=$7,decision_source=$8`,
-      [row.asset_type, row.asset_key, row.tags, row.disposition, row.note, row.updated_by, row.updated_at, row.decision_source ?? 'legacy'],
-    ),
-  );
+export interface AssetLabelPatchRow {
+  asset_type: string;
+  asset_key: string;
+  tags?: string;
+  disposition?: string;
+  note?: string;
+  decision_source?: string;
+  updated_by: string;
+  updated_at: number;
 }
 
-/**
- * 批量持久化标签（可等待、单连接单事务）。
- * 生产事故（2026-09-25）：seed-defaults 一次 501 条走 scheduleWrite(after) fire-and-forget，
- * ~291 条静默丢失 → 重启后 allow 从 594 缩到 300，策略 v37 误瘦身。批量种子/自动纠偏
- * 这类"发布前置数据"必须走本函数并 await：写失败即抛错，绝不带着半套数据发策略。
- */
-export async function pgUpsertLabelsBatch(rows: AssetLabelRow[]): Promise<number> {
-  if (rows.length === 0) return 0;
-  const r = await withClient('upsertLabelsBatch', async (c) => {
-    let n = 0;
+/** Merge patches against authoritative rows, atomically. Conditional writers may
+ * fill undecided entries only; this predicate is enforced inside PostgreSQL. */
+export async function pgApplyLabelChanges(
+  patches: AssetLabelPatchRow[], onlyUndecided = false,
+): Promise<{ labels: AssetLabelRow[]; appliedKeys: string[] }> {
+  if (!patches.length) return { labels: [], appliedKeys: [] };
+  const ordered = [...new Map(patches.map(p => [`${p.asset_type}:${p.asset_key}`, p])).entries()]
+    .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  const r = await withClient('applyLabels', async c => {
+    const labels: AssetLabelRow[] = [];
+    const appliedKeys: string[] = [];
     try {
       await c.query('BEGIN');
-      for (const row of rows) {
-        await c.query(
+      for (const [key, row] of ordered) {
+        const result = await c.query(
           `INSERT INTO asset_labels(asset_type,asset_key,tags,disposition,note,updated_by,updated_at,decision_source)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-           ON CONFLICT(asset_type,asset_key) DO UPDATE SET tags=$3,disposition=$4,note=$5,updated_by=$6,updated_at=$7,decision_source=$8`,
-          [row.asset_type, row.asset_key, row.tags, row.disposition, row.note, row.updated_by, row.updated_at, row.decision_source ?? 'legacy'],
+           VALUES($1,$2,COALESCE($3,'[]'),COALESCE($4,''),COALESCE($5,''),$6,$7,
+             COALESCE($8,CASE WHEN $4::text IS NULL THEN 'legacy' ELSE 'manual' END))
+           ON CONFLICT(asset_type,asset_key) DO UPDATE SET
+             tags=COALESCE($3,asset_labels.tags), disposition=COALESCE($4,asset_labels.disposition),
+             note=COALESCE($5,asset_labels.note), updated_by=$6, updated_at=$7,
+             decision_source=CASE WHEN $4::text IS NULL THEN asset_labels.decision_source
+               ELSE COALESCE($8,'manual') END
+           WHERE NOT $9::boolean OR asset_labels.disposition=''
+           RETURNING asset_type,asset_key,tags,disposition,note,updated_by,updated_at,decision_source`,
+          [row.asset_type, row.asset_key, row.tags ?? null, row.disposition ?? null, row.note ?? null,
+            row.updated_by, row.updated_at, row.decision_source ?? null, onlyUndecided],
         );
-        n += 1;
+        if (result.rows.length) {
+          labels.push(result.rows[0] as AssetLabelRow);
+          appliedKeys.push(key);
+        } else {
+          if (!onlyUndecided) throw new Error('label_write_not_applied');
+          // ON CONFLICT holds the row lock even when the predicate rejects it.
+          const current = await c.query(
+            'SELECT asset_type,asset_key,tags,disposition,note,updated_by,updated_at,decision_source FROM asset_labels WHERE asset_type=$1 AND asset_key=$2',
+            [row.asset_type, row.asset_key],
+          );
+          if (current.rows.length !== 1) throw new Error('label_conflict_unavailable');
+          labels.push(current.rows[0] as AssetLabelRow);
+        }
       }
       await c.query('COMMIT');
-    } catch (e) {
+      return { labels, appliedKeys };
+    } catch (error) {
       await c.query('ROLLBACK').catch(() => {});
-      throw e;
+      throw error;
     }
-    return n;
   });
-  if (!r.ok) throw new Error('upsertLabelsBatch failed: ' + String(r.error ?? ''));
+  if (!r.ok) throw new Error('labels_write_unconfirmed');
   return r.value;
 }
 
-export function pgDeleteLabel(assetType: string, assetKey: string): void {
-  scheduleWrite('deleteLabel', (c) =>
+export async function pgUpsertLabel(row: AssetLabelRow): Promise<void> {
+  await pgApplyLabelChanges([row]);
+}
+
+export async function pgUpsertLabelsBatch(rows: AssetLabelRow[]): Promise<number> {
+  return (await pgApplyLabelChanges(rows)).appliedKeys.length;
+}
+
+export async function pgDeleteLabel(assetType: string, assetKey: string): Promise<boolean> {
+  const r = await withClient('deleteLabel', c =>
     c.query('DELETE FROM asset_labels WHERE asset_type=$1 AND asset_key=$2', [assetType, assetKey]),
   );
+  if (!r.ok) throw new Error('labels_write_unconfirmed');
+  return (r.value.rowCount ?? 0) > 0;
 }
 
 /* ─── 阶段E: 基线(baselines) + 全局设置(settings) ─────────────────────── */

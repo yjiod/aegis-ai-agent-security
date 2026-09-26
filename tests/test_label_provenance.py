@@ -15,7 +15,18 @@ exports.logAudit = entry => fixture.audits.push(entry);
 exports.pgEnabled = () => true;
 exports.pgLoadLabels = async () => fixture.rows;
 exports.pgUpsertLabel = row => fixture.writes.push(row);
-exports.pgUpsertLabelsBatch = async rows => { fixture.writes.push(...rows); return rows.length; };
+exports.pgApplyLabelChanges = async (patches,onlyUndecided) => {
+  const labels=[],appliedKeys=[];
+  for(const patch of patches){
+    const prev=fixture.rows.find(r=>r.asset_type===patch.asset_type && r.asset_key===patch.asset_key);
+    if(onlyUndecided && prev?.disposition){labels.push(prev);continue;}
+    const row={tags:'[]',disposition:'',note:'',...prev,...Object.fromEntries(Object.entries(patch).filter(([,v])=>v!==undefined)),
+      decision_source:patch.disposition!==undefined ? (patch.decision_source??'manual') : (prev?.decision_source??'legacy')};
+    labels.push(row);appliedKeys.push(row.asset_type+':'+row.asset_key);fixture.writes.push(row);
+    fixture.rows=fixture.rows.filter(r=>r.asset_type!==row.asset_type || r.asset_key!==row.asset_key);fixture.rows.push(row);
+  }
+  return {labels,appliedKeys};
+};
 exports.pgDeleteLabel = () => {};
 exports.defaultBundledEntries = () => [{asset_type:'skill',asset_key:'catalog-entry'}, {asset_type:'mcp',asset_key:'denied-entry'}];
 exports.BASE_POLICY = {skill_rules:['unknown_skill','prompt_override'],mcp_rules:['unknown_mcp'],code_rules:[]};
@@ -96,7 +107,7 @@ const post = body => api.POST(new Request('https://console.example.test/api/labe
     assert.equal((await r.json()).label.decision_source,'manual');
     assert.equal(allowed(f(key)),true);
     assert(fixture.writes.some(row=>row.asset_key===key && row.decision_source==='manual'));
-    labels.setLabelInMemory({asset_type:'mcp',asset_key:'denied-entry',disposition:'deny',updated_by:'fixture-admin'});
+    await labels.setLabel({asset_type:'mcp',asset_key:'denied-entry',disposition:'deny',updated_by:'fixture-admin'});
     r=await seed.POST(new Request('https://console.example.test/api/labels/seed-defaults',{method:'POST'}));
     assert.equal(r.status,200);
     assert.deepEqual(await r.json(),{ok:true,seeded:1,skipped:1});
@@ -192,8 +203,9 @@ exports.Client = class {
     if (sql.startsWith('INSERT INTO asset_labels')) {
       const columns = sql.match(/asset_labels\(([^)]+)\)/)[1].split(',');
       const row = Object.fromEntries(columns.map((name, i) => [name, args[i]]));
+      row.decision_source ??= row.disposition == null ? 'legacy' : 'manual';
       globalThis.rows.set(row.asset_key, row);
-      return {rows:[]};
+      return {rows:[row]};
     }
     if (sql.startsWith('SELECT')) {
       const columns = sql.slice('SELECT '.length, sql.indexOf(' FROM')).split(',');
@@ -216,11 +228,10 @@ process.env.AEGIS_PG_URL='postgresql://fixture.example.test/synthetic';
 const pg=require(process.argv[1]);
 const row=(key,source)=>({asset_type:'skill',asset_key:key,tags:'[]',disposition:'allow',note:'',updated_by:'fixture',updated_at:1,decision_source:source});
 (async()=>{
-  pg.pgUpsertLabel(row('single','manual'));
-  await Promise.all(pending);
+  await pg.pgUpsertLabel(row('single','manual'));
   assert.equal(await pg.pgUpsertLabelsBatch([row('preset','preset'),row('auto','automatic'),row('old',undefined)]),3);
   const loaded=await pg.pgLoadLabels();
-  assert.deepEqual(Object.fromEntries(loaded.map(r=>[r.asset_key,r.decision_source])),{single:'manual',preset:'preset',auto:'automatic',old:'legacy'});
+  assert.deepEqual(Object.fromEntries(loaded.map(r=>[r.asset_key,r.decision_source])),{single:'manual',preset:'preset',auto:'automatic',old:'manual'});
 })().catch(error=>{console.error(error);process.exitCode=1});
 """
             for args in [['node', '-e', build, str(ROOT / 'lib/pg-store.ts'), str(output), str(stub)],
