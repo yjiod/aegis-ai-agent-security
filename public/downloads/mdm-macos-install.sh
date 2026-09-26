@@ -1,39 +1,118 @@
 #!/bin/sh
+# Bootstrap a self-contained system package. No interpreter install/fallback.
 set -eu
-BASE_URL="${AEGIS_BASE_URL:-https://aegis.example.com/downloads}"
-INSTALL_DIR="/Library/Application Support/AegisAgent"
-PLIST="/Library/LaunchDaemons/com.company.aegis-agent.plist"
-PYTHON_BIN="$(command -v python3 || true)"
-if [ -z "$PYTHON_BIN" ]; then echo "python3 is required" >&2; exit 1; fi
-mkdir -p "$INSTALL_DIR/reports" "$INSTALL_DIR/previous"
-chmod 700 "$INSTALL_DIR" "$INSTALL_DIR/reports" "$INSTALL_DIR/previous"
-STAGE_DIR="$INSTALL_DIR/.stage.$$"
-mkdir -m 700 "$STAGE_DIR"
-trap 'find "$STAGE_DIR" -type f -delete 2>/dev/null || true; rmdir "$STAGE_DIR" 2>/dev/null || true' EXIT HUP INT TERM
-for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do curl --fail --silent --show-error --connect-timeout 15 --max-time 120 "$BASE_URL/$name" -o "$STAGE_DIR/$name"; done
-echo "d0ddb8016218e774020d0f97a7558808a551e6dfd7a2e75d88b318e0e145418d  $STAGE_DIR/aegis_agent.py" | shasum -a 256 -c -
-echo "23067c4aada6f6cd1f9d75ac0a74eb54a03a4f58235509b5afd737daf785cd7b  $STAGE_DIR/aegis-policy.json" | shasum -a 256 -c -
-echo "5dafeaafdea7f04427148c905ad9697d4a4711820d6f80436c78b18a50835806  $STAGE_DIR/aegis-security-baseline.md" | shasum -a 256 -c -
-CURRENT_COMPLETE=1
-for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do if [ ! -f "$INSTALL_DIR/$name" ]; then CURRENT_COMPLETE=0; fi; done
-if [ "$CURRENT_COMPLETE" -eq 1 ]; then
-  PREVIOUS_STAGE="$INSTALL_DIR/.previous-stage.$$"; PREVIOUS_OLD="$INSTALL_DIR/.previous-old.$$"
-  mkdir -m 700 "$PREVIOUS_STAGE"
-  for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do cp -p "$INSTALL_DIR/$name" "$PREVIOUS_STAGE/$name"; done
-  (cd "$PREVIOUS_STAGE" && shasum -a 256 aegis_agent.py aegis-policy.json aegis-security-baseline.md > CHECKSUMS.sha256)
-  mv "$INSTALL_DIR/previous" "$PREVIOUS_OLD"
-  if ! mv "$PREVIOUS_STAGE" "$INSTALL_DIR/previous"; then mv "$PREVIOUS_OLD" "$INSTALL_DIR/previous"; exit 1; fi
-  find "$PREVIOUS_OLD" -type f -delete 2>/dev/null || true; rmdir "$PREVIOUS_OLD" 2>/dev/null || true
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+LC_ALL=C
+export PATH LC_ALL
+umask 077
+STAGE=''
+DIGEST=''
+ATTEMPTED=false
+SUCCEEDED=false
+finish() {
+  printf '{"schema":"aegis.mdm-install-result/v1","status":"%s","installation_attempted":%s,"installer_succeeded":%s,"health_verified":false,"artifact_sha256":"%s"}\n' "$1" "$ATTEMPTED" "$SUCCEEDED" "$DIGEST"
+  exit "$2"
+}
+cleanup() {
+  if [ -n "$STAGE" ]; then
+    /bin/rm -f "$STAGE/candidate.pkg" "$STAGE/download.log" "$STAGE/signature.log" "$STAGE/assessment.plist" "$STAGE/assessment.log" "$STAGE/status.log" "$STAGE/installer.log"
+    /bin/rmdir "$STAGE" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+trap 'finish interrupted 130' INT
+trap 'finish interrupted 143' TERM
+[ "$#" -eq 0 ] || finish unexpected_arguments 2
+[ "$(/usr/bin/id -u)" = 0 ] || finish administrator_required 2
+[ "$(/usr/bin/uname -s)" = Darwin ] || finish macos_required 2
+
+EXPECTED="${AEGIS_MACOS_PKG_SHA256:-}"
+TEAM="${AEGIS_MACOS_TEAM_ID:-}"
+case "$EXPECTED" in ''|*[!0-9a-fA-F]*) finish trusted_digest_required 2 ;; esac
+[ "${#EXPECTED}" -eq 64 ] || finish trusted_digest_required 2
+DIGEST=$(printf '%s' "$EXPECTED" | /usr/bin/tr 'A-F' 'a-f')
+case "$TEAM" in ''|*[!A-Z0-9]*) finish publisher_required 2 ;; esac
+[ "${#TEAM}" -eq 10 ] || finish publisher_required 2
+
+LOCAL="${AEGIS_MACOS_PKG_PATH:-}"
+URL="${AEGIS_MACOS_PKG_URL:-}"
+[ -z "$LOCAL" ] || [ -z "$URL" ] || finish ambiguous_package_source 2
+if [ -n "$LOCAL" ]; then
+  case "$LOCAL" in /*.pkg) ;; *) finish invalid_local_package 2 ;; esac
+  [ -f "$LOCAL" ] && [ ! -L "$LOCAL" ] || finish invalid_local_package 2
+  [ "$(/usr/bin/stat -f '%u' "$LOCAL" 2>/dev/null)" = 0 ] || finish unsafe_local_package 2
+  [ "$(/usr/bin/stat -f '%l' "$LOCAL" 2>/dev/null)" = 1 ] || finish unsafe_local_package 2
+  mode=$(/usr/bin/stat -f '%Lp' "$LOCAL" 2>/dev/null) || finish unsafe_local_package 2
+  [ "$((0$mode & 022))" -eq 0 ] || finish unsafe_local_package 2
+  size=$(/usr/bin/stat -f '%z' "$LOCAL" 2>/dev/null) || finish unsafe_local_package 2
+  [ "$size" -gt 0 ] && [ "$size" -le 134217728 ] || finish package_size_refused 2
+else
+  [ -n "$URL" ] || URL="${AEGIS_BASE_URL:-https://aegis.example.com/downloads}/aegis-agent-macos.pkg"
+  # No credentials, queries, redirects, whitespace or shell-interpreted input.
+  [ "${#URL}" -le 2048 ] || finish invalid_package_url 2
+  printf '%s\n' "$URL" | /usr/bin/grep -Eq '^https://([A-Za-z0-9][A-Za-z0-9.-]*|\[[0-9A-Fa-f:]+\])(:[0-9]{1,5})?/[A-Za-z0-9._~%/-]+$' || finish invalid_package_url 2
+  case "$URL" in *'
+'*) finish invalid_package_url 2 ;; esac
 fi
-for name in aegis_agent.py aegis-policy.json aegis-security-baseline.md; do mv -f "$STAGE_DIR/$name" "$INSTALL_DIR/$name"; done
-chmod 700 "$INSTALL_DIR/aegis_agent.py"
-chmod 600 "$INSTALL_DIR/aegis-policy.json" "$INSTALL_DIR/aegis-security-baseline.md"
-/bin/cat > "$PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>Label</key><string>com.company.aegis-agent</string><key>ProgramArguments</key><array><string>$PYTHON_BIN</string><string>/Library/Application Support/AegisAgent/aegis_agent.py</string><string>/Users</string><string>--auto-enroll</string><string>--output</string><string>/Library/Application Support/AegisAgent/reports/latest.json</string></array><key>StartInterval</key><integer>14400</integer><key>RunAtLoad</key><true/><key>StandardOutPath</key><string>/var/log/aegis-agent.log</string><key>StandardErrorPath</key><string>/var/log/aegis-agent.err</string></dict></plist>
-PLIST
-chown root:wheel "$PLIST"; chmod 644 "$PLIST"
-launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
-launchctl bootstrap system "$PLIST"
-echo "Aegis Agent installed for MDM macOS deployment."
+
+# A fresh package must not silently run alongside a legacy scanner or overwrite
+# an installation whose previous child-process cleanup is still unconfirmed.
+if [ -e '/Library/Application Support/AegisAgent/watch-cleanup-pending.json' ] || [ -L '/Library/Application Support/AegisAgent/watch-cleanup-pending.json' ]; then
+  finish prior_cleanup_requires_verification 1
+fi
+if /bin/launchctl print system/com.company.aegis-agent >/dev/null 2>&1; then
+  finish legacy_service_migration_required 1
+else
+  legacy_result=$?
+  [ "$legacy_result" -eq 113 ] || finish legacy_service_state_unavailable 1
+fi
+for legacy in /Library/LaunchDaemons/com.company.aegis-agent.plist /Users/*/Library/LaunchAgents/com.aegis.agent.plist /Users/*/Library/LaunchAgents/com.company.aegis-agent.plist; do
+  if [ -e "$legacy" ] || [ -L "$legacy" ]; then finish legacy_service_migration_required 1; fi
+done
+
+for parent in /private /private/var /private/var/tmp; do
+  [ -d "$parent" ] && [ ! -L "$parent" ] || finish staging_unavailable 1
+done
+STAGE=$(/usr/bin/mktemp -d /private/var/tmp/aegis-mdm.XXXXXXXX) || finish staging_unavailable 1
+/bin/chmod -N "$STAGE" && /bin/chmod 700 "$STAGE" || finish staging_unavailable 1
+PKG="$STAGE/candidate.pkg"
+if [ -n "$LOCAL" ]; then
+  (ulimit -f 131072; /bin/cp -P -X "$LOCAL" "$PKG") 2>"$STAGE/download.log" || finish package_copy_failed 1
+else
+  (ulimit -f 131072; /usr/bin/curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --fail --silent --show-error --connect-timeout 15 --max-time 120 --max-filesize 134217728 \
+    "$URL" -o "$PKG") >"$STAGE/download.log" 2>&1 || finish package_download_failed 1
+fi
+[ -f "$PKG" ] && [ ! -L "$PKG" ] || finish invalid_staged_package 1
+/bin/chmod -N "$PKG" && /bin/chmod 600 "$PKG" || finish staging_unavailable 1
+size=$(/usr/bin/stat -f '%z' "$PKG")
+[ "$size" -gt 0 ] && [ "$size" -le 134217728 ] || finish package_size_refused 1
+verify_digest() {
+  printf '%s  %s\n' "$DIGEST" "$PKG" | /usr/bin/shasum -a 256 -c - >/dev/null 2>&1
+}
+verify_digest || finish package_digest_mismatch 1
+/usr/sbin/pkgutil --check-signature "$PKG" >"$STAGE/signature.log" 2>&1 || finish package_signature_rejected 1
+/usr/bin/grep -Eq "^[[:space:]]*1[.] Developer ID Installer: .+ [(]$TEAM[)][[:space:]]*$" "$STAGE/signature.log" || finish package_publisher_mismatch 1
+if ! /usr/sbin/spctl --status >"$STAGE/status.log" 2>&1; then
+  /usr/bin/grep -Fxq 'assessments disabled' "$STAGE/status.log" && finish platform_assessment_disabled 1
+  finish platform_assessment_unavailable 1
+fi
+/usr/bin/grep -Fxq 'assessments enabled' "$STAGE/status.log" || finish platform_assessment_disabled 1
+/usr/sbin/spctl --assess --type install --raw --ignore-cache --no-cache "$PKG" >"$STAGE/assessment.plist" 2>"$STAGE/assessment.log" || finish package_assessment_rejected 1
+verdict=$(/usr/bin/plutil -extract 'assessment:verdict' raw -expect bool -o - "$STAGE/assessment.plist" 2>/dev/null) || finish invalid_package_assessment 1
+[ "$verdict" = true ] || finish package_assessment_rejected 1
+source=$(/usr/bin/plutil -extract 'assessment:authority.assessment:authority:source' raw -expect string -o - "$STAGE/assessment.plist" 2>/dev/null) || finish invalid_package_assessment 1
+[ "$source" = 'Notarized Developer ID' ] || finish package_notarization_unconfirmed 1
+if /usr/bin/plutil -extract 'assessment:authority.assessment:authority:override' raw -o /dev/null "$STAGE/assessment.plist" 2>/dev/null; then
+  finish package_assessment_override_refused 1
+fi
+if /usr/bin/plutil -type 'assessment:authority.assessment:authority:verdict' "$STAGE/assessment.plist" >/dev/null 2>&1; then
+  authority=$(/usr/bin/plutil -extract 'assessment:authority.assessment:authority:verdict' raw -expect bool -o - "$STAGE/assessment.plist" 2>/dev/null) || finish invalid_package_assessment 1
+  [ "$authority" = true ] || finish package_assessment_rejected 1
+fi
+# Recheck bytes after all assessors, immediately before Installer gets the package.
+verify_digest || finish package_changed_after_assessment 1
+ATTEMPTED=true
+/usr/sbin/installer -pkg "$PKG" -target / >"$STAGE/installer.log" 2>&1 || finish installer_failed_state_requires_verification 1
+SUCCEEDED=true
+finish installed_health_pending 0

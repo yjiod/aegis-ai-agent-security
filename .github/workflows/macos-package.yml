@@ -10,6 +10,8 @@ on:
       - public/downloads/aegis_macos_maintenance.py
       - public/downloads/uninstall-aegis-macos.sh
       - public/downloads/MACOS-UNINSTALL.md
+      - public/downloads/mdm-macos-install.sh
+      - tests/test_macos_mdm_install.py
       - tests/test_macos_package.py
       - tests/test_macos_maintenance.py
       - tests/test_macos_diagnostics.py
@@ -51,3 +53,5 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_macos_diagnostics.py -v
       - name: Validate native configuration boundaries
         run: python3 -m unittest discover -s tests -p test_macos_configuration.py -v
+      - name: Validate native MDM trust gates with isolated Installer and real unsigned rejection
+        run: python3 -m unittest discover -s tests -p test_macos_mdm_install.py -v
