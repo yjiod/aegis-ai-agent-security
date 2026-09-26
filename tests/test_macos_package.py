@@ -143,6 +143,15 @@ if command == "uname":
             self.assertEqual(hashlib.sha256((self.app / name).read_bytes()).hexdigest(), digest)
         self.assertEqual((self.app / "mdm-macos-compliance.sh").read_bytes(), (ROOT / "public/downloads/mdm-macos-compliance.sh").read_bytes())
 
+    def test_package_migration_contract_binds_exact_postinstall_bytes(self):
+        _, script = self.package
+        capability = json.loads((script.parent / 'aegis-package-capabilities.json').read_text())
+        self.assertEqual(capability['schema'], 'aegis.macos-package-capabilities/v1')
+        self.assertEqual(capability['package_identifier'], 'com.aegis.agent')
+        self.assertEqual(capability['legacy_user_services'], 'journaled-prepare-v1')
+        self.assertIs(capability['external_python_required'], False)
+        self.assertEqual(capability['postinstall_sha256'], hashlib.sha256(script.read_bytes()).hexdigest())
+
     def test_upgrade_payload_and_postinstall_preserve_active_state(self):
         payload = self.prepare()
         active = b'{"schema":"aegis.policy/v1","version":"lab-current"}\n'

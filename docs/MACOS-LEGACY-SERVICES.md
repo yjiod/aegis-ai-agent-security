@@ -62,8 +62,9 @@ fixtures exercise real Darwin rename/ACL behavior with synthetic launchd calls;
 CI also tests root-owned fixtures and frozen refusal when home inventory is
 sandbox-denied. They do not operate actual user services on a pilot endpoint.
 
-The trusted MDM/interactive bootstrap still refuses existing legacy services;
-integration with its staged, signed candidate and automatic activation/recovery
-is outstanding. The historical user installer still depends on Python. This
+The trusted MDM/interactive bootstrap now supports explicitly enabled user
+migration after validating the signed package and its preparation contract;
+legacy system daemons remain refused. Actual activation/recovery and end-to-end
+handoff acceptance are outstanding. The historical user installer still depends on Python. This
 increment is therefore not full legacy migration or [R7](MACOS-RUNTIME-CONTRACT.md)
 acceptance, nor a signed production release.

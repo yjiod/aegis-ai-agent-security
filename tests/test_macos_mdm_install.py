@@ -49,6 +49,21 @@ curl)
   while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; output=$1; fi; shift; done
   /bin/cp -P -X "$AEGIS_TEST_PACKAGE" "$output";;
 pkgutil)
+  if [ "$1" = --expand ]; then
+    if [ "${AEGIS_TEST_REAL_EXPAND:-0}" = 1 ]; then exec /usr/sbin/pkgutil "$@"; fi
+    [ "${AEGIS_TEST_EXPANSION_RC:-0}" = 0 ] || exit "$AEGIS_TEST_EXPANSION_RC"
+    /bin/mkdir -p "$3/Scripts"
+    /bin/cp "$AEGIS_TEST_CAPABILITY" "$3/Scripts/aegis-package-capabilities.json"
+    /bin/cp "$AEGIS_TEST_POSTINSTALL" "$3/Scripts/postinstall"
+    case "${AEGIS_TEST_EXPANSION_KIND:-normal}" in
+      capability-missing) /bin/rm "$3/Scripts/aegis-package-capabilities.json";;
+      capability-link) /bin/rm "$3/Scripts/aegis-package-capabilities.json"; /bin/ln -s "$AEGIS_TEST_CAPABILITY" "$3/Scripts/aegis-package-capabilities.json";;
+      script-hardlink) /bin/ln "$3/Scripts/postinstall" "$3/Scripts/extra-link";;
+      scripts-link) /bin/mv "$3/Scripts" "$3/moved"; /bin/ln -s "$3/moved" "$3/Scripts";;
+    esac
+    [ "${AEGIS_TEST_EXPANSION_TAMPER:-0}" = 0 ] || printf changed >> "$2"
+    exit 0
+  fi
   [ "${AEGIS_TEST_SIGNATURE_RC:-0}" = 0 ] || exit "$AEGIS_TEST_SIGNATURE_RC"
   printf 'Package: synthetic\\nStatus: fixture only\\nCertificate Chain:\\n  1. Developer ID Installer: Fixture Publisher (%s)\\n' "${AEGIS_TEST_TEAM:-TESTTEAM01}";;
 spctl)
@@ -84,6 +99,110 @@ esac
                     "AEGIS_MACOS_PKG_PATH": "", "AEGIS_TEST_PACKAGE": str(self.package),
                     "AEGIS_TEST_CALLS": str(self.calls), "AEGIS_TEST_ASSESSMENT": str(self.assessment),
                     "PATH": "/nonexistent", "PYTHONHOME": "/nonexistent", "PYTHONPATH": "/nonexistent"}
+        self.postinstall = self.root / "postinstall-fixture"
+        self.postinstall.write_bytes(b'#!/bin/sh\nexit 99\n')
+        self.capability = self.root / "capability.json"
+        self.write_capability()
+        self.env.update(AEGIS_MACOS_MIGRATE_USER_SERVICES="0", AEGIS_TEST_CAPABILITY=str(self.capability),
+                        AEGIS_TEST_POSTINSTALL=str(self.postinstall))
+
+    def write_capability(self, **changes):
+        value = {"schema":"aegis.macos-package-capabilities/v1", "package_identifier":"com.aegis.agent",
+                 "legacy_user_services":"journaled-prepare-v1", "external_python_required":False,
+                 "postinstall_sha256":hashlib.sha256(self.postinstall.read_bytes()).hexdigest()}
+        value.update(changes)
+        self.capability.write_text(json.dumps(value))
+
+    def user_legacy(self):
+        path = self.root / "Users/fixture/Library/LaunchAgents/com.aegis.agent.plist"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'synthetic retained launch file')
+        return path
+
+    def test_explicit_user_migration_checks_verified_package_contract_before_installer(self):
+        legacy = self.user_legacy()
+        result, value = self.run_script('-MigrateUserServices', '1')
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(value['legacy_user_migration_requested'])
+        self.assertTrue(value['legacy_user_launch_files_detected'])
+        self.assertFalse(value['health_verified'])
+        calls = self.records()
+        expansion = next(i for i,c in enumerate(calls) if c[:2]==['pkgutil','--expand'])
+        signature = next(i for i,c in enumerate(calls) if c[:2]==['pkgutil','--check-signature'])
+        assessment = max(i for i,c in enumerate(calls) if c[0]=='spctl')
+        install = next(i for i,c in enumerate(calls) if c[0]=='installer')
+        self.assertLess(signature, assessment);self.assertLess(assessment, expansion);self.assertLess(expansion, install)
+        self.assertTrue(all(c[1]=='print' for c in calls if c[0]=='launchctl'))
+        self.assertEqual(legacy.read_bytes(), b'synthetic retained launch file')
+
+    def test_migration_contract_is_required_even_without_discovered_user_files(self):
+        self.env['AEGIS_MACOS_MIGRATE_USER_SERVICES']='1'
+        result,value=self.run_script()
+        self.assertEqual(result.returncode,0)
+        self.assertTrue(value['legacy_user_migration_requested']);self.assertFalse(value['legacy_user_launch_files_detected'])
+        self.assertTrue(any(c[:2]==['pkgutil','--expand'] for c in self.records()))
+
+    def test_migration_mode_does_not_bypass_signature_or_old_system_service_gates(self):
+        self.user_legacy();self.env['AEGIS_MACOS_MIGRATE_USER_SERVICES']='1'
+        for field, value, status in (('AEGIS_TEST_SIGNATURE_RC','1','package_signature_rejected'),
+                                     ('AEGIS_TEST_LEGACY_RC','0','legacy_service_migration_required')):
+            self.env[field]=value
+            self.assertEqual(self.run_script()[1]['status'],status)
+            self.env.pop(field)
+        self.assert_no_install()
+        self.assertFalse(any(c[:2]==['pkgutil','--expand'] for c in self.records()))
+
+    def test_invalid_migration_mode_refused_before_download(self):
+        for mode in ('true','yes','2','-1'):
+            self.env['AEGIS_MACOS_MIGRATE_USER_SERVICES']=mode
+            result,value=self.run_script()
+            self.assertEqual(result.returncode,2);self.assertEqual(value['status'],'invalid_migration_mode')
+        self.assertFalse(any(c[0]=='curl' for c in self.records()));self.assert_no_install()
+
+    def test_missing_wrong_or_oversized_capability_refuses_migration_install(self):
+        self.user_legacy();self.env['AEGIS_MACOS_MIGRATE_USER_SERVICES']='1'
+        for changes in ({'schema':'other'}, {'package_identifier':'com.other'}, {'legacy_user_services':'unknown'},
+                        {'external_python_required':True}, {'external_python_required':'false'},
+                        {'postinstall_sha256':'not-a-digest'}):
+            self.write_capability(**changes)
+            self.assertEqual(self.run_script()[1]['status'],'migration_capability_unavailable')
+        for contents in ('{}', '{bad json', 'x'*4097):
+            self.capability.write_text(contents)
+            self.assertEqual(self.run_script()[1]['status'],'migration_capability_unavailable')
+        self.write_capability(postinstall_sha256='0'*64)
+        self.assertEqual(self.run_script()[1]['status'],'migration_script_digest_mismatch')
+        self.assert_no_install()
+
+    def test_expansion_links_failure_or_package_change_never_reach_installer(self):
+        self.env['AEGIS_MACOS_MIGRATE_USER_SERVICES']='1'
+        for kind in ('capability-missing','capability-link','script-hardlink','scripts-link'):
+            self.env['AEGIS_TEST_EXPANSION_KIND']=kind
+            self.assertEqual(self.run_script()[1]['status'],'migration_capability_unavailable')
+        self.env.pop('AEGIS_TEST_EXPANSION_KIND')
+        self.env['AEGIS_TEST_EXPANSION_RC']='1'
+        self.assertEqual(self.run_script()[1]['status'],'migration_package_expansion_failed')
+        self.env.pop('AEGIS_TEST_EXPANSION_RC')
+        self.env['AEGIS_TEST_EXPANSION_TAMPER']='1'
+        self.assertEqual(self.run_script()[1]['status'],'package_changed_after_assessment')
+        self.assert_no_install()
+
+    def test_real_package_metadata_layout_after_fixture_trust_gates(self):
+        payload=self.root/'real-payload';payload.mkdir();(payload/'marker').write_bytes(b'synthetic payload')
+        scripts=self.root/'real-scripts';scripts.mkdir()
+        (scripts/'postinstall').write_bytes(self.postinstall.read_bytes());(scripts/'postinstall').chmod(0o755)
+        (scripts/'aegis-package-capabilities.json').write_bytes(self.capability.read_bytes())
+        package=self.root/'real-layout.pkg'
+        subprocess.run(['/usr/bin/pkgbuild','--root',str(payload),'--scripts',str(scripts),'--identifier','com.aegis.agent',
+                        '--version','1.0.0','--install-location','/Library/Application Support/AegisFixture',str(package)],
+                       check=True,capture_output=True,timeout=30)
+        legacy=self.user_legacy()
+        self.env.update(AEGIS_TEST_REAL_EXPAND='1',AEGIS_MACOS_MIGRATE_USER_SERVICES='1',
+                        AEGIS_TEST_PACKAGE=str(package),AEGIS_MACOS_PKG_SHA256=hashlib.sha256(package.read_bytes()).hexdigest())
+        result,value=self.run_script()
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(value['status'],'installed_health_pending')
+        self.assertTrue(value['legacy_user_launch_files_detected'])
+        self.assertEqual(legacy.read_bytes(),b'synthetic retained launch file')
 
     def write_assessment(self, verdict=True, source="Notarized Developer ID", **extra):
         self.assessment.write_bytes(plistlib.dumps({"assessment:verdict": verdict,

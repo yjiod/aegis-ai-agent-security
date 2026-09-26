@@ -219,6 +219,9 @@ POST
 # 用 | 作分隔符替换占位（SERVER 含 / 不能用 /）
 sed -e "s|__SERVER__|$SERVER|g" -e "s|__INTERVAL__|$INTERVAL|g" -e "s|__VERSION__|$VERSION|g" "$SCRIPTS/postinstall" > "$SCRIPTS/postinstall.tmp" && mv -f "$SCRIPTS/postinstall.tmp" "$SCRIPTS/postinstall"
 chmod 755 "$SCRIPTS/postinstall"
+POST_SHA=$(shasum -a 256 "$SCRIPTS/postinstall" | awk '{print $1}')
+printf '{"schema":"aegis.macos-package-capabilities/v1","package_identifier":"com.aegis.agent","legacy_user_services":"journaled-prepare-v1","external_python_required":false,"postinstall_sha256":"%s"}\n' "$POST_SHA" > "$SCRIPTS/aegis-package-capabilities.json"
+chmod 644 "$SCRIPTS/aegis-package-capabilities.json"
 
 # ── 打包（未签名；企业分发应再 productsign + 公证）
 xattr -cr "$ROOTDIR" 2>/dev/null || true
