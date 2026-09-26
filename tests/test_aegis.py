@@ -1052,7 +1052,7 @@ class AegisTests(unittest.TestCase):
         windows=(DOWNLOADS/'mdm-windows-remediate.ps1').read_text()
         self.assertIn("'.previous-stage-'",windows); self.assertIn('$currentComplete',windows)
         rollback_mac=(DOWNLOADS/'rollback-aegis-macos.sh').read_text(); rollback_windows=(DOWNLOADS/'rollback-aegis-windows.ps1').read_text()
-        self.assertIn('checksum manifest has an unexpected file set',rollback_mac); self.assertGreaterEqual(rollback_mac.count('shasum -a 256 -c'),2); self.assertLess(rollback_mac.rindex('shasum -a 256 -c'),rollback_mac.index('launchctl bootstrap'))
+        self.assertIn('OPERATION=rollback',rollback_mac); self.assertIn('rollback_current_runtime_mismatch',rollback_mac); self.assertIn('rollback_package_contract_required',rollback_mac)
         self.assertIn('checksum manifest has an unexpected file set',rollback_windows); self.assertIn('Restored version integrity verification failed',rollback_windows); self.assertLess(rollback_windows.index('Restored version integrity verification failed'),rollback_windows.index('Start-ScheduledTask'))
     def test_installers_bound_each_network_download(self):
         generic=(DOWNLOADS/'install-aegis.sh').read_text(); mac=(DOWNLOADS/'mdm-macos-install.sh').read_text(); windows=(DOWNLOADS/'mdm-windows-remediate.ps1').read_text()
@@ -1068,6 +1068,11 @@ class AegisTests(unittest.TestCase):
                 copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy)
                 (copy/name).write_text('#!/bin/sh\nexit 0\n')
                 self.assertIn('macos_install_entry_drift',self.verifier.verify(copy))
+    def test_release_verifier_rejects_mac_rollback_operation_drift(self):
+        with tempfile.TemporaryDirectory() as d:
+            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy)
+            (copy/'rollback-aegis-macos.sh').write_bytes((copy/'mdm-macos-install.sh').read_bytes())
+            self.assertIn('macos_rollback_entry_drift',self.verifier.verify(copy))
     def test_release_verifier_rejects_runtime_drift(self):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'aegis_agent.py').write_text('# drift')

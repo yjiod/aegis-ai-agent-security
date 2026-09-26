@@ -7,7 +7,7 @@ from pathlib import Path
 sys.dont_write_bytecode=True
 import aegis_release_verify as verifier
 
-GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","mdm-deployment-manifest.json","mdm-rollout-evidence.example.json","production-acceptance-evidence.example.json","aegis-enterprise-bundle.zip","update-manifest.json","aegis-install-macos-oneclick.sh","aegis-agent-macos-enroll.sh"}
+GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","mdm-deployment-manifest.json","mdm-rollout-evidence.example.json","production-acceptance-evidence.example.json","aegis-enterprise-bundle.zip","update-manifest.json","aegis-install-macos-oneclick.sh","aegis-agent-macos-enroll.sh","rollback-aegis-macos.sh"}
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -55,6 +55,9 @@ def build(downloads):
     # including the retained historical enrollment filename.
     for name in ("aegis-install-macos-oneclick.sh", "aegis-agent-macos-enroll.sh"):
         atomic_write(downloads/name, (downloads/"mdm-macos-install.sh").read_bytes())
+    installer=(downloads/"mdm-macos-install.sh").read_bytes()
+    if installer.count(b"OPERATION=install\n") != 1: raise ValueError("invalid_macos_operation_template")
+    atomic_write(downloads/"rollback-aegis-macos.sh", installer.replace(b"OPERATION=install\n", b"OPERATION=rollback\n", 1))
 
     old={}
     for line in (downloads/"CHECKSUMS.sha256").read_text(encoding="utf-8").splitlines():

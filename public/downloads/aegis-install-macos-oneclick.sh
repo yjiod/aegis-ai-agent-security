@@ -5,14 +5,17 @@ PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LC_ALL=C
 export PATH LC_ALL
 umask 077
+OPERATION=install
 STAGE=''
 DIGEST=''
+TARGET_VERSION=''
+CURRENT_DIGEST=''
 ATTEMPTED=false
 SUCCEEDED=false
 MIGRATION_REQUESTED=false
 LEGACY_USERS=false
 finish() {
-  printf '{"schema":"aegis.mdm-install-result/v1","status":"%s","installation_attempted":%s,"installer_succeeded":%s,"health_verified":false,"artifact_sha256":"%s","legacy_user_migration_requested":%s,"legacy_user_launch_files_detected":%s}\n' "$1" "$ATTEMPTED" "$SUCCEEDED" "$DIGEST" "$MIGRATION_REQUESTED" "$LEGACY_USERS"
+  printf '{"schema":"aegis.mdm-install-result/v1","operation":"%s","status":"%s","installation_attempted":%s,"installer_succeeded":%s,"health_verified":false,"artifact_sha256":"%s","target_version":"%s","legacy_user_migration_requested":%s,"legacy_user_launch_files_detected":%s}\n' "$OPERATION" "$1" "$ATTEMPTED" "$SUCCEEDED" "$DIGEST" "$TARGET_VERSION" "$MIGRATION_REQUESTED" "$LEGACY_USERS"
   exit "$2"
 }
 cleanup() {
@@ -39,7 +42,7 @@ fi
 # running a reviewed local script (public artifact identity arguments only).
 SEEN=' '
 while [ "$#" -gt 0 ]; do
-  case "$1" in -PkgSha256|-TeamId|-PkgUrl|-PkgPath|-MigrateUserServices) ;; *) finish unexpected_arguments 2 ;; esac
+  case "$1" in -PkgSha256|-TeamId|-PkgUrl|-PkgPath|-MigrateUserServices|-CurrentSha256|-TargetVersion) ;; *) finish unexpected_arguments 2 ;; esac
   case "$SEEN" in *" $1 "*) finish duplicate_argument 2 ;; esac
   SEEN="$SEEN$1 "
   [ "$#" -ge 2 ] && [ -n "$2" ] || finish missing_argument_value 2
@@ -50,6 +53,8 @@ while [ "$#" -gt 0 ]; do
     -PkgUrl) AEGIS_MACOS_PKG_URL=$2 ;;
     -PkgPath) AEGIS_MACOS_PKG_PATH=$2 ;;
     -MigrateUserServices) AEGIS_MACOS_MIGRATE_USER_SERVICES=$2 ;;
+    -CurrentSha256) AEGIS_MACOS_ROLLBACK_CURRENT_SHA256=$2 ;;
+    -TargetVersion) AEGIS_MACOS_ROLLBACK_TARGET_VERSION=$2 ;;
   esac
   shift 2
 done
@@ -59,6 +64,48 @@ done
 case "${AEGIS_MACOS_MIGRATE_USER_SERVICES:-0}" in
   0) ;; 1) MIGRATION_REQUESTED=true ;; *) finish invalid_migration_mode 2 ;;
 esac
+if [ "$OPERATION" = rollback ]; then
+  [ "$MIGRATION_REQUESTED" = false ] || finish rollback_cannot_migrate_user_services 2
+  current="${AEGIS_MACOS_ROLLBACK_CURRENT_SHA256:-}"
+  if [ "$current" = absent ]; then
+    CURRENT_DIGEST=absent
+  else
+    case "$current" in ''|*[!0-9a-fA-F]*) finish rollback_current_digest_required 2 ;; esac
+    [ "${#current}" -eq 64 ] || finish rollback_current_digest_required 2
+    CURRENT_DIGEST=$(printf '%s' "$current" | /usr/bin/tr 'A-F' 'a-f')
+  fi
+  version="${AEGIS_MACOS_ROLLBACK_TARGET_VERSION:-}"
+  [ "${#version}" -le 64 ] || finish rollback_target_version_required 2
+  printf '%s\n' "$version" | /usr/bin/grep -Eq '^[0-9]+[.][0-9]+[.][0-9]+([+-][0-9A-Za-z.-]+)?$' || finish rollback_target_version_required 2
+  case "$version" in *'
+'*) finish rollback_target_version_required 2 ;; esac
+  TARGET_VERSION=$version
+elif [ "${AEGIS_MACOS_ROLLBACK_CURRENT_SHA256+x}${AEGIS_MACOS_ROLLBACK_TARGET_VERSION+x}" != '' ]; then
+  finish rollback_parameters_require_rollback_entry 2
+fi
+
+check_current_runtime() {
+  [ "$OPERATION" = rollback ] || return 0
+  runtime='/Library/Application Support/AegisAgent/aegis-agent'
+  for component in /Library '/Library/Application Support' '/Library/Application Support/AegisAgent' "$runtime"; do
+    if [ "$component" = "$runtime" ] && [ "$CURRENT_DIGEST" = absent ]; then
+      [ ! -e "$runtime" ] && [ ! -L "$runtime" ] || finish rollback_current_runtime_mismatch 1
+      return 0
+    fi
+    [ ! -L "$component" ] || finish unsafe_rollback_current_runtime 1
+    [ "$(/usr/bin/stat -f '%u' "$component" 2>/dev/null)" = 0 ] || finish unsafe_rollback_current_runtime 1
+    mode=$(/usr/bin/stat -f '%Lp' "$component" 2>/dev/null) || finish unsafe_rollback_current_runtime 1
+    [ "$((0$mode & 022))" -eq 0 ] || finish unsafe_rollback_current_runtime 1
+    metadata=$(/bin/ls -lde "$component" 2>/dev/null) || finish unsafe_rollback_current_runtime 1
+    case "$metadata" in *'
+'*) finish unsafe_rollback_current_runtime 1 ;; esac
+  done
+  [ -f "$runtime" ] && [ "$(/usr/bin/stat -f '%l' "$runtime")" = 1 ] || finish unsafe_rollback_current_runtime 1
+  size=$(/usr/bin/stat -f '%z' "$runtime")
+  [ "$size" -gt 0 ] && [ "$size" -le 134217728 ] || finish unsafe_rollback_current_runtime 1
+  printf '%s  %s\n' "$CURRENT_DIGEST" "$runtime" | /usr/bin/shasum -a 256 -c - >/dev/null 2>&1 || finish rollback_current_runtime_mismatch 1
+}
+check_current_runtime
 
 EXPECTED="${AEGIS_MACOS_PKG_SHA256:-}"
 TEAM="${AEGIS_MACOS_TEAM_ID:-}"
@@ -71,6 +118,7 @@ case "$TEAM" in ''|*[!A-Z0-9]*) finish publisher_required 2 ;; esac
 LOCAL="${AEGIS_MACOS_PKG_PATH:-}"
 URL="${AEGIS_MACOS_PKG_URL:-}"
 [ -z "$LOCAL" ] || [ -z "$URL" ] || finish ambiguous_package_source 2
+if [ "$OPERATION" = rollback ] && [ -z "$LOCAL$URL" ]; then finish rollback_package_source_required 2; fi
 if [ -n "$LOCAL" ]; then
   case "$LOCAL" in /*.pkg) ;; *) finish invalid_local_package 2 ;; esac
   [ -f "$LOCAL" ] && [ ! -L "$LOCAL" ] || finish invalid_local_package 2
@@ -156,7 +204,7 @@ if /usr/bin/plutil -type 'assessment:authority.assessment:authority:verdict' "$S
 fi
 # Recheck bytes after all assessors, immediately before Installer gets the package.
 verify_digest || finish package_changed_after_assessment 1
-if [ "$MIGRATION_REQUESTED" = true ]; then
+if [ "$MIGRATION_REQUESTED" = true ] || [ "$OPERATION" = rollback ]; then
   # The approved, signed package declares its preparation protocol and binds it
   # to its postinstall bytes. Expand metadata/scripts only; never execute them.
   (ulimit -f 131072; /usr/sbin/pkgutil --expand "$PKG" "$STAGE/expanded") >"$STAGE/expansion.log" 2>&1 || finish migration_package_expansion_failed 1
@@ -182,11 +230,27 @@ if [ "$MIGRATION_REQUESTED" = true ]; then
   case "$POST_SHA" in ''|*[!0-9a-f]*) finish migration_capability_unavailable 1 ;; esac
   [ "${#POST_SHA}" -eq 64 ] || finish migration_capability_unavailable 1
   printf '%s  %s\n' "$POST_SHA" "$POSTINSTALL" | /usr/bin/shasum -a 256 -c - >/dev/null 2>&1 || finish migration_script_digest_mismatch 1
+  if [ "$OPERATION" = rollback ]; then
+    recovery=$(/usr/bin/plutil -extract package_recovery raw -expect string -o - "$CAPABILITY" 2>/dev/null) || finish rollback_package_contract_required 1
+    declared_version=$(/usr/bin/plutil -extract agent_version raw -expect string -o - "$CAPABILITY" 2>/dev/null) || finish rollback_package_contract_required 1
+    [ "$recovery" = native-reinstall-v1 ] && [ "$declared_version" = "$TARGET_VERSION" ] || finish rollback_target_contract_mismatch 1
+    INFO="$STAGE/expanded/PackageInfo"
+    [ -f "$INFO" ] && [ ! -L "$INFO" ] && [ "$(/usr/bin/stat -f '%l' "$INFO")" = 1 ] || finish rollback_package_metadata_invalid 1
+    size=$(/usr/bin/stat -f '%z' "$INFO")
+    [ "$size" -gt 0 ] && [ "$size" -le 8192 ] || finish rollback_package_metadata_invalid 1
+    if /usr/bin/grep -Eq '<!DOCTYPE|<!ENTITY' "$INFO"; then finish rollback_package_metadata_invalid 1; fi
+    info_id=$(/usr/bin/xmllint --nonet --xpath 'string(/pkg-info/@identifier)' "$INFO" 2>/dev/null) || finish rollback_package_metadata_invalid 1
+    info_version=$(/usr/bin/xmllint --nonet --xpath 'string(/pkg-info/@version)' "$INFO" 2>/dev/null) || finish rollback_package_metadata_invalid 1
+    info_location=$(/usr/bin/xmllint --nonet --xpath 'string(/pkg-info/@install-location)' "$INFO" 2>/dev/null) || finish rollback_package_metadata_invalid 1
+    [ "$info_id" = com.aegis.agent ] && [ "$info_version" = "$TARGET_VERSION" ] && [ "$info_location" = / ] || finish rollback_package_metadata_invalid 1
+  fi
 fi
 # Recheck state after download/assessment; new legacy files must not bypass opt-in.
 check_legacy_state
+check_current_runtime
 verify_digest || finish package_changed_after_assessment 1
 ATTEMPTED=true
 /usr/sbin/installer -pkg "$PKG" -target / >"$STAGE/installer.log" 2>&1 || finish installer_failed_state_requires_verification 1
 SUCCEEDED=true
+[ "$OPERATION" != rollback ] || finish rollback_installed_health_pending 0
 finish installed_health_pending 0

@@ -19,6 +19,8 @@ on:
       - public/downloads/aegis_macos_maintenance.py
       - public/downloads/uninstall-aegis-macos.sh
       - public/downloads/MACOS-UNINSTALL.md
+      - public/downloads/rollback-aegis-macos.sh
+      - tests/test_macos_package_rollback.py
       - public/downloads/mdm-macos-install.sh
       - public/downloads/aegis-install-macos-oneclick.sh
       - public/downloads/aegis-agent-macos-enroll.sh
@@ -77,3 +79,6 @@ jobs:
 
       - name: Validate current-user retirement and historical launcher
         run: python3 -m unittest discover -s tests -p test_macos_user_retirement.py -v
+
+      - name: Validate trusted native package rollback entry
+        run: python3 -m unittest discover -s tests -p test_macos_package_rollback.py -v

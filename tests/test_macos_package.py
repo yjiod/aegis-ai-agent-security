@@ -1,3 +1,4 @@
+import xml.etree.ElementTree as ET
 """Real pkgbuild/expansion with isolated postinstall fixtures; never installs on the host.
 
 launchd, enrollment and hardware discovery are test doubles. These checks do not
@@ -151,6 +152,9 @@ if command == "uname":
         self.assertEqual(capability['package_identifier'], 'com.aegis.agent')
         self.assertEqual(capability['legacy_user_services'], 'journaled-prepare-v1')
         self.assertIs(capability['external_python_required'], False)
+        self.assertEqual(capability['package_recovery'], 'native-reinstall-v1')
+        package_info = ET.parse(script.parent.parent/'PackageInfo').getroot()
+        self.assertEqual(capability['agent_version'], package_info.attrib['version'])
         self.assertEqual(capability['postinstall_sha256'], hashlib.sha256(script.read_bytes()).hexdigest())
 
     def test_upgrade_payload_and_postinstall_preserve_active_state(self):

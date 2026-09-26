@@ -51,6 +51,14 @@ MDM 无需命令行参数，通过受保护的 `AEGIS_MACOS_PKG_SHA256`、`AEGIS
 - `prior_cleanup_requires_verification`：核实之前的扫描进程清理结果后再安装。
 - `installer_failed_state_requires_verification`：Installer 已运行，可能部分修改系统；需核实恢复，不代表自动回滚。
 
-下载限制为 15 秒连接超时、120 秒总时限及 128 MiB。系统公证评估和 Installer 不受该网络时限覆盖；任务中断或超时后应核实状态。历史 Python 三文件回滚脚本不适用于原生包。
+下载限制为 15 秒连接超时、120 秒总时限及 128 MiB。系统公证评估和 Installer 不受该网络时限覆盖；任务中断或超时后应核实状态。
+
+## 指定批准版本回滚或修复
+
+`rollback-aegis-macos.sh` 已替换旧 Python 三文件回滚逻辑。以管理员身份提供上述包摘要、发布者与显式包来源，另加 `-CurrentSha256`（当前 canonical 客户端的预期 SHA-256，不是 pkg 摘要）和 `-TargetVersion`（批准恢复包版本）。当前程序损坏也无需执行；若已确认文件缺失，明确传 `-CurrentSha256 absent`，存在文件或悬空链接时拒绝。普通安装入口拒绝这些回滚参数。
+
+回滚包必须有 `native-reinstall-v1` 能力声明，声明、postinstall 摘要、PackageInfo 的包标识/版本/安装位置必须一致；旧包缺少协议不能直接放行。回滚仍先验整包摘要、签名、公证，再检查当前状态未变化才调用 Installer，不迁移旧用户服务。MDM 可用受保护变量 `AEGIS_MACOS_ROLLBACK_CURRENT_SHA256`、`AEGIS_MACOS_ROLLBACK_TARGET_VERSION` 配置。不要在同一终端并发派发更新或修复。
+
+目标由批准发布记录选择，可以是早期兼容版本，也可以同版本修复；入口不推断版本先后或曾安装历史。`rollback_installed_health_pending` 只表示 Installer 成功，必须再确认实际程序版本、策略兼容、诊断和上报。失败可能留下部分状态；这不是策略/数据快照还原或自动事务回滚。更换服务器仍走独立迁移流程。
 
 上报配置由已安装客户端的 `aegis-configure-macos.sh` 写入；健康检查使用 `mdm-macos-compliance.sh`。这些能力均使用客户端自带运行时。旧用户服务真实切换/激活、单用户退役、完整原生包回滚和实际签名发布验收仍在推进，不能将本入口测试通过当作全生命周期验收完成。
