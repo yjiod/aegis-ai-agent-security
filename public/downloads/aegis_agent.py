@@ -2026,6 +2026,9 @@ def run_selftest():
             import aegis_macos_enrollment as _enrollment
             if not _enrollment.selftest():
                 raise ValueError("enrollment_selftest_failed")
+            import aegis_macos_service_migration as _service_migration
+            if not _service_migration.selftest():
+                raise ValueError("service_migration_selftest_failed")
             import aegis_macos_diagnostics as _diagnostics
             if not _diagnostics.selftest():
                 raise ValueError("diagnostics_selftest_failed")
@@ -2048,6 +2051,22 @@ def run_selftest():
 
 
 def main():
+    migration_flags = ("--service-migration-selftest", "--prepare-legacy-services", "--restore-legacy-services")
+    if any(arg.split("=", 1)[0] in migration_flags for arg in sys.argv[1:]):
+        if len(sys.argv) != 2 or sys.argv[1] not in migration_flags or sys.platform != "darwin":
+            print("Aegis service migration requires macOS and one exclusive mode", file=sys.stderr)
+            return 2
+        try:
+            import aegis_macos_service_migration as migration
+            if sys.argv[1] == "--service-migration-selftest":
+                if not migration.selftest():
+                    return 1
+                print("aegis-service-migration-selftest-ok")
+                return 0
+            return migration.main(BASE_DIR, restore=sys.argv[1] == "--restore-legacy-services")
+        except ImportError:
+            print("Aegis service migration runtime is unavailable", file=sys.stderr)
+            return 1
     if sys.platform == "darwin" and any(arg.split("=", 1)[0] == "--install-config" for arg in sys.argv[1:]):
         if len(sys.argv) != 9 or sys.argv[1] != "--install-config":
             print('{"schema":"aegis.enrollment-result/v1","status":"invalid_install_invocation","applied":false,"health_verified":false}')

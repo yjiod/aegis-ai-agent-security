@@ -102,6 +102,19 @@ class DiagnosticsTests(unittest.TestCase):
                 self.write(filename, value)
                 self.assertFalse(self.collect()["AegisIntegrityValid"])
 
+    def test_incomplete_or_unreadable_service_migration_is_not_healthy(self):
+        for status in ('preparing', 'restoring', 'restored_activation_pending'):
+            self.write('legacy-service-migration.json', {'schema':'aegis.legacy-services/v1', 'status':status, 'items':[]})
+            value = self.collect()
+            self.assertFalse(value['AegisLaunchDaemonHealthy'])
+            self.assertIn('legacy_migration_requires_verification', value['AegisDiagnosticIssues'])
+        self.write('legacy-service-migration.json', {'schema':'aegis.legacy-services/v1', 'status':'prepared', 'items':[{'stage':'retired'}]})
+        self.assertTrue(self.collect()['AegisLaunchDaemonHealthy'])
+        (self.root/'legacy-service-migration.json').chmod(0o644)
+        value = self.collect()
+        self.assertFalse(value['AegisLaunchDaemonHealthy'])
+        self.assertIn('legacy_migration_state_unavailable', value['AegisDiagnosticIssues'])
+
     def test_active_policy_is_not_pinned_to_factory_hash(self):
         self.write("aegis-policy.json", {"schema": "aegis.policy/v1", "version": "6.2.0"})
         self.report["policy_version"] = "6.2.0"

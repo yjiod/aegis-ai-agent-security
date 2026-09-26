@@ -12,7 +12,7 @@ import time
 from urllib.parse import urlsplit
 
 from aegis_macos_maintenance import MaintenanceError, directory
-from aegis_macos_configuration import ConfigurationError, config_fingerprint, read_config
+from aegis_macos_configuration import ConfigurationError, config_fingerprint, read_config, read_private_json
 
 FRESHNESS_SECONDS = 7200
 SEVERITIES = ("critical", "high", "medium", "low")
@@ -192,6 +192,19 @@ def collect(root, version, validate_policy, owner=0, now=None, probe=service_sta
     except (OSError, subprocess.SubprocessError, DiagnosticError):
         result["AegisLaunchDaemonHealthy"] = False
         issues.append("service_state_unavailable")
+    try:
+        migration = read_private_json(Path(root) / "legacy-service-migration.json", owner)
+        if (not isinstance(migration, dict) or migration.get("schema") != "aegis.legacy-services/v1"
+                or migration.get("status") != "prepared" or not isinstance(migration.get("items"), list)
+                or not migration["items"] or any(not isinstance(item, dict) or item.get("stage") != "retired"
+                                                for item in migration["items"])):
+            result["AegisLaunchDaemonHealthy"] = False
+            issues.append("legacy_migration_requires_verification")
+    except FileNotFoundError:
+        migration = None  # No optional migration journal on a fresh installation.
+    except failures:
+        result["AegisLaunchDaemonHealthy"] = False
+        issues.append("legacy_migration_state_unavailable")
     try:
         with directory(root) as parent:
             os.stat("watch-cleanup-pending.json", dir_fd=parent, follow_symlinks=False)

@@ -50,7 +50,9 @@ class FrozenPackageTests(unittest.TestCase):
             before_reporting = (app / "reporting.json").read_bytes()
             source = next(expanded.rglob("postinstall")).read_text()
             self.assertNotIn("python3", source)
+            source = source.replace("/Users/*/Library/", "__AEGIS_USER_LIBRARY__")
             source = source.replace("/Library/", str(payload / "Library") + "/").replace("/Users/", str(payload / "Users") + "/")
+            source = source.replace("__AEGIS_USER_LIBRARY__", str(payload / "Users") + "/*/Library/")
             script = root / "postinstall"
             script.write_text(source)
             mock_bin = root / "bin"
@@ -77,7 +79,7 @@ class FrozenPackageTests(unittest.TestCase):
             self.assertIn("print system/com.aegis.agent", calls.read_text().splitlines())
             suffix = "arm64" if platform.machine() == "arm64" else "x64"
             self.assertEqual((app / "aegis-agent").read_bytes(), (downloads / ("aegis-agent-darwin-" + suffix)).read_bytes())
-            for flag in ("--selftest", "--maintenance-selftest", "--diagnostics-selftest", "--configuration-selftest"):
+            for flag in ("--selftest", "--maintenance-selftest", "--diagnostics-selftest", "--configuration-selftest", "--service-migration-selftest"):
                 result = subprocess.run([str(app / "aegis-agent"), flag], env=env, capture_output=True, timeout=30)
                 self.assertEqual(result.returncode, 0)
 
