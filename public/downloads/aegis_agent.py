@@ -2029,6 +2029,9 @@ def run_selftest():
             import aegis_macos_service_migration as _service_migration
             if not _service_migration.selftest():
                 raise ValueError("service_migration_selftest_failed")
+            import aegis_macos_runtime_activation as _activation
+            if not _activation.selftest():
+                raise ValueError("runtime_activation_selftest_failed")
             import aegis_macos_user_retirement as _user_retirement
             if not _user_retirement.selftest():
                 raise ValueError("user_retirement_selftest_failed")
@@ -2054,6 +2057,22 @@ def run_selftest():
 
 
 def main():
+    activation_modes = {"--stage-native-runtime": "stage", "--confirm-native-runtime": "confirm", "--restore-native-runtime": "restore", "--runtime-activation-selftest": "selftest"}
+    if any(arg.split("=", 1)[0] in activation_modes for arg in sys.argv[1:]):
+        if len(sys.argv) != 2 or sys.argv[1] not in activation_modes or sys.platform != "darwin":
+            print("Aegis runtime activation requires macOS and one exclusive mode", file=sys.stderr)
+            return 2
+        try:
+            import aegis_macos_runtime_activation as activation
+            if activation_modes[sys.argv[1]] == "selftest":
+                if not activation.selftest():
+                    return 1
+                print("aegis-runtime-activation-selftest-ok")
+                return 0
+            return activation.main(BASE_DIR, activation_modes[sys.argv[1]], AGENT_VERSION)
+        except ImportError:
+            print("Aegis runtime activation is unavailable", file=sys.stderr)
+            return 1
     retirement_flags = ("--user-retirement-selftest", "--retire-legacy-user")
     if any(arg.split("=", 1)[0] in retirement_flags for arg in sys.argv[1:]):
         if len(sys.argv) != 2 or sys.argv[1] not in retirement_flags or sys.platform != "darwin":
