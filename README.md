@@ -172,6 +172,8 @@ scripts/run-e2e.sh --live e2e/policy.spec.ts    # live 模式（真实 Collector
 - [联合开发指南](CONTRIBUTING.md)
 - [开发与测试流程](docs/DEVELOPMENT.md)
 - [发行与部署流程](docs/RELEASE.md)
+- [试点验收标准与证据](docs/PILOT-ACCEPTANCE.md)
+- [工具覆盖候选与登记矩阵](docs/TOOL-COVERAGE-MATRIX.md)
 - [企业部署指南](public/downloads/DEPLOYMENT-GUIDE.md)
 - [安全响应说明](SECURITY.md)
 
