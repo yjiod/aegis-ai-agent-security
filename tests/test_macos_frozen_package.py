@@ -1,4 +1,8 @@
-"""Package real frozen artifacts; postinstall system operations remain isolated fixtures."""
+"""Real frozen enrollment and payload; activation/launchd are explicit isolated doubles.
+
+Production activation always targets fixed host paths and is tested separately.
+This test does not claim an end-to-end privileged installation.
+"""
 import json
 import os
 from pathlib import Path
@@ -53,6 +57,11 @@ class FrozenPackageTests(unittest.TestCase):
             source = source.replace("/Users/*/Library/", "__AEGIS_USER_LIBRARY__")
             source = source.replace("/Library/", str(payload / "Library") + "/").replace("/Users/", str(payload / "Users") + "/")
             source = source.replace("__AEGIS_USER_LIBRARY__", str(payload / "Users") + "/*/Library/")
+            self.assertIn('"$BIN_SRC" --stage-native-runtime', source)
+            self.assertIn('"$BIN_SRC" --confirm-native-runtime', source)
+            source = source.replace('"$BIN_SRC" --stage-native-runtime',
+                                    '( "$BIN_SRC" --runtime-activation-selftest && cp "$BIN_SRC" "$AGENT" && chmod 755 "$AGENT" )')
+            source = source.replace('"$BIN_SRC" --confirm-native-runtime', '"$BIN_SRC" --runtime-activation-selftest')
             script = root / "postinstall"
             script.write_text(source)
             mock_bin = root / "bin"
@@ -79,7 +88,7 @@ class FrozenPackageTests(unittest.TestCase):
             self.assertIn("print system/com.aegis.agent", calls.read_text().splitlines())
             suffix = "arm64" if platform.machine() == "arm64" else "x64"
             self.assertEqual((app / "aegis-agent").read_bytes(), (downloads / ("aegis-agent-darwin-" + suffix)).read_bytes())
-            for flag in ("--selftest", "--maintenance-selftest", "--diagnostics-selftest", "--configuration-selftest", "--service-migration-selftest"):
+            for flag in ("--selftest", "--maintenance-selftest", "--diagnostics-selftest", "--configuration-selftest", "--service-migration-selftest", "--runtime-activation-selftest"):
                 result = subprocess.run([str(app / "aegis-agent"), flag], env=env, capture_output=True, timeout=30)
                 self.assertEqual(result.returncode, 0)
 

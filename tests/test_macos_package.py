@@ -45,6 +45,7 @@ int main(int argc, char **argv) {
   if (argc != 2) return 3;
   if (strcmp(argv[1], "--selftest") == 0) return getenv("AEGIS_TEST_RUNTIME_FAIL") ? 7 : 0;
   if (strcmp(argv[1], "--prepare-legacy-services") == 0) return getenv("AEGIS_TEST_MIGRATION_FAIL") ? 9 : 0;
+  if (strcmp(argv[1], "--runtime-activation-selftest") == 0) return 0;
   if (strcmp(argv[1], "--service-migration-selftest") == 0) return 0;
   if (strcmp(argv[1], "--maintenance-selftest") == 0) return getenv("AEGIS_TEST_MAINTENANCE_FAIL") ? 7 : 0;
   return 3;
@@ -115,6 +116,14 @@ if command == "uname":
         source = source.replace("/Library/", str(self.target / "Library") + "/")
         source = source.replace("/Users/", str(self.target / "Users") + "/")
         source = source.replace("__AEGIS_USER_LIBRARY__", str(self.target / "Users") + "/*/Library/")
+        # The native activation core has descriptor/atomicity/service tests in
+        # test_macos_runtime_activation.py. Package fixtures explicitly replace
+        # its fixed-production-path entry points, never invoke host launchd.
+        self.assertIn('"$BIN_SRC" --stage-native-runtime', source)
+        self.assertIn('"$BIN_SRC" --confirm-native-runtime', source)
+        source = source.replace('"$BIN_SRC" --stage-native-runtime',
+                                '( "$BIN_SRC" --runtime-activation-selftest && cp "$BIN_SRC" "$AGENT" && chmod 755 "$AGENT" )')
+        source = source.replace('"$BIN_SRC" --confirm-native-runtime', '"$BIN_SRC" --runtime-activation-selftest')
         self.script = self.case / "postinstall"
         self.script.write_text(source)
         return payload
@@ -153,6 +162,7 @@ if command == "uname":
         self.assertEqual(capability['legacy_user_services'], 'journaled-prepare-v1')
         self.assertIs(capability['external_python_required'], False)
         self.assertEqual(capability['package_recovery'], 'native-reinstall-v1')
+        self.assertEqual(capability['runtime_activation'], 'journaled-replacement-v1')
         package_info = ET.parse(script.parent.parent/'PackageInfo').getroot()
         self.assertEqual(capability['agent_version'], package_info.attrib['version'])
         self.assertEqual(capability['postinstall_sha256'], hashlib.sha256(script.read_bytes()).hexdigest())

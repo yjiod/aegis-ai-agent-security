@@ -206,6 +206,17 @@ def collect(root, version, validate_policy, owner=0, now=None, probe=service_sta
         result["AegisLaunchDaemonHealthy"] = False
         issues.append("legacy_migration_state_unavailable")
     try:
+        from aegis_macos_runtime_activation import JOURNAL, valid_journal
+        activation = read_private_json(Path(root) / JOURNAL, owner)
+        if not valid_journal(activation) or activation["status"] != "service_registered":
+            result["AegisLaunchDaemonHealthy"] = False
+            issues.append("native_activation_requires_verification")
+    except FileNotFoundError:
+        activation = None  # Older clients have no activation journal.
+    except failures:
+        result["AegisLaunchDaemonHealthy"] = False
+        issues.append("native_activation_state_unavailable")
+    try:
         with directory(root) as parent:
             os.stat("watch-cleanup-pending.json", dir_fd=parent, follow_symlinks=False)
         result["AegisLaunchDaemonHealthy"] = False

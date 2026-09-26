@@ -164,9 +164,7 @@ if [ "$LEGACY" = 1 ] || [ -e "$INSTALL_DIR/legacy-service-migration.json" ] || [
   "$BIN_SRC" --prepare-legacy-services || { echo "Aegis legacy service preparation requires recovery" >&2; exit 1; }
 fi
 AGENT="$INSTALL_DIR/aegis-agent"
-cp -f "$BIN_SRC" "$AGENT"
-xattr -d com.apple.quarantine "$AGENT" 2>/dev/null || true
-chmod 755 "$AGENT"
+"$BIN_SRC" --stage-native-runtime || { echo "Aegis native runtime staging requires recovery" >&2; exit 1; }
 # 设备 ID 优先硬件序列（稳定，与 agent hardware_device_id() 同算法同值——install 入网令牌的
 # device_id 必须与 runtime 上报的 device_id 一致，否则 401）。
 _hw_serial="$(ioreg -c IOPlatformExpert 2>/dev/null | awk -F'"' '/IOPlatformSerialNumber/{print $4; exit}')"
@@ -191,8 +189,6 @@ if [ -f "$INSTALL_DIR/enroll-pending" ]; then
   osascript -e 'display dialog "Aegis 入网暂失败。安装程序将尝试注册服务；请检查网络，并在控制台确认终端上报状态。" with title "Aegis 安装提示" buttons {"知道了"} default button 1' 2>/dev/null || true
 fi
 # Prepared user configurations remain available for explicit recovery.
-chown -R root:wheel "$INSTALL_DIR" 2>/dev/null || true
-launchctl bootout system "$PLIST" 2>/dev/null || true
 if ! launchctl bootstrap system "$PLIST" 2>/dev/null; then
   echo "Aegis installation incomplete: launchd registration failed" >&2
   exit 1
@@ -201,6 +197,7 @@ if ! launchctl print system/com.aegis.agent >/dev/null 2>&1; then
   echo "Aegis installation incomplete: service registration could not be confirmed" >&2
   exit 1
 fi
+"$BIN_SRC" --confirm-native-runtime || { echo "Aegis native runtime activation requires verification" >&2; exit 1; }
 # ES AUTH_EXEC 执行级封禁守护: 按架构装成 canonical 名并 best-effort 加载。
 # 未签名/未授权时守护自退(exit 2, KeepAlive=false 不重试), 终端回退 chmod exec-deny; 不阻断安装。
 case "$(uname -m)" in
@@ -220,7 +217,7 @@ POST
 sed -e "s|__SERVER__|$SERVER|g" -e "s|__INTERVAL__|$INTERVAL|g" -e "s|__VERSION__|$VERSION|g" "$SCRIPTS/postinstall" > "$SCRIPTS/postinstall.tmp" && mv -f "$SCRIPTS/postinstall.tmp" "$SCRIPTS/postinstall"
 chmod 755 "$SCRIPTS/postinstall"
 POST_SHA=$(shasum -a 256 "$SCRIPTS/postinstall" | awk '{print $1}')
-printf '{"schema":"aegis.macos-package-capabilities/v1","package_identifier":"com.aegis.agent","legacy_user_services":"journaled-prepare-v1","external_python_required":false,"package_recovery":"native-reinstall-v1","agent_version":"%s","postinstall_sha256":"%s"}\n' "$VERSION" "$POST_SHA" > "$SCRIPTS/aegis-package-capabilities.json"
+printf '{"schema":"aegis.macos-package-capabilities/v1","package_identifier":"com.aegis.agent","legacy_user_services":"journaled-prepare-v1","external_python_required":false,"package_recovery":"native-reinstall-v1","runtime_activation":"journaled-replacement-v1","agent_version":"%s","postinstall_sha256":"%s"}\n' "$VERSION" "$POST_SHA" > "$SCRIPTS/aegis-package-capabilities.json"
 chmod 644 "$SCRIPTS/aegis-package-capabilities.json"
 
 # ── 打包（未签名；企业分发应再 productsign + 公证）
