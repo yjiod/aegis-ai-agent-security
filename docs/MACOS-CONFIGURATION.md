@@ -64,6 +64,7 @@ appears in the public health summary and is not a publisher-authentication proof
 
 Native ARM64/Intel CI exercises the frozen configuration mode against synthetic,
 root-owned installations with other executables and network denied. This is not
-the full no-Python endpoint lifecycle acceptance. Legacy MDM installation,
-automatic enrollment, rollback and trusted distribution remain separate work in
+the full no-Python endpoint lifecycle acceptance. The [MDM bootstrap](MACOS-MDM-INSTALL.md)
+now uses system package trust gates; legacy service migration, automatic
+enrollment, rollback and signed distribution acceptance remain separate work in
 [R7](MACOS-RUNTIME-CONTRACT.md).

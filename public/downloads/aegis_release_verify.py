@@ -5,10 +5,10 @@ from pathlib import Path
 
 RUNTIME_FILES=("aegis_agent.py","aegis-windows.ps1","aegis-policy.json","aegis-security-baseline.md")
 HASH_CONSUMERS={
-    "aegis_agent.py":("install-aegis.sh","mdm-macos-install.sh"),
+    "aegis_agent.py":("install-aegis.sh",),
     "aegis-windows.ps1":("mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
-    "aegis-policy.json":("install-aegis.sh","mdm-macos-install.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
-    "aegis-security-baseline.md":("install-aegis.sh","mdm-macos-install.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
+    "aegis-policy.json":("install-aegis.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
+    "aegis-security-baseline.md":("install-aegis.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
     "DEPLOYMENT-GUIDE.md","aegis-policy.json","aegis-security-baseline.md","aegis-report.schema.json",
@@ -100,6 +100,16 @@ def verify(downloads):
     for directive in ("umask 077",'"$AGENT" --configuration-selftest','exec "$AGENT" --configure-reporting'):
         if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
     if "python3" in mac_config: errors.append("external_python_macos_reporting_config")
+    try: mac_installer=(downloads/"mdm-macos-install.sh").read_text()
+    except OSError: mac_installer=""
+    for directive in ("AEGIS_MACOS_PKG_SHA256", "AEGIS_MACOS_TEAM_ID", "--check-signature",
+                      "--assess --type install --raw --ignore-cache --no-cache"):
+        if directive not in mac_installer: errors.append(f"unsafe_macos_package_bootstrap:{directive}")
+    for directive in ("-expect bool", "Notarized Developer ID", "package_assessment_override_refused",
+                      "verify_digest || finish package_changed_after_assessment", "--proto '=https'", "--max-filesize 134217728"):
+        if directive not in mac_installer: errors.append(f"unsafe_macos_package_bootstrap:{directive}")
+    if "python3" in mac_installer or "aegis_agent.py" in mac_installer:
+        errors.append("external_python_macos_package_bootstrap")
     try: mac_configuration=(downloads/"aegis_macos_configuration.py").read_text()
     except OSError: mac_configuration=""
     for directive in ("hmac.compare_digest(token, secret)","os.O_NOFOLLOW", "fcntl.LOCK_EX | fcntl.LOCK_NB",

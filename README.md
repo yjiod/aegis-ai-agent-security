@@ -85,7 +85,7 @@ msiexec /i aegis-agent-windows.msi
 
 Mac 新安装统一使用系统 `.pkg`；用户级 `.run` 已拒绝新安装，主构建停止生成。系统包要求 ARM64/x64 原生载荷，安装、启动和入网不再回退外部 Python。CI 保留的包目前为合成服务器地址的未签名候选，尚未完成生产发布及完整干净终端验收，详见 [Mac 验证边界](docs/MACOS-PACKAGE-VALIDATION.md)。
 
-企业规模化下发的 MDM / EDR（`mdm-*` 脚本）及离线企业包见[企业部署指南](public/downloads/DEPLOYMENT-GUIDE.md)。Mac 合规检查和独立上报配置已迁入客户端自带的[健康诊断](docs/MACOS-DIAGNOSTICS.md)与[配置能力](docs/MACOS-CONFIGURATION.md)。旧 Mac MDM 安装、用户级自动入网等入口仍依赖 Python，迁移完成前不满足 [R7 交付要求](docs/MACOS-RUNTIME-CONTRACT.md)，不能用作免 Python 客户端的替代安装路径。
+企业规模化下发的 MDM / EDR（`mdm-*` 脚本）及离线企业包见[企业部署指南](public/downloads/DEPLOYMENT-GUIDE.md)。Mac 合规检查和独立上报配置已迁入客户端自带的[健康诊断](docs/MACOS-DIAGNOSTICS.md)与[配置能力](docs/MACOS-CONFIGURATION.md)。[Mac MDM 安装入口](docs/MACOS-MDM-INSTALL.md)已改为系统工具验证整包摘要、批准发布者及公证结果后安装原生 pkg；签名公证正向实机验收仍待完成。旧用户级自动入网、回滚等入口仍需迁移，完成前不满足 [R7 交付要求](docs/MACOS-RUNTIME-CONTRACT.md)，不能用作免 Python 客户端的替代路径。
 
 ---
 

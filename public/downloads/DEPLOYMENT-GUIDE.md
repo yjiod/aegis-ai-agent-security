@@ -20,9 +20,9 @@
 
 ## MDM macOS
 
-将 `mdm-macos-install.sh` 作为 macOS Shell Script 下发，以 root 运行。脚本需要终端已有 Python 3，并会把实际解析到的 Python 路径写入 LaunchDaemon。正式部署前应将脚本、策略和扫描器放入企业可信软件源并进行代码签名。
+将 `mdm-macos-install.sh` 作为 macOS Shell Script 下发，以 root 运行。入口不依赖外部 Python，要求 MDM 受保护配置提供已批准整包摘要 `AEGIS_MACOS_PKG_SHA256`、发布者 `AEGIS_MACOS_TEAM_ID`，以及 HTTPS 地址 `AEGIS_MACOS_PKG_URL` 或受保护本地包路径 `AEGIS_MACOS_PKG_PATH`（二选一）。它验证完整 pkg、发布者签名及无覆盖放行的公证评估结果后才调用系统 Installer；不会改写系统安全设置。安装器成功返回 `installed_health_pending`，仍需单独验证服务、入网和上报。旧服务或未确认清理状态会在下载前拒绝继续。当前 CI 包未签名，不能通过此入口；真实签名公证正向验收及原生包回滚尚未完成。详见仓库 `docs/MACOS-MDM-INSTALL.md`。
 
-macOS 自定义合规上传 `mdm-macos-compliance.sh` 与 `mdm-macos-compliance-policy.json`，发现脚本使用 Bash、UTF-8 无 BOM，并设置为不使用已登录用户凭据运行，以便读取受 root 保护的运行文件和报告；启用签名检查及隐藏通知。规则验证安装、三项固定哈希、LaunchDaemon、策略版本、24 小时内扫描和 critical/high 数量，并同时包含 MDM 要求的 `en_US` 与中文修复文案。按微软限制，脚本与输出均须小于 1 MB、运行不超过 10 分钟。
+macOS 自定义合规使用 `mdm-macos-compliance.sh` 与 `mdm-macos-compliance-policy.json`，以具备读取 root 保护状态权限的上下文执行。发现脚本调用客户端内嵌诊断，不调用外部 Python；验证安装清单完整性、实际运行的系统服务、版本、两小时内有效报告及绑定当前上报配置的成功回执，并重算 critical/high 数量。缺件或能力自检失败返回不健康，不回退源码。安装清单完整性不能替代安装前的签名和公证。导入前应核对所在 MDM 租户是否支持 macOS POSIX Shell 自定义合规，以及脚本执行权限、时限和大小限制；不能将本地夹具验证当作真实 MDM 联调验收。诊断字段及边界见仓库 `docs/MACOS-DIAGNOSTICS.md`。
 
 ## 厂商 EDR
 
@@ -78,13 +78,15 @@ Aegis 报告使用 `aegis.report/v1`。由中转服务将 critical/high finding 
 
 ## 升级、回滚与卸载
 
-MDM 修复脚本先把新版本下载到受限暂存目录，校验扫描器、策略和基线三项 SHA-256 后才替换运行文件；已有完整版本会备份到 `previous`。需要回退时，通过 MDM 以 SYSTEM/root 下发 `rollback-aegis-windows.ps1` 或 `rollback-aegis-macos.sh`，脚本会先验证备份清单，再恢复并重启周期任务。回滚只保留最近一个完整版本。
+Windows 现有 MDM 修复脚本先把新版本下载到受限暂存目录，校验扫描器、策略和基线三项 SHA-256 后才替换运行文件；已有完整版本会备份到 `previous`。需要回退时，通过 MDM 以 SYSTEM 下发 `rollback-aegis-windows.ps1`，先验证备份清单，再恢复并重启周期任务。回滚只保留最近一个完整版本。以下三文件快照说明适用于该脚本布局。
+
+Mac MDM 已改为安装完整原生 pkg，不能使用历史 `rollback-aegis-macos.sh` 恢复其文件。包验证失败时不会调用 Installer；Installer 一旦执行，失败可能已部分修改系统，必须核实并恢复，当前尚无已验收的完整包事务回滚。Mac 原生包回滚和旧用户服务迁移仍为发布门槛，不得通过重新安装 Python 脚本绕过。
 
 升级脚本只在当前扫描器、策略和基线三件套全部存在时创建回滚点；先在独立的受限目录复制三件套并生成校验清单，再原子切换 `previous`。当前安装残缺时会保留已有完整回滚点，不生成混合版本快照。若回滚点目录切换失败，升级在替换运行文件前终止并恢复旧目录。
 
 0.50.0 起，回滚只接受恰好包含扫描器、策略和基线三项的校验清单；漏项或附加路径均拒绝。回滚先停止周期任务，验证快照，恢复后再次验证运行目录，只有二次哈希全部一致才重启任务；复制或落地校验失败时任务保持停止，由 MDM 检测进入修复流程，避免混合版本继续运行。
 
-所有安装与修复下载均设置 15 秒连接超时和每文件 120 秒总时限；Windows 使用对应的 120 秒请求超时。三个文件最坏网络等待受控在 MDM 脚本执行窗口内，失败后保留当前运行版本并由下一次 MDM 修复周期重试。超时设置不替代 SHA-256 固定：只有三项下载全部完成且哈希匹配才会备份与替换。
+Windows 修复使用每文件 120 秒请求超时，三项下载全部完成且哈希匹配后才备份与替换。Mac 原生包下载设置 15 秒连接超时、120 秒总时限和 128 MiB 上限；下载失败不修改运行版本。Mac 平台评估和 Installer 不受这一网络时限覆盖，MDM 超时或中断后应核实安装状态。
 
 卸载使用 `uninstall-aegis-windows.ps1` 或 `uninstall-aegis-macos.sh`。卸载会移除运行时、周期任务以及 Codex/Claude 用户指令文件中带 Aegis 起止标记的受管区块，保留用户自定义内容；符号链接或重解析点不会被修改。已进入源码管理的仓库基线文件仍会保留，必须通过正常代码评审移除，避免绕过审计。
 
@@ -98,12 +100,7 @@ MDM 修复脚本先把新版本下载到受限暂存目录，校验扫描器、�
 
 轮转后新令牌存于服务器 `/etc/aegis/.collector-token-current`（0600），供终端重新入网取用；切勿写入仓库、工单、日志或聊天。脚本可断点续跑：若上次已完成 A 步（`collector.env` 存在 `AEGIS_COLLECTOR_TOKENS`），再次运行会自动恢复新/旧令牌并继续 B、C。
 
-**终端重新入网**：已部署 Agent 的令牌驻留于 `/Library/Application Support/AegisAgent/` 下的 `config.json`、`reporting.json` 与 LaunchDaemon plist（均 0600/root）。用新令牌重跑安装器即可原子重写三处并重载周期任务：
-
-```bash
-sudo AEGIS_COLLECTOR_TOKEN='<新令牌>' sh aegis-agent-macos.run
-# 或等价地： sudo sh aegis-agent-macos.run --token '<新令牌>'
-```
+**Mac 终端上报配置轮换**：原生客户端使用受保护的 `reporting.json`，通过 `aegis-configure-macos.sh` 调用内嵌配置能力；由 MDM 保护的进程环境提供 URL、Token 和独立 HMAC 密钥，不将秘密写入命令行。配置更换后旧成功回执失效，必须等待新配置成功上报。参见仓库 `docs/MACOS-CONFIGURATION.md`。旧 `.run` 已拒绝新安装，不再作为原生客户端轮换凭据的方法；旧用户级安装需先完成迁移。
 
 在执行 C 步作废旧令牌之前，存量终端仍可用旧令牌上报（A 步过渡窗口），因此可先在过渡态下批量迁移：按 MDM 受保护配置分批下发新令牌、确认全部终端活跃后，再执行 C 步收口。Windows 终端同理——经 MDM 更新受保护的 `AEGIS_REPORT_TOKEN` 并重载计划任务。密钥永不进入脚本、策略、发布包或源码管理。
 
