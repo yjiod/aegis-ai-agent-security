@@ -141,6 +141,51 @@ export function openApiDoc(): OpenApiDoc {
       };
     }
   }
+  // Label provenance is server-owned and is not a publisher verification claim.
+  const labelProperties = {
+    asset_type: { type: 'string', enum: ['skill', 'mcp', 'path', 'prefix'] },
+    asset_key: { type: 'string' },
+    tags: { type: 'array', items: { type: 'string' } },
+    disposition: { type: 'string', enum: ['', 'allow', 'monitor', 'deny'] },
+    note: { type: 'string' },
+  };
+  const labelSchema = {
+    type: 'object',
+    required: ['asset_type', 'asset_key', 'tags', 'disposition', 'note', 'decision_source', 'updated_by', 'updated_at'],
+    properties: {
+      ...labelProperties,
+      decision_source: { type: 'string', enum: ['manual', 'preset', 'automatic', 'legacy'], readOnly: true,
+        description: 'Server-owned decision origin; preset grants admission only, not a behavioral exception or publisher verification.' },
+      updated_by: { type: 'string', readOnly: true },
+      updated_at: { type: 'integer', readOnly: true },
+    },
+  };
+  const jsonResponse = (schema: unknown) => ({ description: '成功', content: { 'application/json': { schema } } });
+  const errors = {
+    '400': { description: '输入无效，或试图写入只读 decision_source' },
+    '401': { description: '未认证' }, '403': { description: '权限不足' },
+    '503': { description: '标签不可用，包括数据库迁移尚未应用' },
+  };
+  Object.assign(paths['/labels'].get as object, {
+    responses: { ...errors, '200': jsonResponse({ type: 'object', required: ['labels'], properties: {
+      labels: { type: 'array', items: labelSchema },
+    } }) },
+  });
+  Object.assign(paths['/labels'].post as object, {
+    'x-access': 'admin',
+    requestBody: { required: true, content: { 'application/json': { schema: {
+      type: 'object', required: ['asset_type', 'asset_key'], properties: labelProperties,
+      not: { required: ['decision_source'] },
+      description: 'Explicit disposition records a manual decision; editing tags or note alone preserves the existing origin.',
+    } } } },
+    responses: { ...errors, '200': jsonResponse({ type: 'object', required: ['label'], properties: { label: labelSchema } }) },
+  });
+  Object.assign(paths['/labels'].delete as object, {
+    'x-access': 'admin',
+    parameters: ['asset_type', 'asset_key'].map(name => ({ name, in: 'query', required: true,
+      schema: name === 'asset_type' ? labelProperties.asset_type : labelProperties.asset_key })),
+    responses: { ...errors, '200': jsonResponse({ type: 'object', required: ['removed'], properties: { removed: { type: 'boolean' } } }) },
+  });
   return {
     openapi: '3.1.0',
     info: {

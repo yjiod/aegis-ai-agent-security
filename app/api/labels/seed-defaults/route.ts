@@ -43,6 +43,7 @@ export async function POST(request: Request) {
       asset_type: entry.asset_type,
       asset_key: entry.asset_key,
       disposition: 'allow',
+      decision_source: 'preset',
       tags: ['default-bundled'],
       note: '默认自带',
       updated_by: actor,

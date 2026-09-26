@@ -42,6 +42,12 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'invalid_json' }, { status: 400, headers: NO_STORE });
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'invalid_body' }, { status: 400, headers: NO_STORE });
+  }
+  if (Object.hasOwn(body, 'decision_source')) {
+    return NextResponse.json({ error: 'decision_source_read_only' }, { status: 400, headers: NO_STORE });
+  }
   const assetType = body.asset_type;
   const assetKey = String(body.asset_key ?? '').trim();
   if (!isAssetType(assetType)) return NextResponse.json({ error: 'invalid_asset_type' }, { status: 400, headers: NO_STORE });
@@ -85,7 +91,7 @@ export async function POST(request: Request) {
     asset_type: assetType,
     asset_key: finalKey,
     ...(tags !== undefined ? { tags } : {}),
-    ...(rawDisp !== undefined ? { disposition: String(rawDisp) as Disposition } : {}),
+    ...(rawDisp !== undefined ? { disposition: String(rawDisp) as Disposition, decision_source: 'manual' as const } : {}),
     ...(typeof body.note === 'string' ? { note: body.note.slice(0, 500) } : {}),
     updated_by: session?.subject ?? 'console',
   });
@@ -94,7 +100,7 @@ export async function POST(request: Request) {
     action: 'label:set',
     resource_type: 'system',
     resource_id: `${assetType}:${finalKey}`,
-    detail: `disposition=${rec.disposition || 'unset'} tags=${rec.tags.join(',') || '-'}`,
+    detail: `source=${rec.decision_source} disposition=${rec.disposition || 'unset'} tags=${rec.tags.join(',') || '-'}`,
   });
   return NextResponse.json({ label: rec }, { status: 200, headers: NO_STORE });
 }

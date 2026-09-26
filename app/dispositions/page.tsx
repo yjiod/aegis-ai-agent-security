@@ -23,6 +23,7 @@ interface Label {
   asset_key: string;
   tags: string[];
   disposition: '' | 'allow' | 'monitor' | 'deny';
+  decision_source?: 'manual' | 'preset' | 'automatic' | 'legacy';
   note: string;
   updated_by: string;
   updated_at: number;
@@ -334,10 +335,9 @@ export default function DispositionsPage() {
       let ok = 0;
       let failed = 0;
       for (const s of skills) {
-        // 系统默认放行项已是 allow 且带 default-bundled 标签；重复导入会把它改写成
-        // 用户"加白"(tags=策略已知)，重新刷屏处置中心。跳过，保持系统默认身份。
+        // Import only undecided assets; never replace a deny, manual decision or preset.
         const existing = (labels ?? []).find((l) => l.asset_type === 'skill' && l.asset_key === s);
-        if (existing && existing.tags.includes('default-bundled')) continue;
+        if (existing?.disposition) continue;
         try {
           const res = await fetch('/api/labels', {
             method: 'POST',
@@ -401,10 +401,8 @@ export default function DispositionsPage() {
     setPendingPublish(false);
   }
 
-  // 「系统默认放行」= 默认自带白名单(seed-defaults)写入、且用户未改动过(disposition 仍为
-  // allow)的条目。它们仍参与抑制与策略编译，但**不在加白列表里作为用户决策展示**，
-  // 单独折叠为一组，避免处置中心被非用户决策项刷屏（用户反馈"带来非常大困扰"）。
-  const isSystemDefault = (l: Label) => l.tags.includes('default-bundled') && l.disposition === 'allow';
+  // The server records decision provenance; editable tags cannot establish it.
+  const isSystemDefault = (l: Label) => l.decision_source === 'preset' && l.disposition === 'allow';
   const allLabels = labels ?? [];
   const defaultLabels = allLabels.filter(isSystemDefault);
   const userLabels = allLabels.filter((l) => !isSystemDefault(l));
@@ -501,12 +499,12 @@ export default function DispositionsPage() {
         <div className="metric" style={{ minHeight: 92 }}>
           <div className="metric-top"><span><Library size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: -2 }} />AI Agent 预制库</span></div>
           <strong style={{ fontSize: 26 }}>{defaultLabels.length}</strong>
-          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>原生自带 skill/MCP，自动加白并参与抑制与策略编译</p>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>预置 Skill/MCP 允许接入；内容风险继续检查</p>
         </div>
         <div className="metric" style={{ minHeight: 92 }}>
           <div className="metric-top"><span><UserCog size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: -2 }} />自定义库</span></div>
           <strong style={{ fontSize: 26 }}>{userLabels.length}</strong>
-          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>我的加白 / 观察 / 拉黑决策，按类型分组折叠管理</p>
+          <p style={{ fontSize: 12, color: 'var(--muted-foreground)', margin: '4px 0 0' }}>人工处置、自动处置及待核对的历史记录，按类型分组管理</p>
         </div>
       </div>
 
@@ -520,7 +518,7 @@ export default function DispositionsPage() {
               AI Agent 预制库 · 系统默认放行 {defaultLabels.length} 项
             </Badge>
             <span style={{ fontSize: 12, color: 'var(--muted-foreground)' }}>
-              AI Agent 原生自带的 skill / MCP，自动加白并参与告警抑制与策略编译；不计入你的处置决策、不在下方自定义库显示。
+              预置 Skill / MCP 参与允许名单编译，仅消除未获准接入提示；内容风险继续显示。预置来源不代表已验证发布者或包完整性。
             </span>
             <Button variant="outline" size="sm" onClick={() => { setShowDefaults((v) => !v); setDefaultsPage(1); }} style={{ marginLeft: 'auto' }}>
               {showDefaults ? '收起' : '展开查看 / 单独覆盖'}
@@ -560,7 +558,7 @@ export default function DispositionsPage() {
                             onChange={(e) => void save(l, { disposition: e.target.value as Label['disposition'] })}
                             style={{ padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 12, marginLeft: 'auto' }}
                           >
-                            <option value="allow">保持系统默认（加白）</option>
+                            <option value="allow">预置允许接入</option>
                             <option value="monitor">改为观察</option>
                             <option value="deny">改为拉黑</option>
                             <option value="">改为未处置</option>
@@ -643,7 +641,7 @@ export default function DispositionsPage() {
                             {meta.label}
                           </Badge>
                           <span style={{ color: 'var(--muted-foreground)', fontSize: 12 }}>
-                            {l.updated_by} · {relTime(l.updated_at)}
+                            {{ manual: '人工处置', preset: '预置目录', automatic: '自动处置', legacy: '历史来源待核对' }[l.decision_source ?? 'legacy']} · {relTime(l.updated_at)}
                           </span>
                           {isAdmin && (
                             <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>

@@ -243,6 +243,7 @@ export interface AssetLabelRow {
   asset_key: string;
   tags: string; // JSON array string
   disposition: string; // '' | allow | monitor | deny
+  decision_source?: string; // manual | preset | automatic | legacy
   note: string;
   updated_by: string;
   updated_at: number;
@@ -250,7 +251,7 @@ export interface AssetLabelRow {
 
 export async function pgLoadLabels(): Promise<AssetLabelRow[] | null> {
   const r = await withClient('loadLabels', (c) =>
-    c.query('SELECT asset_type,asset_key,tags,disposition,note,updated_by,updated_at FROM asset_labels ORDER BY asset_type, asset_key'),
+    c.query('SELECT asset_type,asset_key,tags,disposition,note,updated_by,updated_at,decision_source FROM asset_labels ORDER BY asset_type, asset_key'),
   );
   return r.ok ? (r.value.rows as AssetLabelRow[]) : null;
 }
@@ -258,10 +259,10 @@ export async function pgLoadLabels(): Promise<AssetLabelRow[] | null> {
 export function pgUpsertLabel(row: AssetLabelRow): void {
   scheduleWrite('upsertLabel', (c) =>
     c.query(
-      `INSERT INTO asset_labels(asset_type,asset_key,tags,disposition,note,updated_by,updated_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7)
-       ON CONFLICT(asset_type,asset_key) DO UPDATE SET tags=$3,disposition=$4,note=$5,updated_by=$6,updated_at=$7`,
-      [row.asset_type, row.asset_key, row.tags, row.disposition, row.note, row.updated_by, row.updated_at],
+      `INSERT INTO asset_labels(asset_type,asset_key,tags,disposition,note,updated_by,updated_at,decision_source)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT(asset_type,asset_key) DO UPDATE SET tags=$3,disposition=$4,note=$5,updated_by=$6,updated_at=$7,decision_source=$8`,
+      [row.asset_type, row.asset_key, row.tags, row.disposition, row.note, row.updated_by, row.updated_at, row.decision_source ?? 'legacy'],
     ),
   );
 }
@@ -280,10 +281,10 @@ export async function pgUpsertLabelsBatch(rows: AssetLabelRow[]): Promise<number
       await c.query('BEGIN');
       for (const row of rows) {
         await c.query(
-          `INSERT INTO asset_labels(asset_type,asset_key,tags,disposition,note,updated_by,updated_at)
-           VALUES($1,$2,$3,$4,$5,$6,$7)
-           ON CONFLICT(asset_type,asset_key) DO UPDATE SET tags=$3,disposition=$4,note=$5,updated_by=$6,updated_at=$7`,
-          [row.asset_type, row.asset_key, row.tags, row.disposition, row.note, row.updated_by, row.updated_at],
+          `INSERT INTO asset_labels(asset_type,asset_key,tags,disposition,note,updated_by,updated_at,decision_source)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT(asset_type,asset_key) DO UPDATE SET tags=$3,disposition=$4,note=$5,updated_by=$6,updated_at=$7,decision_source=$8`,
+          [row.asset_type, row.asset_key, row.tags, row.disposition, row.note, row.updated_by, row.updated_at, row.decision_source ?? 'legacy'],
         );
         n += 1;
       }
