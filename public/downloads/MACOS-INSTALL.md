@@ -28,6 +28,8 @@ sudo /bin/sh ./aegis-install-macos-oneclick.sh \
 
 MDM 无需命令行参数，通过受保护的 `AEGIS_MACOS_PKG_SHA256`、`AEGIS_MACOS_TEAM_ID`、`AEGIS_MACOS_PKG_URL` 或 `AEGIS_MACOS_PKG_PATH` 配置同一流程。不得把 Token/HMAC、登录凭据放入命令行、脚本或包。
 
+迁移已有用户级服务时，可在受保护 MDM 配置中设置 `AEGIS_MACOS_MIGRATE_USER_SERVICES=1`，或为已审核的本地入口增加 `-MigrateUserServices 1`（默认 0）。只有通过摘要、签名、公证和包内迁移能力声明/脚本摘要检查后才调用 Installer，由包内原生客户端准备旧启动配置；不会提前停服。旧包缺少迁移协议时拒绝。旧系统服务仍须独立迁移，不能用此开关放行。
+
 旧 `-Server` 参数已移除，不再写入服务器覆盖配置。使用为正确服务端构建的包；存量服务器覆盖文件的检查与清理仍属于待完成的迁移工作，不能假定重装会自动修正其内容。
 
 ## 安装结果
@@ -35,7 +37,8 @@ MDM 无需命令行参数，通过受保护的 `AEGIS_MACOS_PKG_SHA256`、`AEGIS
 入口必须确认完整摘要、批准的 Developer ID Installer 发布者、已启用且无覆盖放行的公证评估；安装前再次复核摘要。任一步失败均不调用 Installer，不回退 Python 或关闭系统验证。
 
 - `installed_health_pending`：Installer 成功，仍需验证服务、入网和当前配置的成功上报。
-- `legacy_service_migration_required`：旧服务需先迁移，本次未开始安装。
+- `legacy_service_migration_required`：旧系统服务需独立迁移；旧用户服务尚未启用迁移模式时，本次未开始安装。
+- `migration_capability_unavailable` / `migration_script_digest_mismatch`：批准包缺少迁移协议或脚本摘要不符，本次未开始安装。
 - `prior_cleanup_requires_verification`：核实之前的扫描进程清理结果后再安装。
 - `installer_failed_state_requires_verification`：Installer 已运行，可能部分修改系统；需核实恢复，不代表自动回滚。
 
