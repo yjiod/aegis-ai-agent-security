@@ -1063,10 +1063,11 @@ class AegisTests(unittest.TestCase):
     def test_release_verifier_accepts_published_bundle(self):
         self.assertEqual(self.verifier.verify(DOWNLOADS),[])
     def test_release_verifier_rejects_independent_mac_installer_drift(self):
-        with tempfile.TemporaryDirectory() as d:
-            copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy)
-            (copy/'aegis-install-macos-oneclick.sh').write_text('#!/bin/sh\nexit 0\n')
-            self.assertIn('macos_install_entry_drift',self.verifier.verify(copy))
+        for name in ('aegis-install-macos-oneclick.sh','aegis-agent-macos-enroll.sh'):
+            with self.subTest(entry=name), tempfile.TemporaryDirectory() as d:
+                copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy)
+                (copy/name).write_text('#!/bin/sh\nexit 0\n')
+                self.assertIn('macos_install_entry_drift',self.verifier.verify(copy))
     def test_release_verifier_rejects_runtime_drift(self):
         with tempfile.TemporaryDirectory() as d:
             copy=Path(d)/'downloads'; shutil.copytree(DOWNLOADS,copy); (copy/'aegis_agent.py').write_text('# drift')

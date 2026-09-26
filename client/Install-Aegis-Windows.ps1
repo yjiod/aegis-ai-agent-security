@@ -35,8 +35,8 @@
       通用 1722 对话框，**无法定位**。这是该缺陷能长期潜伏的直接原因。
 
   D3  全有或全无。入网（网络依赖）与服务启动（时序依赖）都是硬失败前置条件。
-      对照 macOS 的 aegis-agent-macos-enroll.sh：launchctl/首报全部 `|| true`
-      或 try/catch 容错，安装永远成功。**这就是「mac 能装、Windows 装不上」的根因**。
+      历史对照：当时 macOS 用户入网脚本对 launchctl/首报使用 `|| true`，可能误报成功。
+      该 Mac 文件名现已转为受信任系统包入口；本段仅记录旧版排障背景。
 
   D4  （v3 补充，2026-09-16 本机 MSI 端到端实测发现）脚本编码与 $env:ProgramData 兜底：
       · 本文件与 public/downloads/aegis-windows.ps1 均为「UTF-8 无 BOM + 中文」。

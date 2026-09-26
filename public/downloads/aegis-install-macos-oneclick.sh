@@ -26,6 +26,15 @@ cleanup() {
 trap cleanup EXIT
 trap 'finish interrupted 130' INT
 trap 'finish interrupted 143' TERM
+# Historical enrollment settings describe a different operation/layout. Check
+# presence without expanding credential values, before any external command.
+# In particular, an old uninstall request must never become a package install.
+if [ "${AEGIS_ENROLL_UNINSTALL+x}" = x ]; then
+  finish legacy_uninstall_setting_requires_maintenance 2
+fi
+if [ "${AEGIS_COLLECTOR_URL+x}${AEGIS_COLLECTOR_TOKEN+x}${AEGIS_REPORT_SIGNING_SECRET+x}${AEGIS_SCAN_INTERVAL+x}${AEGIS_DEVICE_ID+x}${AEGIS_INSTALL_DIR+x}" != '' ]; then
+  finish legacy_enrollment_settings_not_supported 2
+fi
 # The same entry is used by MDM (protected environment) and an administrator
 # running a reviewed local script (public artifact identity arguments only).
 SEEN=' '

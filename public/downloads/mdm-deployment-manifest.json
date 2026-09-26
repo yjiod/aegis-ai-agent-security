@@ -39,7 +39,7 @@
     },
     "macos_install": {
       "file": "mdm-macos-install.sh",
-      "sha256": "8376b380e3785b35e4c4775ca2ccf0a9dd2e4bff690d5111407291bbcc33170c"
+      "sha256": "726e3979466bc73a6edd0e06f8d72062a7b2ae19a2968f93a23680d281e3f2d0"
     },
     "macos_compliance_discovery": {
       "file": "mdm-macos-compliance.sh",

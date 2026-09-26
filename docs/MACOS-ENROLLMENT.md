@@ -60,7 +60,14 @@ service fixtures. These checks do not prove live server enrollment, signed
 distribution or the complete no-Python lifecycle on a clean endpoint.
 
 Runtime server overrides now use [protected migration](MACOS-SERVER-MIGRATION.md).
-Legacy user enrollment, automatic network repair,
-policy trust bootstrap, UI integration and installer recovery remain separate
-work under [R7](MACOS-RUNTIME-CONTRACT.md). Do not describe those paths as migrated
-or automatically repaired by this change.
+The historical `aegis-agent-macos-enroll.sh` filename now contains the same trusted
+system-package bootstrap as the MDM/interactive entries. It requires administrator
+privileges and approved package identity, and rejects old enrollment/uninstall
+environment settings without expanding or printing their values. It no longer
+downloads Python source, generates substitute credentials or installs a user
+LaunchAgent. See [installation and command migration](../public/downloads/MACOS-INSTALL.md).
+
+Actual legacy service activation/recovery, single-user retirement, automatic
+network repair, policy trust bootstrap, UI integration and installer recovery
+remain separate work under [R7](MACOS-RUNTIME-CONTRACT.md). Entry consolidation
+does not prove those capabilities or clean-endpoint acceptance.

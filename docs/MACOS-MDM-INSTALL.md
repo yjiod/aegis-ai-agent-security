@@ -19,7 +19,9 @@
 
 哈希和 Team ID 应由经过评审的发布记录导入 MDM 控制面，不能从同一个待验证下载地址临时取得。MDM 必须保护引导脚本本身及其配置。现有企业发布清单固定引导脚本摘要；它没有自动提供可信的原生包摘要或发布者身份。包必须为本企业正确的服务端地址构建，禁止将上报 Token/HMAC 写入脚本文本、命令行、URL 或安装包。
 
-管理员交互入口 `aegis-install-macos-oneclick.sh` 由发布构建从本脚本生成，逐字节一致，并纳入企业包及摘要清单。两个入口均支持公开工件参数 `-PkgSha256`、`-TeamId`、`-PkgUrl` 或 `-PkgPath`，以及 `-MigrateUserServices 0/1`；参数覆盖对应环境变量，重复、缺值、未知参数和来源冲突拒绝。交互入口不再自行提权、提前停旧服务、下载未验证包或写服务器覆盖文件；旧 `-Server` 参数拒绝。控制台部署不得再注入改写 Mac 脚本内容。见 [管理员安装说明](../public/downloads/MACOS-INSTALL.md)。
+管理员交互入口 `aegis-install-macos-oneclick.sh` 和历史文件名 `aegis-agent-macos-enroll.sh` 由发布构建从本脚本生成，逐字节一致，并纳入企业包及摘要清单。三个入口均支持公开工件参数 `-PkgSha256`、`-TeamId`、`-PkgUrl` 或 `-PkgPath`，以及 `-MigrateUserServices 0/1`；参数覆盖对应环境变量，重复、缺值、未知参数和来源冲突拒绝。交互入口不再自行提权、提前停旧服务、下载未验证包或写服务器覆盖文件；旧 `-Server` 参数拒绝。控制台部署不得再注入改写 Mac 脚本内容。见 [管理员安装说明](../public/downloads/MACOS-INSTALL.md)。
+
+历史入网的 Collector/令牌/签名密钥、间隔、设备 ID、安装目录环境变量，以及 `AEGIS_ENROLL_UNINSTALL`，存在即在任何外部命令前拒绝（包括空值）。不输出值、不重解释为新安装或凭据轮转。`AEGIS_BASE_URL` 保持下载根地址含义。详细迁移表见管理员安装说明；旧单用户卸载不能自动扩展为系统多用户卸载。
 
 ## 安装顺序与拒绝条件
 
@@ -44,6 +46,8 @@
 | --- | --- |
 | `installed_health_pending`（退出 0） | 安装器成功；`health_verified` 仍为 false，执行内嵌诊断及上报验收 |
 | `trusted_digest_required` / `publisher_required`（退出 2） | 补齐经过批准的 MDM 发布配置，不降低验证要求 |
+| `legacy_enrollment_settings_not_supported`（退出 2） | 按实际意图改用批准包安装、原生配置或服务器迁移流程；不静默忽略旧设置 |
+| `legacy_uninstall_setting_requires_maintenance`（退出 2） | 没有安装或停服；按实际退役范围使用维护流程，不能去掉变量后直接重跑安装 |
 | `legacy_service_migration_required` | 旧系统服务需单独迁移；旧用户服务可通过受保护部署设置启用本入口的迁移流程 |
 | `migration_capability_unavailable` / `migration_script_digest_mismatch` / `migration_package_expansion_failed` | 不调用 Installer；使用有经过验证的迁移能力的批准包，不直接绕过门禁 |
 | `prior_cleanup_requires_verification` / `legacy_service_state_unavailable` | 核实旧进程/服务状态后再安装 |
