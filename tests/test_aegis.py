@@ -989,7 +989,7 @@ class AegisTests(unittest.TestCase):
             pol_on=dict(self.policy); pol_on['modules']=dict(self.policy.get('modules',{})); pol_on['modules']['code_scan']=True
             findings2,_=self.agent.scan_skill(skill,pol_on); kinds2={f['kind'] for f in findings2}
             self.assertIn('unknown_skill',kinds2); self.assertIn('hardcoded_secret',kinds2)
-        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertLess(windows.index("$skillManifests=@(Get-ChildItem"),windows.index('$oversized=@(')); self.assertIn("kind='skill_scan_truncated'",windows); self.assertIn("kind='project_scan_truncated'",windows); self.assertIn("kind='skill_link_findings_truncated'",windows)
+        windows=(DOWNLOADS/'aegis-windows.ps1').read_text(); self.assertLess(windows.index("$skillManifests = if"),windows.index('$oversized=@(')); self.assertIn("kind='skill_scan_truncated'",windows); self.assertIn("kind='project_scan_truncated'",windows); self.assertIn("kind='skill_link_findings_truncated'",windows)
     def test_unknown_skill_finding_carries_match_provenance(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)/'risky-skill'; root.mkdir()

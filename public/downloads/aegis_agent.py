@@ -508,6 +508,28 @@ def skill_category(name):
     if any(k in n for k in ["qw-pages","supabase","media-generation","mini-program"]): return "cloud-service"
     if any(k in n for k in ["debug","test","standards","java","python","frontend","markdown-lint","bootstrapping","feature-council","deeplearning","create-adaptable","working-with"]): return "dev-assist"
     return "unknown"
+SKILL_GOVERNANCE_KINDS={"prompt_override","credential_access","context_poisoning","hidden_instruction"}
+def scan_skill_governance(path,text,policy):
+    """Skill behavioral signals, independent of optional project code quality.
+    Do not include matched content in evidence: Skill text can contain secrets.
+    These are detection signals; actual enforcement remains a separate decision.
+    """
+    if text.startswith("\ufeff"): text=text[1:]  # UTF-8 BOM is an encoding marker, not an instruction.
+    checks=[
+        ("prompt_override",r"(?i)ignore (all |any )?(previous|prior) instructions"),
+        ("credential_access",r"(?i)(?:~/|\$home[\\/])(?:\.ssh|\.aws)|security\s+find-(?:generic|internet)-password"),
+        ("context_poisoning",r"(?is)(?:remember\s+to\s+always|update\s+your\s+memory|write\s+(?:this|these)\s+(?:instructions?|rules?)?\s+to\s+(?:your\s+)?memory|persist\s+this\s+instruction|append\s+to\s+memory\.md)"),
+        ("hidden_instruction",r"[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]"),
+    ]
+    enabled=set(policy.get("skill_rules",[]))
+    return [finding(kind,"high",path,"Skill governance signal: "+kind)
+            for kind,pattern in checks if kind in enabled and re.search(pattern,text)]
+
+def retain_finding_without_code_scan(item):
+    return item.get("kind") not in CODE_QUALITY_KINDS or (
+        item.get("asset_type")=="skill" and bool(item.get("asset_key"))
+        and item.get("kind") in SKILL_GOVERNANCE_KINDS)
+
 def scan_skill(skill_file,policy,max_files=500,m_code=None):
     """Scan the complete Skill package without following links outside its root.
     m_code=None 沿用 policy 缺省(code_scan 默认关); False=包内代码质量扫描关闭
@@ -547,7 +569,8 @@ def scan_skill(skill_file,policy,max_files=500,m_code=None):
                 size=path.stat().st_size
                 if size<=max_file_bytes(policy):
                     text=path.read_text(errors="ignore")
-                    if m_code: out.extend(scan_text(path,text,policy))
+                    out.extend(scan_skill_governance(path,text,policy))
+                    if m_code: out.extend(f for f in scan_text(path,text,policy) if f["kind"] not in SKILL_GOVERNANCE_KINDS)
                     if path.name in DEPENDENCY_MANIFESTS: out.extend(scan_dependency_manifest(path,text))
                 else: out.append(finding("oversized_file_skipped","medium",path,f"Skill 文件超过扫描字节上限 {max_file_bytes(policy)}",str(size)))
             except OSError: out.append(finding("unreadable","low",path,"Skill 文件存在但无法读取"))
@@ -1593,10 +1616,9 @@ def build_report(root,policy):
     inventory,findings=scan(root,policy)
     baseline_inv,baseline_findings=verify_user_baselines()
     inventory.extend(baseline_inv); findings.extend(baseline_findings)
-    # code_scan 关闭(用户决策 2026-09-25: 代码扫描交专业扫描器): 代码质量类发现一律
-    # 不进 report——不管它们从哪条路径产生(策略显式开启/旧版本残留), 上报口径统一。
+    # code_scan only controls code quality; identified Skill governance survives.
     if not policy_module(policy,"code_scan",False):
-        findings=[f for f in findings if f.get("kind") not in CODE_QUALITY_KINDS]
+        findings=[f for f in findings if retain_finding_without_code_scan(f)]
     # 用户级安装已取消(2026-09): mac 非 root 运行=历史用户级安装, 能力受限(仅扫当前用户、
     # 无 pf 连接级封禁)。产出发现项让控制台可见, 驱动迁移到系统级 .pkg。(置于截断上限之前)
     if sys.platform=="darwin" and os.geteuid()!=0:

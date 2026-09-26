@@ -1,0 +1,32 @@
+name: native-skill-governance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-powershell:
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            architecture: AMD64
+          - runner: windows-11-arm
+            architecture: ARM64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Run isolated governance fixture in native Windows PowerShell
+        shell: powershell
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          if ($env:PROCESSOR_ARCHITECTURE -ne $env:EXPECTED_ARCHITECTURE) { throw 'native_architecture_required' }
+          & ./scripts/test-skill-governance.ps1 -ScannerPath ./public/downloads/aegis-windows.ps1
+          if (-not $?) { exit 1 }
+          Write-Output ('skill_governance_native_architecture='+$env:PROCESSOR_ARCHITECTURE)
