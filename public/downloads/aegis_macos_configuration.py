@@ -15,7 +15,10 @@ from urllib.parse import urlsplit
 from aegis_macos_maintenance import MaintenanceError, directory
 
 
-class ConfigurationError(Exception):
+MAX_CONFIG_BYTES = 32768
+
+
+class ConfigurationError(ValueError):
     """Fixed error code; never include input or filesystem details."""
 
 
@@ -91,8 +94,52 @@ def existing_state(parent, owner):
         os.close(fd)
 
 
+def read_config(path, owner=None):
+    """Read one protected snapshot; never reopen a pathname after validation."""
+    path = Path(path)
+    owner = os.geteuid() if owner is None else owner
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    try:
+        with directory(path.parent) as parent:
+            def check_parent():
+                info = os.fstat(parent)
+                if info.st_uid != owner or info.st_mode & 0o022:
+                    raise ConfigurationError("unsafe_install_directory")
+                require_no_acl(parent)
+            check_parent()
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            with os.fdopen(fd, "rb") as stream:
+                before = require_private_file(stream.fileno(), owner)
+                if before.st_size > MAX_CONFIG_BYTES:
+                    raise ConfigurationError("configuration_too_large")
+                data = stream.read(MAX_CONFIG_BYTES + 1)
+                after = require_private_file(stream.fileno(), owner)
+                if len(data) > MAX_CONFIG_BYTES or (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                    raise ConfigurationError("configuration_changed")
+            check_parent()
+    except MaintenanceError:
+        raise ConfigurationError("unsafe_install_directory") from None
+    def unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ConfigurationError("duplicate_field")
+            value[key] = item
+        return value
+    try:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=unique_object)
+    except ConfigurationError:
+        raise
+    except (ValueError, UnicodeError, RecursionError):
+        raise ConfigurationError("invalid_json") from None
+    return validate_config(value)
+
+
 def write_config(root, value, owner=0):
     data = (json.dumps(validate_config(value), separators=(",", ":")) + "\n").encode()
+    if len(data) > MAX_CONFIG_BYTES:
+        raise ConfigurationError("configuration_too_large")
     with directory(root) as parent:
         info = os.fstat(parent)
         if info.st_uid != owner or info.st_mode & 0o022:

@@ -12,7 +12,7 @@ import time
 from urllib.parse import urlsplit
 
 from aegis_macos_maintenance import MaintenanceError, directory
-from aegis_macos_configuration import ConfigurationError, config_fingerprint, validate_config
+from aegis_macos_configuration import ConfigurationError, config_fingerprint, read_config
 
 FRESHNESS_SECONDS = 7200
 SEVERITIES = ("critical", "high", "medium", "low")
@@ -152,7 +152,7 @@ def collect(root, version, validate_policy, owner=0, now=None, probe=service_sta
         issues.append("policy_unavailable")
     host, fingerprint = "", ""
     try:
-        config = validate_config(read_json(root, "reporting.json", 16384, owner, private=True))
+        config = read_config(Path(root) / "reporting.json", owner)
         host = urlsplit(config["report_url"]).hostname.lower().rstrip(".")
         fingerprint = config_fingerprint(config)
         result["AegisReportingConfigured"] = True

@@ -1319,6 +1319,17 @@ def verify_user_baselines(homes=None):
 def load_reporting_config(path):
     path=Path(path)
     if path.is_symlink(): raise ValueError("reporting_config_symlink")
+    if sys.platform == "darwin":
+        if not getattr(sys, "frozen", False) and str(BASE_DIR) not in sys.path:
+            sys.path.insert(0, str(BASE_DIR))
+        from aegis_macos_configuration import ConfigurationError, read_config
+        try:
+            return read_config(path)
+        except ConfigurationError as exc:
+            category = {"unsafe_file": "permissions", "unsafe_install_directory": "permissions",
+                        "invalid_url": "url", "invalid_credentials": "secrets",
+                        "independent_credentials_required": "secrets", "invalid_contract": "contract"}.get(str(exc), "invalid")
+            raise ValueError("reporting_config_" + category) from None
     info=path.stat()
     if not stat.S_ISREG(info.st_mode) or info.st_mode&0o077: raise ValueError("reporting_config_permissions")
     if hasattr(os,"geteuid") and info.st_uid not in {0,os.geteuid()}: raise ValueError("reporting_config_owner")

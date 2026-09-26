@@ -84,6 +84,16 @@ class DiagnosticsTests(unittest.TestCase):
         for forbidden in ("SYNTHETIC", "synthetic", "012345abcdef", "example.test", "signing_secret", str(self.root)):
             self.assertNotIn(forbidden, json.dumps(value))
 
+    @unittest.skipUnless(sys.platform == "darwin", "actual Mac ACL behavior")
+    def test_reporting_acl_cannot_be_reported_as_healthy(self):
+        for path in (self.root / "reporting.json", self.root):
+            subprocess.run(["/bin/chmod", "+a", "everyone allow read", str(path)], check=True, capture_output=True)
+            try:
+                value = self.collect()
+                self.assertFalse(value["AegisReportingConfigured"])
+                self.assertFalse(value["AegisReportingHealthy"])
+            finally: subprocess.run(["/bin/chmod", "-N", str(path)], check=True, capture_output=True)
+
     def test_tampering_and_malformed_manifest_fail_integrity(self):
         for filename, value in (("aegis-agent", b"different"), ("aegis-security-baseline.md", b"different"),
                                 ("aegis-runtime-manifest.json", {"files": []}), ("aegis-runtime-manifest.json", [])):
