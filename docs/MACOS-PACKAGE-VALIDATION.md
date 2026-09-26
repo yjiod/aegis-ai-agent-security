@@ -1,5 +1,11 @@
 # macOS package lifecycle validation
 
+**Release requirement:** the complete Mac client lifecycle must work without
+external Python, Homebrew or developer tools. See the
+[runtime delivery contract](MACOS-RUNTIME-CONTRACT.md). Existing Python-dependent
+packages are development fixtures only and are not acceptable client releases.
+The requirement is recorded; the current build scripts do not yet enforce it.
+
 The system package installs `com.aegis.agent`. Its payload contains
 `aegis-policy.factory.json`; the mutable `aegis-policy.json` is initialized only
 when absent. A same-console reinstall with existing enrollment preserves the
@@ -10,7 +16,10 @@ Native packages require both ARM64 and x64 artifacts. The installation selects
 the current architecture and requires its self-test to succeed. Script packages
 include the self-update module and select a Python interpreter that passes the
 packaged agent's self-test; that exact interpreter is written to the service
-configuration. Script packages still require an available Python installation.
+configuration. Script packages still require an available Python installation
+and therefore fail the new release requirement. Their tests below remain useful
+development evidence, but do not establish a compliant deliverable. The native
+service also needs self-contained maintenance and complete lifecycle validation.
 
 A successful installation script means launchd accepted the service and the
 service registration could be read back. It does **not** establish daemon health,
