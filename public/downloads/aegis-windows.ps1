@@ -69,6 +69,81 @@ $patterns = @(
   @{ Kind='debug_mode_enabled'; Severity='medium'; Regex='(?is)\b(app|application)\.run\s*\([^)]{0,300}\bdebug\s*=\s*true' },
   @{ Kind='empty_exception_handler'; Severity='medium'; Regex='(?m)^\s*except(\s+[^:]+)?:\s*(#.*\r?\n\s*)?pass\s*$|\bcatch\s*\{\s*\}' }
 )
+# Skill governance is independent of optional project code quality.
+function Get-AegisSkillGovernanceFindings {
+  param([string]$Text, [string]$Path, [string]$Name, $Policy)
+  if ($Text.Length -gt 0 -and $Text[0] -eq [char]0xFEFF) { $Text=$Text.Substring(1) }
+  $rules = @(
+    @{Kind='prompt_override'; Regex='(?i)ignore (all |any )?(previous|prior) instructions'},
+    @{Kind='credential_access'; Regex='(?i)(?:~/|\$home[\\/])(?:\.ssh|\.aws)|security\s+find-(?:generic|internet)-password'},
+    @{Kind='context_poisoning'; Regex='(?is)(?:remember\s+to\s+always|update\s+your\s+memory|write\s+(?:this|these)\s+(?:instructions?|rules?)?\s+to\s+(?:your\s+)?memory|persist\s+this\s+instruction|append\s+to\s+memory\.md)'},
+    @{Kind='hidden_instruction'; Regex='[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]'}
+  )
+  foreach ($rule in $rules) {
+    if ($rule.Kind -in @($Policy.skill_rules) -and $Text -match $rule.Regex) {
+      @{kind=$rule.Kind; severity='high'; path=$Path; message=('Skill governance signal: '+$rule.Kind); asset_type='skill'; asset_key=$Name}
+    }
+  }
+}
+function Test-AegisRetainWithoutCodeScan {
+  param($Finding)
+  $quality = @('prompt_override','credential_access','unbounded_shell','dynamic_eval','insecure_tls_verification','unsafe_deserialization','debug_mode_enabled','empty_exception_handler','context_poisoning','unvalidated_llm_execution','hardcoded_secret','weak_random_token','dependency_unpinned','missing_lockfile','blocked_command','hidden_instruction')
+  return ($quality -notcontains $Finding.kind) -or ($Finding.asset_type -eq 'skill' -and $Finding.asset_key -and $Finding.kind -in @('prompt_override','credential_access','context_poisoning','hidden_instruction'))
+}
+function Get-AegisSkillPackageFindings {
+  param([IO.FileInfo]$Manifest, $Policy, [int]$MaxBytes, [int]$MaxFiles=500)
+  if ($Policy.modules -and $Policy.modules.skill_scan -eq $false) { return }
+  if ($MaxBytes -lt 1 -or $MaxBytes -gt 10000000 -or $MaxFiles -lt 1 -or $MaxFiles -gt 500) { throw 'invalid_skill_scan_limits' }
+  $root = $Manifest.Directory
+  $name = $root.Name
+  # Do not traverse a package through a junction/symlink, including ancestors.
+  $ancestor = $root
+  while ($ancestor) {
+    if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+    $ancestor = $ancestor.Parent
+  }
+  $pending = New-Object 'System.Collections.Generic.Queue[System.IO.DirectoryInfo]'
+  $pending.Enqueue($root)
+  $visited = 0; $scanned = 0; $truncated = $false
+  $readable = @('.md','.txt','.py','.js','.ts','.tsx','.jsx','.sh','.ps1','.json','.toml','.yaml','.yml')
+  while ($pending.Count -gt 0) {
+    if ($visited -ge $MaxFiles -or $scanned -ge $MaxFiles) { $truncated=$true; break }
+    $directory = $pending.Dequeue(); $visited++
+    try { $entries = @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop | Select-Object -First ($MaxFiles+1)) }
+    catch { @{kind='unreadable';severity='low';path=(Protect-AegisPath $directory.FullName);message='Skill directory unreadable';asset_type='skill';asset_key=$name}; continue }
+    if ($entries.Count -gt $MaxFiles) { $truncated=$true }
+    foreach ($entry in @($entries | Select-Object -First $MaxFiles)) {
+      if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+      if ($entry.PSIsContainer) {
+        if ($entry.Name -notin @('.git','node_modules','vendor','dist','build')) {
+          if ($pending.Count -lt $MaxFiles) { $pending.Enqueue($entry) } else { $truncated=$true }
+        }
+        continue
+      }
+      if ($entry.Extension.ToLowerInvariant() -notin $readable) { continue }
+      if ($scanned -ge $MaxFiles) { $truncated=$true; break }
+      $scanned++
+      $stream=$null
+      try {
+        $stream=$entry.OpenRead()
+        $buffer=New-Object byte[] ($MaxBytes+1); $count=0
+        while ($count -lt $buffer.Length) {
+          $read=$stream.Read($buffer,$count,$buffer.Length-$count)
+          if ($read -eq 0) { break }
+          $count+=$read
+        }
+        if ($count -gt $MaxBytes) {
+          @{kind='oversized_file_skipped';severity='medium';path=(Protect-AegisPath $entry.FullName);message='Skill file exceeds scan limit';asset_type='skill';asset_key=$name}
+        } else {
+          $text=[Text.Encoding]::UTF8.GetString($buffer,0,$count)
+          Get-AegisSkillGovernanceFindings -Text $text -Path (Protect-AegisPath $entry.FullName) -Name $name -Policy $Policy
+        }
+      } catch { @{kind='unreadable';severity='low';path=(Protect-AegisPath $entry.FullName);message='Skill file unreadable';asset_type='skill';asset_key=$name} }
+      finally { if ($stream) { $stream.Dispose() } }
+    }
+  }
+  if ($truncated) { @{kind='skill_scan_truncated';severity='medium';path=(Protect-AegisPath $root.FullName);message='Skill traversal limit reached';asset_type='skill';asset_key=$name} }
+}
 # 测试/夹具路径特征（与 mac agent _TEST_PATH_RE 同口径）：tests/specs/fixtures/__tests__/testing
 # 目录或 .test./.spec./_test. 文件名。用于 hardcoded_secret 路径感知降级。
 function Test-AegisTestPath([string]$p) {
@@ -429,8 +504,9 @@ foreach ($root in $roots) {
   if ($root -match '\AegisAgent$') { continue }
   if (Test-Path $root) {
     $inventory += @{ type='agent_root'; path=(Protect-AegisPath $root) }
-    $skillManifests=@(Get-ChildItem $root -Filter 'SKILL.md' -File -Recurse -Force|Select-Object -First 501)
+    $skillManifests = if ($policy.modules -and $policy.modules.skill_scan -eq $false) { @() } else { @(Get-ChildItem $root -Filter 'SKILL.md' -File -Recurse -Force|Select-Object -First 501) }
     foreach($manifest in @($skillManifests|Select-Object -First 500)){
+      $findings += @(Get-AegisSkillPackageFindings -Manifest $manifest -Policy $policy -MaxBytes $maxFileBytes)
       $skillName=$manifest.Directory.Name;$approved=$policy -and $skillName -in @($policy.allowed_skills);$inventory+=@{type='skill';name=$skillName;path=(Protect-AegisPath $manifest.FullName);approved=[bool]$approved}
       if(-not $approved){$findings+=@{kind='unknown_skill';severity='high';path=(Protect-AegisPath $manifest.FullName);message="未批准的 Skill: $skillName"}}
       $links=@(Get-ChildItem $manifest.Directory.FullName -Recurse -Force -Attributes ReparsePoint|Select-Object -First 101)
@@ -806,9 +882,9 @@ function Invoke-AegisEnforce {
   return $actions
 }
 $enforceActions = @(Invoke-AegisEnforce -Policy $policy)
-# code_scan 关闭(用户决策 2026-09-25): 代码质量类发现一律不进 report, 无论产生路径。
+# Identified Skill governance survives the optional code-quality report filter.
 $codeQualityKinds = @('prompt_override','credential_access','unbounded_shell','dynamic_eval','insecure_tls_verification','unsafe_deserialization','debug_mode_enabled','empty_exception_handler','context_poisoning','unvalidated_llm_execution','hardcoded_secret','weak_random_token','dependency_unpinned','missing_lockfile','blocked_command','hidden_instruction')
-if (-not $script:codeScan) { $script:findings = @($script:findings | Where-Object { $codeQualityKinds -notcontains $_.kind }) }
+if (-not $script:codeScan) { $script:findings = @($script:findings | Where-Object { Test-AegisRetainWithoutCodeScan $_ }) }
 $report = @{ schema='aegis.report/v1'; agent_version=$agentVersion; policy_version=$policyVersion; device_id=$deviceId; hostname=$env:COMPUTERNAME; os='windows'; os_user=$osUser; owner=$owner; serial=([string]$sn); network=$networkInfo; enforcement=$enforceActions; run_mode='system'; capabilities=@{ pf=$true; es=$false }; scanned_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); scan_root='managed-windows-roots'; inventory=$inventory; findings=$findings; summary=@{ critical=@($findings|Where-Object severity -eq critical).Count; high=@($findings|Where-Object severity -eq high).Count; medium=@($findings|Where-Object severity -eq medium).Count; low=@($findings|Where-Object severity -eq low).Count } }
 New-Item -ItemType Directory -Force -Path (Split-Path $Output) | Out-Null
 $reportJson=$report|ConvertTo-Json -Depth 8 -Compress
