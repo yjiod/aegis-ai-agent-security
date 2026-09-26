@@ -65,6 +65,6 @@ sandbox-denied. They do not operate actual user services on a pilot endpoint.
 The trusted MDM/interactive bootstrap now supports explicitly enabled user
 migration after validating the signed package and its preparation contract;
 legacy system daemons remain refused. Actual activation/recovery and end-to-end
-handoff acceptance are outstanding. The historical enrollment filename now invokes the same trusted system-package bootstrap without external Python; old enrollment/uninstall settings are explicitly refused rather than reinterpreted. Standalone single-user retirement remains outstanding. This
+handoff acceptance are outstanding. The historical enrollment filename now invokes the same trusted system-package bootstrap without external Python; old enrollment/uninstall settings are explicitly refused rather than reinterpreted. Current-user legacy launch-file retirement has a separate [embedded mode](MACOS-USER-RETIREMENT.md); complete user retirement and activation recovery remain outstanding. This
 increment is therefore not full legacy migration or [R7](MACOS-RUNTIME-CONTRACT.md)
 acceptance, nor a signed production release.

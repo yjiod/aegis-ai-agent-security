@@ -23,7 +23,7 @@ class FrozenPackageTests(unittest.TestCase):
             downloads.mkdir(parents=True)
             (root / "scripts").mkdir()
             shutil.copy2(ROOT / "scripts/build-macos-pkg.sh", root / "scripts/build-macos-pkg.sh")
-            for name in ("aegis_agent.py", "uninstall-aegis-macos.sh", "aegis-configure-macos.sh", "mdm-macos-compliance.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md"):
+            for name in ("aegis_agent.py", "uninstall-aegis-macos.sh", "retire-aegis-user-macos.sh", "aegis-configure-macos.sh", "mdm-macos-compliance.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md"):
                 shutil.copy2(ROOT / "public/downloads" / name, downloads / name)
             for suffix in ("arm64", "x64"):
                 name = "aegis-agent-darwin-" + suffix

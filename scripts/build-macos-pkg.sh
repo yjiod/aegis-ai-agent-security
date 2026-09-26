@@ -29,7 +29,7 @@ OUT="$DL/aegis-agent-macos.pkg"
 SERVER="${AEGIS_PUBLIC_ORIGIN:-https://aegis.example.com}"
 INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
 IDENT="com.aegis.agent"
-RUNTIME="aegis-configure-macos.sh uninstall-aegis-macos.sh mdm-macos-compliance.sh MACOS-UNINSTALL.md aegis-policy.json aegis-security-baseline.md"
+RUNTIME="retire-aegis-user-macos.sh aegis-configure-macos.sh uninstall-aegis-macos.sh mdm-macos-compliance.sh MACOS-UNINSTALL.md aegis-policy.json aegis-security-baseline.md"
 # Both self-contained architectures are mandatory. Source scripts are build inputs only.
 BINS="aegis-agent-darwin-arm64 aegis-agent-darwin-x64"
 # ES AUTH_EXEC 执行级封禁守护(可选): 有则打进 payload; 未签名/未授权时守护自退(exit 2),
@@ -72,7 +72,7 @@ for f in $RUNTIME $BINS; do
   ditto --noextattr --norsrc --noacl "$DL/$f" "$APPDIR/$destination"
 done
 for g in $GUARDS; do ditto --noextattr --norsrc --noacl "$ROOT/native-dist/$g" "$APPDIR/$g"; done
-chmod 755 "$APPDIR/uninstall-aegis-macos.sh"; chmod 644 "$APPDIR/aegis-policy.factory.json" "$APPDIR/aegis-security-baseline.md"
+chmod 755 "$APPDIR/uninstall-aegis-macos.sh" "$APPDIR/retire-aegis-user-macos.sh"; chmod 644 "$APPDIR/aegis-policy.factory.json" "$APPDIR/aegis-security-baseline.md"
 for b in $BINS; do chmod 755 "$APPDIR/$b"; done
 # Public local integrity inventory; authenticity remains a separate signing gate.
 ARM_SHA=$(shasum -a 256 "$APPDIR/aegis-agent-darwin-arm64" | awk '{print $1}')

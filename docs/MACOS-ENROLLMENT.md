@@ -67,7 +67,8 @@ environment settings without expanding or printing their values. It no longer
 downloads Python source, generates substitute credentials or installs a user
 LaunchAgent. See [installation and command migration](../public/downloads/MACOS-INSTALL.md).
 
-Actual legacy service activation/recovery, single-user retirement, automatic
+Current-user legacy service retirement now has an [embedded mode](MACOS-USER-RETIREMENT.md)
+that retains data and baselines. Actual legacy service activation/recovery, complete single-user retirement, automatic
 network repair, policy trust bootstrap, UI integration and installer recovery
 remain separate work under [R7](MACOS-RUNTIME-CONTRACT.md). Entry consolidation
 does not prove those capabilities or clean-endpoint acceptance.
