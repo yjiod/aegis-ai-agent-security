@@ -1,7 +1,7 @@
 {
   "schema": "aegis.mdm-evidence/v3",
   "release_version": "0.73.3",
-  "manifest_sha256": "1ddbde70747ed87d5243af795c2f494c82b09c297733e112c89df2574daa09f6",
+  "manifest_sha256": "64c0f3c18cf2c8aba348915f4f276f460284fa0432600145c5442f77f307a771",
   "generated_at": 0,
   "current_ring": "lab",
   "current_ring_entered_at": 0,

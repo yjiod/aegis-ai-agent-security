@@ -154,6 +154,7 @@ fi
 PYBIN=""
 if [ -n "$AGENT" ]; then
   "$AGENT" --selftest >/dev/null 2>&1 || { echo "Aegis runtime self-test failed" >&2; exit 1; }
+  "$AGENT" --maintenance-selftest >/dev/null 2>&1 || { echo "Aegis embedded maintenance self-test failed" >&2; exit 1; }
 else
   for cand in /usr/bin/python3 "$(command -v python3 || true)"; do
     if [ -n "$cand" ] && [ -x "$cand" ] && "$cand" "$INSTALL_DIR/aegis_agent.py" --selftest >/dev/null 2>&1; then PYBIN="$cand"; break; fi

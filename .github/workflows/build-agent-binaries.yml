@@ -4,26 +4,24 @@ name: build-agent-binaries
 # mac 也能被管理。产物 aegis-agent-darwin-<arch> 命名与 aegis_agent.self_update_binary_artifact_name()
 # 一致，供 release manifest 收录 + 冻结 agent 后台热更(sys.executable 自替换)取用。Linux 暂不做。
 #
-# 架构策略：PyInstaller 不能跨架构编译。GH 的 macos-13(Intel) runner 正被弃用、实测排队 7min+ 不起，
-# 故两架构都在供给充足的 macos-14(Apple Silicon) 上构建：
-#   arm64 → setup-python 原生 3.12 跑 PyInstaller
-#   x64   → 下载 python-build-standalone 的 x86_64 解释器(Rosetta 下运行)跑 PyInstaller → 产 x86_64 二进制
-#           (setup-python 的 architecture:x64 在 arm64 runner 上不生效，故用 PBS 可重定位 x64 python)
-#
-# 触发：手动(workflow_dispatch) + 打 tag(v*)。产物经 upload-artifact 取出，Phase3/5 由发布流程放进
-# public/downloads/ → aegis_release_build.py 收录 sha256 进 manifest → 部署直供 + 嵌入 .pkg/.run。
+# Both architectures build and execute on native GitHub runners. The final package,
+# signing, privileged lifecycle and clean-machine acceptance remain separate gates.
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - public/downloads/aegis_agent.py
+      - public/downloads/aegis_self_update.py
+      - public/downloads/aegis_macos_maintenance.py
+      - tests/test_macos_native_maintenance.py
+      - scripts/macos-freeze-requirements.txt
+      - .github/workflows/build-agent-binaries.yml
   push:
     tags: ['v*']
 
 permissions:
   contents: read
-
-env:
-  # python-build-standalone 的 x86_64 macOS 可重定位解释器（pinned；升级时改这一处即可）
-  PBS_X64_URL: https://github.com/astral-sh/python-build-standalone/releases/download/20260901/cpython-3.12.14%2B20260901-x86_64-apple-darwin-install_only.tar.gz
 
 jobs:
   freeze:
@@ -32,35 +30,26 @@ jobs:
       matrix:
         include:
           - arch: arm64
+            runner: macos-14
           - arch: x64
-    runs-on: macos-14
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          python-version: '3.12'
-      - name: Prepare target-arch interpreter
-        id: py
+          python-version: '3.14.7'
+          architecture: ${{ matrix.arch }}
+      - name: Verify native interpreter and install locked freeze toolchain
         run: |
-          set -e
-          if [ "${{ matrix.arch }}" = "x64" ]; then
-            softwareupdate --install-rosetta --agree-to-license || true
-            curl -fL --retry 3 -o /tmp/py64.tar.gz "$PBS_X64_URL"
-            mkdir -p /tmp/py64 && tar xzf /tmp/py64.tar.gz -C /tmp/py64 --strip-components=1
-            PYBIN=/tmp/py64/bin/python3
-          else
-            PYBIN="$(command -v python3)"
-          fi
-          "$PYBIN" -c 'import platform;print("interpreter arch =",platform.machine())'
-          echo "pybin=$PYBIN" >> "$GITHUB_OUTPUT"
-      - name: Install PyInstaller (into target-arch interpreter)
-        run: |
-          "${{ steps.py.outputs.pybin }}" -m pip install --upgrade pip pyinstaller
+          python3 -c 'import platform; expected={"arm64":"arm64", "x64":"x86_64"}["${{ matrix.arch }}"]; assert platform.machine()==expected'
+          python3 -m pip install --only-binary=:all: --require-hashes -r scripts/macos-freeze-requirements.txt
+          python3 -m pip check
       - name: Freeze agent (--onefile, self-contained)
         run: |
-          "${{ steps.py.outputs.pybin }}" -m PyInstaller --onefile --name "aegis-agent-darwin-${{ matrix.arch }}" \
-            --hidden-import aegis_self_update \
+          python3 -m PyInstaller --onefile --name "aegis-agent-darwin-${{ matrix.arch }}" \
+            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance \
             --paths public/downloads \
             --distpath dist-bin --workpath build-bin --specpath build-bin \
             public/downloads/aegis_agent.py
@@ -72,17 +61,12 @@ jobs:
           file "$BIN" | grep -q "$WANT" || { echo "FAIL: not a $WANT binary"; exit 1; }
           if otool -L "$BIN" | grep -qi 'libpython\|Python.framework'; then echo "FAIL: links system python"; otool -L "$BIN"; exit 1; fi
           echo "self-contained $WANT OK"; ls -lh "$BIN"
-      - name: Smoke test frozen binary (runs WITHOUT system python; sibling policy via BASE_DIR)
+      - name: Test frozen maintenance and rejection paths with hostile external Python environment
         run: |
-          set -e
-          mkdir -p /tmp/agempty /tmp/agout
-          cp public/downloads/aegis-policy.json public/downloads/aegis-security-baseline.md dist-bin/
-          BIN="dist-bin/aegis-agent-darwin-${{ matrix.arch }}"
-          set +e; "$BIN" /tmp/agempty --policy dist-bin/aegis-policy.json --output /tmp/agout/report.json; rc=$?; set -e
-          if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then echo "smoke FAIL rc=$rc"; exit 1; fi
-          python3 -c "import json;r=json.load(open('/tmp/agout/report.json'));assert r['schema']=='aegis.report/v1';assert r['policy_version'],'policy sibling not found via BASE_DIR';print('smoke OK: agent_version',r['agent_version'],'policy_version',r['policy_version'])"
+          AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" \
+            python3 -m unittest discover -s tests -p test_macos_native_maintenance.py -v
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: aegis-agent-darwin-${{ matrix.arch }}
           path: dist-bin/aegis-agent-darwin-${{ matrix.arch }}
@@ -94,7 +78,7 @@ jobs:
           if [ "${{ matrix.arch }}" = "arm64" ]; then TRIPLE=arm64-apple-macos12; else TRIPLE=x86_64-apple-macos12; fi
           swiftc -O -target "$TRIPLE" -lEndpointSecurity -o dist-bin/aegis-exec-guard-darwin-${{ matrix.arch }} client/es-guard/AegisExecGuard.swift || echo "guard build skipped (SDK/entitlement)"
       - name: Upload ES guard artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: aegis-exec-guard-darwin-${{ matrix.arch }}
           path: dist-bin/aegis-exec-guard-darwin-${{ matrix.arch }}

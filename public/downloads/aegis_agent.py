@@ -1860,7 +1860,7 @@ def maybe_self_update(policy, report_url):
     frozen = getattr(sys, "frozen", False)
     try:
         script_dir = str(BASE_DIR)
-        if script_dir not in sys.path:
+        if not frozen and script_dir not in sys.path:
             sys.path.insert(0, script_dir)
         import aegis_self_update as su
     except Exception:
@@ -1956,9 +1956,13 @@ def run_selftest():
     """
     try:
         script_dir = str(BASE_DIR)
-        if script_dir not in sys.path:
+        if not getattr(sys, "frozen", False) and script_dir not in sys.path:
             sys.path.insert(0, script_dir)
         import aegis_self_update as _su
+        if sys.platform == "darwin":
+            import aegis_macos_maintenance as _maintenance
+            if not _maintenance.selftest():
+                raise ValueError("maintenance_selftest_failed")
         for fn in (build_report, hardware_device_id, _su.check_and_apply, _su.in_rollout):
             if not callable(fn):
                 raise ValueError("missing_callable:%r" % (fn,))
@@ -1978,6 +1982,19 @@ def run_selftest():
 
 
 def main():
+    # Maintenance is an exclusive mode. Reject mixed arguments before parsing
+    # scan/enrollment options or touching machine identity, services or files.
+    maintenance_flags = ("--maintenance-selftest", "--uninstall-system")
+    if any(arg.split("=", 1)[0] in maintenance_flags for arg in sys.argv[1:]):
+        if len(sys.argv) != 2 or sys.argv[1] not in maintenance_flags or sys.platform != "darwin":
+            print("Aegis maintenance requires macOS and one exclusive mode", file=sys.stderr)
+            return 2
+        try:
+            import aegis_macos_maintenance as maintenance
+            return maintenance.main(["--selftest"] if sys.argv[1] == "--maintenance-selftest" else [])
+        except (ImportError, AttributeError):
+            print("Aegis maintenance runtime is unavailable; repair the installation", file=sys.stderr)
+            return 1
     ap=argparse.ArgumentParser(description="Aegis AI Agent 安全扫描器"); ap.add_argument("scan_path",nargs="?",default="."); ap.add_argument("--policy",default=str(DEFAULT_POLICY)); ap.add_argument("--output"); ap.add_argument("--install-baseline",action="store_true"); ap.add_argument("--auto-enroll",action="store_true"); ap.add_argument("--watch",action="store_true"); ap.add_argument("--interval",type=int,default=300); ap.add_argument("--report-url",default=os.getenv("AEGIS_REPORT_URL","")); ap.add_argument("--report-config",default=os.getenv("AEGIS_REPORT_CONFIG","")); ap.add_argument("--spool-dir",default=os.getenv("AEGIS_SPOOL_DIR","")); ap.add_argument("--enrollment-config",default=os.getenv("AEGIS_ENROLLMENT_CONFIG","")); ap.add_argument("--enrollment-dir",default=os.getenv("AEGIS_ENROLLMENT_DIR","")); ap.add_argument("--install-config",nargs=7,metavar=("INSTALL_DIR","COLLECTOR_URL","ENROLL_URL","DEVICE_ID","INTERVAL","TOKEN","AGENT_VER"),help=argparse.SUPPRESS); ap.add_argument("--selftest",action="store_true",help=argparse.SUPPRESS); args=ap.parse_args()
     # 自检模式：证明"本工件（脚本/冻结二进制）自身可用"，供自更新 preflight 在替换前校验下载的
     # 新工件、以及 CI 冻结烟雾使用；成功 exit 0，任何异常 exit 1。不联网/不扫描/不写盘/不需 root。

@@ -39,11 +39,11 @@
     },
     "macos_install": {
       "file": "mdm-macos-install.sh",
-      "sha256": "d96bf2f1011659fd1822ee88fb456c3666601c6c46c4030afd3bfd7a4c1e8e4c"
+      "sha256": "b75171b1735d0cc40e225a2b21d2090a879652ab802c699c63fd071c9903e045"
     },
     "macos_compliance_discovery": {
       "file": "mdm-macos-compliance.sh",
-      "sha256": "610cdc9797429478304d17dfee9fd07ce8b818a5c1d12acf69cbc41986f888ae"
+      "sha256": "e5ed19347db002726e149d73f8010be70bdf034c2efc4876363ae99812739822"
     },
     "macos_compliance_rules": {
       "file": "mdm-macos-compliance-policy.json",
@@ -59,7 +59,7 @@
     },
     "macos_uninstall": {
       "file": "uninstall-aegis-macos.sh",
-      "sha256": "816e8046123b25e388e22733a82f474ae09ec0e3af47104c2346a2beab2cd4d3"
+      "sha256": "21e893d9dccad724498a6003e8c7c24daf5d2588d2488416d157c968db7bc78a"
     }
   },
   "deployment_order": [

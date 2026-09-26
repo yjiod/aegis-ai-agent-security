@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-# Service coordination and managed block cleanup live in the installed helper.
+# Maintenance is embedded in the client; never search for external Python.
 INSTALL_DIR='/Library/Application Support/AegisAgent'
 if [ "$#" -ne 0 ]; then
   echo 'The Aegis uninstaller accepts no arguments.' >&2
@@ -22,13 +22,16 @@ for directory in /Library '/Library/Application Support' "$INSTALL_DIR"; do
     exit 1
   fi
 done
-if [ -x "$INSTALL_DIR/aegis-maintenance" ] && [ ! -L "$INSTALL_DIR/aegis-maintenance" ]; then
-  trusted_path "$INSTALL_DIR/aegis-maintenance" || exit 1
-  exec "$INSTALL_DIR/aegis-maintenance"
-fi
-if [ -x /usr/bin/python3 ] && [ -f "$INSTALL_DIR/aegis_macos_maintenance.py" ] && [ ! -L "$INSTALL_DIR/aegis_macos_maintenance.py" ]; then
-  trusted_path "$INSTALL_DIR/aegis_macos_maintenance.py" || exit 1
-  exec /usr/bin/python3 -I -B "$INSTALL_DIR/aegis_macos_maintenance.py"
+AGENT="$INSTALL_DIR/aegis-agent"
+if [ -f "$AGENT" ] && [ -x "$AGENT" ] && [ ! -L "$AGENT" ]; then
+  trusted_path "$AGENT" || exit 1
+  # Old clients may not expose maintenance. Test that exact capability before
+  # stopping services; do not fall back to a loose script or another runtime.
+  "$AGENT" --maintenance-selftest >/dev/null 2>&1 || {
+    echo 'Aegis maintenance self-test failed. Repair the installation before uninstalling.' >&2
+    exit 1
+  }
+  exec "$AGENT" --uninstall-system
 fi
 echo 'Aegis maintenance runtime is missing. Repair the installation before uninstalling; no files were removed.' >&2
 exit 1
