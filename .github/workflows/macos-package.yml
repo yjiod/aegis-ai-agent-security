@@ -3,6 +3,8 @@ name: macos-package-lifecycle
 on:
   pull_request:
     paths:
+      - public/downloads/aegis_macos_enrollment.py
+      - tests/test_macos_enrollment.py
       - scripts/build-macos-pkg.sh
       - public/downloads/aegis_agent.py
       - public/downloads/aegis_self_update.py
@@ -56,3 +58,5 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_macos_configuration.py -v
       - name: Validate native MDM trust gates with isolated Installer and real unsigned rejection
         run: python3 -m unittest discover -s tests -p test_macos_mdm_install.py -v
+      - name: Validate native enrollment contract and state preservation
+        run: python3 -m unittest discover -s tests -p test_macos_enrollment.py -v

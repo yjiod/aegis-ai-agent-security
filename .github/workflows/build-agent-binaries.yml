@@ -11,6 +11,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - public/downloads/aegis_macos_enrollment.py
+      - tests/test_macos_enrollment.py
       - public/downloads/aegis_agent.py
       - public/downloads/aegis_self_update.py
       - public/downloads/aegis_macos_maintenance.py
@@ -58,7 +60,7 @@ jobs:
       - name: Freeze agent (--onefile, self-contained)
         run: |
           python3 -m PyInstaller --onefile --name "aegis-agent-darwin-${{ matrix.arch }}" \
-            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance --hidden-import aegis_macos_diagnostics --hidden-import aegis_macos_configuration \
+            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance --hidden-import aegis_macos_diagnostics --hidden-import aegis_macos_configuration --hidden-import aegis_macos_enrollment \
             --paths public/downloads \
             --distpath dist-bin --workpath build-bin --specpath build-bin \
             public/downloads/aegis_agent.py
@@ -86,6 +88,10 @@ jobs:
         run: |
           sudo env AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" \
             "$(command -v python3)" -m unittest discover -s tests -p test_macos_configuration.py -v
+      - name: Validate native enrollment with synthetic state and no network
+        run: |
+          sudo env AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" \
+            "$(command -v python3)" -m unittest discover -s tests -p test_macos_enrollment.py -v
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

@@ -1,17 +1,17 @@
 #!/bin/sh
 # ═══════════════════════════════════════════════════════════════════════
-# build-macos-pkg.sh — 构建原生 macOS 安装器 aegis-agent-macos.pkg（双击安装即被纳管）。
+# build-macos-pkg.sh — 构建原生 macOS 安装器；安装后仍需验证上报健康。
 #
 # 产物是自包含 .pkg：
 #   payload  → /Library/Application Support/AegisAgent/{aegis-agent-darwin-*,aegis-policy.factory.json,
 #              aegis-security-baseline.md} + /Library/LaunchDaemons/com.aegis.agent.plist
 #   postinstall（以 root 运行）→ 覆盖安装识别 + 零接触自动入网：
-#              · 若已存在有效入网凭据且控制台地址未变（reporting.json 令牌有效、report_url
-#                前缀 == 本包烘焙地址），判定为升级/重装：**保留既有身份**（令牌/配置/策略），
+#              · 若已存在格式有效的入网凭据且控制台地址未变（reporting.json 校验通过、report_url
+#                完整上报 URL == 本包批准地址），判定为升级/重装：**保留既有身份**（令牌/配置/策略），
 #                不重复入网、不弹任何提示——pkg 即"覆盖安装"通道。
-#              · 仅当无凭据 / 凭据损坏 / 控制台地址变更（全新安装或换控制台）才向
-#                ${SERVER}/api/enroll 申请上报令牌+signing_secret+当前已发布策略，写入
-#                reporting.json(0600) 并覆盖出厂策略；此时入网失败才弹"入网暂失败"提示。
+#              · 仅当无凭据 / 凭据格式损坏时向 ${SERVER}/api/enroll 申请上报凭据，
+#                严格校验后原子写入 reporting.json(0600)。控制台变更需独立迁移。
+#                不从入网响应覆盖策略或信任根；失败留下待修复状态。
 #              随后 bootstrap 系统级 LaunchDaemon（开机自启、周期扫描 /Users 并上报）。
 #
 # 服务器地址在构建时烘焙进 postinstall：AEGIS_PUBLIC_ORIGIN（默认 RFC 占位
@@ -120,12 +120,8 @@ cat > "$SCRIPTS/postinstall" <<'POST'
 #!/bin/sh
 set -eu
 SERVER="__SERVER__"
-# 预留覆盖文件（用户编辑即全自动切换控制台，无需重装/记参数）：
-#   /Library/Preferences/aegis-server.json  内容 {"server_url":"https://<控制台>"}
-if [ -f /Library/Preferences/aegis-server.json ]; then
-  OV=$(sed -n 's/.*"server_url"[[:space:]]*:[[:space:]]*"\(https://[^"]*\)".*/\1/p' /Library/Preferences/aegis-server.json | head -1 | sed 's#/*$##')
-  if [ -n "$OV" ]; then SERVER="$OV"; echo "  · 预留覆盖文件生效：/Library/Preferences/aegis-server.json"; fi
-fi
+# The approved origin is baked into the signed package; legacy override files
+# are not interpreted here. Existing cross-server state requires migration.
 INSTALL_DIR="/Library/Application Support/AegisAgent"
 PLIST="/Library/LaunchDaemons/com.aegis.agent.plist"
 # The Installer payload must never own the mutable, server-managed policy path.
@@ -166,32 +162,12 @@ chmod 755 "$AGENT"
 _hw_serial="$(ioreg -c IOPlatformExpert 2>/dev/null | awk -F'"' '/IOPlatformSerialNumber/{print $4; exit}')"
 [ -z "$_hw_serial" ] && _hw_serial="$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Serial Number \(system\)/{gsub(/ /,"",$2); print $2; exit}')"
 if [ -n "$_hw_serial" ]; then DEVICE_ID="$(printf 'aegis-hw:%s' "$_hw_serial" | shasum -a 256 | cut -c1-12)"; else DEVICE_ID="$(hostname | tr -d '\n' | shasum -a 256 | cut -c1-12)"; fi
-# 覆盖安装识别（pkg = 升级/重装通道）：若已存在有效入网凭据且控制台地址未变，说明本机早已
-# 入网——保留既有身份（reporting.json/config.json/令牌/策略），**不重复零接触入网**，也就不会
-# 对一台已在网的设备误报"入网失败"。仅当无凭据 / 凭据损坏 / 控制台地址变更时才重新入网。
-# （令牌被服务端吊销的情况由守护进程 --auto-enroll 在 401/403 时自动重入网自愈，无需安装期处理。）
-EXIST_TOKEN=""; EXIST_URL=""
-if [ -f "$INSTALL_DIR/reporting.json" ]; then
-  EXIST_TOKEN=$(sed -n 's/.*"report_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$INSTALL_DIR/reporting.json" | head -1)
-  EXIST_URL=$(sed -n 's/.*"report_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$INSTALL_DIR/reporting.json" | head -1)
-fi
-PRESERVE=0
-if [ -n "$EXIST_TOKEN" ] && [ "${#EXIST_TOKEN}" -ge 32 ] && [ "${#EXIST_TOKEN}" -le 4096 ]; then
-  case "$EXIST_URL" in
-    "$SERVER"*) PRESERVE=1 ;;
-  esac
-fi
-# 入网与写配置由自包含客户端的 --install-config 完成。
-# （逻辑与原 python heredoc 等价：自动 /api/enroll、写 reporting.json/config.json 0600、服务端策略覆盖出厂）。
+# The embedded runtime validates existing state and any enrollment response.
+# No shell parsing of credentials, prefix URL matching or invented signing keys.
 INTERVAL="__INTERVAL__"; VERSION="__VERSION__"
 CFG_OK=0
-if [ "$PRESERVE" = 1 ]; then
-  CFG_OK=1
-  echo "  · 覆盖安装：检测到既有有效入网凭据（控制台地址未变），保留身份，跳过零接触入网"
-else
-  "$AGENT" --install-config "$INSTALL_DIR" "$SERVER/aegis" "$SERVER/api/enroll" "$DEVICE_ID" "$INTERVAL" "" "$VERSION" && CFG_OK=1
-fi
-# 入网成功或覆盖保留（设备已在网）→ 清掉历史 enroll-pending，守护无需再重试、也不残留旧标记。
+"$AGENT" --install-config "$INSTALL_DIR" "$SERVER/aegis" "$SERVER/api/enroll" "$DEVICE_ID" "$INTERVAL" "" "$VERSION" && CFG_OK=1
+# 配置写入或格式有效的原配置保留后清除 pending；上报健康须独立确认。
 if [ "$CFG_OK" = 1 ]; then
   rm -f "$INSTALL_DIR/enroll-pending" 2>/dev/null || true
 fi
@@ -200,7 +176,7 @@ if [ "$CFG_OK" != 1 ]; then
   chmod 644 "$INSTALL_DIR/enroll-pending" 2>/dev/null || true
 fi
 # 仅"全新安装（无既有身份）且入网失败"才弹 GUI 提示；覆盖安装保留身份时不打扰用户。
-# 守护进程带 --auto-enroll，网络/地址恢复后会自动重试入网。
+# 入网失败保留 pending；需由受管修复重新尝试，不宣称已自动重入网。
 if [ -f "$INSTALL_DIR/enroll-pending" ]; then
   osascript -e 'display dialog "Aegis 入网暂失败。安装程序将尝试注册服务；请检查网络，并在控制台确认终端上报状态。" with title "Aegis 安装提示" buttons {"知道了"} default button 1' 2>/dev/null || true
 fi

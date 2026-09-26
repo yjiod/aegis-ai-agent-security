@@ -22,11 +22,7 @@ class ConfigurationError(ValueError):
     """Fixed error code; never include input or filesystem details."""
 
 
-def validate_config(value):
-    if (not isinstance(value, dict) or set(value) != {"schema", "report_url", "report_token", "signing_secret"}
-            or value.get("schema") != "aegis.reporting/v1"):
-        raise ConfigurationError("invalid_contract")
-    url = value["report_url"]
+def validate_url(url):
     if not isinstance(url, str) or len(url) > 2048 or any(not 33 <= ord(c) <= 126 for c in url):
         raise ConfigurationError("invalid_url")
     try:
@@ -36,6 +32,14 @@ def validate_config(value):
             raise ValueError()
     except ValueError:
         raise ConfigurationError("invalid_url") from None
+    return parsed
+
+
+def validate_config(value):
+    if (not isinstance(value, dict) or set(value) != {"schema", "report_url", "report_token", "signing_secret"}
+            or value.get("schema") != "aegis.reporting/v1"):
+        raise ConfigurationError("invalid_contract")
+    validate_url(value["report_url"])
     token, secret = value["report_token"], value["signing_secret"]
     if any(not isinstance(item, str) or not 32 <= len(item) <= 4096
            or any(not 33 <= ord(c) <= 126 for c in item) for item in (token, secret)):
@@ -89,7 +93,7 @@ def existing_state(parent, owner):
         return None
     try:
         info = require_private_file(fd, owner)
-        return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns
+        return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
     finally:
         os.close(fd)
 
@@ -136,7 +140,7 @@ def read_config(path, owner=None):
     return validate_config(value)
 
 
-def write_config(root, value, owner=0):
+def write_config(root, value, owner=0, expected_state=...):
     data = (json.dumps(validate_config(value), separators=(",", ":")) + "\n").encode()
     if len(data) > MAX_CONFIG_BYTES:
         raise ConfigurationError("configuration_too_large")
@@ -154,6 +158,8 @@ def write_config(root, value, owner=0):
             except BlockingIOError:
                 raise ConfigurationError("configuration_busy") from None
             before = existing_state(parent, owner)
+            if expected_state is not ... and before != expected_state:
+                raise ConfigurationError("configuration_changed")
             name = ".reporting-config-" + secrets.token_hex(16) + ".tmp"
             fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
             committed = False

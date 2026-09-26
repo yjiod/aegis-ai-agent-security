@@ -47,6 +47,11 @@ legacy writers do not yet honor this lock, so it does not guarantee serializatio
 against every old enrollment/installer path. Policy, baseline, UI configuration,
 services and enrollment identity are not modified by this command.
 
+The native system-package enrollment now uses this writer with an expected
+pre-request file state. A concurrent configuration change while enrollment is
+in flight is refused under the lock. See [system enrollment](MACOS-ENROLLMENT.md)
+for its response validation and remaining legacy-path boundaries.
+
 Output is a fixed `aegis.configuration-result/v1` object with operation, applied
 boolean and status, suitable for the MDM operation log. `applied` exits 0.
 `applied_durability_unconfirmed` exits 1 with `applied=true`: replacement occurred,
@@ -85,6 +90,6 @@ outside this change and require separate consistency work.
 Native ARM64/Intel CI exercises the frozen configuration mode against synthetic,
 root-owned installations with other executables and network denied. This is not
 the full no-Python endpoint lifecycle acceptance. The [MDM bootstrap](MACOS-MDM-INSTALL.md)
-now uses system package trust gates; legacy service migration, automatic
-enrollment, rollback and signed distribution acceptance remain separate work in
+now uses system package trust gates; legacy service migration, live enrollment
+acceptance, rollback and signed distribution acceptance remain separate work in
 [R7](MACOS-RUNTIME-CONTRACT.md).

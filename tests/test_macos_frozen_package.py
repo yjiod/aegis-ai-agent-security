@@ -43,7 +43,8 @@ class FrozenPackageTests(unittest.TestCase):
             for suffix in ("arm64", "x64"):
                 name = "aegis-agent-darwin-" + suffix
                 self.assertEqual((app / name).read_bytes(), (downloads / name).read_bytes())
-            (app / "reporting.json").write_text(json.dumps({"report_url": "https://aegis.example.test/aegis/v1/reports", "report_token": "synthetic-fixture-" * 4}))
+            (app / "reporting.json").write_text(json.dumps({"schema": "aegis.reporting/v1", "report_url": "https://aegis.example.test/aegis/v1/reports", "report_token": "synthetic-fixture-" * 4, "signing_secret": "synthetic-signing-" * 4}))
+            (app / "reporting.json").chmod(0o600)
             old_policy = b'{"schema":"aegis.policy/v1","version":"fixture-retained"}\n'
             (app / "aegis-policy.json").write_bytes(old_policy)
             before_reporting = (app / "reporting.json").read_bytes()
