@@ -23,7 +23,7 @@ upload receipts require private permissions. Diagnostics never repairs state.
 | `AegisLaunchDaemonHealthy` | launchd reports the canonical program running with a live PID, no registered legacy system service, and no pending watch cleanup marker; not proof that enforcement is effective |
 | `AegisLegacyServicePresent` | The old `com.company.aegis-agent` system service is still registered and needs migration |
 | `AegisReportingConfigured` | A private, structurally valid HTTPS reporting configuration exists; does not prove credentials are accepted |
-| `AegisReportingHealthy` | Local accepted-upload receipt matches that collector and is less than two hours old; does not perform a new server check |
+| `AegisReportingHealthy` | Local accepted-upload receipt matches that collector and the exact current URL/credentials fingerprint, and is less than two hours old; does not perform a new server check |
 | `AegisPolicyVersion` | Valid active policy version; no hardcoded old release or factory-policy hash comparison |
 | `AegisReportValid` | Report schema, client/policy versions and recomputed severity counts are consistent |
 | `AegisScanRecent` | Valid report timestamp is less than two hours old and not in the future |
@@ -54,3 +54,7 @@ Native ARM64/Intel CI runs the frozen diagnostics against root-owned synthetic
 state with network/external Python execution denied. These tests do not install
 on a real managed endpoint or establish full client compliance. See
 [remaining lifecycle gates](MACOS-RUNTIME-CONTRACT.md).
+
+Credential rotation and URL-path changes require a new accepted upload before
+reporting becomes healthy. Older receipts without a configuration fingerprint
+are unconfirmed until that upload. See [configuration operations](MACOS-CONFIGURATION.md).

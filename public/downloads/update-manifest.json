@@ -8,7 +8,7 @@
   "artifacts": {
     "aegis_agent.py": {
       "url": "/downloads/aegis_agent.py",
-      "sha256": "33c9229cb153aa05af26ae81c27c35cd6156ca4590166e0ac3bd10568c2a7795"
+      "sha256": "d0ddb8016218e774020d0f97a7558808a551e6dfd7a2e75d88b318e0e145418d"
     },
     "aegis-windows.ps1": {
       "url": "/downloads/aegis-windows.ps1",

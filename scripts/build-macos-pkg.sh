@@ -29,7 +29,7 @@ OUT="$DL/aegis-agent-macos.pkg"
 SERVER="${AEGIS_PUBLIC_ORIGIN:-https://aegis.example.com}"
 INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
 IDENT="com.aegis.agent"
-RUNTIME="uninstall-aegis-macos.sh mdm-macos-compliance.sh MACOS-UNINSTALL.md aegis-policy.json aegis-security-baseline.md"
+RUNTIME="aegis-configure-macos.sh uninstall-aegis-macos.sh mdm-macos-compliance.sh MACOS-UNINSTALL.md aegis-policy.json aegis-security-baseline.md"
 # Both self-contained architectures are mandatory. Source scripts are build inputs only.
 BINS="aegis-agent-darwin-arm64 aegis-agent-darwin-x64"
 # ES AUTH_EXEC 执行级封禁守护(可选): 有则打进 payload; 未签名/未授权时守护自退(exit 2),
@@ -79,7 +79,7 @@ ARM_SHA=$(shasum -a 256 "$APPDIR/aegis-agent-darwin-arm64" | awk '{print $1}')
 X64_SHA=$(shasum -a 256 "$APPDIR/aegis-agent-darwin-x64" | awk '{print $1}')
 BASELINE_SHA=$(shasum -a 256 "$APPDIR/aegis-security-baseline.md" | awk '{print $1}')
 printf '{"schema":"aegis.macos-runtime/v1","agent_version":"%s","files":{"aegis-agent-darwin-arm64":"%s","aegis-agent-darwin-x64":"%s","aegis-security-baseline.md":"%s"}}\n' "$VERSION" "$ARM_SHA" "$X64_SHA" "$BASELINE_SHA" > "$APPDIR/aegis-runtime-manifest.json"
-chmod 644 "$APPDIR/aegis-runtime-manifest.json" "$APPDIR/mdm-macos-compliance.sh"
+chmod 644 "$APPDIR/aegis-runtime-manifest.json" "$APPDIR/mdm-macos-compliance.sh" "$APPDIR/aegis-configure-macos.sh"
 
 for g in $GUARDS; do chmod 755 "$APPDIR/$g"; done
 if [ -f "$ROOT/client/es-guard/com.aegis.execguard.plist" ]; then

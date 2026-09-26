@@ -13,6 +13,9 @@ on:
       - tests/test_macos_package.py
       - tests/test_macos_maintenance.py
       - tests/test_macos_diagnostics.py
+      - public/downloads/aegis_macos_configuration.py
+      - public/downloads/aegis-configure-macos.sh
+      - tests/test_macos_configuration.py
       - public/downloads/aegis_macos_diagnostics.py
       - public/downloads/mdm-macos-compliance.sh
       - tests/test_macos_native_maintenance.py
@@ -46,3 +49,5 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_macos_native_maintenance.py -v
       - name: Validate diagnostics with synthetic state
         run: python3 -m unittest discover -s tests -p test_macos_diagnostics.py -v
+      - name: Validate native configuration boundaries
+        run: python3 -m unittest discover -s tests -p test_macos_configuration.py -v

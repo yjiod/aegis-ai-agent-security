@@ -7,9 +7,11 @@ it does not contain loose Python runtime modules. Launchd starts the canonical
 `aegis-agent`, with no external interpreter selection or fallback.
 
 The payload also includes a local runtime checksum inventory and the native-only
-MDM compliance wrapper. Embedded [health diagnostics](MACOS-DIAGNOSTICS.md)
+MDM compliance and reporting-configuration wrappers. Embedded [health diagnostics](MACOS-DIAGNOSTICS.md)
 distinguishes file consistency, launchd state and recent accepted-upload evidence.
-Local checksums do not authenticate the package publisher.
+Local checksums do not authenticate the package publisher. The embedded
+[configuration mode](MACOS-CONFIGURATION.md) is tested against root-owned synthetic
+state on both native runners, including private writes and rejected invalid input.
 
 The installer verifies the selected native payload and runs both client and
 embedded maintenance self-tests before overwriting the canonical client,
