@@ -20,6 +20,7 @@ exports.pgDeleteLabel = () => {};
 RUNNER = r"""
 const assert = require('node:assert/strict');
 const {labels, route} = require(process.argv[1]);
+(async () => {
 globalThis.authenticated = true;
 globalThis.audits = [];
 function set(type, key, disposition) {
@@ -31,7 +32,7 @@ assert.equal(labels.isFindingAllowed(finding, labels.allowedAssetKeys()), true);
 // An exact deny wins over an ancestor allow.
 set('path', '~/project/nested/main.py', 'deny');
 assert.equal(labels.isFindingAllowed(finding, labels.allowedAssetKeys()), false);
-labels.removeLabel('path', '~/project/nested/main.py');
+await labels.removeLabel('path', '~/project/nested/main.py');
 assert.equal(labels.isFindingAllowed(finding, labels.allowedAssetKeys()), true);
 // An ancestor deny wins over a deeper allow and an exact allow.
 set('prefix', '~/project/', 'deny');
@@ -63,7 +64,6 @@ assert.equal(labels.isFindingAllowed({kind: 'unreadable', path: '~/project/neste
 function request(body) {
   return new Request('https://console.example.test/api/labels', {method: 'POST', body: JSON.stringify(body)});
 }
-(async () => {
   // Exercise the real API handler: valid prefix rules must pass the name check.
   for (const disposition of ['allow', 'deny']) {
     const response = await route.POST(request({asset_type: 'prefix', asset_key: '~/Fixture/API/', disposition}));

@@ -21,7 +21,7 @@
  * 配置（PG settings `remediation_json`）：{enabled, auto_deny, notify}，默认全开
  * （用户要求"全自动纠偏"；可在设置页关闭）。
  */
-import { listLabels, setLabelInMemory, persistLabelsDurable, findingAsset, type AssetLabel, type AssetType } from '@/lib/labels';
+import { listLabels, persistLabelsDurable, findingAsset, type AssetLabel, type AssetType, type SetLabelInput } from '@/lib/labels';
 import { labelsReadyFor } from '@/lib/label-readiness';
 import { getSetting } from '@/lib/baselines';
 import { logAudit } from '@/lib/store';
@@ -286,8 +286,8 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
   if (cfg.auto_deny && decision.denies.length > 0) {
     // 持久化优先（2026-09-25 事故修复）：deny 先批量落库（单事务、可等待），
     // 落库失败绝不进入发布——绝不带着半套标签签发策略。
-    const denyRows: AssetLabel[] = decision.denies.map((d) =>
-      setLabelInMemory({
+    const denyRows: SetLabelInput[] = decision.denies.map((d) =>
+      ({
         asset_type: d.asset_type,
         asset_key: d.asset_key,
         disposition: 'deny',
@@ -297,14 +297,15 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
         updated_by: actor,
       }),
     );
+    let saved: AssetLabel[];
     try {
-      await persistLabelsDurable(denyRows);
-    } catch (e) {
+      saved = await persistLabelsDurable(denyRows, { onlyUndecided: true });
+    } catch {
       logAudit({
         actor,
         action: 'remediation:auto_sweep',
         resource_type: 'policy',
-        detail: `deny 落库失败，本轮不发布：${e instanceof Error ? e.message : String(e)}`,
+        detail: 'labels_write_unconfirmed: no_policy_publish',
       });
       return {
         ran: true,
@@ -312,35 +313,38 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
         denied: [],
         conflicts: decision.conflicts,
         notified: 0,
-        publish_blocked: `deny 落库失败（${e instanceof Error ? e.message : String(e)}）——已放弃自动发布，等待下轮重试`,
+        publish_blocked: 'labels_write_unconfirmed',
       };
     }
-    for (const d of decision.denies) {
+    for (const d of saved) {
       denied.push({ asset_type: d.asset_type, asset_key: d.asset_key });
     }
-    // 自动发布（永不 override；超闸降级人工）
-    const denySkills = listLabels().filter((l) => l.asset_type === 'skill' && l.disposition === 'deny').map((l) => l.asset_key);
-    const denyMcp = listLabels().filter((l) => l.asset_type === 'mcp' && l.disposition === 'deny').map((l) => l.asset_key);
-    const blast = await blastRadiusOk(denySkills, denyMcp);
-    if (!blast.ok) {
-      publishBlocked = `blast_radius（预计影响 ${blast.total} 资产）——自动纠偏不 override，已留人工发布`;
-    } else {
-      await ensureBaselinesLoaded().catch(() => {});
-      await ensurePolicyReleasesLoaded().catch(() => {});
-      await ensureSigningKeysLoaded().catch(() => {});
-      const rel = publishPolicyRelease({
-        scanMode: getScanMode(),
-        by: actor,
-        note: `auto-remediation: denied ${denied.length} asset(s)`,
-        customRuleIds: enforceableRuleIds(effectiveRules().map((r) => r.id)),
-        modules: moduleOverrides(),
-        enforceOverride: false,
-        exempt: exemptDevices(),
-        pinned: pinnedDevices(),
-        rollout: getRollout(),
-      });
-      if (rel) publishedVersion = rel.version;
-      else publishBlocked = 'signing_key_not_configured';
+    // A concurrent explicit decision may have rejected every automatic write.
+    if (denied.length > 0) {
+      // 自动发布（永不 override；超闸降级人工）
+      const denySkills = listLabels().filter((l) => l.asset_type === 'skill' && l.disposition === 'deny').map((l) => l.asset_key);
+      const denyMcp = listLabels().filter((l) => l.asset_type === 'mcp' && l.disposition === 'deny').map((l) => l.asset_key);
+      const blast = await blastRadiusOk(denySkills, denyMcp);
+      if (!blast.ok) {
+        publishBlocked = `blast_radius（预计影响 ${blast.total} 资产）——自动纠偏不 override，已留人工发布`;
+      } else {
+        await ensureBaselinesLoaded().catch(() => {});
+        await ensurePolicyReleasesLoaded().catch(() => {});
+        await ensureSigningKeysLoaded().catch(() => {});
+        const rel = publishPolicyRelease({
+          scanMode: getScanMode(),
+          by: actor,
+          note: `auto-remediation: denied ${denied.length} asset(s)`,
+          customRuleIds: enforceableRuleIds(effectiveRules().map((r) => r.id)),
+          modules: moduleOverrides(),
+          enforceOverride: false,
+          exempt: exemptDevices(),
+          pinned: pinnedDevices(),
+          rollout: getRollout(),
+        });
+        if (rel) publishedVersion = rel.version;
+        else publishBlocked = 'signing_key_not_configured';
+      }
     }
   }
 

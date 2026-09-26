@@ -1,7 +1,7 @@
 /**
  * lib/labels.ts — 资产标签与处置注册表（skill / MCP 打标 + 加白/观察/拉黑）。
  *
- * 内存 Map（globalThis 跨模块重载存活）+ PostgreSQL 写穿透（lib/pg-store）。
+ * 内存快照（globalThis 跨模块重载存活）+ PostgreSQL 提交确认（lib/pg-store）。
  * 水合为请求期懒加载（ensureLabelsLoaded），遵循 workerd 全局作用域禁异步 I/O 约束。
  *
  * disposition 语义：
@@ -14,8 +14,7 @@ import { normalizePathKey } from './path-key';
 import {
   pgEnabled,
   pgLoadLabels,
-  pgUpsertLabel,
-  pgUpsertLabelsBatch,
+  pgApplyLabelChanges,
   pgDeleteLabel,
   type AssetLabelRow,
 } from './pg-store';
@@ -45,6 +44,9 @@ export interface AssetLabel {
 const globals = globalThis as typeof globalThis & {
   __aegis_labels?: Map<string, AssetLabel>;
   __aegis_label_loads?: Set<Set<string>>;
+  __aegis_label_write_tail?: Promise<void>;
+  __aegis_label_epoch?: number;
+  __aegis_label_uncertain?: boolean;
 };
 
 /** Track only mutations made while a database snapshot is in flight. */
@@ -96,7 +98,8 @@ let loadPromise: Promise<void> | null = null;
 export function ensureLabelsLoaded(): Promise<void> {
   if (!pgEnabled()) return Promise.resolve();
   if (!loadPromise) {
-    loadPromise = (async () => {
+    const epoch = globals.__aegis_label_epoch ?? 0;
+    const attempt = (async () => {
       const changed = new Set<string>();
       activeLoads().add(changed);
       try {
@@ -105,19 +108,25 @@ export function ensureLabelsLoaded(): Promise<void> {
         // Validate the whole snapshot before changing memory; unknown types must
         // never acquire skill permissions through an implicit conversion.
         const labels = rows.map(rowToLabel);
+        if ((globals.__aegis_label_epoch ?? 0) !== epoch) throw new Error('labels_snapshot_obsolete');
         const m = store();
+        const present = new Set(labels.map(l => mapKey(l.asset_type, l.asset_key)));
+        // A committed-but-unacknowledged deletion must disappear after reload.
+        for (const key of m.keys()) if (!present.has(key) && !changed.has(key)) m.delete(key);
         for (const label of labels) {
           const key = mapKey(label.asset_type, label.asset_key);
           // A local edit or deletion during I/O takes priority over this snapshot.
           if (!changed.has(key)) m.set(key, label);
         }
+        globals.__aegis_label_uncertain = false;
       } finally {
         activeLoads().delete(changed);
       }
     })().catch(() => {
-      loadPromise = null; // An unavailable or invalid snapshot can be retried.
+      if (loadPromise === attempt) loadPromise = null; // Do not reset a newer load.
       throw new Error('labels_load_failed');
     });
+    loadPromise = attempt;
   }
   return loadPromise;
 }
@@ -131,6 +140,7 @@ export function listLabels(): AssetLabel[] {
 /** 当前加白(disposition='allow')资产键集合，形如 "skill:xlsx" / "mcp:qw-builtin"。 */
 export function allowedAssetKeys(): Set<string> {
   const s = new Set<string>();
+  if (globals.__aegis_label_uncertain) return s;
   for (const l of store().values()) if (l.disposition === 'allow') s.add(mapKey(l.asset_type, l.asset_key));
   return s;
 }
@@ -214,6 +224,7 @@ export function findingAsset(f: FindingLike): { asset_type: AssetType; asset_key
 
 /** 该 finding 是否命中加白资产（应被抑制/自动消除）。 */
 export function isFindingAllowed(f: FindingLike, allowed: Set<string>): boolean {
+  if (globals.__aegis_label_uncertain) return false;
   const a = findingAsset(f);
   if (a === null) return false;
   const assetKey = mapKey(a.asset_type, a.asset_key);
@@ -268,7 +279,7 @@ export interface SetLabelInput {
   updated_by: string;
 }
 
-/** 构造标签记录并写入内存（不触发 PG 调度写；供批量持久化路径收集）。 */
+/** Volatile-mode/test setup only. Production writers must use the commit APIs. */
 export function setLabelInMemory(input: SetLabelInput): AssetLabel {
   const m = store();
   const k = mapKey(input.asset_type, input.asset_key);
@@ -288,49 +299,71 @@ export function setLabelInMemory(input: SetLabelInput): AssetLabel {
   return rec;
 }
 
-/** 设置/更新某资产的标签与处置；写穿透到 PG。 */
-export function setLabel(input: SetLabelInput): AssetLabel {
-  const rec = setLabelInMemory(input);
-  pgUpsertLabel({
-    asset_type: rec.asset_type,
-    asset_key: rec.asset_key,
-    tags: JSON.stringify(rec.tags),
-    disposition: rec.disposition,
-    decision_source: rec.decision_source ?? 'legacy',
-    note: rec.note,
-    updated_by: rec.updated_by,
-    updated_at: rec.updated_at,
+/** Serialize request-time mutations within this process; PostgreSQL remains authoritative. */
+function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const pending = (globals.__aegis_label_write_tail ?? Promise.resolve()).then(operation);
+  globals.__aegis_label_write_tail = pending.then(() => undefined, () => undefined);
+  return pending;
+}
+
+function invalidateUnconfirmedState(): void {
+  globals.__aegis_label_uncertain = true;
+  globals.__aegis_label_epoch = (globals.__aegis_label_epoch ?? 0) + 1;
+  loadPromise = null;
+}
+
+/** Publish only acknowledged rows into memory. Missing acknowledgement may mean
+ * COMMIT succeeded: invalidate the snapshot and do not claim the write rolled back. */
+export function persistLabelsDurable(
+  inputs: SetLabelInput[], options: { onlyUndecided?: boolean } = {},
+): Promise<AssetLabel[]> {
+  return serializeMutation(async () => {
+    await ensureLabelsLoaded();
+    if (!inputs.length) return [];
+    if (!pgEnabled()) {
+      // Explicit volatile development mode; never claimed to survive a restart.
+      const saved: AssetLabel[] = [];
+      for (const input of inputs) {
+        if (options.onlyUndecided && store().get(mapKey(input.asset_type, input.asset_key))?.disposition) continue;
+        saved.push(setLabelInMemory(input));
+      }
+      return saved;
+    }
+    try {
+      const result = await pgApplyLabelChanges(inputs.map(input => ({
+        ...input, tags: input.tags === undefined ? undefined : JSON.stringify(input.tags), updated_at: Date.now(),
+      })), options.onlyUndecided === true);
+      const records = result.labels.map(rowToLabel); // validate the complete result first
+      const applied = new Set(result.appliedKeys);
+      for (const record of records) {
+        const key = mapKey(record.asset_type, record.asset_key);
+        store().set(key, record);
+        markLocalMutation(key);
+      }
+      return records.filter(record => applied.has(mapKey(record.asset_type, record.asset_key)));
+    } catch {
+      invalidateUnconfirmedState();
+      throw new Error('labels_write_unconfirmed');
+    }
   });
-  return rec;
 }
 
-/**
- * 批量持久化标签（可等待、单事务，失败抛错）。种子/自动纠偏等"发布前置数据"
- * 必须走本函数（生产事故 2026-09-25：fire-and-forget 批量写静默丢 291 条，
- * 导致签名策略 v37 的 allowed 名单误瘦身；详见 pgUpsertLabelsBatch 注释）。
- */
-export async function persistLabelsDurable(labels: AssetLabel[]): Promise<number> {
-  if (labels.length === 0) return 0;
-  if (!pgEnabled()) return labels.length; // 非 PG 模式（dev/文件存储）无持久化需求
-  return pgUpsertLabelsBatch(
-    labels.map((rec) => ({
-      asset_type: rec.asset_type,
-      asset_key: rec.asset_key,
-      tags: JSON.stringify(rec.tags),
-      disposition: rec.disposition,
-      decision_source: rec.decision_source ?? 'legacy',
-      note: rec.note,
-      updated_by: rec.updated_by,
-      updated_at: rec.updated_at,
-    })),
-  );
+export async function setLabel(input: SetLabelInput): Promise<AssetLabel> {
+  return (await persistLabelsDurable([input]))[0];
 }
 
-/** 移除某资产的标签/处置记录；写穿透到 PG。 */
-export function removeLabel(assetType: AssetType, assetKey: string): boolean {
-  const m = store();
-  markLocalMutation(mapKey(assetType, assetKey));
-  const ok = m.delete(mapKey(assetType, assetKey));
-  if (ok) pgDeleteLabel(assetType, assetKey);
-  return ok;
+/** Delete from the database even if the process cache does not contain the key. */
+export function removeLabel(assetType: AssetType, assetKey: string): Promise<boolean> {
+  return serializeMutation(async () => {
+    const key = mapKey(assetType, assetKey);
+    try {
+      const removed = pgEnabled() ? await pgDeleteLabel(assetType, assetKey) : store().has(key);
+      store().delete(key);
+      markLocalMutation(key);
+      return removed;
+    } catch {
+      invalidateUnconfirmedState();
+      throw new Error('labels_write_unconfirmed');
+    }
+  });
 }

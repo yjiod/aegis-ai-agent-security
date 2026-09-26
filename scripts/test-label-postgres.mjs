@@ -46,8 +46,7 @@ async function main() {
     const store = (await import(pathToFileURL(output).href)).default;
     const row = (key, source) => ({ asset_type:'skill', asset_key:key, disposition:'allow', tags:'[]',
       note:'synthetic', updated_by:'fixture', updated_at:1, decision_source:source });
-    store.pgUpsertLabel(row('manual-fixture','manual'));
-    await Promise.all(globalThis.aegisFixtureWrites);
+    await store.pgUpsertLabel(row('manual-fixture','manual'));
     assert.equal(await store.pgUpsertLabelsBatch([row('preset-fixture','preset'),row('auto-fixture','automatic')]),2);
     let loaded = await store.pgLoadLabels();
     assert.deepEqual(Object.fromEntries(loaded.map(r => [r.asset_key,r.decision_source])), {
@@ -60,7 +59,23 @@ async function main() {
     await assert.rejects(store.pgUpsertLabelsBatch([row('rollback-fixture','preset'),row('invalid-fixture','forged')]));
     loaded = await store.pgLoadLabels();
     assert(!loaded.some(r=>r.asset_key==='rollback-fixture' || r.asset_key==='invalid-fixture'));
-    console.log('label_postgres_passed:migration=repeatable:legacy=preserved:sources=roundtrip:invalid_batch=rollback');
+    await store.pgApplyLabelChanges([{...row('deny-fixture','manual'), disposition:'deny'}]);
+    const skipped = await store.pgApplyLabelChanges([row('deny-fixture','preset')], true);
+    assert.deepEqual(skipped.appliedKeys, []);
+    assert.equal(skipped.labels[0].disposition, 'deny');
+    await store.pgApplyLabelChanges([{asset_type:'skill',asset_key:'deny-fixture',note:'new annotation',updated_by:'fixture',updated_at:2}]);
+    loaded=await store.pgLoadLabels();
+    assert.equal(loaded.find(r=>r.asset_key==='deny-fixture').disposition,'deny');
+    assert.equal(loaded.find(r=>r.asset_key==='deny-fixture').decision_source,'manual');
+    // Two independent connections: neither insertion order may erase the deny.
+    await Promise.all([
+      store.pgApplyLabelChanges([row('race-fixture','preset')],true),
+      store.pgApplyLabelChanges([{...row('race-fixture','manual'),disposition:'deny'}]),
+    ]);
+    assert.equal((await store.pgLoadLabels()).find(r=>r.asset_key==='race-fixture').disposition,'deny');
+    assert.equal(await store.pgDeleteLabel('skill','race-fixture'),true);
+    assert.equal(await store.pgDeleteLabel('skill','race-fixture'),false);
+    console.log('label_postgres_passed:migration=repeatable:legacy=preserved:sources=roundtrip:invalid_batch=rollback:patch=preserved:conditional=deny_wins:delete=confirmed');
   } finally {
     await client.end();
   }

@@ -164,7 +164,7 @@ export function openApiDoc(): OpenApiDoc {
   const errors = {
     '400': { description: '输入无效，或试图写入只读 decision_source' },
     '401': { description: '未认证' }, '403': { description: '权限不足' },
-    '503': { description: '标签不可用，包括数据库迁移尚未应用' },
+    '503': { description: '标签不可用或写入结果未确认（labels_unavailable / labels_write_unconfirmed）；刷新权威状态后重试，不能推定已回滚' },
   };
   Object.assign(paths['/labels'].get as object, {
     responses: { ...errors, '200': jsonResponse({ type: 'object', required: ['labels'], properties: {
@@ -176,7 +176,7 @@ export function openApiDoc(): OpenApiDoc {
     requestBody: { required: true, content: { 'application/json': { schema: {
       type: 'object', required: ['asset_type', 'asset_key'], properties: labelProperties,
       not: { required: ['decision_source'] },
-      description: 'Explicit disposition records a manual decision; editing tags or note alone preserves the existing origin.',
+      description: 'Explicit disposition records a manual decision; editing tags or note alone preserves the existing origin. With PostgreSQL configured, success is returned only after commit acknowledgement.',
     } } } },
     responses: { ...errors, '200': jsonResponse({ type: 'object', required: ['label'], properties: { label: labelSchema } }) },
   });

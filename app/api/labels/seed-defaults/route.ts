@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin, getSession } from '@/lib/auth';
-import { listLabels, setLabelInMemory, persistLabelsDurable, type AssetLabel } from '@/lib/labels';
+import { listLabels, persistLabelsDurable, type SetLabelInput } from '@/lib/labels';
 import { defaultBundledEntries } from '@/lib/default-allowlist';
 import { logAudit } from '@/lib/store';
 import { labelsReadyFor } from '@/lib/label-readiness';
@@ -18,7 +18,7 @@ const NO_STORE = { 'Cache-Control': 'no-store' } as const;
  *
  * 持久化（2026-09-25 生产事故修复）：批量写走 persistLabelsDurable（单事务可等待），
  * 绝不再用 fire-and-forget——此前 501 条 after() 写静默丢 291 条，重启后
- * 签名策略 allow 从 594 误缩到 300。落库失败返回 500，绝不谎报成功。
+ * 签名策略 allow 从 594 误缩到 300。未确认提交返回 503，刷新权威快照后再重试。
  */
 export async function POST(request: Request) {
   const denied = requireAdmin(request);
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   const existing = new Map(listLabels().map((l) => [`${l.asset_type}:${l.asset_key}`, l]));
   let seeded = 0;
   let skipped = 0;
-  const pending: AssetLabel[] = [];
+  const pending: SetLabelInput[] = [];
   for (const entry of defaultBundledEntries()) {
     const key = `${entry.asset_type}:${entry.asset_key}`;
     const prev = existing.get(key);
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       skipped += 1; // 已有人工处置，不覆盖
       continue;
     }
-    const rec = setLabelInMemory({
+    const rec: SetLabelInput = {
       asset_type: entry.asset_type,
       asset_key: entry.asset_key,
       disposition: 'allow',
@@ -47,16 +47,19 @@ export async function POST(request: Request) {
       tags: ['default-bundled'],
       note: '默认自带',
       updated_by: actor,
-    });
+    };
     pending.push(rec);
-    seeded += 1;
+
   }
   try {
-    await persistLabelsDurable(pending);
-  } catch (e) {
+    const saved = await persistLabelsDurable(pending, { onlyUndecided: true });
+    seeded = saved.length;
+    skipped += pending.length - seeded;
+  } catch {
+    logAudit({ actor, action: 'labels:seed_unconfirmed', resource_type: 'policy', detail: 'labels_write_unconfirmed' });
     return NextResponse.json(
-      { error: 'persist_failed', hint: '批量落库失败，本次种子未生效；请重试', detail: e instanceof Error ? e.message : String(e) },
-      { status: 500, headers: NO_STORE },
+      { error: 'labels_write_unconfirmed', hint: '未确认写入结果，请刷新后重试' },
+      { status: 503, headers: NO_STORE },
     );
   }
   logAudit({
