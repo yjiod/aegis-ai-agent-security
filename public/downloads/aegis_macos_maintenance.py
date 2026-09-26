@@ -196,6 +196,11 @@ def uninstall(app, daemon_dir, homes, archive_parent, services):
         for domain in ("gui/" + str(uid), "user/" + str(uid)):
             for label in AGENT_LABELS:
                 services.stop(domain, label)
+    runtimes=[Path(app)]+[Path(home)/"Library/Application Support/AegisAgent" for home in homes]
+    for runtime in runtimes:
+        marker=runtime/"watch-cleanup-pending.json"
+        if marker.exists() or marker.is_symlink():
+            raise MaintenanceError("watch_cleanup_requires_verification")
     with directory(archive_parent) as parent:
         try:
             os.mkdir("AegisUninstallArchive", 0o700, dir_fd=parent)
