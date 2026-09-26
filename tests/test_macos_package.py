@@ -1,12 +1,14 @@
 """Real pkgbuild/expansion with isolated postinstall fixtures; never installs on the host.
 
 launchd, enrollment and hardware discovery are test doubles. These checks do not
-claim privileged installation, daemon health, signing or native CPU execution.
+claim privileged installation, daemon health or signing. Compiled native test
+executables exercise packaging; they are not the production frozen client.
 """
 import json
 import os
 from pathlib import Path
 import plistlib
+import platform
 import shutil
 import subprocess
 import sys
@@ -32,13 +34,22 @@ class MacPackageTests(unittest.TestCase):
         shutil.copy2(ROOT / "scripts/build-macos-pkg.sh", cls.repo / "scripts/build-macos-pkg.sh")
         for name in RUNTIME:
             shutil.copy2(ROOT / "public/downloads" / name, cls.downloads / name)
-        cls.package = cls.build_package("python")
-        # Shell fixtures validate selection only; they are not native artifacts.
-        for arch in ("arm64", "x64"):
-            binary = cls.downloads / f"aegis-agent-darwin-{arch}"
-            binary.write_text('#!/bin/sh\n# fixture: ' + arch + '\n[ "$1" = --selftest ] || [ "$1" = --maintenance-selftest ]\n')
-            binary.chmod(0o755)
-        cls.native_package = cls.build_package("native-fixtures")
+        # Small native fixtures, with no scan/enrollment/system side effects.
+        fixture = cls.root / "fixture.c"
+        fixture.write_text("""#include <stdlib.h>
+#include <string.h>
+int main(int argc, char **argv) {
+  if (argc != 2) return 3;
+  if (strcmp(argv[1], "--selftest") == 0) return getenv("AEGIS_TEST_RUNTIME_FAIL") ? 7 : 0;
+  if (strcmp(argv[1], "--maintenance-selftest") == 0) return getenv("AEGIS_TEST_MAINTENANCE_FAIL") ? 7 : 0;
+  return 3;
+}
+""")
+        for suffix, arch in (("arm64", "arm64"), ("x64", "x86_64")):
+            subprocess.run(["/usr/bin/clang", "-target", arch + "-apple-macos14", str(fixture),
+                            "-o", str(cls.downloads / ("aegis-agent-darwin-" + suffix))],
+                           check=True, capture_output=True, timeout=60)
+        cls.package = cls.build_package("native-fixtures")
 
     @classmethod
     def build_package(cls, name):
@@ -63,7 +74,7 @@ class MacPackageTests(unittest.TestCase):
         self.bin.mkdir()
         self.calls = self.case / "calls.jsonl"
         self.env = {**os.environ, "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
-                    "AEGIS_TEST_CALLS": str(self.calls), "AEGIS_TEST_ARCH": "arm64"}
+                    "AEGIS_TEST_CALLS": str(self.calls), "AEGIS_TEST_ARCH": platform.machine()}
         mock = '''#!/usr/bin/env python3
 import json, os, pathlib, sys
 command = pathlib.Path(sys.argv[0]).name
@@ -81,8 +92,8 @@ if command == "uname":
             path.write_text(mock)
             path.chmod(0o755)
 
-    def prepare(self, native=False, enrolled=True):
-        payload, script = self.native_package if native else self.package
+    def prepare(self, enrolled=True):
+        payload, script = self.package
         shutil.copytree(payload, self.target, dirs_exist_ok=True)
         self.app = self.target / "Library/Application Support/AegisAgent"
         self.policy = self.app / "aegis-policy.json"
@@ -105,18 +116,13 @@ if command == "uname":
     def launch_calls(self):
         return [json.loads(line) for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
 
-    def test_payload_has_factory_policy_and_complete_script_runtime(self):
+    def test_payload_has_factory_policy_and_no_external_python_runtime(self):
         self.prepare()
         self.assertFalse(self.policy.exists())
         self.assertEqual((self.app / "aegis-policy.factory.json").read_bytes(), (ROOT / "public/downloads/aegis-policy.json").read_bytes())
-        for name in ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh"):
-            self.assertEqual((self.app / name).read_bytes(), (ROOT / "public/downloads" / name).read_bytes())
-        # Execute the actual packaged runtime, without scanning, network or writes.
-        result = subprocess.run([sys.executable, str(self.app / "aegis_agent.py"), "--selftest"], capture_output=True, timeout=20)
-        self.assertEqual(result.returncode, 0)
-        result = subprocess.run([sys.executable, "-I", "-B", str(self.app / "aegis_macos_maintenance.py"), "--selftest"], capture_output=True, timeout=20)
-        self.assertEqual(result.returncode, 0)
-        # Unexpected arguments must fail before any real-system access.
+        for name in ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py"):
+            self.assertFalse((self.app / name).exists())
+        self.assertEqual((self.app / "uninstall-aegis-macos.sh").read_bytes(), (ROOT / "public/downloads/uninstall-aegis-macos.sh").read_bytes())
         result = subprocess.run(["sh", str(self.app / "uninstall-aegis-macos.sh"), "--unexpected"], capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 2)
 
@@ -136,8 +142,9 @@ if command == "uname":
         self.assertFalse((self.app / "enroll-pending").exists())
         self.assertIn(["print", "system/com.aegis.agent"], self.launch_calls())
         plist = plistlib.loads((self.target / "Library/LaunchDaemons/com.aegis.agent.plist").read_bytes())
-        interpreter = plist["ProgramArguments"][0]
-        result = subprocess.run([interpreter, str(self.app / "aegis_agent.py"), "--selftest"], capture_output=True, timeout=20)
+        executable = plist["ProgramArguments"][0]
+        self.assertEqual(executable, "/Library/Application Support/AegisAgent/aegis-agent")
+        result = subprocess.run([str(self.app / "aegis-agent"), "--selftest"], capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0)
 
     def test_new_install_initializes_factory_policy(self):
@@ -146,17 +153,18 @@ if command == "uname":
         self.assertEqual(self.policy.read_bytes(), (self.app / "aegis-policy.factory.json").read_bytes())
 
     def test_native_without_embedded_maintenance_cannot_register_service(self):
-        self.prepare(native=True)
-        (self.app / "aegis-agent-darwin-arm64").write_text('#!/bin/sh\n[ "$1" = --selftest ]\n')
+        self.prepare()
+        self.env["AEGIS_TEST_MAINTENANCE_FAIL"] = "1"
+        (self.app / "aegis-agent").write_bytes(b"previous-client")
         result = self.run_postinstall()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("embedded maintenance", result.stderr)
+        self.assertEqual((self.app / "aegis-agent").read_bytes(), b"previous-client")
         self.assertEqual(self.launch_calls(), [])
 
     def test_enrollment_failure_is_deferred_but_service_registration_is_checked(self):
         self.prepare(enrolled=False)
-        # Only this test replaces enrollment; no network requests leave the fixture.
-        (self.app / "aegis_agent.py").write_text('import sys\nsys.exit(0 if sys.argv[1] == "--selftest" else 3)\n')
+        # The compiled fixture refuses --install-config without network access.
         result = self.run_postinstall()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue((self.app / "enroll-pending").exists())
@@ -179,7 +187,7 @@ if command == "uname":
 
     def test_broken_runtime_fails_before_service_mutation(self):
         self.prepare()
-        (self.app / "aegis_agent.py").write_text("raise SystemExit(7)\n")
+        self.env["AEGIS_TEST_RUNTIME_FAIL"] = "1"
         result = self.run_postinstall()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.launch_calls(), [])
@@ -194,12 +202,10 @@ if command == "uname":
         self.assertEqual(self.launch_calls(), [])
 
     def test_native_architecture_selection(self):
-        self.prepare(native=True)
-        for arch, suffix in (("arm64", "arm64"), ("x86_64", "x64")):
-            with self.subTest(arch=arch):
-                self.env["AEGIS_TEST_ARCH"] = arch
-                self.assertEqual(self.run_postinstall().returncode, 0)
-                self.assertEqual((self.app / "aegis-agent").read_bytes(), (self.app / f"aegis-agent-darwin-{suffix}").read_bytes())
+        self.prepare()
+        suffix = "arm64" if platform.machine() == "arm64" else "x64"
+        self.assertEqual(self.run_postinstall().returncode, 0)
+        self.assertEqual((self.app / "aegis-agent").read_bytes(), (self.app / f"aegis-agent-darwin-{suffix}").read_bytes())
 
     def test_partial_native_package_is_rejected(self):
         binary = self.downloads / "aegis-agent-darwin-x64"
@@ -214,19 +220,65 @@ if command == "uname":
             binary.chmod(0o755)
 
     def test_missing_native_payload_does_not_fall_back_to_stale_binary(self):
-        self.prepare(native=True)
-        (self.app / "aegis-agent-darwin-arm64").unlink()
-        shutil.copy2(self.app / "aegis-agent-darwin-x64", self.app / "aegis-agent")
+        self.prepare()
+        (self.app / ("aegis-agent-darwin-arm64" if platform.machine() == "arm64" else "aegis-agent-darwin-x64")).unlink()
+        (self.app / "aegis-agent").write_bytes(b"previous-client")
         self.assertNotEqual(self.run_postinstall().returncode, 0)
         self.assertEqual(self.launch_calls(), [])
 
-    def test_script_package_does_not_select_previous_native_runtime(self):
+    def test_no_payload_cannot_build_a_python_package(self):
+        saved = {name: (self.downloads / name).read_bytes() for name in ("aegis-agent-darwin-arm64", "aegis-agent-darwin-x64")}
+        try:
+            for name in saved:
+                (self.downloads / name).unlink()
+            result = subprocess.run(["sh", str(self.repo / "scripts/build-macos-pkg.sh")], capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("requires both", result.stderr)
+        finally:
+            for name, data in saved.items():
+                (self.downloads / name).write_bytes(data)
+                (self.downloads / name).chmod(0o755)
+
+    def test_script_wrong_architecture_and_symlink_are_refused_by_builder(self):
+        binary = self.downloads / "aegis-agent-darwin-arm64"
+        saved = binary.read_bytes()
+        try:
+            for content in (b"#!/bin/sh\nexit 0\n", (self.downloads / "aegis-agent-darwin-x64").read_bytes()):
+                binary.write_bytes(content)
+                result = subprocess.run(["sh", str(self.repo / "scripts/build-macos-pkg.sh")], capture_output=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+            binary.unlink()
+            binary.symlink_to(self.downloads / "aegis-agent-darwin-x64")
+            result = subprocess.run(["sh", str(self.repo / "scripts/build-macos-pkg.sh")], capture_output=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+        finally:
+            if binary.is_symlink():
+                binary.unlink()
+            binary.write_bytes(saved)
+            binary.chmod(0o755)
+
+    def test_installer_rejects_script_payload_even_with_stale_native_client(self):
         self.prepare()
-        stale = self.app / "aegis-agent-darwin-arm64"
-        stale.write_text("#!/bin/sh\nexit 77\n")
-        stale.chmod(0o755)
-        self.assertEqual(self.run_postinstall().returncode, 0)
-        self.assertFalse((self.app / "aegis-agent").exists())
+        suffix = "arm64" if platform.machine() == "arm64" else "x64"
+        (self.app / ("aegis-agent-darwin-" + suffix)).write_text("#!/bin/sh\nexit 0\n")
+        (self.app / "aegis-agent").write_bytes(b"previous-client")
+        result = self.run_postinstall()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.launch_calls(), [])
+        self.assertEqual((self.app / "aegis-agent").read_bytes(), b"previous-client")
+
+    def test_missing_source_version_cannot_become_a_zero_version_package(self):
+        source = self.downloads / "aegis_agent.py"
+        saved = source.read_bytes()
+        package = (self.downloads / "aegis-agent-macos.pkg").read_bytes()
+        try:
+            for content in (b"# missing metadata\n", b'AGENT_VERSION = "invalid"\n'):
+                source.write_bytes(content)
+                result = subprocess.run(["sh", str(self.repo / "scripts/build-macos-pkg.sh")], capture_output=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((self.downloads / "aegis-agent-macos.pkg").read_bytes(), package)
+        finally:
+            source.write_bytes(saved)
 
 
 if __name__ == "__main__":

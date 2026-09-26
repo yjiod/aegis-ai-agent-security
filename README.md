@@ -75,9 +75,6 @@ Agent 通过**只读文件标记**识别下列工具（不启动、不执行被�
 # macOS —— 原生 .pkg（双击安装；postinstall 自动入网 + 系统 LaunchDaemon，开机自启）
 sudo installer -pkg aegis-agent-macos.pkg -target /
 
-# macOS —— 自包含 .run（用户级，无需 sudo；内嵌运行时，离线可装）
-AEGIS_SERVER_URL=https://你的控制台 sh aegis-agent-macos-standalone.run
-
 # Windows —— 原生 .msi（双击或 msiexec 安装 → 注册 SCM 服务 AegisAgent，安装时零接触入网）
 #   从控制台 /downloads/aegis-agent-windows.msi 获取（已烘焙你的服务器地址；wixl 交叉构建、自包含 .NET 服务壳）
 msiexec /i aegis-agent-windows.msi
@@ -86,7 +83,9 @@ msiexec /i aegis-agent-windows.msi
 .\aegis-agent-windows-enroll.ps1 -Server https://你的控制台
 ```
 
-企业规模化下发亦可走 MDM / EDR（`mdm-*` 脚本）或离线企业包 `aegis-enterprise-bundle.zip`。详见[企业部署指南](public/downloads/DEPLOYMENT-GUIDE.md)。
+Mac 新安装统一使用系统 `.pkg`；用户级 `.run` 已拒绝新安装，主构建停止生成。系统包要求 ARM64/x64 原生载荷，安装、启动和入网不再回退外部 Python。CI 保留的包目前为合成服务器地址的未签名候选，尚未完成生产发布及完整干净终端验收，详见 [Mac 验证边界](docs/MACOS-PACKAGE-VALIDATION.md)。
+
+企业规模化下发的 MDM / EDR（`mdm-*` 脚本）及离线企业包见[企业部署指南](public/downloads/DEPLOYMENT-GUIDE.md)。其中旧 Mac MDM、配置与合规脚本仍依赖 Python，迁移完成前不满足 [R7 交付要求](docs/MACOS-RUNTIME-CONTRACT.md)，不能用作免 Python 客户端的替代安装路径。
 
 ---
 

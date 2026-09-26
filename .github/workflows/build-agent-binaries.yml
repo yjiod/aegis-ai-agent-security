@@ -15,6 +15,9 @@ on:
       - public/downloads/aegis_self_update.py
       - public/downloads/aegis_macos_maintenance.py
       - tests/test_macos_native_maintenance.py
+      - tests/test_macos_frozen_package.py
+      - tests/test_self_update_robustness.py
+      - scripts/build-macos-pkg.sh
       - scripts/macos-freeze-requirements.txt
       - .github/workflows/build-agent-binaries.yml
   push:
@@ -65,6 +68,10 @@ jobs:
         run: |
           AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" \
             python3 -m unittest discover -s tests -p test_macos_native_maintenance.py -v
+      - name: Validate update preflight against the frozen candidate
+        run: |
+          AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" \
+            python3 -m unittest discover -s tests -p test_self_update_robustness.py -v
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -83,3 +90,45 @@ jobs:
           name: aegis-exec-guard-darwin-${{ matrix.arch }}
           path: dist-bin/aegis-exec-guard-darwin-${{ matrix.arch }}
           if-no-files-found: ignore
+
+  native-package:
+    needs: freeze
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-14, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14.7'
+      - name: Retrieve both frozen artifacts from this exact workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/aegis-package-binaries"
+          for arch in arm64 x64; do
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name "aegis-agent-darwin-$arch" --dir "$RUNNER_TEMP/aegis-package-binaries"
+          done
+      - name: Validate actual package payload and isolated postinstall
+        run: |
+          AEGIS_MACOS_PACKAGE_BIN_DIR="$RUNNER_TEMP/aegis-package-binaries" \
+            python3 -m unittest discover -s tests -p test_macos_frozen_package.py -v
+      - name: Build unsigned candidate package with a synthetic server address
+        env:
+          AEGIS_PUBLIC_ORIGIN: https://aegis.example.test
+        run: |
+          cp "$RUNNER_TEMP/aegis-package-binaries/"aegis-agent-darwin-* public/downloads/
+          sh scripts/build-macos-pkg.sh
+      - name: Retain candidate package for review (not a signed release)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aegis-macos-pkg-candidate-${{ matrix.runner }}
+          path: public/downloads/aegis-agent-macos.pkg
+          if-no-files-found: error

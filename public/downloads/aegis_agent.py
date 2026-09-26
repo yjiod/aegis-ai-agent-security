@@ -1801,28 +1801,34 @@ def self_update_binary_artifact_name() -> str:
 
 
 def _binary_selftest_preflight(path, timeout=20):
-    """冻结二进制形态的 preflight 钩子：exec 下载到的新二进制跑 `--selftest`。
+    """Check executable health before replacement; this is not authenticity validation.
 
-    - exit 0 → 健康，放行替换。
-    - exit 2 且 stderr 提示不识别参数（旧格式二进制尚无 --selftest）→ 宽容放行：无法用
-      selftest 校验，但也不应阻断更新；由 check_and_apply 的"应用后 sha256 复核 + 自动回滚"兜底。
-    - 其它非零 / 超时 / 无法 exec → 拒绝（返回 False），保留旧版本，绝不把机队更新成砖。
-    下载件已 sha256 校验 + 同源钉子，故此处的 exec 对象一定是官方发布工件；--selftest 不联网/不扫描/不写盘。
+    Mac candidates must pass both client and embedded maintenance checks within
+    one time budget. Legacy CLI compatibility is retained only on other systems.
     """
+    deadline = time.monotonic() + timeout
     try:
-        os.chmod(path, 0o755)  # download 落地的 staging 可能无 +x，exec 前补上（apply_update 之后仍按原 target 权限位归位）
-    except OSError:
-        pass
-    try:
-        p = subprocess.run([path, "--selftest"], capture_output=True, timeout=timeout, check=False)
-    except Exception:  # noqa: BLE001 - 超时/无法执行一律视为不健康
+        os.chmod(path, 0o755)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        result = subprocess.run([path, "--selftest"], capture_output=True,
+                                timeout=remaining, check=False)
+        if sys.platform == "darwin":
+            if result.returncode != 0:
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            maintenance = subprocess.run([path, "--maintenance-selftest"], capture_output=True,
+                                         timeout=remaining, check=False)
+            return maintenance.returncode == 0
+        if result.returncode == 0:
+            return True
+        error = (result.stderr or b"").decode("utf-8", "replace").lower()
+        return result.returncode == 2 and any(word in error for word in ("unrecognized", "usage", "invalid"))
+    except (OSError, subprocess.SubprocessError, ValueError):
         return False
-    if p.returncode == 0:
-        return True
-    err = (p.stderr or b"").decode("utf-8", "replace").lower()
-    if p.returncode == 2 and ("unrecognized" in err or "usage" in err or "invalid" in err):
-        return True  # 旧格式二进制无 --selftest：宽容放行
-    return False
 
 
 # 本进程最近一次自更新的"非例行"结果（updated / preflight_failed / rolled_back:* /

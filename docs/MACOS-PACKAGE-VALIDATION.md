@@ -1,75 +1,73 @@
 # macOS package lifecycle validation
 
-**Release requirement:** the complete Mac client lifecycle must work without
-external Python, Homebrew or developer tools. See the
-[runtime delivery contract](MACOS-RUNTIME-CONTRACT.md). Existing Python-dependent
-packages are development fixtures only and are not acceptable client releases.
-The requirement is recorded; the current build scripts do not yet enforce it.
+The system `.pkg` requires both ARM64 and x64 Mach-O executables. Missing,
+symlinked, script or mismatched-architecture inputs fail the build. The payload
+contains the frozen clients, uninstaller, manual, factory policy and baseline;
+it does not contain loose Python runtime modules. Launchd starts the canonical
+`aegis-agent`, with no external interpreter selection or fallback.
 
-The system package installs `com.aegis.agent`. Its payload contains
-`aegis-policy.factory.json`; the mutable `aegis-policy.json` is initialized only
-when absent. A same-console reinstall with existing enrollment preserves the
-active policy and reporting configuration. Changing enrollment can still replace
-the policy with the policy returned by the server.
+The installer verifies the selected native payload and runs both client and
+embedded maintenance self-tests before overwriting the canonical client,
+enrollment or service registration. Missing/broken maintenance leaves the
+existing canonical client untouched. This does not imply full Installer rollback:
+the payload and an initially absent policy may already have been written.
 
-Native packages require both ARM64 and x64 artifacts. The installation selects
-the current architecture and requires both the client and embedded maintenance
-self-tests to succeed before enrollment and service registration. Script packages
-include the self-update module and select a Python interpreter that passes the
-packaged agent's self-test; that exact interpreter is written to the service
-configuration. Script packages still require an available Python installation
-and therefore fail the new release requirement. Their tests below remain useful
-development evidence, but do not establish a compliant deliverable. The native
-service also needs self-contained maintenance and complete lifecycle validation.
+The Installer payload owns `aegis-policy.factory.json`, not the mutable active
+policy. Same-console enrollment and existing policy are retained on reinstall.
+Offline enrollment remains `enroll-pending`; confirmed launchd registration is
+required for script success. Registration alone does not prove daemon health or
+accepted reporting.
 
-A successful installation script means launchd accepted the service and the
-service registration could be read back. It does **not** establish daemon health,
-successful enrollment or an accepted report. Offline enrollment remains marked
-`enroll-pending`. Failed registration now returns a nonzero installation result;
-payload changes are not automatically rolled back.
+## Tests and native candidate packages
 
-On macOS, run:
+`test_macos_package.py` builds/expands real packages with small compiled ARM64/x64
+fixtures. Each native runner executes its own architecture. The fixtures do not
+scan or enroll; service and hardware operations are isolated doubles. They cover
+invalid inputs, preservation, failed self-tests and service-registration failures.
 
-```sh
-python3 -m unittest discover -s tests -p test_macos_package.py -v
-```
+`test_macos_frozen_package.py` takes explicitly supplied production-source frozen
+artifacts through `AEGIS_MACOS_PACKAGE_BIN_DIR`. It builds and expands the package,
+checks both payloads byte for byte and executes a relocated postinstall with
+synthetic existing enrollment. Hardware/service commands are fixtures, network
+access is denied, and a Python sentinel must not execute. The selected real client
+then passes its embedded self-tests. No privileged Installer or actual managed
+host service is invoked by this test.
 
-These tests build and expand actual `.pkg` files, verify packaged Python source
-and self-test execution, overlay the payload onto existing synthetic state, and
-execute the extracted installation script in a temporary directory. Hardware,
-enrollment, ownership and launchd operations use fixtures. The architecture
-selection test uses distinct shell fixtures, not native machine-code binaries.
-No production configuration or managed user baseline is read or modified.
+The freeze workflow runs on native ARM64 and Intel x64. Its dependent packaging
+jobs retrieve the artifacts from that exact workflow run, repeat the package test
+on both architectures and retain unsigned candidate packages with a synthetic
+server URL. These are review artifacts, not a signed distribution. The frontend
+build no longer regenerates the retired user-level `.run`; new installs use the
+system package. Mac builds without both native artifacts now fail deliberately.
 
-This evidence does not cover a privileged Installer run, a real daemon restart,
-Intel hardware execution, signing/notarization, trusted update rollback,
-enforcement recovery or uninstall. Those remain separate release gates. The
-user-level `.run` installer and Swift menu application also need separate
-integration validation; this change covers the system `.pkg` only.
+## Update and uninstall
 
-The system package also includes the maintenance helper, uninstaller and
-[uninstall/retained-state manual](../public/downloads/MACOS-UNINSTALL.md).
-Maintenance tests use synthetic files; the opt-in launchd test starts an isolated
-sleep process, confirms its PID, stops its KeepAlive job, and confirms both
-registration and process disappear. macOS CI runs that isolated case in the
-system domain. This is evidence for service control, not a production Aegis
-uninstall or a proof that every detached scanner child exits.
+Mac binary update preflight requires successful `--selftest` and
+`--maintenance-selftest` within one shared time budget. Old CLI formats, missing
+maintenance, failure or timeout reject replacement and preserve the current
+client and existing backup. Tests exercise the real update/apply function with
+local synthetic manifests and also validate a real frozen candidate. Availability
+checks do not authenticate an update or replace signature and provenance gates.
 
-The frozen client embeds maintenance behind exclusive `--maintenance-selftest`
-and `--uninstall-system` modes. Mixed flags fail before service or file access.
-The uninstall wrapper requires a trusted installed client and a successful
-maintenance capability check; no external Python or legacy helper fallback remains.
-This means a script-only development package cannot perform supported uninstall.
+Maintenance modes reject mixed arguments before service or file access. The
+uninstaller checks ownership/permissions, then invokes embedded maintenance;
+there is no loose-helper or system-Python fallback. See the
+[uninstall manual](../public/downloads/MACOS-UNINSTALL.md).
 
-`test_macos_native_maintenance.py` covers dispatch, missing capability, ownership,
-permissions and symlink refusals. With `AEGIS_FROZEN_AGENT` set to a built artifact,
-it also runs the binary without sibling runtime modules, under hostile Python
-environment variables, and under a macOS sandbox that denies other executables,
-network access and external runtime locations. A negative control proves the
-sandbox refuses a different executable. These self-tests are deliberately free
-of real uninstall, enrollment and scanning side effects: they establish embedded
-maintenance availability, not a complete clean-machine lifecycle.
+File cleanup tests and opt-in real isolated launchd tests remain separate from
+frozen self-tests. `test_macos_native_maintenance.py` additionally exercises hostile
+Python environment/module interference and a sandbox denying other executables,
+network and external runtime locations, with a negative control proving denial.
 
-The freeze workflow runs these cases on native ARM64 and Intel x64 runners.
-See [the locked build toolchain review](MACOS-FREEZE-DEPENDENCIES.md). Signing,
-final-package installation and all other R7 release gates remain outstanding.
+## Remaining release gates
+
+[R7](MACOS-RUNTIME-CONTRACT.md) still requires a complete lifecycle on clean
+machines with no Python, Homebrew or developer tools. Tests on developer/CI hosts
+and relocated scripts are narrower evidence. Final-package privileged install,
+actual daemon/enforcement behavior, trusted update and rollback, complete uninstall,
+MDM/online entry points, signing/notarization and final provenance remain unverified.
+Mach-O format checks do not prove content identity or trusted origin. No package
+should be accepted as a released client until all applicable gates pass.
+
+Build dependencies and licenses are recorded in
+[the freeze toolchain review](MACOS-FREEZE-DEPENDENCIES.md).

@@ -2,13 +2,13 @@
 # ═══════════════════════════════════════════════════════════════════
 # fetch-agent-binaries.sh — 从 build-agent-binaries CI 的成功 run 下载双架构冻结二进制到
 # public/downloads/（去-python 化 B）。二进制是 CI 产物、gitignored、不入库；发布/部署前拉取，
-# 供 build-macos-standalone.sh / build-macos-pkg.sh 嵌入 .run/.pkg，且 aegis_release_build.py
+# 供 build-macos-pkg.sh 嵌入系统 .pkg，且 aegis_release_build.py
 # 会把它们的 sha256 收录进 update-manifest.json（供冻结 agent 后台热更按 os/arch 取用）。
 #
 # 用法: sh scripts/fetch-agent-binaries.sh [run_id]
 #   不带 run_id 时取 build-agent-binaries.yml 最近一次成功 run。需 gh CLI 已认证到本仓。
 # 之后正常跑: python3 public/downloads/aegis_release_build.py public/downloads
-#            sh scripts/build-macos-standalone.sh && sh scripts/build-macos-pkg.sh
+#            sh scripts/build-macos-pkg.sh
 # ═══════════════════════════════════════════════════════════════════
 set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -39,4 +39,4 @@ for arch in arm64 x64; do
 done
 echo "二进制就位于 public/downloads/（gitignored）。接着："
 echo "  python3 public/downloads/aegis_release_build.py public/downloads   # 收录 sha256 进 manifest"
-echo "  sh scripts/build-macos-standalone.sh && sh scripts/build-macos-pkg.sh   # 嵌入 .run/.pkg"
+echo "  sh scripts/build-macos-pkg.sh   # 嵌入系统 .pkg；.run 已退出主构建"
