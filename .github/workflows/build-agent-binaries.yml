@@ -11,6 +11,9 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'clients/macos/**'
+      - public/downloads/aegis_macos_desktop_status.py
+      - tests/test_macos_desktop_status.py
       - public/downloads/aegis_macos_lifecycle.py
       - tests/test_macos_lifecycle.py
       - tests/test_macos_disposable_activation.py
@@ -72,7 +75,7 @@ jobs:
       - name: Freeze agent (--onefile, self-contained)
         run: |
           python3 -m PyInstaller --onefile --name "aegis-agent-darwin-${{ matrix.arch }}" \
-            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance --hidden-import aegis_macos_diagnostics --hidden-import aegis_macos_configuration --hidden-import aegis_macos_enrollment --hidden-import aegis_macos_service_migration --hidden-import aegis_macos_user_retirement --hidden-import aegis_macos_runtime_activation --hidden-import aegis_macos_lifecycle \
+            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance --hidden-import aegis_macos_diagnostics --hidden-import aegis_macos_configuration --hidden-import aegis_macos_enrollment --hidden-import aegis_macos_service_migration --hidden-import aegis_macos_user_retirement --hidden-import aegis_macos_runtime_activation --hidden-import aegis_macos_lifecycle --hidden-import aegis_macos_desktop_status \
             --paths public/downloads \
             --distpath dist-bin --workpath build-bin --specpath build-bin \
             public/downloads/aegis_agent.py
@@ -110,6 +113,31 @@ jobs:
       - name: Validate legacy service preparation with root-owned synthetic files
         run: |
           sudo env AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" "$(command -v python3)" -m unittest discover -s tests -p test_macos_service_migration.py -v
+      - name: Validate Swift status reader against a synthetic publisher snapshot
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/aegis-desktop-fixture"
+          AEGIS_TEST_DESKTOP_DIR="$RUNNER_TEMP/aegis-desktop-fixture" python3 - <<'PYCODE'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'public/downloads')
+          import aegis_macos_desktop_status as desktop
+          app = Path(os.environ['AEGIS_TEST_DESKTOP_DIR']).resolve()
+          health = {source: True for source in desktop.CHECKS.values()}
+          health['AegisPolicyVersion'] = '1.2.3'
+          desktop.publish(app, desktop.snapshot(health, '0.37.3', 1800000000), owner=os.getuid())
+          PYCODE
+          AEGIS_TEST_DESKTOP_SNAPSHOT="$RUNNER_TEMP/aegis-desktop-fixture/desktop-status.json" \
+            swift test --package-path clients/macos --scratch-path "$RUNNER_TEMP/aegis-swift-tests"
+      - name: Build native Swift desktop candidate without endpoint dependencies
+        run: sh clients/macos/build-app.sh "$RUNNER_TEMP/aegis-desktop-build"
+      - name: Retain unsigned desktop candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aegis-desktop-${{ matrix.arch }}
+          path: ${{ runner.temp }}/aegis-desktop-build/Aegis.app.zip
+          if-no-files-found: error
+      - name: Validate redacted desktop snapshot publication
+        run: python3 -m unittest discover -s tests -p test_macos_desktop_status.py -v
       - name: Validate shared Mac maintenance serialization
         run: python3 -m unittest discover -s tests -p test_macos_lifecycle.py -v
       - name: Validate native runtime replacement and recovery

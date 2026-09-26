@@ -11,6 +11,7 @@ HASH_CONSUMERS={
     "aegis-security-baseline.md":("install-aegis.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
+    "aegis_macos_desktop_status.py",
     "aegis_macos_lifecycle.py",
     "aegis_macos_runtime_activation.py",
     "aegis_macos_user_retirement.py", "retire-aegis-user-macos.sh",
