@@ -6,7 +6,7 @@
  *
  * disposition 语义：
  *   ''       未处置
- *   'allow'  加白：加入允许名单，不再告警（仍记调用审计）
+ *   'allow'  允许接入；仅明确人工处置保留旧版资产级告警例外语义
  *   'monitor'观察：不阻断，持续上报行为供复查
  *   'deny'   拉黑：加入阻断名单，终端拦截并告警
  */
@@ -26,6 +26,9 @@ export type AssetType = 'skill' | 'mcp' | 'path' | 'prefix';
  * 与目录无关，不做前缀展开，防止意外封禁面扩大）。 */
 export type Disposition = '' | 'allow' | 'monitor' | 'deny';
 
+export type DecisionSource = 'manual' | 'preset' | 'automatic' | 'legacy';
+const DECISION_SOURCES: DecisionSource[] = ['manual', 'preset', 'automatic', 'legacy'];
+
 export const DISPOSITIONS: Disposition[] = ['', 'allow', 'monitor', 'deny'];
 
 export interface AssetLabel {
@@ -33,6 +36,7 @@ export interface AssetLabel {
   asset_key: string;
   tags: string[];
   disposition: Disposition;
+  decision_source?: DecisionSource;
   note: string;
   updated_by: string;
   updated_at: number;
@@ -64,6 +68,8 @@ function rowToLabel(r: AssetLabelRow): AssetLabel {
   if (r.asset_type !== 'skill' && r.asset_type !== 'mcp' && r.asset_type !== 'path' && r.asset_type !== 'prefix') {
     throw new Error('invalid_label_asset_type');
   }
+  const source = r.decision_source ?? 'legacy';
+  if (!DECISION_SOURCES.includes(source as DecisionSource)) throw new Error('invalid_label_decision_source');
   let tags: string[] = [];
   try {
     const parsed = JSON.parse(r.tags || '[]');
@@ -77,6 +83,7 @@ function rowToLabel(r: AssetLabelRow): AssetLabel {
     asset_key: r.asset_key,
     tags,
     disposition,
+    decision_source: source as DecisionSource,
     note: r.note || '',
     updated_by: r.updated_by || '',
     updated_at: Number(r.updated_at || 0),
@@ -214,6 +221,13 @@ export function isFindingAllowed(f: FindingLike, allowed: Set<string>): boolean 
   // an allow snapshot from before the asset was denied.
   if (store().get(assetKey)?.disposition === 'deny') return false;
   let matchedAllow = allowed.has(assetKey);
+  if (a.asset_type === 'skill' || a.asset_type === 'mcp') {
+    const source = store().get(assetKey)?.decision_source ?? 'legacy';
+    // Catalog admission and ambiguous historical rows cannot grant an exception
+    // for arbitrary new behavioral findings. Editable tags never confer provenance.
+    const admissionKind = a.asset_type === 'skill' ? 'unknown_skill' : 'unknown_mcp';
+    return matchedAllow && (source === 'manual' || f.kind === admissionKind);
+  }
   // 目录前缀批量忽略：path 资产逐级匹配 allow 的 prefix 条目（"~/.codex/.tmp/" 覆盖
   // 其下全部文件）。前缀键在 setLabel 时已归一化并强制尾斜杠（防 "~/.codex" 误吞
   // "~/.codex-config.json" 这类同前缀不同目录的兄弟路径）。
@@ -248,6 +262,8 @@ export interface SetLabelInput {
   asset_key: string;
   tags?: string[];
   disposition?: Disposition;
+  /** Set only by trusted writers, never accepted from an API request body. */
+  decision_source?: DecisionSource;
   note?: string;
   updated_by: string;
 }
@@ -262,6 +278,7 @@ export function setLabelInMemory(input: SetLabelInput): AssetLabel {
     asset_key: input.asset_key,
     tags: input.tags ?? prev?.tags ?? [],
     disposition: input.disposition ?? prev?.disposition ?? '',
+    decision_source: input.decision_source ?? (input.disposition !== undefined ? 'manual' : prev?.decision_source ?? 'legacy'),
     note: input.note ?? prev?.note ?? '',
     updated_by: input.updated_by,
     updated_at: Date.now(),
@@ -279,6 +296,7 @@ export function setLabel(input: SetLabelInput): AssetLabel {
     asset_key: rec.asset_key,
     tags: JSON.stringify(rec.tags),
     disposition: rec.disposition,
+    decision_source: rec.decision_source ?? 'legacy',
     note: rec.note,
     updated_by: rec.updated_by,
     updated_at: rec.updated_at,
@@ -300,6 +318,7 @@ export async function persistLabelsDurable(labels: AssetLabel[]): Promise<number
       asset_key: rec.asset_key,
       tags: JSON.stringify(rec.tags),
       disposition: rec.disposition,
+      decision_source: rec.decision_source ?? 'legacy',
       note: rec.note,
       updated_by: rec.updated_by,
       updated_at: rec.updated_at,

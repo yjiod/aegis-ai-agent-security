@@ -2146,34 +2146,10 @@ console.log(JSON.stringify(d));
                          f"MCP 自动封禁名单里的 kind 在 Windows 端不产出，Windows 侧等于没有该防护: "
                          f"{mcp_win_missing}")
 
-        # ── 已知缺口（如实钉死，Task #6 修复后本段应变红并被有意识地更新）──────
-        # skill 名单四个 kind 全部只由 scan_text() 产出，而 scan_text 的每个调用点
-        # 都被 `if m_code:`（= modules.code_scan，出厂 false）门控 ⇒ 现网终端不产生
-        # 这些信号，**skill 自动封禁路径当前零动作**；且这四个 kind 在 Windows 端
-        # 完全不产出。故"绝对要求 #3 全自动纠偏"目前只达成 MCP 一半，不得声称已达成。
-        scan_text_def = _re.search(r'^def scan_text\(', py, _re.M)
-        next_def = _re.search(r'^def (?!scan_text\b)\w+\(', py[scan_text_def.end():], _re.M)
-        body_end = scan_text_def.end() + next_def.start()
-        for kind in sorted(skill_kinds):
-            # 只认**产出点**：`finding("kind","sev"...)` 或规则表元组 `("kind","sev",r"...")`。
-            # 不能匹配裸字符串——agent 模块级的 CODE_QUALITY_KINDS(:1588-1591) 也列了这四个
-            # kind 名，那只是 report 兜底过滤清单，不是产出点。
-            hits = [m.start() for m in _re.finditer(
-                r'(?:finding\(|\()\s*"%s"\s*,\s*"(?:critical|high|medium|low)"' % kind, py)]
-            self.assertTrue(hits, f"{kind} 在 agent 中找不到产出点")
-            self.assertTrue(all(scan_text_def.start() <= h < body_end for h in hits),
-                            f"{kind} 的产出点不在 scan_text() 内——若 Task #6 已把治理组规则"
-                            f"拆出 code_scan 门控，请更新本段注释与断言（这是期望中的进展）")
-            self.assertNotIn(kind, ps_sev,
-                             f"{kind} 现在 Windows 端也产出了——请更新本段'诚实边界'描述")
-        # scan_text 的每个调用点都必须仍被 `if m_code:` 门控（一旦解开门控，上面结论即失效）
-        call_sites = [ln for ln in py.splitlines()
-                      if 'scan_text(' in ln and not ln.lstrip().startswith('def ')]
-        self.assertTrue(call_sites, "scan_text 调用点解析不到")
-        ungated = [ln.strip()[:110] for ln in call_sites if 'if m_code' not in ln]
-        self.assertEqual(ungated, [],
-                         f"scan_text 出现了不受 code_scan 门控的调用点——skill 自动封禁路径"
-                         f"可能已恢复产出信号，请更新本段'诚实边界'结论: {ungated}")
+        # Skill governance now has independent Python/Windows helpers. Runtime
+        # parity, switch behavior and actual report retention are tested using
+        # synthetic packages in test_skill_governance.py; do not infer absence
+        # from a regex that only recognizes literal finding constructors.
 
     def test_preset_allowlist_never_overrides_deny(self):
         """绝对要求 #4(2026-09-24): 封禁优先级 > 预置白名单(含内置市场技能)。

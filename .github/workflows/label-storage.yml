@@ -1,0 +1,32 @@
+name: label-storage-postgres
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-postgres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22.13.0'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Validate migration and SQL adapter in a disposable PostgreSQL cluster
+        shell: bash
+        run: |
+          set -euo pipefail
+          aegis_pg_bin="$(pg_config --bindir)"
+          aegis_pg_fixture="$(mktemp -d "$RUNNER_TEMP/aegis-label-pg.XXXXXX")"
+          mkdir "$aegis_pg_fixture/socket"
+          cleanup() { "$aegis_pg_bin/pg_ctl" -D "$aegis_pg_fixture/data" -m immediate stop >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          "$aegis_pg_bin/initdb" -D "$aegis_pg_fixture/data" --auth-local=trust --auth-host=reject --username=aegis_fixture >/dev/null
+          "$aegis_pg_bin/pg_ctl" -D "$aegis_pg_fixture/data" -l "$aegis_pg_fixture/server.log" -o "-k $aegis_pg_fixture/socket -p 55439 -c listen_addresses=''" -w start
+          node scripts/test-label-postgres.mjs "$aegis_pg_fixture/socket" 55439

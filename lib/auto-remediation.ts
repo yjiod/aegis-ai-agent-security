@@ -37,17 +37,9 @@ import { getScanMode, effectiveRules, ensureBaselinesLoaded } from '@/lib/baseli
 import { enforceableRuleIds } from '@/lib/policy';
 
 /**
- * 高置信恶意信号 → skill 资产自动 deny（severity critical|high）。
- *
- * 诚实边界：这四个 kind **全部**由 aegis_agent.py 的 `scan_text()` 产出
- * （prompt_override:303、credential_access:303、context_poisoning:336、
- * hidden_instruction:345，均在 scan_text 的 302-406 行内），而 `scan_text` 的每个
- * 调用点都被 `if m_code:` 门控（agent:550、:1032、:1068），`m_code` 即
- * `modules.code_scan`，出厂默认 **false**。⇒ 现网终端根本不产生这些信号，
- * **skill 自动封禁路径当前是零动作**。真正修复需把 scan_text 拆成
- * "治理组恒开 / 代码质量组受 code_scan 门控"，属 Task #6（会触发 release 级联 +
- * 冻结二进制 CI + 舰队自更，须在干净边界单独做）。
- * **因此不得声称"绝对要求 #3（全自动纠偏）已达成"——它目前只达成 MCP 这一半。**
+ * Skill governance is now detected independently of code quality in source clients.
+ * These legacy decision kinds still require confidence/behavior validation before
+ * claiming a complete automatic prevention loop. Severity is not confidence.
  */
 export const AUTO_DENY_SKILL_KINDS = new Set(['hidden_instruction', 'prompt_override', 'credential_access', 'context_poisoning']);
 /**
@@ -99,7 +91,7 @@ export interface RemediationFinding {
 export interface RemediationDecision {
   denies: Array<{ asset_type: AssetType; asset_key: string; kind: string; severity: string }>;
   /** 人工 allow/monitor 与恶意信号冲突 → 不覆盖，通知管理员裁决。 */
-  conflicts: Array<{ asset_type: AssetType; asset_key: string; disposition: string; kind: string }>;
+  conflicts: Array<{ asset_type: AssetType; asset_key: string; disposition: string; kind: string; decision_source: string }>;
   /** 代码质量/无法归资产的恶意发现 → 通知相关用户与 Agent。 */
   notifies: Array<{ device_id: string; kind: string; severity: string; asset_key?: string; message: string }>;
 }
@@ -130,12 +122,13 @@ export function decideRemediation(findings: RemediationFinding[], labels: AssetL
       const a = asset as { asset_type: AssetType; asset_key: string };
       const prev = byKey.get(`${a.asset_type}:${a.asset_key}`);
       if (prev && prev.disposition) {
-        // 人工已有处置（含 allow/monitor/deny）：自动纠偏绝不覆盖。
+        // Existing decisions remain protected; include provenance for review.
+        // A preset is not a manual exception. This change does not broaden auto-deny.
         if (prev.disposition === 'deny') continue; // 已封禁，无事可做
         const ck = `${a.asset_type}:${a.asset_key}:${prev.disposition}`;
         if (!conflictSeen.has(ck)) {
           conflictSeen.add(ck);
-          out.conflicts.push({ asset_type: a.asset_type, asset_key: a.asset_key, disposition: prev.disposition, kind });
+          out.conflicts.push({ asset_type: a.asset_type, asset_key: a.asset_key, disposition: prev.disposition, kind, decision_source: prev.decision_source ?? 'legacy' });
         }
         continue;
       }
@@ -298,6 +291,7 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
         asset_type: d.asset_type,
         asset_key: d.asset_key,
         disposition: 'deny',
+        decision_source: 'automatic',
         tags: ['auto-remediated'],
         note: `自动纠偏：${d.kind}(${d.severity})`,
         updated_by: actor,
@@ -363,7 +357,7 @@ export async function runAutoRemediationSweep(actor = 'auto-remediation'): Promi
                 content: [
                   'Aegis 自动纠偏',
                   ...denied.map((d) => `- 已封禁 ${d.asset_type}: ${d.asset_key}`),
-                  ...decision.conflicts.map((c) => `- 冲突待裁决: ${c.asset_key}（人工${c.disposition}，检测到恶意信号）`),
+                  ...decision.conflicts.map((c) => `- 冲突待裁决: ${c.asset_key}（${c.decision_source}/${c.disposition}，检测到风险信号）`),
                   ...decision.notifies.slice(0, 10).map((n) => `- 待修复[${n.severity}] ${n.device_id.slice(0, 12)} ${n.kind}${n.asset_key ? ` ${n.asset_key}` : ''}`),
                   ...(publishedVersion ? [`- 策略已发布 v${publishedVersion}`] : []),
                   ...(publishBlocked ? [`- 发布被拦截: ${publishBlocked}`] : []),
