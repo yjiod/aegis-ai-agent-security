@@ -11,6 +11,7 @@ HASH_CONSUMERS={
     "aegis-security-baseline.md":("install-aegis.sh","mdm-windows-detect.ps1","mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1"),
 }
 BUNDLE_FILES=(
+    "aegis-install-macos-oneclick.sh","MACOS-INSTALL.md",
     "DEPLOYMENT-GUIDE.md","aegis-policy.json","aegis-security-baseline.md","aegis-report.schema.json",
     "aegis_agent.py","aegis_collector.py","aegis-windows.ps1","install-aegis.sh","aegis-agent-macos-enroll.sh","mdm-windows-detect.ps1",
     "mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1","mdm-compliance-policy.json","mdm-macos-install.sh",
@@ -102,6 +103,10 @@ def verify(downloads):
     if "python3" in mac_config: errors.append("external_python_macos_reporting_config")
     try: mac_installer=(downloads/"mdm-macos-install.sh").read_text()
     except OSError: mac_installer=""
+    try: mac_interactive=(downloads/"aegis-install-macos-oneclick.sh").read_text()
+    except OSError: mac_interactive=""
+    if not mac_installer or mac_interactive!=mac_installer:
+        errors.append("macos_install_entry_drift")
     for directive in ("AEGIS_MACOS_PKG_SHA256", "AEGIS_MACOS_TEAM_ID", "--check-signature",
                       "--assess --type install --raw --ignore-cache --no-cache"):
         if directive not in mac_installer: errors.append(f"unsafe_macos_package_bootstrap:{directive}")

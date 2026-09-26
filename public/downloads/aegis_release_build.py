@@ -7,7 +7,7 @@ from pathlib import Path
 sys.dont_write_bytecode=True
 import aegis_release_verify as verifier
 
-GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","mdm-deployment-manifest.json","mdm-rollout-evidence.example.json","production-acceptance-evidence.example.json","aegis-enterprise-bundle.zip","update-manifest.json"}
+GENERATED_FILES={"CHECKSUMS.sha256","RELEASE-MANIFEST.sha256","mdm-deployment-manifest.json","mdm-rollout-evidence.example.json","production-acceptance-evidence.example.json","aegis-enterprise-bundle.zip","update-manifest.json","aegis-install-macos-oneclick.sh"}
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -50,6 +50,9 @@ def build(downloads):
     deployment=json.loads(manifest_path.read_text(encoding="utf-8"))
     if deployment.get("execution",{}).get("script_signature_state")!="pilot_unsigned":
         raise ValueError("signed_release_must_be_rebuilt_on_signing_workstation")
+
+    # Both public entry points must carry the exact same trust and failure flow.
+    atomic_write(downloads/"aegis-install-macos-oneclick.sh", (downloads/"mdm-macos-install.sh").read_bytes())
 
     old={}
     for line in (downloads/"CHECKSUMS.sha256").read_text(encoding="utf-8").splitlines():

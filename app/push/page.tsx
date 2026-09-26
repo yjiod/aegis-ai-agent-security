@@ -161,20 +161,21 @@ export default function PushPage() {
 
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>
-                系统级 · 唯一形态 <Badge variant="outline" style={{ fontSize: 9, marginLeft: 4 }}>root 扫全部 /Users</Badge>
+                系统级原生客户端 <Badge variant="outline" style={{ fontSize: 9, marginLeft: 4 }}>无需预装 Python</Badge>
               </div>
               <div style={{ fontSize: 11, color: 'var(--muted-foreground)', marginBottom: 4 }}>
-                下载后双击安装。以 root 扫描全部用户目录、支持连接级封禁、无需逐用户授权。
-                用户级安装已取消（避免与系统级双重上报）；历史用户级安装可用 .run --uninstall 清理。
+                由管理员提供已批准的包摘要和发布者，通过签名及公证验证后安装。
+                当前候选仍待正式发布验收；发现历史服务时先完成迁移，安装失败需核实恢复。
               </div>
               {dlBtn('/downloads/aegis-agent-macos.pkg', 'aegis-agent-macos.pkg')}
+              <div style={{ marginTop: 6 }}>{dlBtn('/downloads/MACOS-INSTALL.md', 'Mac 安装与迁移说明')}</div>
             </div>
           </div>
         </div>
 
         <p style={{ fontSize: 11, color: 'var(--muted-foreground)', marginTop: 12, marginBottom: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
           <Terminal size={12} />
-          装完刷新控制台即出现新设备（序列号 + 客户端版本 + 发现的 AI 工具）。首次上报需等一个扫描周期（默认 1 小时）。
+          安装后需确认服务运行、入网及成功上报，控制台才会显示设备在线；不能仅凭安装器成功认定上线。
         </p>
       </div>
 
