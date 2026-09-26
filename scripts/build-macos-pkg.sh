@@ -29,7 +29,7 @@ OUT="$DL/aegis-agent-macos.pkg"
 SERVER="${AEGIS_PUBLIC_ORIGIN:-https://aegis.example.com}"
 INTERVAL="${AEGIS_SCAN_INTERVAL:-3600}"
 IDENT="com.aegis.agent"
-RUNTIME="aegis_agent.py aegis_self_update.py aegis-policy.json aegis-security-baseline.md"
+RUNTIME="aegis_agent.py aegis_self_update.py aegis_macos_maintenance.py uninstall-aegis-macos.sh MACOS-UNINSTALL.md aegis-policy.json aegis-security-baseline.md"
 # 去-python 化 B：CI 冻结的双架构二进制在 downloads/ 就打进 payload；postinstall 按 uname -m 选。
 BINS=""; HAS_BINS=0
 for b in aegis-agent-darwin-arm64 aegis-agent-darwin-x64; do [ -f "$DL/$b" ] && { BINS="$BINS $b"; HAS_BINS=1; }; done
@@ -68,7 +68,7 @@ for f in $RUNTIME $BINS; do
   ditto --noextattr --norsrc --noacl "$DL/$f" "$APPDIR/$destination"
 done
 for g in $GUARDS; do ditto --noextattr --norsrc --noacl "$ROOT/native-dist/$g" "$APPDIR/$g"; done
-chmod 755 "$APPDIR/aegis_agent.py"; chmod 644 "$APPDIR/aegis-policy.factory.json" "$APPDIR/aegis-security-baseline.md"
+chmod 755 "$APPDIR/aegis_agent.py" "$APPDIR/uninstall-aegis-macos.sh"; chmod 644 "$APPDIR/aegis-policy.factory.json" "$APPDIR/aegis-security-baseline.md" "$APPDIR/aegis_macos_maintenance.py"
 for b in $BINS; do chmod 755 "$APPDIR/$b"; done
 for g in $GUARDS; do chmod 755 "$APPDIR/$g"; done
 if [ -f "$ROOT/client/es-guard/com.aegis.execguard.plist" ]; then

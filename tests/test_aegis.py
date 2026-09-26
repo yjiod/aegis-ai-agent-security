@@ -219,9 +219,9 @@ class AegisTests(unittest.TestCase):
         remediation=(DOWNLOADS/'mdm-windows-remediate.ps1').read_text()
         self.assertIn('aegis-managed-user-baseline:start',remediation); self.assertIn('Test-Path $codexDir',remediation); self.assertIn('ReparsePoint',remediation)
     def test_uninstall_removes_only_managed_user_blocks(self):
-        mac=(DOWNLOADS/'uninstall-aegis-macos.sh').read_text(); windows=(DOWNLOADS/'uninstall-aegis-windows.ps1').read_text()
+        mac=(DOWNLOADS/'aegis_macos_maintenance.py').read_text(); windows=(DOWNLOADS/'uninstall-aegis-windows.ps1').read_text()
         for script in (mac,windows): self.assertIn('aegis-managed-user-baseline:start',script); self.assertIn('aegis-managed-user-baseline:end',script)
-        self.assertIn('[ ! -L "$file" ]',mac); self.assertIn('ReparsePoint',windows)
+        self.assertIn('os.O_NOFOLLOW',mac); self.assertIn('ReparsePoint',windows)
         self.assertIn('Repository rule files',mac); self.assertIn('Repository rule files',windows)
     def test_collector_contract(self):
         now=int(time.time()); report={'schema':'aegis.report/v1','agent_version':'0.11.0','policy_version':'4.2.0','device_id':'device-123','scanned_at':now,'summary':{'critical':0,'high':0,'medium':0,'low':0},'findings':[]}

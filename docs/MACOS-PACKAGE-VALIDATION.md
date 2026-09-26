@@ -36,3 +36,11 @@ Intel hardware execution, signing/notarization, trusted update rollback,
 enforcement recovery or uninstall. Those remain separate release gates. The
 user-level `.run` installer and Swift menu application also need separate
 integration validation; this change covers the system `.pkg` only.
+
+The system package also includes the maintenance helper, uninstaller and
+[uninstall/retained-state manual](../public/downloads/MACOS-UNINSTALL.md).
+Maintenance tests use synthetic files; the opt-in launchd test starts an isolated
+sleep process, confirms its PID, stops its KeepAlive job, and confirms both
+registration and process disappear. macOS CI runs that isolated case in the
+system domain. This is evidence for service control, not a production Aegis
+uninstall or a proof that every detached scanner child exits.

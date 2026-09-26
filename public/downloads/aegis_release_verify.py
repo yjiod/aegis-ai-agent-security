@@ -15,7 +15,7 @@ BUNDLE_FILES=(
     "aegis_agent.py","aegis_collector.py","aegis-windows.ps1","install-aegis.sh","aegis-agent-macos-enroll.sh","mdm-windows-detect.ps1",
     "mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1","mdm-compliance-policy.json","mdm-macos-install.sh",
     "mdm-macos-compliance.sh","mdm-macos-compliance-policy.json","rollback-aegis-windows.ps1","rollback-aegis-macos.sh",
-    "uninstall-aegis-windows.ps1","uninstall-aegis-macos.sh","CHECKSUMS.sha256","release.json","aegis_adapter.py",
+    "uninstall-aegis-windows.ps1","uninstall-aegis-macos.sh","aegis_macos_maintenance.py","MACOS-UNINSTALL.md","CHECKSUMS.sha256","release.json","aegis_adapter.py",
     "aegis-adapters.example.json","aegis_release_verify.py","aegis_collector_backup.py","aegis_collector_restore.py",
     "aegis-collector.service","aegis-collector.env.example","aegis-collector.nginx.conf",
     "aegis_adapter_worker.py","aegis-adapter-worker.service","aegis-adapter.env.example",

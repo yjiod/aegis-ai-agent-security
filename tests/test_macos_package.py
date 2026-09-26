@@ -14,7 +14,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME = ("aegis_agent.py", "aegis_self_update.py", "aegis-policy.json", "aegis-security-baseline.md")
+RUNTIME = ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md")
 ORIGIN = "https://aegis.example.test"
 
 
@@ -109,11 +109,16 @@ if command == "uname":
         self.prepare()
         self.assertFalse(self.policy.exists())
         self.assertEqual((self.app / "aegis-policy.factory.json").read_bytes(), (ROOT / "public/downloads/aegis-policy.json").read_bytes())
-        for name in ("aegis_agent.py", "aegis_self_update.py"):
+        for name in ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh"):
             self.assertEqual((self.app / name).read_bytes(), (ROOT / "public/downloads" / name).read_bytes())
         # Execute the actual packaged runtime, without scanning, network or writes.
         result = subprocess.run([sys.executable, str(self.app / "aegis_agent.py"), "--selftest"], capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0)
+        result = subprocess.run([sys.executable, "-I", "-B", str(self.app / "aegis_macos_maintenance.py"), "--selftest"], capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0)
+        # Unexpected arguments must fail before any real-system access.
+        result = subprocess.run(["sh", str(self.app / "uninstall-aegis-macos.sh"), "--unexpected"], capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 2)
 
     def test_upgrade_payload_and_postinstall_preserve_active_state(self):
         payload = self.prepare()
