@@ -1,0 +1,27 @@
+name: macos-package-lifecycle
+
+on:
+  pull_request:
+    paths:
+      - scripts/build-macos-pkg.sh
+      - public/downloads/aegis_agent.py
+      - public/downloads/aegis_self_update.py
+      - public/downloads/aegis-policy.json
+      - tests/test_macos_package.py
+      - .github/workflows/macos-package.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-fixtures:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Build and expand real packages; run isolated lifecycle fixtures
+        run: python3 -m unittest discover -s tests -p test_macos_package.py -v
