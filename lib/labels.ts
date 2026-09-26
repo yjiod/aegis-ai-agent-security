@@ -38,7 +38,20 @@ export interface AssetLabel {
   updated_at: number;
 }
 
-const globals = globalThis as typeof globalThis & { __aegis_labels?: Map<string, AssetLabel> };
+const globals = globalThis as typeof globalThis & {
+  __aegis_labels?: Map<string, AssetLabel>;
+  __aegis_label_loads?: Set<Set<string>>;
+};
+
+/** Track only mutations made while a database snapshot is in flight. */
+function activeLoads(): Set<Set<string>> {
+  if (!globals.__aegis_label_loads) globals.__aegis_label_loads = new Set();
+  return globals.__aegis_label_loads;
+}
+
+function markLocalMutation(key: string): void {
+  for (const changed of activeLoads()) changed.add(key);
+}
 
 function store(): Map<string, AssetLabel> {
   if (!globals.__aegis_labels) globals.__aegis_labels = new Map();
@@ -48,6 +61,9 @@ function store(): Map<string, AssetLabel> {
 const mapKey = (t: string, k: string) => `${t}:${k}`;
 
 function rowToLabel(r: AssetLabelRow): AssetLabel {
+  if (r.asset_type !== 'skill' && r.asset_type !== 'mcp' && r.asset_type !== 'path' && r.asset_type !== 'prefix') {
+    throw new Error('invalid_label_asset_type');
+  }
   let tags: string[] = [];
   try {
     const parsed = JSON.parse(r.tags || '[]');
@@ -57,7 +73,7 @@ function rowToLabel(r: AssetLabelRow): AssetLabel {
   }
   const disposition = (DISPOSITIONS as string[]).includes(r.disposition) ? (r.disposition as Disposition) : '';
   return {
-    asset_type: r.asset_type === 'mcp' ? 'mcp' : 'skill',
+    asset_type: r.asset_type,
     asset_key: r.asset_key,
     tags,
     disposition,
@@ -74,11 +90,27 @@ export function ensureLabelsLoaded(): Promise<void> {
   if (!pgEnabled()) return Promise.resolve();
   if (!loadPromise) {
     loadPromise = (async () => {
-      const rows = await pgLoadLabels();
-      if (!rows) return;
-      const m = store();
-      for (const r of rows) m.set(mapKey(r.asset_type, r.asset_key), rowToLabel(r));
-    })();
+      const changed = new Set<string>();
+      activeLoads().add(changed);
+      try {
+        const rows = await pgLoadLabels();
+        if (!rows) throw new Error('labels_load_failed');
+        // Validate the whole snapshot before changing memory; unknown types must
+        // never acquire skill permissions through an implicit conversion.
+        const labels = rows.map(rowToLabel);
+        const m = store();
+        for (const label of labels) {
+          const key = mapKey(label.asset_type, label.asset_key);
+          // A local edit or deletion during I/O takes priority over this snapshot.
+          if (!changed.has(key)) m.set(key, label);
+        }
+      } finally {
+        activeLoads().delete(changed);
+      }
+    })().catch(() => {
+      loadPromise = null; // An unavailable or invalid snapshot can be retried.
+      throw new Error('labels_load_failed');
+    });
   }
   return loadPromise;
 }
@@ -228,6 +260,7 @@ export function setLabelInMemory(input: SetLabelInput): AssetLabel {
     updated_at: Date.now(),
   };
   m.set(k, rec);
+  markLocalMutation(k);
   return rec;
 }
 
@@ -270,6 +303,7 @@ export async function persistLabelsDurable(labels: AssetLabel[]): Promise<number
 /** 移除某资产的标签/处置记录；写穿透到 PG。 */
 export function removeLabel(assetType: AssetType, assetKey: string): boolean {
   const m = store();
+  markLocalMutation(mapKey(assetType, assetKey));
   const ok = m.delete(mapKey(assetType, assetKey));
   if (ok) pgDeleteLabel(assetType, assetKey);
   return ok;

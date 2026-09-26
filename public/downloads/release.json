@@ -1,6 +1,9 @@
 {
   "release": "0.73.3",
   "channel": "pilot",
+  "pending_console_changes": [
+    "label_namespace_preservation_retry_and_concurrent_edit_protection"
+  ],
   "published_at": "2026-09-20T08:11:35+08:00",
   "features": [
     "self_update_preflight_and_auto_rollback",
