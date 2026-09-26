@@ -50,7 +50,9 @@ services and enrollment identity are not modified by this command.
 The native system-package enrollment now uses this writer with an expected
 pre-request file state. A concurrent configuration change while enrollment is
 in flight is refused under the lock. See [system enrollment](MACOS-ENROLLMENT.md)
-for its response validation and remaining legacy-path boundaries.
+for its response validation and remaining legacy-path boundaries. Runtime Mac
+server migration uses the same writer and expected-state check; its administrator
+intent uses the shared bounded private JSON reader before schema validation.
 
 Output is a fixed `aegis.configuration-result/v1` object with operation, applied
 boolean and status, suitable for the MDM operation log. `applied` exits 0.

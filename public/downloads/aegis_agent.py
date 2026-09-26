@@ -1574,6 +1574,12 @@ def report_url_origin(url):
 def enroll_to_server(server, device_id):
     """向指定控制台零接触入网（改 server-override.json 后全自动切换）。
     返回 (reporting_config, policy_or_None)；契约不满足抛 ValueError。"""
+    if sys.platform == "darwin":
+        if not getattr(sys, "frozen", False) and str(BASE_DIR) not in sys.path:
+            sys.path.insert(0, str(BASE_DIR))
+        from aegis_macos_enrollment import request_config
+        return request_config(server + "/api/enroll", server + "/aegis/v1/reports", device_id,
+                              AGENT_VERSION, os.getenv("AEGIS_ENROLLMENT_SECRET", "")), None
     body = json.dumps({"hostname": os.uname().nodename, "device_id": device_id, "agent_version": AGENT_VERSION}).encode()
     req = urllib.request.Request(server + "/api/enroll", data=body, headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=20) as r:
@@ -1600,6 +1606,20 @@ def apply_server_override(args, host_device_id):
     """每周期检查 server-override.json：服务器变更则重新入网并改写上报配置/策略。
     失败保持现配置（SOFT FAIL），仅记一次 finding，绝不中断扫描/上报。
     返回 rep(dict)=已切换 / False=切换失败 / None=无需切换。"""
+    if sys.platform == "darwin":
+        try:
+            if not getattr(sys, "frozen", False) and str(BASE_DIR) not in sys.path:
+                sys.path.insert(0, str(BASE_DIR))
+            from aegis_macos_enrollment import migrate
+            rep = migrate(BASE_DIR, host_device_id, AGENT_VERSION, args.report_config,
+                          bool(getattr(args, "enrollment_config", "") or getattr(args, "enrollment_dir", "")),
+                          enrollment_key=os.getenv("AEGIS_ENROLLMENT_SECRET", ""))
+            if rep is not None:
+                args.report_url = rep["report_url"]
+                args.report_config = str(BASE_DIR / "reporting.json")
+            return rep
+        except (ImportError, OSError, ValueError, TypeError):
+            return False
     ov = read_server_override()
     if not ov or ov == report_url_origin(args.report_url):
         return None
@@ -2129,8 +2149,8 @@ def main():
     if policy_module(policy,"self_update",True): maybe_self_update(policy, args.report_url)
     if args.install_baseline and policy_module(policy,"baseline_install",True): install_baseline(root)
     while True:
-        # 服务器地址覆盖（预留文件 server-override.json）：用户编辑该文件即全自动重新
-        # 入网、切换控制台并拉取新策略，无需重装客户端。失败 SOFT FAIL 保持原配置。
+        # Mac uses a protected administrator migration intent and credential writer.
+        # Policy/trust changes are separate; failure cannot bypass device enrollment.
         _ov = apply_server_override(args, host_device_id)
         _EMIT_OV = False
         if _ov is False and not _OVERRIDE_NOTED.get("emitted"):
@@ -2167,7 +2187,9 @@ def main():
         if enrollment_mismatch:
             add_report_finding(report,finding("enrollment_device_mismatch","high",enroll_path,f"入网凭据 device_id 与本机派生 ID({host_device_id}) 不符；本轮拒绝上报")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if _EMIT_OV:
-            add_report_finding(report,finding("server_override_failed","medium",str(server_override_path()),"server-override.json 指向的控制台入网失败，保持原上报配置；请检查该控制台可达性与 /api/enroll")); data=json.dumps(report,ensure_ascii=False,indent=2)
+            add_report_finding(report,finding("server_override_failed","medium",str(server_override_path()),"控制台迁移未完成；请检查受保护迁移请求、凭据模式及网络状态，本轮未替换上报配置")); data=json.dumps(report,ensure_ascii=False,indent=2)
+        if isinstance(_ov, dict) and _ov.get("_migration_status") == "applied_durability_unconfirmed":
+            add_report_finding(report,finding("server_migration_durability_unconfirmed","medium",str(server_override_path()),"迁移配置已替换，但目录同步未确认；本轮使用新配置，需核实持久性与上报健康")); data=json.dumps(report,ensure_ascii=False,indent=2)
         if args.output: write_private_atomic(args.output,data)
         can_report=bool(args.report_url) and not reporting_error and not enrollment_error and not enrollment_mismatch
         if can_report:

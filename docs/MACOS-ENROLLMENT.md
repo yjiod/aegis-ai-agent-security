@@ -59,7 +59,8 @@ denied, covering preservation and offline failure. Package tests use isolated
 service fixtures. These checks do not prove live server enrollment, signed
 distribution or the complete no-Python lifecycle on a clean endpoint.
 
-Legacy user enrollment, runtime server overrides, automatic network repair,
+Runtime server overrides now use [protected migration](MACOS-SERVER-MIGRATION.md).
+Legacy user enrollment, automatic network repair,
 policy trust bootstrap, UI integration and installer recovery remain separate
 work under [R7](MACOS-RUNTIME-CONTRACT.md). Do not describe those paths as migrated
 or automatically repaired by this change.

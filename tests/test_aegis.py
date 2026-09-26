@@ -1481,7 +1481,8 @@ class AegisTests(unittest.TestCase):
             finally:
                 self.agent.enterprise_baseline_path=orig
 
-    def test_server_override_file_and_auto_reenroll(self):
+    @patch('sys.platform', 'linux')
+    def test_legacy_non_mac_server_override_file_and_auto_reenroll(self):
         # 预留覆盖文件：https 才采纳；非法/缺失返回空；origin 比较；切换时重新入网并改写上报配置。
         import tempfile, types
         with tempfile.TemporaryDirectory() as d:

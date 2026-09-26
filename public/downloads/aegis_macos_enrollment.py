@@ -8,7 +8,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from aegis_macos_configuration import (ConfigurationError, existing_state, read_config,
+from aegis_macos_configuration import (ConfigurationError, existing_state, read_config, read_private_json,
                                       require_no_acl, validate_config, validate_url, write_config)
 from aegis_macos_maintenance import MaintenanceError, directory
 
@@ -46,6 +46,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def request_config(enroll_url, report_url, device_id, version, enrollment_key=""):
+    if (not isinstance(device_id, str) or not re.fullmatch(r"[0-9a-f]{12}", device_id)
+            or not isinstance(version, str) or not VERSION.fullmatch(version)):
+        raise EnrollmentError("invalid_enrollment_parameters")
     if origin(enroll_url) != origin(report_url):
         raise EnrollmentError("enrollment_origin_mismatch")
     if not isinstance(enrollment_key, str) or (enrollment_key and (not 32 <= len(enrollment_key) <= 4096
@@ -131,7 +134,55 @@ def selftest():
     value = {"schema": "aegis.enrollment/v1", "report_url": "https://aegis.example.test/aegis/v1/reports",
              "report_token": "synthetic-token-" * 4, "signing_secret": "synthetic-secret-" * 4,
              "device_id": "012345abcdef"}
-    return response_config(value, value["report_url"], value["device_id"])["report_token"] == value["report_token"]
+    return (response_config(value, value["report_url"], value["device_id"])["report_token"] == value["report_token"]
+            and migration_target({"server_url": "https://aegis.example.test/api/enroll"}) == "https://aegis.example.test")
+
+
+def migration_target(value):
+    if not isinstance(value, dict) or set(value) not in ({"server_url"}, {"server"}):
+        raise EnrollmentError("invalid_migration_request")
+    raw = value.get("server_url", value.get("server"))
+    parsed = checked_url(raw)
+    if parsed.path not in ("", "/", "/api/enroll", "/aegis/v1/reports", "/v1/reports",
+                           "/api/policy/artifact", "/downloads/update-manifest.json"):
+        raise EnrollmentError("invalid_migration_request")
+    return parsed.scheme + "://" + parsed.netloc.lower()
+
+
+def migrate(root, device_id, version, report_config="", device_enrollment=False, owner=0,
+            enrollment_key=""):
+    """Apply a protected administrator intent; never replace policy or trust keys."""
+    try:
+        return _migrate(root, device_id, version, report_config, device_enrollment, owner, enrollment_key)
+    except MaintenanceError:
+        raise EnrollmentError("unsafe_install_directory") from None
+
+
+def _migrate(root, device_id, version, report_config, device_enrollment, owner, enrollment_key):
+    root = Path(root)
+    intent = root / "server-override.json"
+    try:
+        requested = read_private_json(intent, owner)
+    except FileNotFoundError:
+        return None
+    server = migration_target(requested)
+    if device_enrollment:
+        raise EnrollmentError("device_enrollment_migration_required")
+    if report_config and Path(report_config) != root / "reporting.json":
+        raise EnrollmentError("invalid_install_destination")
+    if (not isinstance(device_id, str) or not re.fullmatch(r"[0-9a-f]{12}", device_id)
+            or not isinstance(version, str) or not VERSION.fullmatch(version)):
+        raise EnrollmentError("invalid_enrollment_parameters")
+    with directory(root) as parent:
+        before = existing_state(parent, owner)
+    target_url = server + "/aegis/v1/reports"
+    if before is not None and read_config(root / "reporting.json", owner)["report_url"] == target_url:
+        return None
+    value = request_config(server + "/api/enroll", target_url, device_id, version, enrollment_key)
+    if read_private_json(intent, owner) != requested:
+        raise EnrollmentError("migration_request_changed")
+    status = write_config(root, value, owner, expected_state=before)
+    return {**value, "_migration_status": status}
 
 
 def main(argv, runtime_root):
