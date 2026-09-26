@@ -1106,7 +1106,8 @@ class AegisTests(unittest.TestCase):
         # The implementation now lives in the embedded diagnostics module.
         spec=importlib.util.spec_from_file_location('macos_health_contract',DOWNLOADS/'aegis_macos_diagnostics.py')
         module=importlib.util.module_from_spec(spec)
-        with patch.dict('sys.modules',{'aegis_macos_maintenance':load('health_maintenance','aegis_macos_maintenance.py')}): spec.loader.exec_module(module)
+        with patch.dict('sys.modules',{'aegis_macos_maintenance':load('health_maintenance','aegis_macos_maintenance.py')}):
+            with patch.dict('sys.modules',{'aegis_macos_configuration':load('health_configuration','aegis_macos_configuration.py')}): spec.loader.exec_module(module)
         value={'schema':'aegis.report/v1','device_id':'012345abcdef','agent_version':'1.2.3','policy_version':'1.0.0','scanned_at':1,
                'summary':{'critical':0,'high':1,'medium':0,'low':0},
                'findings':[{'kind':'test','severity':'high','path':'fixture','message':'fixture'}]}

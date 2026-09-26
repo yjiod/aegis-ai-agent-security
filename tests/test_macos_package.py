@@ -17,7 +17,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME = ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh", "mdm-macos-compliance.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md")
+RUNTIME = ("aegis_agent.py", "aegis_self_update.py", "aegis_macos_maintenance.py", "uninstall-aegis-macos.sh", "aegis-configure-macos.sh", "mdm-macos-compliance.sh", "MACOS-UNINSTALL.md", "aegis-policy.json", "aegis-security-baseline.md")
 ORIGIN = "https://aegis.example.test"
 
 

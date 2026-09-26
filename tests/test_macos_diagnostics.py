@@ -26,7 +26,9 @@ def load(name, filename):
 
 maintenance = load("diagnostics_maintenance", "aegis_macos_maintenance.py")
 with patch.dict(sys.modules, {"aegis_macos_maintenance": maintenance}):
-    diagnostics = load("diagnostics", "aegis_macos_diagnostics.py")
+    configuration = load("diagnostic_configuration", "aegis_macos_configuration.py")
+    with patch.dict(sys.modules, {"aegis_macos_configuration": configuration}):
+        diagnostics = load("diagnostics", "aegis_macos_diagnostics.py")
 agent = load("diagnostics_agent", "aegis_agent.py")
 
 
@@ -56,6 +58,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.write("reporting.json", {"schema": "aegis.reporting/v1", "report_url": "https://aegis.example.test/aegis/v1/reports",
                                       "report_token": "synthetic-token-" * 4, "signing_secret": "synthetic-secret-" * 4})
         self.upload = {"schema": "aegis.upload-status/v1", "status": "accepted", "collector_host": "aegis.example.test", "last_success": self.now}
+        self.upload["configuration_fingerprint"] = configuration.config_fingerprint(json.loads((self.root / "reporting.json").read_text()))
         self.write("upload-status.json", self.upload)
         self.report = {"schema": "aegis.report/v1", "agent_version": self.version, "policy_version": "6.1.2",
                        "scanned_at": self.now, "device_id": "012345abcdef", "hostname": "SYNTHETIC-PRIVATE-HOST",
@@ -125,6 +128,20 @@ class DiagnosticsTests(unittest.TestCase):
         value = self.collect()
         self.assertFalse(value["AegisReportingConfigured"])
         self.assertFalse(value["AegisReportingHealthy"])
+
+    def test_old_receipt_cannot_validate_rotated_credentials_or_changed_url_path(self):
+        current = json.loads((self.root / "reporting.json").read_text())
+        for change in ({"report_token": "replacement-token-" * 4}, {"signing_secret": "replacement-secret-" * 4},
+                       {"report_url": "https://aegis.example.test/another/reports"}):
+            replacement = {**current, **change}
+            self.write("reporting.json", replacement)
+            self.write("upload-status.json", self.upload)
+            self.assertFalse(self.collect()["AegisReportingHealthy"])
+            self.write("upload-status.json", {**self.upload, "configuration_fingerprint": configuration.config_fingerprint(replacement)})
+            self.assertTrue(self.collect()["AegisReportingHealthy"])
+        legacy = {key: value for key, value in self.upload.items() if key != "configuration_fingerprint"}
+        self.write("upload-status.json", legacy)
+        self.assertFalse(self.collect()["AegisReportingHealthy"])
 
     def test_invalid_reporting_urls_and_shared_credentials_are_rejected(self):
         config = json.loads((self.root / "reporting.json").read_text())

@@ -12,6 +12,7 @@ import time
 from urllib.parse import urlsplit
 
 from aegis_macos_maintenance import MaintenanceError, directory
+from aegis_macos_configuration import ConfigurationError, config_fingerprint, validate_config
 
 FRESHNESS_SECONDS = 7200
 SEVERITIES = ("critical", "high", "medium", "low")
@@ -111,7 +112,7 @@ def collect(root, version, validate_policy, owner=0, now=None, probe=service_sta
     now = int(time.time()) if now is None else now
     result = empty_status()
     issues = result["AegisDiagnosticIssues"]
-    failures = (OSError, ValueError, TypeError, RecursionError, DiagnosticError, MaintenanceError)
+    failures = (OSError, ValueError, TypeError, RecursionError, DiagnosticError, MaintenanceError, ConfigurationError)
     try:
         binary = read_file(root, "aegis-agent", 128 * 1024 * 1024, owner)
         result["AegisInstalled"] = bool(binary)
@@ -149,24 +150,11 @@ def collect(root, version, validate_policy, owner=0, now=None, probe=service_sta
         result["AegisPolicyVersion"] = value
     except failures:
         issues.append("policy_unavailable")
-    host = ""
+    host, fingerprint = "", ""
     try:
-        config = read_json(root, "reporting.json", 16384, owner, private=True)
-        url = config.get("report_url")
-        if not isinstance(url, str) or len(url) > 2048 or any(c.isspace() for c in url):
-            raise DiagnosticError("invalid_reporting_url")
-        parsed = urlsplit(url)
-        if parsed.port is not None and parsed.port < 1:
-            raise DiagnosticError("invalid_reporting_port")
-        token, secret = config.get("report_token"), config.get("signing_secret")
-        configured = (set(config) == {"schema", "report_url", "report_token", "signing_secret"}
-            and config.get("schema") == "aegis.reporting/v1" and parsed.scheme == "https" and bool(parsed.hostname)
-            and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
-            and isinstance(token, str) and isinstance(secret, str) and 32 <= len(token) <= 4096
-            and 32 <= len(secret) <= 4096 and not hmac.compare_digest(token, secret))
-        if not configured:
-            raise DiagnosticError("invalid_reporting_config")
-        host = parsed.hostname.lower().rstrip(".")
+        config = validate_config(read_json(root, "reporting.json", 16384, owner, private=True))
+        host = urlsplit(config["report_url"]).hostname.lower().rstrip(".")
+        fingerprint = config_fingerprint(config)
         result["AegisReportingConfigured"] = True
     except failures:
         issues.append("reporting_unavailable")
@@ -174,6 +162,8 @@ def collect(root, version, validate_policy, owner=0, now=None, probe=service_sta
         upload = read_json(root, "upload-status.json", 16384, owner, private=True)
         result["AegisReportingHealthy"] = (bool(host) and upload.get("schema") == "aegis.upload-status/v1"
             and upload.get("status") == "accepted" and upload.get("collector_host") == host
+            and isinstance(upload.get("configuration_fingerprint"), str)
+            and hmac.compare_digest(upload["configuration_fingerprint"], fingerprint)
             and recent(upload.get("last_success"), now))
         if not result["AegisReportingHealthy"]:
             issues.append("upload_unconfirmed_or_stale")
@@ -209,7 +199,7 @@ def collect(root, version, validate_policy, owner=0, now=None, probe=service_sta
         issues.append("watch_cleanup_requires_verification")
     except FileNotFoundError:
         return result
-    except (OSError, DiagnosticError, MaintenanceError):
+    except (OSError, DiagnosticError, MaintenanceError, ConfigurationError):
         result["AegisLaunchDaemonHealthy"] = False
         issues.append("cleanup_state_unavailable")
     return result

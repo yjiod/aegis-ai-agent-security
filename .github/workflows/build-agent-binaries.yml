@@ -14,6 +14,9 @@ on:
       - public/downloads/aegis_agent.py
       - public/downloads/aegis_self_update.py
       - public/downloads/aegis_macos_maintenance.py
+      - public/downloads/aegis_macos_configuration.py
+      - public/downloads/aegis-configure-macos.sh
+      - tests/test_macos_configuration.py
       - public/downloads/aegis_macos_diagnostics.py
       - public/downloads/mdm-macos-compliance.sh
       - tests/test_macos_diagnostics.py
@@ -55,7 +58,7 @@ jobs:
       - name: Freeze agent (--onefile, self-contained)
         run: |
           python3 -m PyInstaller --onefile --name "aegis-agent-darwin-${{ matrix.arch }}" \
-            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance --hidden-import aegis_macos_diagnostics \
+            --hidden-import aegis_self_update --hidden-import aegis_macos_maintenance --hidden-import aegis_macos_diagnostics --hidden-import aegis_macos_configuration \
             --paths public/downloads \
             --distpath dist-bin --workpath build-bin --specpath build-bin \
             public/downloads/aegis_agent.py
@@ -79,6 +82,10 @@ jobs:
         run: |
           sudo env AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" \
             "$(command -v python3)" -m unittest discover -s tests -p test_macos_diagnostics.py -v
+      - name: Validate embedded configuration in root-owned synthetic installation
+        run: |
+          sudo env AEGIS_FROZEN_AGENT="$PWD/dist-bin/aegis-agent-darwin-${{ matrix.arch }}" \
+            "$(command -v python3)" -m unittest discover -s tests -p test_macos_configuration.py -v
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

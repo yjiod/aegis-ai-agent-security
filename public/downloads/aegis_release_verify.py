@@ -15,7 +15,7 @@ BUNDLE_FILES=(
     "aegis_agent.py","aegis_collector.py","aegis-windows.ps1","install-aegis.sh","aegis-agent-macos-enroll.sh","mdm-windows-detect.ps1",
     "mdm-windows-remediate.ps1","mdm-compliance-discovery.ps1","mdm-compliance-policy.json","mdm-macos-install.sh",
     "mdm-macos-compliance.sh","mdm-macos-compliance-policy.json","rollback-aegis-windows.ps1","rollback-aegis-macos.sh",
-    "uninstall-aegis-windows.ps1","uninstall-aegis-macos.sh","aegis_macos_maintenance.py","aegis_macos_diagnostics.py","MACOS-UNINSTALL.md","CHECKSUMS.sha256","release.json","aegis_adapter.py",
+    "uninstall-aegis-windows.ps1","uninstall-aegis-macos.sh","aegis_macos_maintenance.py","aegis_macos_diagnostics.py","aegis_macos_configuration.py","MACOS-UNINSTALL.md","CHECKSUMS.sha256","release.json","aegis_adapter.py",
     "aegis-adapters.example.json","aegis_release_verify.py","aegis_collector_backup.py","aegis_collector_restore.py",
     "aegis-collector.service","aegis-collector.env.example","aegis-collector.nginx.conf",
     "aegis_adapter_worker.py","aegis-adapter-worker.service","aegis-adapter.env.example",
@@ -97,11 +97,18 @@ def verify(downloads):
         if directive not in windows_config: errors.append(f"unsafe_windows_reporting_config:{directive}")
     for directive in ("ProtectedData]::Unprotect","reporting_config_invalid","report_token,report_url,schema,signing_secret"):
         if directive not in windows_agent: errors.append(f"missing_windows_reporting_loader:{directive}")
-    for directive in ("umask 077","os.replace(temp,path)","hmac.compare_digest(token,secret)"):
+    for directive in ("umask 077",'"$AGENT" --configuration-selftest','exec "$AGENT" --configure-reporting'):
         if directive not in mac_config: errors.append(f"unsafe_macos_reporting_config:{directive}")
+    if "python3" in mac_config: errors.append("external_python_macos_reporting_config")
+    try: mac_configuration=(downloads/"aegis_macos_configuration.py").read_text()
+    except OSError: mac_configuration=""
+    for directive in ("hmac.compare_digest(token, secret)","os.O_NOFOLLOW", "fcntl.LOCK_EX | fcntl.LOCK_NB",
+                      'os.replace(name, "reporting.json", src_dir_fd=parent, dst_dir_fd=parent)',
+                      "os.fsync(parent)","require_no_acl", "custom_destination_not_supported"):
+        if directive not in mac_configuration: errors.append(f"unsafe_embedded_macos_configuration:{directive}")
     for directive in ("def load_reporting_config(path):","reporting_config_permissions","reporting_config_invalid"):
         if directive not in python_agent: errors.append(f"missing_python_reporting_loader:{directive}")
-    for directive in ("def write_upload_status(path,url,now=None):","aegis.upload-status/v1","write_private_atomic(path"):
+    for directive in ("def write_upload_status(path,url,now=None,token=None,signing_secret=None):","aegis.upload-status/v1","write_private_atomic(path","configuration_fingerprint"):
         if directive not in python_agent: errors.append(f"missing_python_upload_receipt:{directive}")
     for directive in ("function Write-AegisUploadStatus","aegis.upload-status/v1","Write-AegisUploadStatus $ReportUrl"):
         if directive not in windows_agent: errors.append(f"missing_windows_upload_receipt:{directive}")

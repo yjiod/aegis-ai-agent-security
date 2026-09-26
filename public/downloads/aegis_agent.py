@@ -1431,10 +1431,14 @@ def flush_spool(spool,url,token,signing_secret=None):
             invalid=path.with_name(path.name+f".{time.time_ns()}.invalid"); path.rename(invalid); os.chmod(invalid,0o600); continue
         post_report(url,token,report,signing_secret); path.unlink(); sent+=1
     return sent
-def write_upload_status(path,url,now=None):
+def write_upload_status(path,url,now=None,token=None,signing_secret=None):
     host=urlsplit(url).hostname
     if not host: raise ValueError("invalid_upload_status_host")
     value={"schema":"aegis.upload-status/v1","status":"accepted","last_success":int(time.time()) if now is None else int(now),"collector_host":host.lower().rstrip(".")}
+    if sys.platform == "darwin" and token is not None and signing_secret is not None:
+        from aegis_macos_configuration import config_fingerprint
+        value["configuration_fingerprint"] = config_fingerprint({"schema": "aegis.reporting/v1",
+            "report_url": url, "report_token": token, "signing_secret": signing_secret})
     return write_private_atomic(path,json.dumps(value,separators=(",",":")))
 def hardware_serial():
     """稳定硬件标识（不随 hostname/升级/系统语言变化）：
@@ -1980,6 +1984,9 @@ def run_selftest():
             import aegis_macos_maintenance as _maintenance
             if not _maintenance.selftest():
                 raise ValueError("maintenance_selftest_failed")
+            import aegis_macos_configuration as _configuration
+            if not _configuration.selftest():
+                raise ValueError("configuration_selftest_failed")
             import aegis_macos_diagnostics as _diagnostics
             if not _diagnostics.selftest():
                 raise ValueError("diagnostics_selftest_failed")
@@ -2002,6 +2009,22 @@ def run_selftest():
 
 
 def main():
+    configuration_flags = ("--configure-reporting", "--configuration-selftest")
+    if any(arg.split("=", 1)[0] in configuration_flags for arg in sys.argv[1:]):
+        if len(sys.argv) != 2 or sys.argv[1] not in configuration_flags or sys.platform != "darwin":
+            print("Aegis configuration requires macOS and one exclusive mode", file=sys.stderr)
+            return 2
+        try:
+            import aegis_macos_configuration as configuration
+            if sys.argv[1] == "--configuration-selftest":
+                if not configuration.selftest():
+                    return 1
+                print("aegis-configuration-selftest-ok")
+                return 0
+            return configuration.main(BASE_DIR)
+        except ImportError:
+            print("Aegis configuration runtime is unavailable", file=sys.stderr)
+            return 1
     diagnostic_flags = ("--diagnostics", "--diagnostics-selftest")
     if any(arg.split("=", 1)[0] in diagnostic_flags for arg in sys.argv[1:]):
         if len(sys.argv) != 2 or sys.argv[1] not in diagnostic_flags or sys.platform != "darwin":
@@ -2131,13 +2154,13 @@ def main():
             # 离线队列上限：签名策略 limits.offline_queue_max 优先（控制台全局配置下发），回落 env/默认。
             spool_cap=(policy.get("limits") or {}).get("offline_queue_max") if isinstance(policy,dict) else None
             status_path=(Path(args.output).parent if args.output else spool.parent)/"upload-status.json"
-            try: flush_spool(spool,args.report_url,token,signing); post_report(args.report_url,token,report,signing); write_upload_status(status_path,args.report_url)
+            try: flush_spool(spool,args.report_url,token,signing); post_report(args.report_url,token,report,signing); write_upload_status(status_path,args.report_url,token=token,signing_secret=signing)
             except Exception as exc:
                 # 凭据被拒(401/403)时一次自愈：重新入网刷新凭据并重试一轮；否则本地排队。
                 refreshed=maybe_reenroll_on_auth_failure(exc,args,root,enroll_path,host_device_id)
                 if refreshed is not None:
                     enrollment=refreshed
-                    try: post_report(args.report_url,refreshed["report_token"],report,refreshed["signing_secret"]); write_upload_status(status_path,args.report_url)
+                    try: post_report(args.report_url,refreshed["report_token"],report,refreshed["signing_secret"]); write_upload_status(status_path,args.report_url,token=refreshed["report_token"],signing_secret=refreshed["signing_secret"])
                     except Exception: queue_report(spool,report,spool_cap); print("report upload failed after re-enroll; queued locally",file=sys.stderr)
                 else:
                     queue_report(spool,report,spool_cap); print(f"report upload failed; queued locally: {exc}",file=sys.stderr)
