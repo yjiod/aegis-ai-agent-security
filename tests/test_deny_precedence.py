@@ -72,6 +72,16 @@ function request(body) {
   }
   assert.equal(labels.isFindingAllowed({...finding, path: '~/fixture/api/main.py'}, new Set(['prefix:~/fixture/'])), false);
   assert.equal(audits.length, 2);
+  const exact = await route.POST(request({asset_type: 'path', asset_key: '~/Fixture/Code/Main.py:24:9', disposition: 'deny'}));
+  assert.equal(exact.status, 200);
+  assert.equal((await exact.json()).label.asset_key, '~/fixture/code/main.py');
+  const pathFinding = {...finding, path: '~/fixture/code/main.py:10'};
+  const pathAllowed = new Set(['prefix:~/fixture/']);
+  assert.equal(labels.isFindingAllowed(pathFinding, pathAllowed), false);
+  const deleted = await route.DELETE(new Request('https://console.example.test/api/labels?asset_type=path&asset_key=' + encodeURIComponent('~/Fixture/Code/Main.py:99')));
+  assert.equal(deleted.status, 200);
+  assert.equal((await deleted.json()).removed, true);
+  assert.equal(labels.isFindingAllowed(pathFinding, pathAllowed), true);
   for (const asset_key of ['~/', '/', '~/fixture/no-slash']) {
     assert.equal((await route.POST(request({asset_type: 'prefix', asset_key, disposition: 'allow'}))).status, 400);
   }
@@ -80,7 +90,7 @@ function request(body) {
   }
   globalThis.authenticated = false;
   assert.equal((await route.POST(request({asset_type: 'prefix', asset_key: '~/fixture/api/', disposition: 'allow'}))).status, 401);
-  assert.equal(audits.length, 2);
+  assert.equal(audits.length, 4);
 })().catch(error => { console.error(error); process.exitCode = 1; });
 """
 
