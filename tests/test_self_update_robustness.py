@@ -20,6 +20,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).parents[1]
 DOWNLOADS = ROOT / "public" / "downloads"
@@ -155,9 +156,52 @@ class SelfUpdateRobustnessTests(unittest.TestCase):
             old = self._fake_exe(d, "old.sh", '#!/bin/sh\necho "unrecognized arguments: --selftest" >&2\nexit 2\n')
             bad = self._fake_exe(d, "bad.sh", "#!/bin/sh\nexit 1\n")
             self.assertTrue(agent._binary_selftest_preflight(ok))    # 健康
-            self.assertTrue(agent._binary_selftest_preflight(old))   # 旧格式无 --selftest → 宽容放行
+            with patch.object(sys, "platform", "darwin"):
+                self.assertFalse(agent._binary_selftest_preflight(old))
+            with patch.object(sys, "platform", "linux"):
+                self.assertTrue(agent._binary_selftest_preflight(old))
             self.assertFalse(agent._binary_selftest_preflight(bad))  # 损坏 → 拒绝
             self.assertFalse(agent._binary_selftest_preflight(str(d / "missing.sh")))  # 不存在 → 拒绝
+
+    def test_mac_update_without_maintenance_preserves_client_and_existing_backup(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(sys, "platform", "darwin"):
+            root = Path(temp)
+            candidate = Path(self._fake_exe(root, "candidate", '#!/bin/sh\n[ "$1" = --selftest ]\n'))
+            manifest = write_manifest(root, "aegis-agent-darwin-arm64", candidate, "0.99.0")
+            target = root / "aegis-agent"
+            target.write_bytes(b"current-client")
+            backup = root / "aegis-agent.prev"
+            backup.write_bytes(b"last-known-good")
+            result = self.su.check_and_apply("file://" + str(manifest), "0.37.3", "fixture-device",
+                                            "aegis-agent-darwin-arm64", str(target),
+                                            preflight=self.agent._binary_selftest_preflight)
+            self.assertEqual(result["reason"], "preflight_failed")
+            self.assertFalse(result["updated"])
+            self.assertEqual(target.read_bytes(), b"current-client")
+            self.assertEqual(backup.read_bytes(), b"last-known-good")
+            self.assertFalse((root / "aegis-agent.staging").exists())
+
+    def test_mac_preflight_checks_maintenance_under_remaining_budget(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(sys, "platform", "darwin"):
+            candidate = self._fake_exe(Path(temp), "candidate", "#!/bin/sh\nexit 0\n")
+            ok = subprocess.CompletedProcess([], 0, b"", b"")
+            with patch.object(self.agent.time, "monotonic", side_effect=[100, 101, 104]), patch.object(self.agent.subprocess, "run", return_value=ok) as run:
+                self.assertTrue(self.agent._binary_selftest_preflight(candidate, timeout=20))
+                self.assertEqual([call.args[0] for call in run.call_args_list],
+                                 [[candidate, "--selftest"], [candidate, "--maintenance-selftest"]])
+                self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [19, 16])
+            with patch.object(self.agent.subprocess, "run", side_effect=[ok, subprocess.TimeoutExpired(candidate, 1)]):
+                self.assertFalse(self.agent._binary_selftest_preflight(candidate))
+            with patch.object(self.agent.time, "monotonic", side_effect=[100, 101, 121]), patch.object(self.agent.subprocess, "run", return_value=ok) as run:
+                self.assertFalse(self.agent._binary_selftest_preflight(candidate))
+                self.assertEqual(run.call_count, 1)
+
+    @unittest.skipUnless(sys.platform == "darwin" and os.environ.get("AEGIS_FROZEN_AGENT"), "requires an explicit Mac frozen candidate")
+    def test_real_frozen_candidate_passes_both_update_checks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            candidate = Path(temp) / "candidate"
+            candidate.write_bytes(Path(os.environ["AEGIS_FROZEN_AGENT"]).read_bytes())
+            self.assertTrue(self.agent._binary_selftest_preflight(str(candidate)))
 
 
     def test_report_includes_nonroutine_self_update_only(self):
